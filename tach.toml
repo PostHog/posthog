@@ -97,6 +97,7 @@ depends_on = [
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
+    "products.cloud_agents",
     "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
@@ -1656,6 +1657,22 @@ expose = [
 ]
 from = [
     "products.cross_project_dashboards",
+]
+
+[[modules]]
+path = "products.cloud_agents"
+# Facade-only: runs are Tasks runs, started through products.tasks.backend.facade.
+depends_on = ["posthog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.cloud_agents",
 ]
 
 [[modules]]

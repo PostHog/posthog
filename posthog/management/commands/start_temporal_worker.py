@@ -182,6 +182,10 @@ from products.canvas.backend.facade.temporal import (
     ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
     WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
+from products.cloud_agents.backend.facade.temporal import (
+    ACTIVITIES as CLOUD_AGENTS_ACTIVITIES,
+    WORKFLOWS as CLOUD_AGENTS_WORKFLOWS,
+)
 from products.context_layer.backend.temporal import (
     ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
     WORKFLOWS as CONTEXT_LAYER_WORKFLOWS,
@@ -393,7 +397,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + CLOUD_AGENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -420,7 +425,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + CLOUD_AGENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a

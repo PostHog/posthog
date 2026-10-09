@@ -312,6 +312,7 @@ export namespace Schemas {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `cloud_agent` - cloud_agent
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -433,6 +434,7 @@ export namespace Schemas {
       Billing: 'billing',
       BusinessKnowledge: 'business_knowledge',
       Canvas: 'canvas',
+      CloudAgent: 'cloud_agent',
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
@@ -554,6 +556,7 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `cloud_agent` - cloud_agent
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -779,6 +782,7 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `cloud_agent` - cloud_agent
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1186,6 +1190,7 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `cloud_agent` - cloud_agent
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -17818,6 +17823,18 @@ export namespace Schemas {
       partner_name: string;
     }
 
+    /**
+     * * `billed` - Billed
+     * * `unbilled` - Unbilled
+     */
+    export type BillingModeEnum = typeof BillingModeEnum[keyof typeof BillingModeEnum];
+
+
+    export const BillingModeEnum = {
+      Billed: 'billed',
+      Unbilled: 'unbilled',
+    } as const;
+
     export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
 
     export interface BillingOverviewResponse {
@@ -19765,6 +19782,20 @@ export namespace Schemas {
          */
       structured_content?: CallToolResponseStructuredContent;
     }
+
+    /**
+     * * `api` - API
+     * * `app` - App
+     * * `internal` - Internal
+     */
+    export type CallerKindEnum = typeof CallerKindEnum[keyof typeof CallerKindEnum];
+
+
+    export const CallerKindEnum = {
+      Api: 'api',
+      App: 'app',
+      Internal: 'internal',
+    } as const;
 
     /**
      * * `error` - error
@@ -22605,6 +22636,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `connected` - Connected
+     * * `not_connected` - Not Connected
+     */
+    export type ClaudeSubscriptionStatusEnum = typeof ClaudeSubscriptionStatusEnum[keyof typeof ClaudeSubscriptionStatusEnum];
+
+
+    export const ClaudeSubscriptionStatusEnum = {
+      Connected: 'connected',
+      NotConnected: 'not_connected',
+    } as const;
+
+    /**
      * * `http` - http
      * * `sse` - sse
      */
@@ -22926,6 +22969,969 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `ended` - Ended
+     */
+    export type CloudAgentSessionStatusEnum = typeof CloudAgentSessionStatusEnum[keyof typeof CloudAgentSessionStatusEnum];
+
+
+    export const CloudAgentSessionStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Ended: 'ended',
+    } as const;
+
+    export interface CloudAgentAgentSession {
+      /** Position of the session in the run, from 1. */
+      index: number;
+      /** `queued` waits for a sandbox, `running` has an agent at work, and `ended` has no sandbox.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `ended` - Ended */
+      status: CloudAgentSessionStatusEnum;
+      /**
+         * When the agent started work in this session.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the session ended.
+         * @nullable
+         */
+      ended_at: string | null;
+    }
+
+    /**
+     * * `1x2` - 1 vCPU, 2 GiB
+     * * `2x4` - 2 vCPU, 4 GiB
+     * * `2x8` - 2 vCPU, 8 GiB
+     * * `4x8` - 4 vCPU, 8 GiB
+     * * `4x16` - 4 vCPU, 16 GiB
+     * * `8x16` - 8 vCPU, 16 GiB
+     * * `8x32` - 8 vCPU, 32 GiB
+     * * `16x64` - 16 vCPU, 64 GiB
+     */
+    export type SizeNameEnum = typeof SizeNameEnum[keyof typeof SizeNameEnum];
+
+
+    export const SizeNameEnum = {
+      '1x2': '1x2',
+      '2x4': '2x4',
+      '2x8': '2x8',
+      '4x8': '4x8',
+      '4x16': '4x16',
+      '8x16': '8x16',
+      '8x32': '8x32',
+      '16x64': '16x64',
+    } as const;
+
+    export interface CloudAgentSize {
+      /** Name of the size, as `<vCPU>x<memory in GiB>`.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      name: SizeNameEnum;
+      /** Number of vCPUs of the sandbox. */
+      vcpu: number;
+      /** Memory of the sandbox in GiB. */
+      memory_gib: number;
+      /**
+         * Compute price of one hour of this size in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      price_per_hour_usd: string;
+    }
+
+    export interface CloudAgentModel {
+      /** ID of the model. Use it as `model` when you start a run. */
+      id: string;
+      /** Display name of the model. */
+      name: string;
+      /** The agent runtime that drives the model. */
+      runtime_adapter: string;
+      /** Whether a run with no model uses this model. */
+      is_default: boolean;
+    }
+
+    /**
+     * * `auto` - Auto
+     * * `own_subscription` - Own Subscription
+     * * `posthog` - PostHog
+     */
+    export type InferenceModeEnum = typeof InferenceModeEnum[keyof typeof InferenceModeEnum];
+
+
+    export const InferenceModeEnum = {
+      Auto: 'auto',
+      OwnSubscription: 'own_subscription',
+      Posthog: 'posthog',
+    } as const;
+
+    export interface CloudAgentRateCard {
+      /**
+         * Price of one vCPU for one hour in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      vcpu_hour_usd: string;
+      /**
+         * Price of one GiB of memory for one hour in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      memory_gib_hour_usd: string;
+      /** Version of the price list. */
+      version: string;
+    }
+
+    export interface CloudAgentLimits {
+      /** How many runs the project can have active at the same time. */
+      max_concurrent_runs: number;
+      /** How many runs the project can start in one hour. */
+      create_rate_per_hour: number;
+    }
+
+    export interface CloudAgentCatalog {
+      /** The sandbox sizes that a run can use. */
+      sizes: CloudAgentSize[];
+      /** The models that a run can use. */
+      models: CloudAgentModel[];
+      /** The values that `inference` accepts. */
+      inference_modes: InferenceModeEnum[];
+      /** The compute prices that the size prices come from. */
+      rates: CloudAgentRateCard;
+      /** The limits of this project. */
+      limits: CloudAgentLimits;
+    }
+
+    export interface CloudAgentEstimate {
+      /** The sandbox size that was priced.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size: SizeNameEnum;
+      /** How many minutes the sandbox is up. */
+      minutes: number;
+      /**
+         * Compute price of one hour of this size in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      price_per_hour_usd: string;
+      /**
+         * Compute cost for the given minutes in US dollars, as a decimal string. Model usage is not included.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      estimate_usd: string;
+    }
+
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type CloudAgentPresetOutputSchema = { [key: string]: unknown } | null;
+
+    export interface CloudAgentRepository {
+      /**
+         * GitHub repository, in the format `owner/name`.
+         * @maxLength 255
+         * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+         */
+      name: string;
+      /**
+         * Branch that the agent starts from. Null uses the default branch of the repository.
+         * @maxLength 255
+         * @nullable
+         */
+      initial_branch?: string | null;
+    }
+
+    /**
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `xhigh` - Extra high
+     * * `max` - Max
+     * * `ultracode` - Ultracode
+     */
+    export type CloudAgentReasoningEffortEnum = typeof CloudAgentReasoningEffortEnum[keyof typeof CloudAgentReasoningEffortEnum];
+
+
+    export const CloudAgentReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface CloudAgentPreset {
+      /**
+         * Default repositories that the agent works in. Only one repository is supported for now. Null sets no default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: CloudAgentPresetOutputSchema;
+      /** ID of the preset. */
+      id: string;
+      /** Name of the preset. */
+      name: string;
+      /** What this preset is for. */
+      description: string;
+      /**
+         * Tags added to every run that uses this preset.
+         * @maxItems 20
+         * @items.maxLength 50
+         */
+      tags: string[];
+      /**
+         * ID of the user who created the preset.
+         * @nullable
+         */
+      created_by: number | null;
+      /** When the preset was created. */
+      created_at: string;
+      /** When the preset was last changed. */
+      updated_at: string;
+    }
+
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type CloudAgentPresetCreateOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface CloudAgentPresetCreate {
+      /**
+         * Default repositories that the agent works in. Only one repository is supported for now. Null sets no default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: CloudAgentPresetCreateOutputSchema;
+      /**
+         * What this preset is for.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Tags added to every run that uses this preset.
+         * @maxItems 20
+         * @items.maxLength 50
+         */
+      tags?: string[];
+      /**
+         * Name of the preset. It is unique in the project, without regard to case.
+         * @maxLength 100
+         */
+      name: string;
+    }
+
+    /**
+     * Your own key and value pairs.
+     */
+    export type CloudAgentRunMetadata = {[key: string]: string};
+
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     */
+    export type CloudAgentRunStatusEnum = typeof CloudAgentRunStatusEnum[keyof typeof CloudAgentRunStatusEnum];
+
+
+    export const CloudAgentRunStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Idle: 'idle',
+      Done: 'done',
+    } as const;
+
+    /**
+     * * `turn_closed` - Turn Closed
+     * * `provision_failed` - Provision Failed
+     * * `unexpected_failure` - Unexpected Failure
+     * * `timed_out` - Timed Out
+     * * `credit_spent` - Credit Spent
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled
+     */
+    export type CloudAgentRunStatusReasonEnum = typeof CloudAgentRunStatusReasonEnum[keyof typeof CloudAgentRunStatusReasonEnum];
+
+
+    export const CloudAgentRunStatusReasonEnum = {
+      TurnClosed: 'turn_closed',
+      ProvisionFailed: 'provision_failed',
+      UnexpectedFailure: 'unexpected_failure',
+      TimedOut: 'timed_out',
+      CreditSpent: 'credit_spent',
+      Finished: 'finished',
+      Closed: 'closed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface CloudAgentRunPresetRef {
+      /** ID of the preset. */
+      id: string;
+      /** Name of the preset. */
+      name: string;
+    }
+
+    /**
+     * The JSON Schema that the result of the agent must match. Null when the run has none.
+     * @nullable
+     */
+    export type CloudAgentRunConfigOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Reads a run: the stored configuration is in `config`, and the priced size is on the run.
+     */
+    export interface CloudAgentRunConfig {
+      /**
+         * Model that the agent uses.
+         * @nullable
+         */
+      model: string | null;
+      /** How much the model reasons before it answers. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort: CloudAgentReasoningEffortEnum | null;
+      /** Sandbox size of the run. It is fixed for the life of the run. */
+      size: CloudAgentSize;
+      /** How the run pays for model usage: `posthog` for PostHog inference, `own_subscription` for the subscription of the user.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference: InferenceModeEnum;
+      /** Whether the agent opens a pull request when it finishes. */
+      create_pr: boolean;
+      /** How many minutes the sandbox waits with no activity before it stops. */
+      idle_minutes: number;
+      /**
+         * The JSON Schema that the result of the agent must match. Null when the run has none.
+         * @nullable
+         */
+      output_schema: CloudAgentRunConfigOutputSchema;
+      /** Whether the agent got instructions from the run, its preset or the project settings. */
+      readonly instructions_applied: boolean;
+    }
+
+    /**
+     * The JSON result that the agent returned for the `output_schema` of the run. Null when the run has no schema, or when the agent returned no result yet.
+     * @nullable
+     */
+    export type CloudAgentRunResultOutput = { [key: string]: unknown } | null;
+
+    export interface CloudAgentRunResult {
+      /**
+         * URL of the pull request that the agent opened last.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** URLs of all pull requests that the agent opened. */
+      pr_urls: string[];
+      /**
+         * Summary of the work, written by the agent.
+         * @nullable
+         */
+      summary: string | null;
+      /**
+         * The JSON result that the agent returned for the `output_schema` of the run. Null when the run has no schema, or when the agent returned no result yet.
+         * @nullable
+         */
+      output: CloudAgentRunResultOutput;
+    }
+
+    /**
+     * * `posthog` - PostHog
+     * * `own_subscription` - Own Subscription
+     */
+    export type InferenceBillingEnum = typeof InferenceBillingEnum[keyof typeof InferenceBillingEnum];
+
+
+    export const InferenceBillingEnum = {
+      Posthog: 'posthog',
+      OwnSubscription: 'own_subscription',
+    } as const;
+
+    export interface CloudAgentRunCost {
+      /**
+         * Compute cost in US dollars, as a decimal string. Null until the first sandbox reports usage.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      compute_usd: string | null;
+      /**
+         * Model usage cost in US dollars, as a decimal string. Null when the run uses your own subscription, because you pay the model provider directly.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      inference_usd: string | null;
+      /**
+         * Sum of the compute cost and the model usage cost, as a decimal string. Null until the compute cost is known.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      total_usd: string | null;
+      /**
+         * vCPU seconds that the run used.
+         * @nullable
+         * @pattern ^-?\d{0,13}(?:\.\d{0,3})?$
+         */
+      vcpu_seconds: string | null;
+      /**
+         * GiB seconds of memory that the run used.
+         * @nullable
+         * @pattern ^-?\d{0,13}(?:\.\d{0,3})?$
+         */
+      gib_seconds: string | null;
+      /** `billed` when the project pays for the run, `unbilled` when it does not.
+       *
+       * * `billed` - Billed
+       * * `unbilled` - Unbilled */
+      billing_mode: BillingModeEnum;
+      /** Who pays for the model usage of the run.
+       *
+       * * `posthog` - PostHog
+       * * `own_subscription` - Own Subscription */
+      inference_billing: InferenceBillingEnum | null;
+      /** Whether the cost is final. The cost can still change for a short time after the run stops. */
+      final: boolean;
+    }
+
+    export interface CloudAgentRunCreatedBy {
+      /** ID of the user. */
+      id: number;
+      /**
+         * Email address of the user.
+         * @nullable
+         */
+      email: string | null;
+    }
+
+    export interface CloudAgentRun {
+      /** ID of the run. */
+      id: string;
+      /** `queued` waits for a sandbox. `running` has an agent at work. `idle` has no sandbox, and a message continues the run. `done` is final, and a message is refused.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status: CloudAgentRunStatusEnum;
+      /** Why the run is `idle` or `done`. Null while the run is `queued` or `running`. An `idle` run has `turn_closed` when the agent finished its turn, `timed_out`, `credit_spent`, `provision_failed` or `unexpected_failure`. A `done` run has `finished` when its pull request was merged, `closed` when every pull request was closed and not merged, or `cancelled`.
+       *
+       * * `turn_closed` - Turn Closed
+       * * `provision_failed` - Provision Failed
+       * * `unexpected_failure` - Unexpected Failure
+       * * `timed_out` - Timed Out
+       * * `credit_spent` - Credit Spent
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason: CloudAgentRunStatusReasonEnum | null;
+      /**
+         * What the status reason means for you and what to do next. Null when there is nothing to add.
+         * @nullable
+         */
+      status_detail: string | null;
+      /** When the run was created. */
+      created_at: string;
+      /**
+         * When the agent first started work.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the last agent session ended. Null while the run is `queued` or `running`.
+         * @nullable
+         */
+      ended_at: string | null;
+      /** When the run last changed. */
+      updated_at: string;
+      /** The task that the run started with. */
+      prompt: string;
+      /** The repositories that the agent works in. */
+      repositories: CloudAgentRepository[];
+      /** The preset that the run used. Null when it used none. */
+      readonly preset: CloudAgentRunPresetRef | null;
+      /** The configuration that the run uses. */
+      config: CloudAgentRunConfig;
+      /** What the agent produced. */
+      result: CloudAgentRunResult;
+      /** What the run cost. */
+      cost: CloudAgentRunCost;
+      /** The agent sessions of the run, oldest first. A message to an `idle` run starts a new session. */
+      agent_sessions: CloudAgentAgentSession[];
+      /**
+         * Tags of the run, including the tags of its preset.
+         * @maxItems 20
+         * @items.maxLength 50
+         */
+      tags: string[];
+      /** Your own key and value pairs. */
+      metadata: CloudAgentRunMetadata;
+      /** The user who started the run. Null when the user no longer exists. */
+      readonly created_by: CloudAgentRunCreatedBy | null;
+      /** `api` for an API client, `app` for the PostHog app, `internal` for a PostHog product.
+       *
+       * * `api` - API
+       * * `app` - App
+       * * `internal` - Internal */
+      caller: CallerKindEnum;
+    }
+
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type CloudAgentRunCreateOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Your own key and value pairs, stored with the run and returned with it. At most 16 pairs. Keys and values are strings.
+     */
+    export type CloudAgentRunCreateMetadata = {[key: string]: string};
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface CloudAgentRunCreate {
+      /**
+         * The repositories that the agent works in. Only one repository is supported for now. Required unless the preset or the project settings set a default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: CloudAgentRunCreateOutputSchema;
+      /**
+         * The task for the agent, in plain language.
+         * @maxLength 64000
+         */
+      prompt: string;
+      /**
+         * ID or name of the preset whose defaults the run uses. Null uses the default preset of the project, when one is set.
+         * @maxLength 100
+         * @nullable
+         */
+      preset?: string | null;
+      /**
+         * Tags for the run. The tags of the preset are added to them.
+         * @maxItems 20
+         * @items.maxLength 50
+         */
+      tags?: string[];
+      /** Your own key and value pairs, stored with the run and returned with it. At most 16 pairs. Keys and values are strings. */
+      metadata?: CloudAgentRunCreateMetadata;
+    }
+
+    export type CloudAgentRunEventsEventsItem = { [key: string]: unknown };
+
+    export interface CloudAgentRunEvents {
+      /** The stored events of the run, oldest first, across all agent sessions. Each event is one agent protocol message with the time it was recorded. */
+      events: CloudAgentRunEventsEventsItem[];
+      /** True when the event log is too large to return in full. The response then has the earliest agent sessions that fit. */
+      truncated: boolean;
+    }
+
+    export interface CloudAgentRunMessage {
+      /**
+         * The follow-up message for the agent, in plain language.
+         * @maxLength 64000
+         */
+      content: string;
+    }
+
+    export interface CloudAgentRunMessageResponse {
+      /** True when the message started a new agent session, because the run was `idle`. False when the running agent got the message. */
+      resumed: boolean;
+      /** The run after the message. */
+      run: CloudAgentRun;
+    }
+
+    export interface CloudAgentSandboxSessionUsage {
+      /**
+         * Number of vCPUs of the sandbox.
+         * @pattern ^-?\d{0,5}(?:\.\d{0,3})?$
+         */
+      vcpu: string;
+      /**
+         * Memory of the sandbox in GiB.
+         * @pattern ^-?\d{0,5}(?:\.\d{0,3})?$
+         */
+      memory_gib: string;
+      /** When the sandbox started. */
+      started_at: string;
+      /**
+         * When the sandbox stopped. Null while it is up.
+         * @nullable
+         */
+      ended_at: string | null;
+      /** How many seconds of the sandbox count for the cost. */
+      seconds: number;
+      /**
+         * Compute cost of the sandbox in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      cost_usd: string;
+      /** Whether PostHog waived the cost of this sandbox. */
+      waived: boolean;
+    }
+
+    export interface CloudAgentRunUsage {
+      /** ID of the run. */
+      run_id: string;
+      /** What the run cost up to now. */
+      cost: CloudAgentRunCost;
+      /** The sandboxes of the run, oldest first. */
+      sessions: CloudAgentSandboxSessionUsage[];
+    }
+
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type CloudAgentSettingsOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface CloudAgentSettings {
+      /**
+         * Default repositories that the agent works in. Only one repository is supported for now. Null sets no default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: CloudAgentSettingsOutputSchema;
+      /**
+         * ID of the preset that a run uses when it names no preset.
+         * @nullable
+         */
+      default_preset: string | null;
+      /** How many runs the project can have active at the same time. */
+      max_concurrent_runs: number;
+      /** How many runs the project can start in one hour. */
+      create_rate_per_hour: number;
+      /**
+         * When the settings were last changed.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface CloudAgentUsageTotals {
+      /** Number of runs. */
+      runs: number;
+      /**
+         * Compute cost in US dollars, as a decimal string.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      compute_usd: string;
+      /**
+         * Model usage cost in US dollars, as a decimal string. Runs on your own subscription add nothing.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      inference_usd: string;
+      /**
+         * Sum of the compute cost and the model usage cost, as a decimal string.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,4})?$
+         */
+      total_usd: string;
+      /**
+         * vCPU seconds used.
+         * @pattern ^-?\d{0,13}(?:\.\d{0,3})?$
+         */
+      vcpu_seconds: string;
+      /**
+         * GiB seconds of memory used.
+         * @pattern ^-?\d{0,13}(?:\.\d{0,3})?$
+         */
+      gib_seconds: string;
+    }
+
+    export interface CloudAgentUsageBucket {
+      /**
+         * The UTC date of the bucket for `group_by=day`. The preset ID for `group_by=preset`, or null for the runs that used no preset.
+         * @nullable
+         */
+      key: string | null;
+      /**
+         * Name of the preset for `group_by=preset`. Null for other buckets.
+         * @nullable
+         */
+      name: string | null;
+      /** Usage of the runs in this bucket. */
+      usage: CloudAgentUsageTotals;
+    }
+
+    /**
+     * * `day` - Day
+     * * `preset` - Preset
+     */
+    export type UsageGroupByEnum = typeof UsageGroupByEnum[keyof typeof UsageGroupByEnum];
+
+
+    export const UsageGroupByEnum = {
+      Day: 'day',
+      Preset: 'preset',
+    } as const;
+
+    export interface CloudAgentUsageSummary {
+      /** Start of the range. */
+      date_from: string;
+      /** End of the range, not included. */
+      date_to: string;
+      /** How the buckets are grouped.
+       *
+       * * `day` - Day
+       * * `preset` - Preset */
+      group_by: UsageGroupByEnum;
+      /** Usage of all runs created in the range. */
+      totals: CloudAgentUsageTotals;
+      /** Usage for each day or for each preset. */
+      buckets: CloudAgentUsageBucket[];
     }
 
     export interface DiffCluster {
@@ -64890,6 +65896,7 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `cloud_agent` - cloud_agent
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -68650,6 +69657,24 @@ export namespace Schemas {
       /** @nullable */
       next?: string | null;
       results?: ClickhouseEvent[];
+    }
+
+    export interface PaginatedCloudAgentPresetList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CloudAgentPreset[];
+    }
+
+    export interface PaginatedCloudAgentRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CloudAgentRun[];
     }
 
     export interface PaginatedClusteringJobList {
@@ -76750,6 +77775,171 @@ export namespace Schemas {
       channel_type?: TaskChannelWriteTypeEnum;
     }
 
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type PatchedCloudAgentPresetUpdateOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface PatchedCloudAgentPresetUpdate {
+      /**
+         * Default repositories that the agent works in. Only one repository is supported for now. Null sets no default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: PatchedCloudAgentPresetUpdateOutputSchema;
+      /**
+         * What this preset is for.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Tags added to every run that uses this preset.
+         * @maxItems 20
+         * @items.maxLength 50
+         */
+      tags?: string[];
+      /**
+         * Name of the preset. It is unique in the project, without regard to case.
+         * @maxLength 100
+         */
+      name?: string;
+    }
+
+    /**
+     * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+     * @nullable
+     */
+    export type PatchedCloudAgentSettingsUpdateOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * The run defaults that a preset and the project settings share. A null value sets no default.
+     */
+    export interface PatchedCloudAgentSettingsUpdate {
+      /**
+         * Default repositories that the agent works in. Only one repository is supported for now. Null sets no default.
+         * @nullable
+         */
+      repositories?: CloudAgentRepository[] | null;
+      /**
+         * Default model for the agent. Null lets PostHog select the model.
+         * @maxLength 100
+         * @nullable
+         */
+      model?: string | null;
+      /** How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `xhigh` - Extra high
+       * * `max` - Max
+       * * `ultracode` - Ultracode */
+      reasoning_effort?: CloudAgentReasoningEffortEnum | null;
+      /** Default sandbox size, as `<vCPU>x<memory in GiB>`. Null uses the product default.
+       *
+       * * `1x2` - 1 vCPU, 2 GiB
+       * * `2x4` - 2 vCPU, 4 GiB
+       * * `2x8` - 2 vCPU, 8 GiB
+       * * `4x8` - 4 vCPU, 8 GiB
+       * * `4x16` - 4 vCPU, 16 GiB
+       * * `8x16` - 8 vCPU, 16 GiB
+       * * `8x32` - 8 vCPU, 32 GiB
+       * * `16x64` - 16 vCPU, 64 GiB */
+      size?: SizeNameEnum | null;
+      /** How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.
+       *
+       * * `auto` - Auto
+       * * `own_subscription` - Own Subscription
+       * * `posthog` - PostHog */
+      inference?: InferenceModeEnum | null;
+      /**
+         * Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run.
+         * @maxLength 20000
+         * @nullable
+         */
+      instructions?: string | null;
+      /**
+         * Whether the agent opens a pull request when it finishes. Null uses the product default.
+         * @nullable
+         */
+      create_pr?: boolean | null;
+      /**
+         * How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10.
+         * @minimum 1
+         * @maximum 120
+         * @nullable
+         */
+      idle_minutes?: number | null;
+      /**
+         * A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result.
+         * @nullable
+         */
+      output_schema?: PatchedCloudAgentSettingsUpdateOutputSchema;
+      /**
+         * ID of the preset that a run uses when it names no preset. Null sets no default preset.
+         * @nullable
+         */
+      default_preset?: string | null;
+    }
+
     export type PatchedClusteringJobEventFiltersItem = { [key: string]: unknown };
 
     export interface PatchedClusteringJob {
@@ -84015,6 +85205,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -84044,6 +85235,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      CloudAgents: 'cloud_agents',
     } as const;
 
     /**
@@ -84103,7 +85295,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `cloud_agents` - Cloud Agents */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -95057,6 +96250,18 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `codex` - codex
+     * * `claude_subscription` - claude_subscription
+     */
+    export type RunInferenceCredentialEnum = typeof RunInferenceCredentialEnum[keyof typeof RunInferenceCredentialEnum];
+
+
+    export const RunInferenceCredentialEnum = {
+      Codex: 'codex',
+      ClaudeSubscription: 'claude_subscription',
+    } as const;
+
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
@@ -105947,7 +107152,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `cloud_agents` - Cloud Agents */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -106879,6 +108085,16 @@ export namespace Schemas {
       is_pro?: boolean;
     }
 
+    export interface TaskRunInferenceCredentialResponse {
+      /** Credential kind that `secret` holds
+       *
+       * * `codex` - codex
+       * * `claude_subscription` - claude_subscription */
+      credential: RunInferenceCredentialEnum;
+      /** The run owner's stored Claude subscription token. Keep it in memory only: do not log it or write it to disk. */
+      secret: string;
+    }
+
     /**
      * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
      */
@@ -107351,6 +108567,11 @@ export namespace Schemas {
          * @pattern ^[0-9a-f]{64}$
          */
       rejected_access_token_sha256?: string | null;
+      /** Credential the run needs. 'codex' (the default) returns a ChatGPT access token. 'claude_subscription' returns the Claude subscription token the run owner stored, and only for a run that was started with it.
+       *
+       * * `codex` - codex
+       * * `claude_subscription` - claude_subscription */
+      credential?: RunInferenceCredentialEnum;
     }
 
     export interface TaskRunSubscriptionTokenResponse {
@@ -107366,6 +108587,8 @@ export namespace Schemas {
       /** When the access token expires. Request a new one before this time. */
       expires_at: string;
     }
+
+    export type TaskRunSubscriptionTokenResult = TaskRunSubscriptionTokenResponse | TaskRunInferenceCredentialResponse;
 
     /**
      * * `task` - task
@@ -107630,7 +108853,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `cloud_agents` - Cloud Agents */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -109226,6 +110450,37 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UserClaudeSubscription {
+      /** `connected` when a token is stored for cloud agent runs; `not_connected` when none is stored.
+       *
+       * * `connected` - Connected
+       * * `not_connected` - Not Connected */
+      status: ClaudeSubscriptionStatusEnum;
+      /**
+         * The last 4 characters of the stored token, so the user can tell which token it is.
+         * @nullable
+         */
+      token_suffix: string | null;
+      /**
+         * When the token was stored.
+         * @nullable
+         */
+      connected_at: string | null;
+      /**
+         * When a cloud agent run last used the token. Null when no run has used it.
+         * @nullable
+         */
+      last_used_at: string | null;
+    }
+
+    export interface UserClaudeSubscriptionConnectRequest {
+      /**
+         * The token that `claude setup-token` prints. It starts with `sk-ant-oat`. PostHog stores it encrypted, and no response returns it. A new token replaces the stored one.
+         * @maxLength 1024
+         */
+      token: string;
     }
 
     export interface UserCodexAuthTokens {
@@ -114036,7 +115291,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114088,7 +115343,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114140,7 +115395,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114192,7 +115447,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114640,7 +115895,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114692,7 +115947,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114731,7 +115986,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -114783,7 +116038,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, cloud_agents_credits_used_in_period, cloud_agents_token_credits_used_in_period, cloud_agents_compute_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -116997,6 +118252,161 @@ export namespace Schemas {
      */
     state?: string[];
     };
+
+    export type CloudAgentsEstimateRetrieveParams = {
+    /**
+     * How many minutes the sandbox is up.
+     * @minimum 1
+     * @maximum 1440
+     */
+    minutes: number;
+    /**
+     * Sandbox size to price, as `<vCPU>x<memory in GiB>`.
+     *
+     * * `1x2` - 1 vCPU, 2 GiB
+     * * `2x4` - 2 vCPU, 4 GiB
+     * * `2x8` - 2 vCPU, 8 GiB
+     * * `4x8` - 4 vCPU, 8 GiB
+     * * `4x16` - 4 vCPU, 16 GiB
+     * * `8x16` - 8 vCPU, 16 GiB
+     * * `8x32` - 8 vCPU, 32 GiB
+     * * `16x64` - 16 vCPU, 64 GiB
+     * @minLength 1
+     */
+    size: CloudAgentsEstimateRetrieveSize;
+    };
+
+    export type CloudAgentsEstimateRetrieveSize = typeof CloudAgentsEstimateRetrieveSize[keyof typeof CloudAgentsEstimateRetrieveSize];
+
+
+    export const CloudAgentsEstimateRetrieveSize = {
+      '1x2': '1x2',
+      '2x4': '2x4',
+      '2x8': '2x8',
+      '4x8': '4x8',
+      '4x16': '4x16',
+      '8x16': '8x16',
+      '8x32': '8x32',
+      '16x64': '16x64',
+    } as const;
+
+    export type CloudAgentsPresetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CloudAgentsRunsListParams = {
+    /**
+     * Return only the runs created at or after this time, in ISO 8601 format.
+     */
+    created_after?: string;
+    /**
+     * Return only the runs created before this time, in ISO 8601 format.
+     */
+    created_before?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Return only the runs that used this preset.
+     */
+    preset_id?: string;
+    /**
+     * Return runs whose repository contains this text.
+     * @minLength 1
+     * @maxLength 255
+     */
+    repository?: string;
+    /**
+     * Return only the runs with this status. A status filter covers the newest 1,000 runs that are active, for `queued` and `running`, or that have no agent at work, for `idle` and `done`.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     * @minLength 1
+     */
+    status?: CloudAgentsRunsListStatus;
+    /**
+     * Return only the runs that have this tag.
+     * @minLength 1
+     * @maxLength 50
+     */
+    tag?: string;
+    };
+
+    export type CloudAgentsRunsListStatus = typeof CloudAgentsRunsListStatus[keyof typeof CloudAgentsRunsListStatus];
+
+
+    export const CloudAgentsRunsListStatus = {
+      Queued: 'queued',
+      Running: 'running',
+      Idle: 'idle',
+      Done: 'done',
+    } as const;
+
+    export type CloudAgentsRunsEventsRetrieveParams = {
+    /**
+     * `json` returns the stored events as one JSON object. This is the default.
+     */
+    format?: CloudAgentsRunsEventsRetrieveFormat;
+    /**
+     * Applies to the stream only: `latest` skips the stored events and sends only new events.
+     */
+    start?: CloudAgentsRunsEventsRetrieveStart;
+    };
+
+    export type CloudAgentsRunsEventsRetrieveFormat = typeof CloudAgentsRunsEventsRetrieveFormat[keyof typeof CloudAgentsRunsEventsRetrieveFormat];
+
+
+    export const CloudAgentsRunsEventsRetrieveFormat = {
+      Json: 'json',
+    } as const;
+
+    export type CloudAgentsRunsEventsRetrieveStart = typeof CloudAgentsRunsEventsRetrieveStart[keyof typeof CloudAgentsRunsEventsRetrieveStart];
+
+
+    export const CloudAgentsRunsEventsRetrieveStart = {
+      Latest: 'latest',
+    } as const;
+
+    export type CloudAgentsUsageRetrieveParams = {
+    /**
+     * Start of the range, in ISO 8601 format. The default is 30 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the range, not included, in ISO 8601 format. The default is now.
+     */
+    date_to?: string;
+    /**
+     * `day` gives one bucket for each UTC day. `preset` gives one bucket for each preset.
+     *
+     * * `day` - Day
+     * * `preset` - Preset
+     * @minLength 1
+     */
+    group_by?: CloudAgentsUsageRetrieveGroupBy;
+    };
+
+    export type CloudAgentsUsageRetrieveGroupBy = typeof CloudAgentsUsageRetrieveGroupBy[keyof typeof CloudAgentsUsageRetrieveGroupBy];
+
+
+    export const CloudAgentsUsageRetrieveGroupBy = {
+      Day: 'day',
+      Preset: 'preset',
+    } as const;
 
     export type CohortsListParams = {
     /**
@@ -126236,6 +127646,7 @@ export namespace Schemas {
      * Filter by the client that created the task
      *
      * * `posthog_desktop` - PostHog Desktop
+     * * `cloud_agents` - Cloud Agents
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance;
@@ -126274,6 +127685,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -126389,6 +127801,7 @@ export namespace Schemas {
 
     export const TasksListClientProvenance = {
       PosthogDesktop: 'posthog_desktop',
+      CloudAgents: 'cloud_agents',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
@@ -126419,6 +127832,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      CloudAgents: 'cloud_agents',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

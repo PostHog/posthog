@@ -11,10 +11,12 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from unittest.mock import patch
 
 from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_cloud_agents_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
     filter_org_reports,
@@ -148,6 +150,31 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     add_pre_sandbox_compute_patch_defaults(all_data, results)
 
     assert all_data == {}
+
+
+@pytest.mark.parametrize(
+    "ran,defaulted",
+    [
+        (
+            [],
+            {
+                "teams_with_cloud_agents_token_credits_used_in_period",
+                "teams_with_cloud_agents_compute_credits_used_in_period",
+            },
+        ),
+        (["cloud_agents_compute_usage"], {"teams_with_cloud_agents_token_credits_used_in_period"}),
+        (["teams_with_cloud_agents_token_credits_used_in_period", "cloud_agents_compute_usage"], set()),
+    ],
+)
+def test_cloud_agents_keys_default_only_for_queries_a_pre_patch_history_did_not_run(
+    ran: list[str], defaulted: set[str]
+) -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    results = [RunQueryToS3Result(query_name=name, s3_key="unused", duration_ms=1) for name in ran]
+
+    add_pre_cloud_agents_patch_defaults(all_data, results)
+
+    assert all_data == dict.fromkeys(defaulted, {})
 
 
 # ---- iter_chunk_lines ----------------------------------------------------

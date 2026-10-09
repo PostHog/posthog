@@ -506,6 +506,81 @@ describe("PostHogAPIClient", () => {
   });
 
   it.each([
+    [
+      "the secret the run selected",
+      200,
+      { credential: "claude_subscription", secret: "sk-ant-oat01-fake" },
+      "sk-ant-oat01-fake",
+    ],
+    [
+      "a ChatGPT-shaped answer from a server without the field",
+      200,
+      { access_token: "chatgpt-access", account_id: "acct-1" },
+      { code: "request_failed" },
+    ],
+    [
+      "another credential than the one asked for",
+      200,
+      { credential: "codex", secret: "sk-fake" },
+      { code: "request_failed" },
+    ],
+    [
+      "a missing stored credential",
+      404,
+      { code: "credential_missing", error: "none" },
+      { code: "credential_missing" },
+    ],
+    ["a refused run token", 403, {}, { code: "forbidden" }],
+    ["a server error", 500, { secret: "sk-leak" }, { code: "request_failed" }],
+  ] as const)(
+    "handles %s from subscription_token for a stored credential",
+    async (_name, status, body, expected) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: status === 200,
+        status,
+        statusText: "status",
+        json: vi.fn().mockResolvedValue(body),
+      });
+
+      const request = client.requestStoredRunCredential(
+        "task-1",
+        "run-1",
+        "run-token",
+        "claude_subscription",
+        5_000,
+      );
+
+      if (typeof expected === "string") {
+        await expect(request).resolves.toBe(expected);
+      } else {
+        const error = await request.catch((caught: Error) => caught);
+        expect(error).toMatchObject({
+          name: "RunCredentialError",
+          credential: "claude_subscription",
+          ...expected,
+        });
+        expect((error as Error).message).not.toContain("sk-");
+      }
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        "https://app.posthog.com/api/projects/7/tasks/task-1/runs/run-1/subscription_token/",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ credential: "claude_subscription" }),
+        }),
+      );
+      const init = mockFetch.mock.calls.at(-1)?.[1] as RequestInit;
+      expect((init.headers as Headers).get("X-Task-Run-Token")).toBe(
+        "run-token",
+      );
+    },
+  );
+
+  it.each([
     [409, { code: "reauth_required", error: "Reconnect." }, "reauth_required"],
     [
       502,

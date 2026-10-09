@@ -18,6 +18,7 @@ from posthog.redis import get_client
 from posthog.storage.team_llm_gateway_quota_cache import (
     AI_CREDITS_BUCKET,
     AI_GATEWAY_QUOTA_BUCKETS,
+    CLOUD_AGENTS_CREDITS_BUCKET,
     LLM_GATEWAY_QUOTA_CACHE_EXPIRY_SORTED_SET,
     LLM_GATEWAY_QUOTA_DEACTIVATED_TTL,
     LLM_GATEWAY_QUOTA_TTL_MARGIN_SECONDS,
@@ -74,7 +75,8 @@ class TestQuotaBlob(SimpleTestCase):
     def test_bucket_names_are_the_quota_resources(self):
         self.assertEqual(AI_CREDITS_BUCKET, QuotaResource.AI_CREDITS.value)
         self.assertEqual(POSTHOG_CODE_CREDITS_BUCKET, QuotaResource.POSTHOG_CODE_CREDITS.value)
-        self.assertEqual(set(AI_GATEWAY_QUOTA_BUCKETS), {"ai_credits", "posthog_code_credits"})
+        self.assertEqual(CLOUD_AGENTS_CREDITS_BUCKET, QuotaResource.CLOUD_AGENTS_CREDITS.value)
+        self.assertEqual(set(AI_GATEWAY_QUOTA_BUCKETS), {"ai_credits", "posthog_code_credits", "cloud_agents_credits"})
 
     def test_unlimited_active_team_has_no_blob(self):
         self.assertIsNone(build_quota_blob(42, {}, True, _NOW))
@@ -106,6 +108,7 @@ class TestQuotaBlob(SimpleTestCase):
             {
                 "ai_credits": {"limited": True, "limited_until": None},
                 "posthog_code_credits": {"limited": True, "limited_until": None},
+                "cloud_agents_credits": {"limited": True, "limited_until": None},
             },
         )
 

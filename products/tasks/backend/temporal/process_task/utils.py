@@ -36,10 +36,10 @@ from products.tasks.backend.constants import (
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
 )
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import BilledInferenceUnavailableError, CredentialUnavailableError
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
-from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.model_access import ModelAccess, ModelAccessMode, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
     GATEWAY_PRODUCT_STATE_KEY,
@@ -61,6 +61,8 @@ from products.tasks.backend.logic.services.run_actor import (
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
+    CLOUD_AGENTS_ORIGIN,
+    CLOUD_AGENTS_PRODUCT,
     MINTABLE_PRODUCTS,
     POSTHOG_CODE_PRODUCT,
     is_slack_origin,
@@ -356,8 +358,8 @@ class RunState(BaseModel, extra="allow"):
     reasoning_effort: ReasoningEffort | None = None
     context_window: str | None = None
     fast_mode: bool | None = None
-    claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
-    codex_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
+    claude_model_access: ModelAccessMode | None = None
+    codex_model_access: ModelAccessMode | None = None
     resume_from_run_id: str | None = None
     resume_from_import_run: bool = False
     same_run_resume: bool = False
@@ -1367,6 +1369,11 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
+def _is_billed_cloud_agents_run(ctx: TaskProcessingContext, task: Task) -> bool:
+    # Every Cloud Agents task has this origin. Only the billed ones carry the provenance stamp.
+    return ctx.origin_product == CLOUD_AGENTS_ORIGIN and task.client_provenance == CLOUD_AGENTS_ORIGIN
+
+
 def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
@@ -1402,12 +1409,14 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
+    routing_error: Exception | None = None
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
             internal=task.internal,
+            client_provenance=task.client_provenance,
             prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
             state=ctx.state,
@@ -1419,7 +1428,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
             for key in _TOKEN_ENV_KEYS:
                 env_vars.pop(key, None)
-    except Exception:
+    except Exception as error:
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
         logger.warning(
@@ -1428,6 +1437,16 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             exc_info=True,
         )
         env_vars = {}
+        routing_error = error
+    if _is_billed_cloud_agents_run(ctx, task) and not (
+        env_vars.get("AI_GATEWAY_TOKEN") and env_vars.get("AI_GATEWAY_PRODUCT") == CLOUD_AGENTS_PRODUCT
+    ):
+        # The fallback gateway does not bill this run, so a billed run must not start on it.
+        raise BilledInferenceUnavailableError(
+            "PostHog inference is not available for this run, so the run did not start.",
+            {"run_id": ctx.run_id, "team_id": ctx.team_id},
+            routing_error,
+        )
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,
@@ -1484,6 +1503,7 @@ def ai_gateway_env_vars(
     model: str | None = None,
     runtime: str | None = None,
     prior_slack_run: bool = False,
+    client_provenance: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1506,7 +1526,9 @@ def ai_gateway_env_vars(
         "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
     }
     if team_id is not None:
-        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
+        ai_product = resolve_sandbox_ai_product(
+            origin_product, ai_stage, internal=internal, client_provenance=client_provenance
+        )
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):

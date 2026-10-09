@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "minutes": {
+            "description": "How many minutes the sandbox is up.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "number"
+        },
+        "size": {
+            "description": "Sandbox size to price, as `<vCPU>x<memory in GiB>`.\n\n* `1x2` - 1 vCPU, 2 GiB\n* `2x4` - 2 vCPU, 4 GiB\n* `2x8` - 2 vCPU, 8 GiB\n* `4x8` - 4 vCPU, 8 GiB\n* `4x16` - 4 vCPU, 16 GiB\n* `8x16` - 8 vCPU, 16 GiB\n* `8x32` - 8 vCPU, 32 GiB\n* `16x64` - 16 vCPU, 64 GiB",
+            "enum": ["1x2", "2x4", "2x8", "4x8", "4x16", "8x16", "8x32", "16x64"],
+            "type": "string"
+        }
+    },
+    "required": ["minutes", "size"],
+    "type": "object"
+}

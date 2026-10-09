@@ -333,6 +333,8 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
+    # A billable Cloud Agents API run. Stamped by the Cloud Agents create path only.
+    CLOUD_AGENTS = "cloud_agents", "Cloud Agents"
 
 
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -404,6 +406,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Business knowledge sandbox questions. Reserved: only the sandbox endpoint creates
         # these, and they stay internal so the normal task APIs never list them.
         BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
+        # The Cloud Agents public API. Reserved: only that product's facade creates these, and
+        # they stay internal so the normal task lists never show them.
+        CLOUD_AGENTS = "cloud_agents", "Cloud Agents"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

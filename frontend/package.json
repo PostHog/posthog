@@ -98,6 +98,7 @@
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-canvas": "workspace:*",
         "@posthog/products-cdp": "workspace:*",
+        "@posthog/products-cloud-agents": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
         "@posthog/products-cross-project-dashboards": "workspace:*",

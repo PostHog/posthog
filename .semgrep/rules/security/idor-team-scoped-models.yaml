@@ -112,6 +112,8 @@ rules:
                               |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
+                              |CloudAgentPreset
+                              |CloudAgentRun
                               |Cohort
                               |CohortBackfillChunk
                               |CohortBackfillRun
@@ -224,6 +226,7 @@ rules:
                               |GeneratedWidget
                               |GeneratedWidgetGenerationJob
                               |GeneratedWidgetVersion
+                              |TeamCloudAgentsConfig
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -564,6 +567,8 @@ rules:
                         |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
+                        |CloudAgentPreset
+                        |CloudAgentRun
                         |Cohort
                         |CohortBackfillChunk
                         |CohortBackfillRun
@@ -673,6 +678,7 @@ rules:
                         |GeneratedWidget
                         |GeneratedWidgetGenerationJob
                         |GeneratedWidgetVersion
+                        |TeamCloudAgentsConfig
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig

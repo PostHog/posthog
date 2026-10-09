@@ -1,8 +1,7 @@
 import os
 import re
 import json
-import asyncio
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
@@ -86,20 +85,8 @@ from products.tasks.backend.facade.client_provenance import (
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
-from products.tasks.backend.facade.metrics import (
-    StreamConnectionOutcome,
-    StreamTokenRoute,
-    observe_stream_backlog_bytes,
-    observe_stream_backlog_gap,
-    observe_stream_backlog_oversized,
-    observe_stream_backlog_served,
-    observe_stream_backlog_throttled,
-    observe_stream_connection_closed,
-    observe_stream_connection_opened,
-    observe_stream_length_on_connect,
-    observe_stream_resume_gap,
-    observe_stream_token_routed,
-)
+from products.tasks.backend.facade.inference import ClaudeSubscriptionMissing, RunInferenceCredential
+from products.tasks.backend.facade.metrics import StreamTokenRoute, observe_stream_token_routed
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -108,21 +95,10 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactType,
 )
 from products.tasks.backend.facade.streams import (
-    MAX_IDENTIFIER_CHARS,
-    TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
-    TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
-    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
-    TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
-    TaskRunRedisStream,
-    TaskRunStreamBacklogIndex,
-    TaskRunStreamError,
-    format_log_cursor,
-    get_task_run_stream_key,
-    parse_log_cursor,
-    run_stream_presence_gated,
+    TASK_RUN_STREAM_CONNECTION_MAX_SECONDS,
+    prepare_task_run_sse_stream,
     run_stream_thin_tail,
-    run_uses_dedicated_stream,
-    session_update_type,
+    task_run_sse_stream,
 )
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
@@ -182,6 +158,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunInferenceCredentialResponseSerializer,
     TaskRunLivingArtifactChartRequestSerializer,
     TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
@@ -203,6 +180,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunStartRequestSerializer,
     TaskRunSubscriptionTokenRequestSerializer,
     TaskRunSubscriptionTokenResponseSerializer,
+    TaskRunSubscriptionTokenResultSerializer,
     TaskRunUpdateSerializer,
     TaskSearchQuerySerializer,
     TaskSearchResultSerializer,
@@ -252,10 +230,6 @@ class OctetStreamParser(BaseParser):
 logger = structlog.get_logger(__name__)
 
 
-def _log_field(value: object) -> str | None:
-    return None if value is None else str(value)[:MAX_IDENTIFIER_CHARS]
-
-
 def _pi_cloud_runtime_disabled_response() -> Response:
     return Response(
         TaskRunErrorResponseSerializer({"error": "Pi cloud runtime is disabled"}).data,
@@ -287,45 +261,6 @@ WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
 # Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
 # matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
 UUID_LOOKUP_REGEX = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-
-TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
-TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
-TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
-# Long-lived SSE connections pin worker processes during recycle-drain, so
-# cap each one: emit `event: end` so clients can tell rotation from run
-# completion, then close. Clients resume from their Last-Event-ID cursor.
-TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
-TASK_RUN_STREAM_END_EVENT_NAME = "end"
-TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
-# Distinct from the rotation `end` event above: this fires once when the run itself
-# completes, so clients stop reconnecting instead of resuming from Last-Event-ID.
-TASK_RUN_STREAM_COMPLETE_EVENT_NAME = "stream-end"
-# A backlog replay holds its whole parsed run log in memory for the length of the
-# replay, and SSE admission is shared across endpoints with no per-user bound, so
-# concurrent replays are budgeted by byte size per process. All mutation happens
-# on the event loop with no await between check and update, so a plain int is safe.
-_backlog_inflight_bytes = 0
-
-
-def _try_reserve_backlog_bytes(size_bytes: int) -> bool:
-    global _backlog_inflight_bytes
-    if _backlog_inflight_bytes + size_bytes > settings.TASK_RUN_STREAM_BACKLOG_INFLIGHT_MAX_BYTES:
-        return False
-    _backlog_inflight_bytes += size_bytes
-    return True
-
-
-def _release_backlog_bytes(size_bytes: int) -> None:
-    global _backlog_inflight_bytes
-    _backlog_inflight_bytes -= size_bytes
-
-
-def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIndex]:
-    # Runs via asyncio.to_thread: parsing a log at the byte cap takes long
-    # enough to stall every other stream on the ASGI event loop.
-    entries = list(tasks_facade.parse_task_run_log_entries(log_content))
-    return entries, TaskRunStreamBacklogIndex(entries)
-
 
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
@@ -2552,17 +2487,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.HEADER,
                 required=True,
-                description="Run-scoped Codex subscription token handed to the agent-server at launch",
+                description="Run-scoped credential token handed to the agent-server at launch",
             ),
         ],
         responses={
             200: OpenApiResponse(
-                response=TaskRunSubscriptionTokenResponseSerializer,
-                description="Short-lived ChatGPT access token for this run",
+                response=TaskRunSubscriptionTokenResultSerializer,
+                description="Short-lived ChatGPT access token for this run, or the stored credential the run selected",
             ),
             400: OpenApiResponse(description="Missing required header"),
-            403: OpenApiResponse(description="Caller is not this run's sandbox, or the run token is invalid"),
-            404: OpenApiResponse(description="Task run not found"),
+            403: OpenApiResponse(
+                description="Caller is not this run's sandbox, the run token is invalid, or the run does not "
+                "use the requested credential"
+            ),
+            404: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Task run not found, or credential_missing: the run owner has no stored Claude "
+                "subscription token",
+            ),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="reauth_required: the run owner must reconnect their ChatGPT account",
@@ -2572,10 +2514,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="openai_unavailable: OpenAI did not answer the token refresh",
             ),
         },
-        summary="Issue a ChatGPT access token for a Codex run",
-        description="Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected "
-        "account. Only the run's sandbox may call this, and it must present the run token it received at "
-        "launch. Send the digest of a token Codex rejected so the server refreshes it early, once.",
+        summary="Issue the model credential of a run",
+        description="Give the run's agent-server the credential the run was started with: a short-lived ChatGPT "
+        "access token from the run owner's connected account, or the Claude subscription token the "
+        "run owner stored. Only the run's sandbox may call this, and it must present the run token it received "
+        "at launch. A run on PostHog credits gets no credential. For 'codex', send the digest of a token Codex "
+        "rejected so the server refreshes it early, once.",
     )
     @action(
         detail=True,
@@ -2590,6 +2534,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run_token = request.headers.get("X-Task-Run-Token")
         if not run_token:
             raise ValidationError({"X-Task-Run-Token": "This header is required."})
+        credential = request.validated_data["credential"]
+        if credential != RunInferenceCredential.CODEX.value:
+            try:
+                credential_grant = tasks_facade.issue_run_claude_subscription_grant(
+                    pk, task_id, self.team_id, run_token=run_token
+                )
+            except ClaudeSubscriptionMissing:
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {
+                            "error": "The run owner has no stored Claude subscription token.",
+                            "code": "credential_missing",
+                        }
+                    ).data,
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if credential_grant is None:
+                raise PermissionDenied("The task run token is invalid")
+            return Response(
+                TaskRunInferenceCredentialResponseSerializer(
+                    {"credential": credential, "secret": credential_grant.secret}
+                ).data
+            )
         try:
             grant = tasks_facade.issue_codex_subscription_access_grant(
                 pk,
@@ -4051,16 +4018,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response(TaskRunDetailSerializer(run).data)
 
-    @staticmethod
-    def _format_sse_event(data: dict, *, event_id: str | None = None, event_name: str | None = None) -> bytes:
-        parts: list[str] = []
-        if event_name:
-            parts.append(f"event: {event_name}")
-        if event_id:
-            parts.append(f"id: {event_id}")
-        parts.append(f"data: {json.dumps(data)}")
-        return ("\n".join(parts) + "\n\n").encode()
-
     @extend_schema(
         description=(
             "Server-Sent Events stream of task run events. Events carry an `id:` line "
@@ -4120,268 +4077,23 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def stream(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        stream_info = tasks_facade.get_task_run_stream_info(pk, task_id, self.team_id)
-        if stream_info is None:
+        task_run_stream = prepare_task_run_sse_stream(
+            pk,
+            task_id,
+            self.team_id,
+            last_event_id=request.headers.get("Last-Event-ID"),
+            start_latest=request.GET.get("start") == "latest",
+        )
+        if task_run_stream is None:
             raise NotFound()
-
-        stream_key = get_task_run_stream_key(str(stream_info.id))
-        use_dedicated_stream = run_uses_dedicated_stream(stream_info.state)
-        last_event_id = request.headers.get("Last-Event-ID")
-        start_latest = request.GET.get("start") == "latest"
-        format_sse_event = self._format_sse_event
-        origin_product = stream_info.origin_product
-        presence_gated = run_stream_presence_gated(stream_info.state)
-        run_is_terminal = stream_info.is_terminal
-        run_state_event = stream_info.state_event
-
-        # Thin-tail runs keep only a short live tail in Redis; history is served
-        # from the durable run log at connect time, under `log-<n>` event ids.
-        # Only cheap resolution happens here — the log read and parse run inside
-        # the generator, after SSE admission, off the event loop.
-        thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
-        backlog_serve_after: int | None = None
-        backlog_log_urls: list[str] = []
-        if thin_tail:
-            if not last_event_id:
-                backlog_serve_after = -1
-            else:
-                backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
-
-        async def async_stream() -> AsyncGenerator[bytes]:
-            redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
-            connection_started_at = asyncio.get_running_loop().time()
-            # Default to client_disconnect: any exit that isn't an explicit
-            # completion/error/unavailable is the client (or proxy) going away.
-            outcome: StreamConnectionOutcome = "client_disconnect"
-            # Record opened inside the try so the closed counter only fires when
-            # the open succeeded — keeps opened/closed balanced for the
-            # active-connections gauge regardless of which increment fails.
-            opened = False
-            resume_cursor = last_event_id
-            serve_after = backlog_serve_after
-            backlog_index: TaskRunStreamBacklogIndex | None = None
-            backlog_contiguity_pending = False
-
-            try:
-                observe_stream_connection_opened(origin_product)
-                opened = True
-                delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
-                wait_started_at = asyncio.get_running_loop().time()
-                last_keepalive_at = wait_started_at
-                await redis_stream.refresh_watched()
-
-                if thin_tail and serve_after is None and resume_cursor:
-                    # A Redis-id reconnect whose resume point was trimmed — or
-                    # whose stream key expired entirely — would silently skip
-                    # the evicted interval; fall back to a full backlog replay
-                    # instead (at-least-once, per the endpoint description).
-                    # Best-effort: never break the stream.
-                    try:
-                        stream_exists = await redis_stream.exists()
-                        if not stream_exists or await redis_stream.resume_point_trimmed(resume_cursor):
-                            observe_stream_resume_gap(origin_product)
-                            logger.warning(
-                                "task_run_stream_resume_gap",
-                                stream_key=stream_key,
-                                last_event_id=_log_field(resume_cursor),
-                                reason="trimmed" if stream_exists else "expired",
-                            )
-                            serve_after = -1
-                    except Exception:
-                        logger.warning("task_run_stream_attach_observe_failed", stream_key=stream_key, exc_info=True)
-
-                if serve_after is not None:
-                    resume_cursor = None
-                    backlog_reserved = 0
-                    try:
-                        try:
-                            backlog_bytes = await asyncio.to_thread(
-                                tasks_facade.get_task_run_log_size, backlog_log_urls
-                            )
-                            observe_stream_backlog_bytes(origin_product, backlog_bytes)
-                            backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
-                            if backlog_oversized:
-                                # Parsing a log past the byte cap risks the worker's
-                                # memory; degrade to the plain Redis window instead.
-                                observe_stream_backlog_oversized(origin_product)
-                                logger.warning(
-                                    "task_run_stream_backlog_oversized",
-                                    stream_key=stream_key,
-                                    backlog_bytes=backlog_bytes,
-                                )
-                                log_content = ""
-                            elif not _try_reserve_backlog_bytes(backlog_bytes):
-                                # The worker already holds its budget's worth of parsed
-                                # logs; refuse this replay so RSS stays bounded no matter
-                                # how many connections arrive. Transient — retryable.
-                                outcome = "backlog_busy"
-                                observe_stream_backlog_throttled(origin_product)
-                                logger.warning(
-                                    "task_run_stream_backlog_throttled",
-                                    stream_key=stream_key,
-                                    backlog_bytes=backlog_bytes,
-                                )
-                                yield format_sse_event({"error": "Backlog busy"}, event_name="error")
-                                return
-                            else:
-                                backlog_reserved = backlog_bytes
-                                log_content = await asyncio.to_thread(
-                                    tasks_facade.read_task_run_log_content, backlog_log_urls
-                                )
-                            backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
-                            del log_content
-                        except Exception:
-                            outcome = "backlog_error"
-                            logger.exception("task_run_stream_backlog_read_failed", stream_key=stream_key)
-                            yield format_sse_event({"error": "Backlog unavailable"}, event_name="error")
-                            return
-                        # An oversized backlog serves nothing, so an empty index would
-                        # flag every stamped live entry as a false gap — skip the check.
-                        backlog_contiguity_pending = not backlog_oversized
-                        if serve_after >= len(backlog_entries):
-                            # Cursor beyond the loaded log: not one we issued — replay in full.
-                            serve_after = -1
-                        backlog_served = 0
-                        try:
-                            for backlog_position in range(serve_after + 1, len(backlog_entries)):
-                                yield format_sse_event(
-                                    backlog_entries[backlog_position],
-                                    event_id=format_log_cursor(backlog_position),
-                                )
-                                backlog_served += 1
-                                await redis_stream.refresh_watched()
-                                now = asyncio.get_running_loop().time()
-                                if now - connection_started_at >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS:
-                                    outcome = "rotated"
-                                    yield format_sse_event(
-                                        TASK_RUN_STREAM_ROTATED_PAYLOAD,
-                                        event_name=TASK_RUN_STREAM_END_EVENT_NAME,
-                                    )
-                                    return
-                        finally:
-                            # In a finally so a client that goes away mid-replay still
-                            # counts the frames it was sent.
-                            observe_stream_backlog_served(origin_product, backlog_served)
-                        backlog_entries.clear()
-                    finally:
-                        # Covers every exit — replay done, rotation, read failure,
-                        # client disconnect mid-replay — so the budget never leaks.
-                        if backlog_reserved:
-                            _release_backlog_bytes(backlog_reserved)
-
-                waited_for_stream = False
-                while not await redis_stream.exists():
-                    if run_is_terminal:
-                        outcome = "drained"
-                        yield format_sse_event(run_state_event)
-                        yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
-                        return
-                    waited_for_stream = True
-                    if presence_gated:
-                        break
-                    now = asyncio.get_running_loop().time()
-                    await redis_stream.refresh_watched()
-                    if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
-                        outcome = "unavailable"
-                        yield format_sse_event({"error": "Stream not available"}, event_name="error")
-                        return
-
-                    if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
-                        last_keepalive_at = now
-                        yield format_sse_event(
-                            TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
-                            event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
-                        )
-
-                    await asyncio.sleep(delay)
-                    delay = min(
-                        delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
-                        TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
-                    )
-
-                # Only reconnects (Last-Event-ID set) can suffer a trimmed resume
-                # point, and that's the only case where stream depth vs the trim
-                # cap is interesting — so skip the extra Redis reads on fresh
-                # connects. Best-effort: never break the stream.
-                if resume_cursor:
-                    try:
-                        observe_stream_length_on_connect(await redis_stream.get_length())
-                        if await redis_stream.resume_point_trimmed(resume_cursor):
-                            observe_stream_resume_gap(origin_product)
-                            logger.warning(
-                                "task_run_stream_resume_gap",
-                                stream_key=stream_key,
-                                last_event_id=_log_field(resume_cursor),
-                                reason="trimmed",
-                            )
-                    except Exception:
-                        logger.warning("task_run_stream_attach_observe_failed", stream_key=stream_key, exc_info=True)
-
-                start_id = resume_cursor or "0"
-                if not resume_cursor and start_latest and not waited_for_stream:
-                    start_id = await redis_stream.get_latest_stream_id() or "0"
-                    backlog_contiguity_pending = False
-                try:
-                    async for stream_item in redis_stream.read_stream_entries(
-                        start_id=start_id,
-                        keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
-                    ):
-                        if stream_item is None:
-                            yield format_sse_event(
-                                TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
-                                event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
-                            )
-                        else:
-                            event_id, event = stream_item
-                            if backlog_contiguity_pending and backlog_index is not None and event.get("event_id"):
-                                # Oldest id-carrying live entry: a hole before it means
-                                # Redis evicted events whose log batch never landed — the
-                                # loss mode thin-tail trimming assumes away. Count it
-                                # before rollout.
-                                backlog_contiguity_pending = False
-                                if backlog_index.has_gap_before(event):
-                                    observe_stream_backlog_gap(origin_product)
-                                    logger.warning(
-                                        "task_run_stream_backlog_gap",
-                                        stream_key=stream_key,
-                                        event_id=_log_field(event.get("event_id")),
-                                        session_update=_log_field(session_update_type(event)),
-                                        reason="log_behind_trim",
-                                    )
-                            if backlog_index is None or not backlog_index.covers(event):
-                                yield format_sse_event(event, event_id=event_id)
-                        now = asyncio.get_running_loop().time()
-                        await redis_stream.refresh_watched()
-                        if now - connection_started_at >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS:
-                            outcome = "rotated"
-                            # Without this marker a rotation EOF would be
-                            # indistinguishable from run completion for API
-                            # consumers reading until EOF.
-                            yield format_sse_event(
-                                TASK_RUN_STREAM_ROTATED_PAYLOAD,
-                                event_name=TASK_RUN_STREAM_END_EVENT_NAME,
-                            )
-                            return
-                    outcome = "completed"
-                    # read_stream_entries only returns on the completion sentinel; emit an
-                    # explicit terminal event so the client stops reconnecting without
-                    # consulting run status (a dropped connection never reaches here).
-                    yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
-                except TaskRunStreamError as e:
-                    outcome = "stream_error"
-                    logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
-                    yield format_sse_event({"error": str(e)}, event_name="error")
-            finally:
-                if opened:
-                    duration = asyncio.get_running_loop().time() - connection_started_at
-                    observe_stream_connection_closed(origin_product, outcome, duration)
 
         # Releases the request-thread DB connection (auth, task lookup) before the
         # long-lived stream begins — see sse_streaming_response. The stream body is
         # Redis and object storage only, so it never re-acquires one.
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            task_run_sse_stream(task_run_stream)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(lambda: task_run_sse_stream(task_run_stream)),
             endpoint="task_run_log",
         )
 

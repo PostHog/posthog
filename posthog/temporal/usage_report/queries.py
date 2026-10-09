@@ -61,6 +61,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
+    get_teams_with_cloud_agents_compute_usage_in_period,
+    get_teams_with_cloud_agents_token_credits_used_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -226,6 +228,14 @@ def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tup
         "cpu_millicore_seconds": usage.cpu_millicore_seconds,
         "memory_mib_seconds": usage.memory_mib_seconds,
     }
+
+
+def _cloud_agents_compute_usage(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows, the shape the shared usage report combiners take
+) -> dict[str, list[tuple[int, int]]]:
+    return {"credits": get_teams_with_cloud_agents_compute_usage_in_period(begin, end).credits}
 
 
 # ---- Registry ---------------------------------------------------------------
@@ -521,6 +531,19 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+        },
+    ),
+    # ---- Cloud Agents: gateway token credits (ClickHouse) and compute (Postgres) ----
+    QuerySpec(
+        name="teams_with_cloud_agents_token_credits_used_in_period",
+        fn=get_teams_with_cloud_agents_token_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="cloud_agents_compute_usage",
+        fn=_cloud_agents_compute_usage,
+        output="multi",
+        multi_keys_mapping={
+            "credits": "teams_with_cloud_agents_compute_credits_used_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------

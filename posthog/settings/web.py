@@ -126,6 +126,7 @@ PRODUCTS_APPS = [
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
+    "products.cloud_agents.backend.apps.CloudAgentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -635,6 +636,8 @@ SPECTACULAR_SETTINGS = {
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
+            # signals' report chart size; cloud_agents' sandbox size also sits on a field named `size`.
+            "SizeEnum": ["small", "medium", "large"],
             # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
             # `code` with fixed values (the experiment health finding codes) would otherwise rename it, and the
             # frontend imports of `CodeEnumApi` would break.

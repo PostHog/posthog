@@ -40,6 +40,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'business_knowledge:write',
     'canvas:read',
     'canvas:write',
+    'cloud_agent:read',
+    'cloud_agent:write',
     'cohort:read',
     'cohort:write',
     'comment:read',

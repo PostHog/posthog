@@ -291,6 +291,11 @@ class UsageReportCounters:
     sandbox_compute_cpu_millicore_seconds_in_period: int
     sandbox_compute_memory_mib_seconds_in_period: int
 
+    # Cloud Agents Billing Credits (gateway token credits plus sandbox compute credits)
+    cloud_agents_credits_used_in_period: int
+    cloud_agents_token_credits_used_in_period: int
+    cloud_agents_compute_credits_used_in_period: int
+
     # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
     # SandboxSession ledger — unpriced until a billing model is decided; pre-warm time excluded)
     task_sandbox_seconds_in_period: int
@@ -1738,6 +1743,7 @@ def get_teams_with_ai_event_count_in_period(
 
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
+CLOUD_AGENTS_COST_MARKUP_PERCENT = POSTHOG_CODE_COST_MARKUP_PERCENT
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
@@ -1769,6 +1775,8 @@ POSTHOG_AI_PRODUCTS = [
 # ai_product values billed as PostHog Desktop credits.
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
+# ai_product values billed as Cloud Agents credits.
+CLOUD_AGENTS_AI_PRODUCTS = ["cloud_agents"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -2114,6 +2122,44 @@ def get_teams_with_billable_sandbox_compute_usage_in_period(
 
 def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> int:
     return token_credits + compute_credits
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_cloud_agents_token_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """Cloud Agents gateway token credits: only events tagged with ai_product='cloud_agents'.
+
+    Priced the same way as PostHog Desktop token credits.
+    """
+    return _get_teams_with_ai_credits_for_products(
+        begin,
+        end,
+        ai_products=CLOUD_AGENTS_AI_PRODUCTS,
+        usage_report_tag="cloud_agents_credits",
+        product_tag=Product.CLOUD_AGENTS,
+        markup_percent=CLOUD_AGENTS_COST_MARKUP_PERCENT,
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_cloud_agents_compute_usage_in_period(begin: datetime, end: datetime) -> SandboxComputeUsageByTeam:
+    """Sandbox compute of billed Cloud Agents runs, at the Cloud Agents rate card.
+
+    Degrades on a rate-card misconfiguration the same way as the PostHog Desktop compute query.
+    """
+    try:
+        return get_billable_sandbox_compute_usage_by_team(begin, end, product="cloud_agents")
+    except ComputeRateCardConfigurationError as err:
+        logger.exception("cloud_agents_compute.usage_report_failed")
+        capture_exception(err)
+        return SandboxComputeUsageByTeam([], [], [])
+
+
+combine_cloud_agents_credits = combine_posthog_code_credits
 
 
 @timed_log()
@@ -2590,6 +2636,7 @@ def get_teams_with_logs_retention_byte_days_in_period(
 def get_teams_with_logs_records_in_period(
     begin: datetime,
     end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows, the shape the shared usage report combiners take
 ) -> list[tuple[int, int]]:
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
@@ -2882,6 +2929,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
+        or report.cloud_agents_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
@@ -2931,6 +2979,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
     sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
     token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+    cloud_agents_compute_usage = get_teams_with_cloud_agents_compute_usage_in_period(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -3184,6 +3233,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_sandbox_compute_credits_used_in_period": sandbox_compute_usage.credits,
         "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute_usage.cpu_millicore_seconds,
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute_usage.memory_mib_seconds,
+        "teams_with_cloud_agents_token_credits_used_in_period": get_teams_with_cloud_agents_token_credits_used_in_period(
+            period_start, period_end
+        ),
+        "teams_with_cloud_agents_compute_credits_used_in_period": cloud_agents_compute_usage.credits,
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
@@ -3427,6 +3480,16 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ].get(team.id, 0),
         sandbox_compute_memory_mib_seconds_in_period=all_data[
             "teams_with_sandbox_compute_memory_mib_seconds_in_period"
+        ].get(team.id, 0),
+        cloud_agents_credits_used_in_period=combine_cloud_agents_credits(
+            all_data["teams_with_cloud_agents_token_credits_used_in_period"].get(team.id, 0),
+            all_data["teams_with_cloud_agents_compute_credits_used_in_period"].get(team.id, 0),
+        ),
+        cloud_agents_token_credits_used_in_period=all_data["teams_with_cloud_agents_token_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        cloud_agents_compute_credits_used_in_period=all_data[
+            "teams_with_cloud_agents_compute_credits_used_in_period"
         ].get(team.id, 0),
         task_sandbox_seconds_in_period=all_data["teams_with_task_sandbox_seconds_in_period"].get(team.id, 0),
         task_sandbox_cpu_core_seconds_in_period=all_data["teams_with_task_sandbox_cpu_core_seconds_in_period"].get(

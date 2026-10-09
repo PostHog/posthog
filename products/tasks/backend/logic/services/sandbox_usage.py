@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from functools import wraps
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 from uuid import UUID
 
 from django.db import transaction
@@ -27,18 +27,21 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.logic.services.compute_quota import is_billable_compute
+from products.tasks.backend.constants import COMPUTE_WAIVED_REASON_STATE_KEY
+from products.tasks.backend.logic.services.compute_quota import BillingProduct, billing_product
 from products.tasks.backend.logic.services.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_pricing import (
-    COMPUTE_RATE_CARDS,
     ComputeRateCard,
     calculate_sandbox_compute_cost,
+    compute_pricing,
     validate_compute_rate_cards,
     validate_reporting_window,
 )
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 logger = structlog.get_logger(__name__)
+
+WAIVED_REASON_MAX_LENGTH = 64
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -283,6 +286,26 @@ def record_task_run_user_activity(
     )
 
 
+def waive_run_sandbox_sessions(run_id: str | UUID, team_id: int, reason: str) -> bool:
+    """Waive the charge for every sandbox session of a Cloud Agents run. Returns whether the run is waived now.
+
+    The waiver is one marker in the state of the run, so it covers the sessions that the run
+    opens later too. A run of any other product is left alone. The first reason of a run wins.
+    """
+    run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
+    is_cloud_agents_run = TaskRun.objects.filter(
+        id=run_uuid, team_id=team_id, task__origin_product=Task.OriginProduct.CLOUD_AGENTS
+    ).exists()
+    if not is_cloud_agents_run:
+        return False
+
+    def _mark(state: dict[str, Any]) -> None:
+        state.setdefault(COMPUTE_WAIVED_REASON_STATE_KEY, reason[:WAIVED_REASON_MAX_LENGTH])
+
+    TaskRun.mutate_state_atomic(run_uuid, _mark)
+    return True
+
+
 @dataclass(frozen=True)
 class SandboxUsageByTeam:
     """Raw per-team sandbox usage over a period, as (team_id, amount) rows."""
@@ -299,14 +322,31 @@ class SandboxComputeUsageByTeam:
     memory_mib_seconds: list[tuple[int, int]]
 
 
+# The ledger rows each product bills. The per-row `billing_product` check below still decides,
+# because a loop task also needs its loop.
+_BILLED_SESSIONS: dict[BillingProduct, Q] = {
+    "posthog_code": Q(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+    & (Q(origin_product=Task.OriginProduct.USER_CREATED) | Q(origin_product=Task.OriginProduct.LOOP)),
+    # The waiver is on the run, which the query joins by primary key to load the task. So the
+    # indexes on the session rows still select the scan, and the marker is a filter on the joined row.
+    "cloud_agents": Q(
+        client_provenance=TaskClientProvenance.CLOUD_AGENTS,
+        origin_product=Task.OriginProduct.CLOUD_AGENTS,
+    )
+    & ~Q(task_run__state__has_key=COMPUTE_WAIVED_REASON_STATE_KEY),
+}
+
+
 def get_billable_sandbox_compute_usage_by_team(
     begin: datetime,
     end: datetime,
     *,
     rate_cards: Sequence[ComputeRateCard] | None = None,
+    product: BillingProduct = "posthog_code",
 ) -> SandboxComputeUsageByTeam:
     validate_reporting_window(begin, end)
-    rate_cards = COMPUTE_RATE_CARDS if rate_cards is None else rate_cards
+    pricing = compute_pricing(product)
+    rate_cards = pricing.rate_cards if rate_cards is None else rate_cards
     if not rate_cards:
         return SandboxComputeUsageByTeam([], [], [])
 
@@ -315,11 +355,10 @@ def get_billable_sandbox_compute_usage_by_team(
         SandboxSession.objects.unscoped()
         .select_related("task_run__task__loop")
         .filter(
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
         )
-        .filter(Q(origin_product=Task.OriginProduct.USER_CREATED) | Q(origin_product=Task.OriginProduct.LOOP))
+        .filter(_BILLED_SESSIONS[product])
         .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
     )
 
@@ -328,14 +367,24 @@ def get_billable_sandbox_compute_usage_by_team(
     for session in sessions.iterator():
         task = session.task_run.task
         source_loop = task.loop if task.loop_id is not None else None
-        if not is_billable_compute(
-            origin_product=session.origin_product,
-            client_provenance=session.client_provenance,
-            source_loop_id=task.loop_id,
-            source_loop_internal=source_loop.internal if source_loop is not None else None,
+        if (
+            billing_product(
+                origin_product=session.origin_product,
+                client_provenance=session.client_provenance,
+                source_loop_id=task.loop_id,
+                source_loop_internal=source_loop.internal if source_loop is not None else None,
+            )
+            != product
         ):
             continue
-        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
+        cost = calculate_sandbox_compute_cost(
+            session,
+            begin,
+            end,
+            calculated_at=calculated_at,
+            rate_cards=cards,
+            resource_policy=pricing.resource_policy,
+        )
         totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])
         totals[0] += cost.cpu_core_seconds
         totals[1] += cost.memory_gib_seconds

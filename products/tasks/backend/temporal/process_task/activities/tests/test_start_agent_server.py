@@ -1,5 +1,4 @@
 import threading
-from typing import Literal
 
 import pytest
 import time_machine
@@ -15,6 +14,7 @@ from products.tasks.backend.exceptions import (
     SandboxRateLimitedError,
     SandboxTimeoutError,
 )
+from products.tasks.backend.logic.model_access import ModelAccessMode
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -87,8 +87,8 @@ def _context(
     network_policy_fingerprint: str | None = None,
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
-    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
-    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    claude_model_access: ModelAccessMode = "posthog-gateway",
+    codex_model_access: ModelAccessMode = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -1126,16 +1126,29 @@ async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("codex_model_access", "expected_codex_run_token"),
-    [("posthog-gateway", None), ("own-subscription", "codex-run-token")],
+    ("runtime_adapter", "model_access", "state", "expected_codex_run_token", "expected_source"),
+    [
+        ("codex", {"codex_model_access": "posthog-gateway"}, {}, None, "relay"),
+        ("codex", {"codex_model_access": "own-subscription"}, {}, "codex-run-token", "relay"),
+        # A relayed Claude token comes from the client, so the run pulls nothing from PostHog.
+        ("claude", {"claude_model_access": "own-subscription"}, {}, None, "relay"),
+        (
+            "claude",
+            {"claude_model_access": "own-subscription"},
+            {"claude_subscription_source": "server"},
+            "codex-run-token",
+            "server",
+        ),
+        ("claude", {"claude_model_access": "posthog-gateway"}, {"claude_subscription_source": "server"}, None, "relay"),
+    ],
 )
 async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
-    mocker, codex_model_access, expected_codex_run_token
+    mocker, runtime_adapter, model_access, state, expected_codex_run_token, expected_source
 ) -> None:
     context = _context(
         sandbox_event_ingest_enabled=True,
-        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": "codex"},
-        codex_model_access=codex_model_access,
+        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": runtime_adapter, **state},
+        **model_access,
     )
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
@@ -1227,6 +1240,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
     assert sandbox.start_agent_server.call_args.kwargs["codex_run_token"] == expected_codex_run_token
+    assert sandbox.start_agent_server.call_args.kwargs["claude_subscription_source"] == expected_source
 
 
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:

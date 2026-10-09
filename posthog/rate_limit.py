@@ -451,6 +451,12 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+# A user stores a token rarely, so a low cap costs a real user nothing and stops a script that repeats the write.
+class ClaudeSubscriptionConnectUserThrottle(UserRateThrottle):
+    scope = "claude_subscription_connect_user"
+    rate = "30/hour"
+
+
 # Each internal feedback post lands in a shared Slack channel, so cap it per user.
 class InternalFeedbackUserThrottle(UserRateThrottle):
     scope = "internal_feedback_user"

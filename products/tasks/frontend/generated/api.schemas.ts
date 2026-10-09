@@ -2038,6 +2038,7 @@ export interface PaginatedTaskListItemListApi {
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
+ * * `cloud_agents` - Cloud Agents
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2066,6 +2067,7 @@ export const TaskOriginProductEnumApi = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    CloudAgents: 'cloud_agents',
 } as const
 
 /**
@@ -2125,7 +2127,8 @@ export interface TaskCreateApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2353,7 +2356,8 @@ export interface TaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2488,7 +2492,8 @@ export interface PatchedTaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -4455,6 +4460,18 @@ export interface StreamReadTokenResponseApi {
     stream_base_url: string | null
 }
 
+/**
+ * * `codex` - codex
+ * * `claude_subscription` - claude_subscription
+ */
+export type RunInferenceCredentialEnumApi =
+    (typeof RunInferenceCredentialEnumApi)[keyof typeof RunInferenceCredentialEnumApi]
+
+export const RunInferenceCredentialEnumApi = {
+    Codex: 'codex',
+    ClaudeSubscription: 'claude_subscription',
+} as const
+
 export interface TaskRunSubscriptionTokenRequestApi {
     /**
      * SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.
@@ -4462,6 +4479,11 @@ export interface TaskRunSubscriptionTokenRequestApi {
      * @pattern ^[0-9a-f]{64}$
      */
     rejected_access_token_sha256?: string | null
+    /** Credential the run needs. 'codex' (the default) returns a ChatGPT access token. 'claude_subscription' returns the Claude subscription token the run owner stored, and only for a run that was started with it.
+     *
+     * * `codex` - codex
+     * * `claude_subscription` - claude_subscription */
+    credential?: RunInferenceCredentialEnumApi
 }
 
 export interface TaskRunSubscriptionTokenResponseApi {
@@ -4477,6 +4499,20 @@ export interface TaskRunSubscriptionTokenResponseApi {
     /** When the access token expires. Request a new one before this time. */
     expires_at: string
 }
+
+export interface TaskRunInferenceCredentialResponseApi {
+    /** Credential kind that `secret` holds
+     *
+     * * `codex` - codex
+     * * `claude_subscription` - claude_subscription */
+    credential: RunInferenceCredentialEnumApi
+    /** The run owner's stored Claude subscription token. Keep it in memory only: do not log it or write it to disk. */
+    secret: string
+}
+
+export type TaskRunSubscriptionTokenResultApi =
+    | TaskRunSubscriptionTokenResponseApi
+    | TaskRunInferenceCredentialResponseApi
 
 export interface TaskSessionResponseApi {
     /** Task session identifier */
@@ -5835,6 +5871,7 @@ export type TasksListParams = {
      * Filter by the client that created the task
      *
      * * `posthog_desktop` - PostHog Desktop
+     * * `cloud_agents` - Cloud Agents
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance
@@ -5873,6 +5910,7 @@ export type TasksListParams = {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `cloud_agents` - Cloud Agents
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5985,6 +6023,7 @@ export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof
 
 export const TasksListClientProvenance = {
     PosthogDesktop: 'posthog_desktop',
+    CloudAgents: 'cloud_agents',
 } as const
 
 export type TasksListExcludeOriginProduct =
@@ -6015,6 +6054,7 @@ export const TasksListExcludeOriginProduct = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    CloudAgents: 'cloud_agents',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]

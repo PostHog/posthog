@@ -6,7 +6,7 @@ import {
   SERVICE_TIERS,
 } from "@posthog/agent-contracts/domain-types";
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/extensions/posthog-mcp-policy";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { AgentServer } from "./agent-server";
@@ -94,7 +94,7 @@ const CODEX_RUN_TOKEN_FD = 3;
  * file before this process starts, so the token exists only here. Read it once
  * and close the descriptor before anything else can be spawned.
  */
-function readCodexRunToken(): string {
+function readCodexRunToken(flag: string): string {
   let token = "";
   try {
     token = readFileSync(CODEX_RUN_TOKEN_FD, "utf8").trim();
@@ -108,7 +108,7 @@ function readCodexRunToken(): string {
     }
   }
   if (!token) {
-    program.error("--codexSubscription requires the run token on fd 3");
+    program.error(`${flag} requires the run token on fd 3`);
   }
   return token;
 }
@@ -179,6 +179,12 @@ program
     "--codexSubscription",
     "Run on the owner's ChatGPT plan; the run token arrives on fd 3",
   )
+  .addOption(
+    new Option(
+      "--claudeSubscriptionSource <source>",
+      "Where the Claude subscription token comes from; 'server' needs the run token on fd 3",
+    ).choices(["relay", "server"]),
+  )
   .option(
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
@@ -238,8 +244,21 @@ program
     ) {
       program.error("--codexSubscription requires the Codex runtime");
     }
-    const codexRunToken = options.codexSubscription
-      ? readCodexRunToken()
+    const claudeSubscriptionSource: "relay" | "server" =
+      options.claudeSubscriptionSource ?? "relay";
+    if (claudeSubscriptionSource === "server" && !options.claudeSubscription) {
+      program.error(
+        "--claudeSubscriptionSource server requires --claudeSubscription",
+      );
+    }
+    // Every mode that fetches a credential from PostHog needs the run token.
+    const runTokenFlag = options.codexSubscription
+      ? "--codexSubscription"
+      : claudeSubscriptionSource === "server"
+        ? "--claudeSubscriptionSource server"
+        : undefined;
+    const codexRunToken = runTokenFlag
+      ? readCodexRunToken(runTokenFlag)
       : undefined;
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
@@ -346,6 +365,7 @@ program
       codexModelAccess: options.codexSubscription
         ? "own-subscription"
         : "posthog-gateway",
+      claudeSubscriptionSource,
       codexRunToken,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
       serviceTier: env.POSTHOG_CODE_SERVICE_TIER,

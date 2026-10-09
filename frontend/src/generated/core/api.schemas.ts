@@ -6161,6 +6161,49 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
 
 /**
  * * `connected` - Connected
+ * * `not_connected` - Not Connected
+ */
+export type ClaudeSubscriptionStatusEnumApi =
+    (typeof ClaudeSubscriptionStatusEnumApi)[keyof typeof ClaudeSubscriptionStatusEnumApi]
+
+export const ClaudeSubscriptionStatusEnumApi = {
+    Connected: 'connected',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserClaudeSubscriptionApi {
+    /** `connected` when a token is stored for cloud agent runs; `not_connected` when none is stored.
+     *
+     * * `connected` - Connected
+     * * `not_connected` - Not Connected */
+    status: ClaudeSubscriptionStatusEnumApi
+    /**
+     * The last 4 characters of the stored token, so the user can tell which token it is.
+     * @nullable
+     */
+    token_suffix: string | null
+    /**
+     * When the token was stored.
+     * @nullable
+     */
+    connected_at: string | null
+    /**
+     * When a cloud agent run last used the token. Null when no run has used it.
+     * @nullable
+     */
+    last_used_at: string | null
+}
+
+export interface UserClaudeSubscriptionConnectRequestApi {
+    /**
+     * The token that `claude setup-token` prints. It starts with `sk-ant-oat`. PostHog stores it encrypted, and no response returns it. A new token replaces the stored one.
+     * @maxLength 1024
+     */
+    token: string
+}
+
+/**
+ * * `connected` - Connected
  * * `reauth_required` - Reauth Required
  * * `not_connected` - Not Connected
  */

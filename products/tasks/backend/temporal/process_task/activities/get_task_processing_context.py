@@ -2,7 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -12,6 +12,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.claude_subscription import ClaudeSubscriptionStore, claude_subscription_storage_enabled
 from posthog.models.integration.codex import CodexUserIntegration
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
@@ -55,7 +56,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
-from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.model_access import ModelAccess, ModelAccessMode, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
@@ -72,6 +73,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
+    is_non_default_sandbox_size,
 )
 from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
@@ -177,8 +179,8 @@ class TaskProcessingContext:
     # up to the cap. Off by default; the pluggable golden must be baked before enabling.
     use_hogland_hotplug_golden: bool = False
     dev_stack_preview_enabled: bool = False
-    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
-    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    claude_model_access: ModelAccessMode = "posthog-gateway"
+    codex_model_access: ModelAccessMode = "posthog-gateway"
 
     @property
     def model_access(self) -> ModelAccess:
@@ -560,6 +562,35 @@ def _ensure_subscription_allowed(
             f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',
             {"run_id": run_id},
             cause=ValueError(f"{plan_name} rollout unavailable"),
+            capture=False,
+        )
+
+
+def _ensure_stored_claude_subscription_present(
+    *, owner_id: int | None, task_runtime: str, team: Team, run_id: str
+) -> None:
+    """Refuse a run that needs a Claude subscription token the server does not hold for the owner.
+
+    The run never falls back to the PostHog gateway: the owner selected their own subscription, so a
+    silent switch would spend PostHog credits that they did not agree to.
+    """
+    if task_runtime != Task.Runtime.ACP:
+        raise ProcessTaskFatalError(
+            "Your Claude subscription requires the Claude runtime. Select Claude and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Stored Claude subscription requested for a non-Claude runtime"),
+            capture=False,
+        )
+    owner = team.all_users_with_access().filter(id=owner_id).first() if owner_id is not None else None
+    if (
+        owner is None
+        or not claude_subscription_storage_enabled(owner, team.organization_id)
+        or not ClaudeSubscriptionStore.has(owner.id)
+    ):
+        raise ProcessTaskFatalError(
+            "Connect your Claude subscription in Cloud agents settings, then start the run again.",
+            {"run_id": run_id},
+            cause=ValueError("Run needs a stored Claude subscription that is not available"),
             capture=False,
         )
 
@@ -1046,6 +1077,12 @@ def _resolve_sandbox_backend(
         log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="modal")
         return "modal"
 
+    # Hogland ignores per-run CPU and memory overrides, so a sized run would get the golden
+    # shape there while its usage record states the selected size.
+    if is_non_default_sandbox_size(state):
+        log_with_activity_context("sandbox_backend_sized_run", run_id=run_id, sandbox_backend="modal")
+        return "modal"
+
     # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland is
     # available (US region + configured URL/token) and can actually run this run (no
     # user custom image, no Pi runtime). These sit ahead of the override so a stale or
@@ -1427,7 +1464,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         model_access = resolve_model_access(state)
     except ValueError as error:
         raise ProcessTaskFatalError(str(error), {"run_id": run_id}, cause=error, capture=False) from error
-    if model_access.adapter is not None:
+    if model_access.uses_stored_claude_subscription:
+        _ensure_stored_claude_subscription_present(
+            owner_id=model_access.owner_id, task_runtime=task.runtime, team=team, run_id=run_id
+        )
+    elif model_access.adapter is not None:
         _ensure_subscription_allowed(
             adapter=model_access.adapter,
             task_runtime=task.runtime,
@@ -1435,7 +1476,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             organization_id=organization_id,
             run_id=run_id,
         )
-    if model_access.adapter == "codex":
+    if model_access.credential_kind == "codex":
         _ensure_codex_account_connected(model_access.owner_id, run_id)
     claude_model_access = model_access.access_for("claude")
     codex_model_access = model_access.access_for("codex")
