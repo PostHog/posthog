@@ -412,7 +412,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 ? '–'
                                                                 : `${runsSummary.successRate}%`}
                                                         </div>
-                                                        <div className="text-muted">Success rate</div>
+                                                        <div className="text-muted">Pass rate</div>
                                                     </div>
                                                 )}
                                                 {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (

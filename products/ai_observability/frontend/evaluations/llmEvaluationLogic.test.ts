@@ -1042,14 +1042,11 @@ return result`,
             it.each([
                 { trueCount: 999, expected: 99.9 },
                 { trueCount: 1000, expected: 100 },
-            ])(
-                'rounds the success rate down to $expected% for $trueCount of 1000 passing',
-                ({ trueCount, expected }) => {
-                    logic.actions.loadEvaluationSuccess(mockEvaluation)
-                    logic.actions.loadRunsStatsSuccess({ total: 1000, applicable: 1000, trueCount })
-                    expect(logic.values.runsSummary?.successRate).toBe(expected)
-                }
-            )
+            ])('rounds the pass rate down to $expected% for $trueCount of 1000 passing', ({ trueCount, expected }) => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
+                logic.actions.loadRunsStatsSuccess({ total: 1000, applicable: 1000, trueCount })
+                expect(logic.values.runsSummary?.successRate).toBe(expected)
+            })
 
             it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
                 logic.actions.loadEvaluationSuccess({
