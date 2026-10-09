@@ -77,11 +77,11 @@ export function TodayImplementMenu({
                 disabled={!!postHogDisabledReason || starting}
                 dataAttr="today-report-start-task"
             >
-                <IconLogomark className="size-4 self-start" />
-                <span className="flex flex-col text-left">
+                <span className="grid grid-cols-[auto_1fr] items-center gap-x-2 text-left">
+                    <IconLogomark className="size-4" />
                     <span>PostHog</span>
                     {postHogDisabledReason && (
-                        <Text size="xs" variant="muted" render={<span />}>
+                        <Text size="xs" variant="muted" render={<span />} className="col-start-2">
                             {postHogDisabledReason}
                         </Text>
                     )}
