@@ -13,6 +13,9 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    DataSuggestionBuildRequestApi,
+    DataSuggestionBuildResponseApi,
+    DataSuggestionsResponseApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -61,6 +64,7 @@ import type {
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
     TeamEmailReputationResponseApi,
+    WorkflowDataSuggestionsCurrentParams,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
@@ -1310,6 +1314,59 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsBuild = async (
+    projectId: string,
+    dataSuggestionBuildRequestApi: DataSuggestionBuildRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionBuildResponseApi> => {
+    return apiMutator<DataSuggestionBuildResponseApi>(getWorkflowDataSuggestionsBuildUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsCurrentUrl = (
+    projectId: string,
+    params?: WorkflowDataSuggestionsCurrentParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_data_suggestions/current/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_data_suggestions/current/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsCurrent = async (
+    projectId: string,
+    params?: WorkflowDataSuggestionsCurrentParams,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -3163,6 +3163,14 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
+                            const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                            if (templateTriggerConfig) {
+                                newWorkflow.trigger = templateTriggerConfig
+                                newWorkflow.actions = newWorkflow.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: templateTriggerConfig } : action
+                                )
+                            }
+
                             return newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)

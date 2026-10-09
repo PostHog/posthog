@@ -14,6 +14,14 @@ export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig): str
     return combineUrl(urls.workflowNew(), { [TRIGGER_PREFILL_PARAM]: JSON.stringify(config) }).url
 }
 
+/** A new workflow from a template. A trigger config here replaces the template's own trigger. */
+export function urlForNewWorkflowFromTemplate(templateId: string, triggerConfig: WorkflowTriggerConfig | null): string {
+    return combineUrl(urls.workflowNew(), {
+        templateId,
+        ...(triggerConfig ? { [TRIGGER_PREFILL_PARAM]: JSON.stringify(triggerConfig) } : {}),
+    }).url
+}
+
 // kea-router hands over JSON-looking search params already parsed, so accept an object too.
 export function parseWorkflowTriggerPrefill(raw: unknown): WorkflowTriggerConfig | null {
     if (!raw) {

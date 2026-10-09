@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db import models, transaction
 from django.db.models.functions import Cast
 
+from products.messaging.backend.facade.contracts import EmailTemplateContent
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
 
@@ -13,6 +14,17 @@ def get_email_content(team_id: int, template_id: UUID) -> dict | None:
     template = MessageTemplate.objects.filter(team_id=team_id, id=template_id, deleted=False).first()
     email_content = (template.content or {}).get("email") if template else None
     return email_content if isinstance(email_content, dict) else None
+
+
+def list_email_contents(team_id: int, *, limit: int) -> list[EmailTemplateContent]:
+    """The team's newest email templates that have a subject and a body."""
+    templates = MessageTemplate.objects.filter(team_id=team_id, deleted=False, type="email").order_by("-created_at")
+    contents: list[EmailTemplateContent] = []
+    for template in templates[:limit]:
+        email = (template.content or {}).get("email")
+        if isinstance(email, dict) and email.get("subject") and email.get("html"):
+            contents.append(EmailTemplateContent(id=template.id, name=template.name or "", email=email))
+    return contents
 
 
 def _templates(team_ids: list[int] | None) -> models.QuerySet[MessageTemplate]:
