@@ -837,7 +837,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   projects. Ownership: a selected row (or a row in the project that claims all) → that project; else the `all`
   claim → that project; else nobody, so no automatic review and the label trigger answers "not set up". The
   webhook prefilter (`OwnedRepositoryPrefilter`) caches a per-installation summary and fails open. Repository
-  lookups match GitHub's repository id first and then the name, and backfill both. The repository list in the
+  lookups match GitHub's repository id first and then the name, and backfill both. The installation id is not part
+  of a repository's identity (a reinstall gets a new one), so rows and personal choices are unique by name and id. The repository list in the
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
   core `installation_repositories` webhook keeps fresh. A repository write must match a name and id in that list,
   so a project cannot reserve a repository id the installation does not report.

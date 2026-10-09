@@ -193,13 +193,12 @@ class AuthorPreferences:
     choices: Sequence[ReviewUserRepositoryChoice]
 
     def choice_for(self, repository: RepositoryRef) -> ReviewUserRepositoryChoice | None:
-        candidates = [choice for choice in self.choices if choice.installation_id == repository.installation_id]
         if repository.github_repo_id is not None:
-            for choice in candidates:
+            for choice in self.choices:
                 if choice.github_repo_id == repository.github_repo_id:
                     return choice
         name = repository.full_name.lower()
-        for choice in candidates:
+        for choice in self.choices:
             # A name match with another id is an older repository that had this name.
             same_repository = choice.github_repo_id is None or repository.github_repo_id is None
             if choice.full_name.lower() == name and same_repository:

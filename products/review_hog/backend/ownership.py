@@ -81,11 +81,12 @@ def resolve_owner(
 class RepositoryOwnership:
     @staticmethod
     def rows_for(ref: RepositoryRef) -> list[ReviewRepository]:
-        # Unscoped on purpose: a repository can belong to any project that shares the installation.
+        # Unscoped on purpose: a repository can belong to any project. The name and the id identify
+        # it, not the installation, so a reinstall of the GitHub App keeps the rows.
         name_or_id = Q(full_name__iexact=ref.full_name)
         if ref.github_repo_id is not None:
             name_or_id |= Q(github_repo_id=ref.github_repo_id)
-        return list(ReviewRepository.objects.unscoped().filter(name_or_id, installation_id=ref.installation_id))
+        return list(ReviewRepository.objects.unscoped().filter(name_or_id))
 
     @staticmethod
     def all_claim(installation_id: str) -> ReviewInstallationClaim | None:

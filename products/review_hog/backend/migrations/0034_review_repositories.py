@@ -250,7 +250,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="reviewrepository",
             constraint=models.UniqueConstraint(
-                models.F("installation_id"),
                 django.db.models.functions.text.Lower("full_name"),
                 name="uniq_review_repository_name",
             ),
@@ -284,9 +283,16 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 models.F("team"),
                 models.F("user"),
-                models.F("installation_id"),
                 django.db.models.functions.text.Lower("full_name"),
                 name="uniq_review_user_repository_choice",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="reviewuserrepositorychoice",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("github_repo_id__isnull", False)),
+                fields=("team", "user", "github_repo_id"),
+                name="uniq_review_user_repository_choice_id",
             ),
         ),
     ]

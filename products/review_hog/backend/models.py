@@ -571,6 +571,8 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
 
     # db_constraint=False keeps the migration lock-free on hot posthog_team / posthog_user.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The installation that last reported the repository. Not part of the identity: a reinstall of
+    # the GitHub App gets a new installation id for the same repositories.
     installation_id = models.CharField(max_length=64)
     # Null until a webhook or the repository list shows the id. Renames keep the id, so lookups
     # match the id first and then the name.
@@ -588,7 +590,7 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint("installation_id", Lower("full_name"), name="uniq_review_repository_name"),
+            models.UniqueConstraint(Lower("full_name"), name="uniq_review_repository_name"),
             models.UniqueConstraint(
                 fields=["github_repo_id"],
                 condition=models.Q(github_repo_id__isnull=False),
@@ -646,6 +648,7 @@ class ReviewUserRepositoryChoice(UUIDModel, TeamScopedRootMixin):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The installation that last reported the repository. Not part of the identity, as on `ReviewRepository`.
     installation_id = models.CharField(max_length=64)
     github_repo_id = models.BigIntegerField(null=True, blank=True)
     full_name = models.CharField(max_length=200)
@@ -655,7 +658,10 @@ class ReviewUserRepositoryChoice(UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint("team", "user", Lower("full_name"), name="uniq_review_user_repository_choice"),
             models.UniqueConstraint(
-                "team", "user", "installation_id", Lower("full_name"), name="uniq_review_user_repository_choice"
+                fields=["team", "user", "github_repo_id"],
+                condition=models.Q(github_repo_id__isnull=False),
+                name="uniq_review_user_repository_choice_id",
             ),
         ]

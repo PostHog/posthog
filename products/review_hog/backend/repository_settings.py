@@ -268,6 +268,7 @@ class ProjectRepositories:
                 )
             if row.github_repo_id is None and ref.github_repo_id is not None:
                 row.github_repo_id = ref.github_repo_id
+            row.installation_id = ref.installation_id
             row.selected = new_selected
             row.flash_for = new_flash_for
             try:
@@ -431,6 +432,7 @@ class RepositoryChoices:
                 )
             else:
                 existing.mode = mode
+                existing.installation_id = ref.installation_id
                 existing.full_name = ref.full_name
                 existing.github_repo_id = existing.github_repo_id or ref.github_repo_id
                 existing.save()

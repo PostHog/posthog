@@ -148,6 +148,18 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert conflict.status_code == 409
         assert conflict.json()["conflicting_project"]["id"] == self.team.id
 
+    def test_a_repository_row_from_an_earlier_installation_still_owns_the_repository(self) -> None:
+        # A reinstall of the GitHub App gives the same repositories a new installation id. The row of
+        # the earlier installation must still block another project, or the repository gets two owners.
+        ReviewRepository.objects.for_team(self.other_team.id).create(
+            team=self.other_team, installation_id="1000", github_repo_id=501, full_name="example-org/web", selected=True
+        )
+
+        res = self.client.post(self._url("repositories/"), {**WEB, "selected": True}, format="json")
+
+        assert res.status_code == 409, res.json()
+        assert res.json()["conflicting_project"]["id"] == self.other_team.id
+
     def test_only_one_project_can_claim_all_repositories(self) -> None:
         self._claim(self.other_team, ReviewInstallationClaim.Scope.ALL)
 
