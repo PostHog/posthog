@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto'
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
@@ -90,6 +91,10 @@ const SERVER_CAPABILITIES = {
     tools: { listChanged: false },
     resources: { listChanged: false },
     prompts: { listChanged: false },
+    extensions: {
+        // Tokens the authorization server issues for an enterprise IdP's ID-JAG are accepted here.
+        'io.modelcontextprotocol/enterprise-managed-authorization': {},
+    },
 } as const
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
@@ -258,6 +263,19 @@ class McpDispatcher {
             // surfaces as a 401/403/500 upstream via handleCatchError.
             if (hasInit) {
                 initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
+            }
+            // A JSON-RPC error with HTTP 200 reaches the agent, which can tell the user to
+            // reconnect. Some transports, such as mcp-remote, treat any non-2xx status as fatal.
+            if (error instanceof McpSessionResetRequiredError) {
+                const errors = requests.map((r) =>
+                    jsonRpcMethodError(r.id, ErrorCode.InvalidRequest, error.message, {
+                        reason: SESSION_RESET_REQUIRED_REASON,
+                    })
+                )
+                return new Response(JSON.stringify(!wasArray && errors.length === 1 ? errors[0] : errors), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
             }
             throw error
         }

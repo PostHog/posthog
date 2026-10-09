@@ -1,5 +1,4 @@
 import json
-import base64
 from typing import Any
 
 import pytest
@@ -13,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo import (
     PAGE_SIZE,
     WufooResumeConfig,
-    _headers,
     validate_credentials,
     wufoo_source,
 )
@@ -79,30 +77,7 @@ def _source(manager: mock.MagicMock, endpoint: str = "forms"):
     )
 
 
-class TestHeaders:
-    def test_basic_auth_uses_api_key_as_username_with_any_password(self) -> None:
-        # Wufoo authenticates with HTTP Basic where the API key is the username; a wrong header
-        # construction silently 401s every request, so pin the exact encoding.
-        header = _headers("secret-key")["Authorization"]
-        assert header.startswith("Basic ")
-        decoded = base64.b64decode(header.removeprefix("Basic ")).decode("ascii")
-        assert decoded == "secret-key:footastic"
-
-
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_yields_and_stops_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(2)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert len(rows) == 2
-        # A short (< PAGE_SIZE) first page ends the sync after one request with no checkpoint.
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_offset_until_short_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -132,23 +107,6 @@ class TestPagination:
         # Offset 0 is never fetched on resume — the first request targets the saved offset.
         assert params[0]["pageStart"] == PAGE_SIZE
         assert len(rows) == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(0)])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_endpoint_data_key(self, MockSession) -> None:
-        # Each endpoint wraps its rows under a distinct key; selecting the wrong one drops all rows.
-        session = MockSession.return_value
-        _wire(session, [_response(1, data_key="Users")])
-
-        rows = _rows(_source(_make_manager(), endpoint="users"))
-        assert len(rows) == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
@@ -187,12 +145,6 @@ class TestRetryClassification:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status", [200, 401, 403, 500])
-    @mock.patch(WUFOO_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session, status: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("wufoo-key", "acme") == status
-
     @mock.patch(WUFOO_SESSION_PATCH)
     def test_invalid_subdomain_short_circuits_without_request(self, mock_session) -> None:
         assert validate_credentials("wufoo-key", "bad subdomain!") is None

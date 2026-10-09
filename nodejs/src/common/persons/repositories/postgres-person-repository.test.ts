@@ -7,6 +7,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonMessage } from '~/common/persons/person-message'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -2498,12 +2499,24 @@ describe('PostgresPersonRepository', () => {
                 feature_flag_key: 'beta-feature',
                 hash_key: 'existing_override_value_for_beta_feature',
             })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'gamma',
+                hash_key: 'override_value_for_gamma',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'gamma',
+                hash_key: COOKIELESS_SENTINEL_VALUE,
+            })
 
             await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
-            expect(result.length).toEqual(2)
+            expect(result.length).toEqual(3)
             expect(result).toEqual(
                 expect.arrayContaining([
                     {
@@ -2514,6 +2527,11 @@ describe('PostgresPersonRepository', () => {
                     {
                         feature_flag_key: 'aloha',
                         hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'gamma',
+                        hash_key: 'override_value_for_gamma',
                         person_id: targetPersonID,
                     },
                 ])
@@ -3594,29 +3612,30 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('updateCohortsAndFeatureFlagsForMergeBatch()', () => {
-        it('moves overrides from multiple sources, keeping target values on conflict', async () => {
+        it('moves overrides from multiple sources, keeping target values on conflict unless they are the cookieless sentinel', async () => {
             const source1 = await createTestPerson(team.id, 'fold-ff-source-1', {})
             const source2 = await createTestPerson(team.id, 'fold-ff-source-2', {})
             const target = await createTestPerson(team.id, 'fold-ff-target', {})
 
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: source1.id,
-                feature_flag_key: 'aloha',
-                hash_key: 'source1_aloha',
-            })
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: source2.id,
-                feature_flag_key: 'beta-feature',
-                hash_key: 'source2_beta',
-            })
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: target.id,
-                feature_flag_key: 'beta-feature',
-                hash_key: 'target_beta',
-            })
+            for (const [personId, flagKey, hashKey] of [
+                [source1.id, 'aloha', COOKIELESS_SENTINEL_VALUE],
+                [source2.id, 'aloha', 'source2_aloha'],
+                [source2.id, 'beta-feature', 'source2_beta'],
+                [target.id, 'beta-feature', 'target_beta'],
+                [source1.id, 'gamma', 'source1_gamma'],
+                [target.id, 'gamma', COOKIELESS_SENTINEL_VALUE],
+                [source1.id, 'delta', 'source1_delta'],
+                [source2.id, 'delta', 'source2_delta'],
+                [target.id, 'delta', COOKIELESS_SENTINEL_VALUE],
+                [source1.id, 'epsilon', COOKIELESS_SENTINEL_VALUE],
+            ]) {
+                await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                    team_id: team.id,
+                    person_id: personId,
+                    feature_flag_key: flagKey,
+                    hash_key: hashKey,
+                })
+            }
 
             await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [source1.id, source2.id], target.id)
 
@@ -3628,11 +3647,17 @@ describe('PostgresPersonRepository', () => {
             )
             expect(result.rows).toEqual(
                 expect.arrayContaining([
-                    { feature_flag_key: 'aloha', hash_key: 'source1_aloha', person_id: target.id },
+                    { feature_flag_key: 'aloha', hash_key: 'source2_aloha', person_id: target.id },
                     { feature_flag_key: 'beta-feature', hash_key: 'target_beta', person_id: target.id },
+                    { feature_flag_key: 'gamma', hash_key: 'source1_gamma', person_id: target.id },
+                    {
+                        feature_flag_key: 'delta',
+                        hash_key: expect.stringMatching(/^source[12]_delta$/),
+                        person_id: target.id,
+                    },
                 ])
             )
-            expect(result.rows).toHaveLength(2)
+            expect(result.rows).toHaveLength(4)
         })
 
         it('is a no-op for empty sources', async () => {

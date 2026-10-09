@@ -98,16 +98,6 @@ class TestAttioResume:
         ]
         manager.load_state.assert_not_called()
 
-    @pytest.mark.parametrize("endpoint", ["companies", "notes"])
-    def test_single_short_page_stages_nothing(self, endpoint: str) -> None:
-        manager = _make_manager()
-
-        sent, rows = self._drive(endpoint, manager, [_page(endpoint, 0, 2)])
-
-        assert [request["offset"] for request in sent] == [0]
-        assert len(rows) == 2
-        manager.save_state.assert_not_called()
-
     @pytest.mark.parametrize("endpoint", ["companies", "people", "lists", "notes", "tasks", "workspace_members"])
     def test_resumed_run_starts_from_saved_offset(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size

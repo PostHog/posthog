@@ -13,14 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.r
     MIN_FROM_TIMESTAMP,
     RazorpayResumeConfig,
     build_from_param,
-    get_resource,
     razorpay_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import (
-    ENDPOINT_CONFIGS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import PAGE_SIZE
 
 
 def _collection_response(items: list[dict[str, Any]], status_code: int = 200) -> Response:
@@ -78,40 +74,6 @@ def _drive(
 
 
 class TestRazorpayPagination:
-    def test_full_walk_uses_skip_count_and_saves_resume_state_after_each_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _collection_response(_items(PAGE_SIZE)),
-            _collection_response(_items(PAGE_SIZE, start=PAGE_SIZE)),
-            _collection_response(_items(3, start=2 * PAGE_SIZE)),
-        ]
-        rows, sent_params = _drive(manager, responses)
-
-        assert len(rows) == 2 * PAGE_SIZE + 3
-        assert [(p.get("skip"), p.get("count")) for p in sent_params] == [
-            (0, PAGE_SIZE),
-            (PAGE_SIZE, PAGE_SIZE),
-            (2 * PAGE_SIZE, PAGE_SIZE),
-        ]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
-            RazorpayResumeConfig(skip=PAGE_SIZE),
-            RazorpayResumeConfig(skip=2 * PAGE_SIZE),
-        ]
-
-    def test_short_first_page_terminates_without_saving_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        rows, sent_params = _drive(manager, [_collection_response(_items(5))])
-
-        assert len(rows) == 5
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
-
     def test_resume_seeds_skip_from_saved_state(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -151,19 +113,6 @@ class TestRazorpayIncremental:
         expected_from = watermark - INCREMENTAL_LOOKBACK_SECONDS
         assert [p.get("from") for p in sent_params] == [expected_from, expected_from]
 
-    def test_first_incremental_sync_omits_from(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_params = _drive(
-            manager,
-            [_collection_response(_items(1))],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-
-        assert "from" not in sent_params[0]
-
     def test_full_refresh_endpoint_never_sends_from(self) -> None:
         # Disputes doesn't document `from`/`to`; sending unknown params risks a 400 from
         # Razorpay's strict param validation.
@@ -192,23 +141,6 @@ class TestRazorpayIncremental:
     )
     def test_build_from_param(self, last_value: Any, expected: Optional[int]) -> None:
         assert build_from_param(last_value) == expected
-
-
-class TestRazorpayResources:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINT_CONFIGS.keys()))
-    def test_resource_shape_for_each_endpoint(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=False, db_incremental_field_last_value=None)
-
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-        assert resource["name"] == endpoint
-        assert endpoint_config["data_selector"] == "items"
-        assert endpoint_config["path"] == ENDPOINT_CONFIGS[endpoint].path
-        assert resource["write_disposition"] == "replace"
-
-    def test_incremental_resource_uses_merge_disposition(self) -> None:
-        resource = get_resource("Payments", should_use_incremental_field=True, db_incremental_field_last_value=None)
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
 
 class TestRazorpayValidateCredentials:

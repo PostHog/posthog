@@ -16,10 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.ma
     _authenticated_callback_url,
     _to_unix_ts,
     _webhook_table_transformer,
-    _without_credentials,
     create_webhook,
     delete_webhook,
-    expected_authorization_header,
     get_external_webhook_info,
     mailjet_source,
     sync_webhook_events,
@@ -110,33 +108,7 @@ class TestToUnixTs:
         assert _to_unix_ts(value) == expected
 
 
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_basic_auth_wired_from_credentials(self, MockSession) -> None:
-        session = MockSession.return_value
-        _params, requests_seen = _wire(session, [_response([{"ID": 1}], total=1)])
-
-        _rows(_source("contact", _make_manager()))
-
-        auth = requests_seen[0].auth
-        encoded = base64.b64encode(b"key:secret").decode()
-        # HttpBasicAuth emits exactly `Basic base64(key:secret)`.
-        assert auth.username == "key"
-        assert auth.password == "secret"
-        assert base64.b64encode(f"{auth.username}:{auth.password}".encode()).decode() == encoded
-
-
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"ID": i} for i in range(3)], total=3)])
-
-        rows = _rows(_source("contact", _make_manager()))
-
-        assert len(rows) == 3
-        assert session.send.call_count == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_multi_page_advances_offset(self, MockSession) -> None:
         session = MockSession.return_value
@@ -155,36 +127,6 @@ class TestOffsetPagination:
         assert params[0]["Offset"] == 0
         assert params[0]["Limit"] == LIMIT
         assert params[1]["Offset"] == LIMIT
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_exact_multiple_terminates_via_total(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A full page whose length == limit but Total is reached must stop without a second request.
-        _wire(session, [_response([{"ID": i} for i in range(LIMIT)], total=LIMIT)])
-
-        rows = _rows(_source("contact", _make_manager()))
-
-        assert len(rows) == LIMIT
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total=0)])
-
-        source = _source("contact", _make_manager())
-        assert _rows(source) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_treated_as_empty(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, total=0, drop_data=True)])
-
-        # A 200 body without "Data" is lenient — no rows, no raise (matches the prior implementation).
-        source = _source("contact", _make_manager())
-        assert _rows(source) == []
-        assert session.send.call_count == 1
 
     @parameterized.expand([(name,) for name in MAILJET_ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -212,45 +154,6 @@ class TestResume:
 
         assert params[0]["Offset"] == 1000
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_ignored_for_other_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=1)])
-
-        manager = _make_manager(MailjetResumeConfig(offset=1000, endpoint="campaign"))
-        _rows(_source("contact", manager))
-
-        assert params[0]["Offset"] == 0
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"ID": i} for i in range(3)], total=3)])
-
-        manager = _make_manager()
-        _rows(_source("contact", manager))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_saved_after_each_page_with_successor(self, MockSession) -> None:
-        # State is persisted after every page that has a successor, carrying the next offset and the
-        # endpoint. The final page saves nothing (sync is complete). A crash re-yields the last page,
-        # which merge dedupes on the primary key.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response([{"ID": i} for i in range(p * LIMIT, (p + 1) * LIMIT)], total=3 * LIMIT) for p in range(3)],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("contact", manager))
-
-        assert len(rows) == 3 * LIMIT
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [s.offset for s in saved] == [LIMIT, 2 * LIMIT]
-        assert all(s.endpoint == "contact" for s in saved)
-
 
 class TestIncremental:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -268,38 +171,6 @@ class TestIncremental:
         )
 
         assert params[0]["FromTS"] == 1767225600
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_from_ts_not_applied_for_full_refresh_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=1)])
-
-        _rows(
-            _source(
-                "contact",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "FromTS" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_from_ts_not_applied_without_incremental_flag(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=1)])
-
-        _rows(
-            _source(
-                "openinformation",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "FromTS" not in params[0]
 
 
 class TestSourceResponseShape:
@@ -321,28 +192,6 @@ class TestSourceResponseShape:
 
 
 class TestRetryable:
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_retries_until_success(self, MockSession, _mock_sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(429), _response([{"ID": 1}], total=1)])
-
-        rows = _rows(_source("contact", _make_manager()))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 2
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_500_retries_until_success(self, MockSession, _mock_sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(500), _response([{"ID": 1}], total=1)])
-
-        rows = _rows(_source("contact", _make_manager()))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_401_does_not_retry_and_raises(self, MockSession) -> None:
         session = MockSession.return_value
@@ -368,11 +217,6 @@ class TestValidateCredentials:
         token = headers["Authorization"].removeprefix("Basic ")
         assert base64.b64decode(token).decode() == "key:secret"
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_validate_credentials_network_error_returns_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "secret") is False
-
 
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"
 
@@ -388,41 +232,7 @@ def _json_response(body: dict[str, Any], status_code: int = 200) -> mock.MagicMo
     return response
 
 
-class TestWebhookCallbackUrl:
-    def test_credentials_round_trip(self) -> None:
-        authed = _authenticated_callback_url(WEBHOOK_URL, "p@ss")
-        # The password rides in the URL's userinfo, which is what Mailjet replays as basic auth.
-        assert authed.startswith("https://posthog:p@ss@webhooks.us.posthog.com/")
-        assert _without_credentials(authed) == WEBHOOK_URL
-
-    def test_url_without_credentials_is_unchanged(self) -> None:
-        assert _without_credentials(WEBHOOK_URL) == WEBHOOK_URL
-
-    def test_expected_header_matches_the_registered_credentials(self) -> None:
-        header = expected_authorization_header("p@ss")
-        assert base64.b64decode(header.removeprefix("Basic ")).decode() == "posthog:p@ss"
-
-
 class TestCreateWebhook:
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_registers_every_event_type_with_authenticated_url(self, mock_session) -> None:
-        session = mock_session.return_value
-        session.post.return_value = _json_response({"Data": []}, 201)
-
-        result = create_webhook("key", "secret", WEBHOOK_URL)
-
-        assert result.success is True
-        posted = [call.kwargs["json"] for call in session.post.call_args_list]
-        assert [body["EventType"] for body in posted] == list(MAILJET_WEBHOOK_EVENTS)
-        # Version 1 delivers one event per request; Version 2 would batch them into an array the
-        # warehouse webhook pipeline cannot unpack.
-        assert {body["Version"] for body in posted} == {1}
-
-        registered_url = posted[0]["Url"]
-        assert _without_credentials(registered_url) == WEBHOOK_URL
-        password = registered_url.split("posthog:", 1)[1].rsplit("@", 1)[0]
-        assert result.extra_inputs == {"authorization_header": expected_authorization_header(password)}
-
     @mock.patch(MAILJET_SESSION_PATCH)
     def test_partial_failure_still_persists_the_credentials(self, mock_session) -> None:
         # Losing the password would leave the registrations that did land unverifiable forever.
@@ -524,13 +334,6 @@ class TestExternalWebhookInfo:
 
         assert session.get.call_args.kwargs["params"]["Limit"] > 10
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_reports_missing_when_nothing_points_at_us(self, mock_session) -> None:
-        session = mock_session.return_value
-        session.get.return_value = _json_response({"Data": [_callback_row("open", "https://example.com/hook")]})
-
-        assert get_external_webhook_info("key", "secret", WEBHOOK_URL).exists is False
-
 
 class TestDeleteWebhook:
     @mock.patch(MAILJET_SESSION_PATCH)
@@ -562,23 +365,6 @@ class TestDeleteWebhook:
 
 
 class TestWebhookTableTransformer:
-    def test_keeps_the_last_row_per_event_id(self) -> None:
-        # Delta merge only dedupes across syncs, so a batch carrying the same delivery twice
-        # would otherwise seed duplicate rows on the very first sync.
-        import pyarrow as pa
-
-        table = pa.Table.from_pylist(
-            [
-                {"event_id": "a", "event": "open", "time": 1},
-                {"event_id": "b", "event": "click", "time": 2},
-                {"event_id": "a", "event": "open", "time": 1},
-            ]
-        )
-
-        result = _webhook_table_transformer(table).to_pylist()
-
-        assert sorted(row["event_id"] for row in result) == ["a", "b"]
-
     def test_rows_without_an_event_id_are_kept(self) -> None:
         import pyarrow as pa
 

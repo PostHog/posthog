@@ -4,6 +4,7 @@ import {
     type ReportChartApi,
     type ReportMetricApi,
     type ReportRankingApi,
+    type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -103,6 +104,8 @@ export interface SignalReport {
     metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
+    source_suggestion?: ReportSourceSuggestionApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */

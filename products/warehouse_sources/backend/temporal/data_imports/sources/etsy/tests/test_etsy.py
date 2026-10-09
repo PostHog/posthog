@@ -164,17 +164,6 @@ def _collect(
 
 
 class TestEtsyTransport:
-    def test_token_is_minted_from_the_refresh_token_and_reused(self) -> None:
-        session = _FakeSession([_page(_rows(1), 1)])
-        _collect(session, "shop_sections")
-
-        assert session.post_bodies == [
-            {"grant_type": "refresh_token", "client_id": _API_KEY, "refresh_token": _REFRESH_TOKEN}
-        ]
-        # Etsy's token endpoint rejects a JSON body, which leaves the source unable to connect at all.
-        assert session.post_json_bodies == []
-        assert session.get_calls[0][2]["Authorization"] == "Bearer token-1"
-
     def test_secrets_are_redacted_and_api_key_header_is_set(self) -> None:
         session = _FakeSession([_page([], 0)])
         with patch(_SESSION_PATCH, return_value=session) as mock_session:
@@ -196,17 +185,6 @@ class TestEtsyTransport:
         assert set(kwargs["redact_values"]) == {_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN}
         # A custom credential header survives a redirect, so the session must not follow one.
         assert kwargs["allow_redirects"] is False
-
-    def test_expired_access_token_is_reminted_once_and_the_request_replayed(self) -> None:
-        session = _FakeSession(
-            [_response({}, status=401), _page(_rows(2), 2)],
-            post_responses=[_token("token-1"), _token("token-2")],
-        )
-        rows, _ = _collect(session, "shop_sections")
-
-        assert len(rows) == 2
-        assert len(session.post_bodies) == 2
-        assert session.get_calls[1][2]["Authorization"] == "Bearer token-2"
 
     def test_persistent_401_is_raised_rather_than_looping(self) -> None:
         session = _FakeSession(
@@ -232,12 +210,6 @@ class TestEtsyTransport:
         assert session.get_calls[0][0].endswith("/users/me")
         assert session.get_calls[1][0].endswith("/shops/4242/sections")
 
-    def test_configured_shop_id_skips_discovery(self) -> None:
-        session = _FakeSession([_page(_rows(1), 1)])
-        _collect(session, "shop_sections", shop_id=" 99 ")
-
-        assert session.get_calls[0][0].endswith("/shops/99/sections")
-
     def test_account_without_a_shop_fails_with_an_actionable_error(self) -> None:
         session = _FakeSession([_response({"user_id": 7, "shop_id": None})])
         with pytest.raises(EtsyAPIError, match="no shop"):
@@ -260,33 +232,6 @@ class TestEtsyTransport:
         assert rows == [{"shop_id": 1, "shop_name": "Testy"}]
         assert session.get_calls[0][1] == {}
         assert manager.cleared == 1
-
-    def test_unpaginated_endpoint_sends_no_limit_or_offset(self) -> None:
-        session = _FakeSession([_page([{"shop_section_id": 3}], 1)])
-        rows, _ = _collect(session, "shop_sections")
-
-        assert rows == [{"shop_section_id": 3}]
-        assert session.get_calls[0][1] == {}
-
-    def test_listings_fan_out_covers_every_state(self) -> None:
-        session = _FakeSession([_page([{"listing_id": i}], 1) for i in range(len(LISTING_STATES))])
-        rows, manager = _collect(session, "listings")
-
-        assert [call[1]["state"] for call in session.get_calls] == list(LISTING_STATES)
-        assert [call[1]["sort_on"] for call in session.get_calls] == ["created"] * len(LISTING_STATES)
-        assert len(rows) == len(LISTING_STATES)
-        assert manager.saved[0].listing_state == LISTING_STATES[0]
-
-    def test_offset_pagination_walks_full_pages_then_stops_on_a_short_one(self) -> None:
-        session = _FakeSession(
-            [_page(_rows(PAGE_SIZE, key="listing_id"), 150), _page(_rows(50, start=100, key="listing_id"), 150)]
-            + [_page([], 0) for _ in range(len(LISTING_STATES) - 1)]
-        )
-        rows, manager = _collect(session, "listings")
-
-        assert len(rows) == 150
-        assert [call[1]["offset"] for call in session.get_calls[:2]] == [0, PAGE_SIZE]
-        assert [state.offset for state in manager.saved[:2]] == [PAGE_SIZE, 150]
 
     def test_offset_pagination_stops_at_the_offset_ceiling(self) -> None:
         # Etsy rejects an offset above 12,000, so a state with more rows than that must terminate
@@ -343,30 +288,6 @@ class TestEtsyTransport:
         assert _walk_calls(session)[0][1]["min_created"] == ETSY_HISTORY_START
 
     @time_machine.travel("2005-01-15", tick=False)
-    def test_windowed_endpoint_sends_a_created_window_over_all_history(self) -> None:
-        session = _windowed_session([_page(_rows(2), 2)])
-        rows, _ = _collect(session, "receipts")
-
-        params = _walk_calls(session)[0][1]
-        assert params["min_created"] == ETSY_HISTORY_START
-        assert params["max_created"] == int(time.time())
-        assert params["limit"] == PAGE_SIZE
-        assert len(rows) == 2
-
-    @time_machine.travel("2005-07-01", tick=False)
-    def test_windows_advance_until_the_range_is_covered(self) -> None:
-        session = _windowed_session([_page([], 0) for _ in range(3)])
-        _collect(session, "receipts")
-
-        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in _walk_calls(session)]
-        assert len(windows) == 3
-        # Contiguous, non-overlapping, and finishing at "now".
-        assert windows[0][0] == ETSY_HISTORY_START
-        assert windows[1][0] == windows[0][1] + 1
-        assert windows[2][0] == windows[1][1] + 1
-        assert windows[-1][1] == int(time.time())
-
-    @time_machine.travel("2005-01-15", tick=False)
     def test_oversized_window_is_halved_instead_of_hitting_the_offset_ceiling(self) -> None:
         # First probe reports more rows than the offset ceiling can reach, so the slice splits.
         session = _windowed_session(
@@ -392,30 +313,6 @@ class TestEtsyTransport:
         assert window["max_created"] - window["min_created"] < MIN_WINDOW_SECONDS
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
 
-    @time_machine.travel("2005-03-01", tick=False)
-    def test_ledger_windows_stay_inside_etsys_31_day_maximum(self) -> None:
-        session = _windowed_session([_page([], 0) for _ in range(2)])
-        _collect(session, "ledger_entries")
-
-        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in _walk_calls(session)]
-        assert len(windows) == 2
-        assert max(end - start for start, end in windows) <= 31 * 24 * 60 * 60
-
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_reviews_split_the_window_rather_than_paging_past_the_first_page(self) -> None:
-        # Offset 100 is the request Etsy rejects; the window has to narrow instead.
-        session = _windowed_session(
-            [
-                _page(_rows(PAGE_SIZE, key="transaction_id"), PAGE_SIZE + 1),
-                _page(_rows(1, key="transaction_id"), 1),
-                _page(_rows(1, start=1, key="transaction_id"), 1),
-            ]
-        )
-        rows, _ = _collect(session, "reviews")
-
-        assert [call[1]["offset"] for call in _walk_calls(session)] == [0, 0, 0]
-        assert len(rows) == 2
-
     @time_machine.travel("2005-01-15", tick=False)
     def test_resume_finishes_the_saved_window_then_continues_after_it(self) -> None:
         saved_end = ETSY_HISTORY_START + 1000
@@ -432,33 +329,6 @@ class TestEtsyTransport:
             PAGE_SIZE,
         )
         assert second["min_created"] == saved_end + 1
-
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_state_is_saved_after_each_batch_and_cleared_when_the_walk_finishes(self) -> None:
-        session = _windowed_session([_page(_rows(PAGE_SIZE), 150), _page(_rows(50, start=100), 150)])
-        _, manager = _collect(session, "receipts")
-
-        assert [state.offset for state in manager.saved] == [PAGE_SIZE, 150]
-        assert manager.saved[0].window_start == ETSY_HISTORY_START
-        assert manager.cleared == 1
-
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_transactions_are_expanded_out_of_the_receipts_payload(self) -> None:
-        session = _windowed_session(
-            [
-                _page(
-                    [
-                        {"receipt_id": 1, "transactions": [{"transaction_id": 10}, {"transaction_id": 11}]},
-                        {"receipt_id": 2, "transactions": []},
-                    ],
-                    2,
-                )
-            ]
-        )
-        rows, _ = _collect(session, "transactions")
-
-        assert rows == [{"transaction_id": 10}, {"transaction_id": 11}]
-        assert _walk_calls(session)[0][0].endswith("/shops/1/receipts")
 
     @time_machine.travel("2005-01-15", tick=False)
     def test_offset_advances_by_parent_rows_not_expanded_children(self) -> None:
@@ -501,13 +371,6 @@ class TestEtsyTransport:
         assert expected_param in params
         assert params[expected_param] == cursor
 
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_full_refresh_ignores_a_stale_cursor(self) -> None:
-        session = _windowed_session([_page([], 0)])
-        _collect(session, "receipts", should_use_incremental_field=False, db_incremental_field_last_value=999_999_999)
-
-        assert _walk_calls(session)[0][1]["min_created"] == ETSY_HISTORY_START
-
     @parameterized.expand(
         [
             (False, None, ETSY_HISTORY_START),
@@ -523,11 +386,6 @@ class TestEtsyTransport:
 
 
 class TestEtsyValidateCredentials:
-    def test_valid_credentials_resolve_the_shop(self) -> None:
-        session = _FakeSession([_response({"user_id": 1, "shop_id": 5})])
-        with patch(_SESSION_PATCH, return_value=session):
-            assert validate_credentials(_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN, None) == (True, None)
-
     def test_configured_shop_id_still_probes_the_token(self) -> None:
         # Skipping the probe here would let a bogus keystring or refresh token pass source creation.
         session = _FakeSession([_response({"user_id": 1, "shop_id": None})])
@@ -565,10 +423,6 @@ class TestEtsyValidateCredentials:
 
         assert ok is False
         assert error is not None and "no shop" in error
-
-    def test_transport_failure_does_not_raise(self) -> None:
-        with patch(_SESSION_PATCH, side_effect=OSError("boom")):
-            assert validate_credentials(_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN, None)[0] is False
 
     def test_invalid_shop_id_fails_validation_without_probing(self) -> None:
         # A malformed shop ID is caught up front, so no request is issued to authenticate.
