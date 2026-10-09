@@ -36,14 +36,16 @@ class ConcurrencyControllerItem<T> {
                 reject(error)
             }
         }
-        abortController?.signal.addEventListener('abort', () => {
-            reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
-        })
+        const onAbort = (): void => {
+            reject(new FakeAbortError(abortController?.signal.reason || 'AbortError'))
+        }
+        abortController?.signal.addEventListener('abort', onAbort)
         promise
             .catch(() => {
                 // ignore
             })
             .finally(() => {
+                abortController?.signal.removeEventListener('abort', onAbort)
                 if (concurrencyController._current.includes(this)) {
                     concurrencyController._current = concurrencyController._current.filter((item) => item !== this)
                     concurrencyController._runNext()
