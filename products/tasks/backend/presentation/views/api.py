@@ -355,13 +355,18 @@ def _can_bypass_visibility(request, team_id: int | None) -> bool:
 
 
 def _agent_run_enabled(request, team) -> bool:
+    return internal_flag_enabled(request, team, TASKS_MCP_AGENT_RUN_START_FLAG)
+
+
+def internal_flag_enabled(request, team, flag: str) -> bool:
+    """A per-user flag that only ever opens on the internal debug project. Fails closed."""
     if not _is_internal_debug_team(team.id):
         return False
     distinct_id = getattr(request.user, "distinct_id", None) or str(getattr(request.user, "uuid", ""))
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                TASKS_MCP_AGENT_RUN_START_FLAG,
+                flag,
                 distinct_id,
                 groups={"organization": str(team.organization_id), "project": str(team.uuid)},
                 only_evaluate_locally=False,
@@ -369,7 +374,7 @@ def _agent_run_enabled(request, team) -> bool:
             )
         )
     except Exception:
-        logger.exception("Failed to evaluate agent run feature flag")
+        logger.exception("Failed to evaluate feature flag %s", flag)
         return False
 
 

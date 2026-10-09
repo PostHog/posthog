@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 28 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2019,6 +2019,37 @@ export const TasksConfigAgentInstructionsCreateBody = () => zod
             ),
     })
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
+
+/**
+ * Create a task from a plain-language request and its first cloud run. The run starts in status `not_started` and stage `briefing` while the server writes the agent's instructions and picks the model, skills and PostHog tools, then it is queued and runs like any other cloud run. The response carries the task and its `latest_run`; `run_error` is set when the run could not be created.
+ * @summary Delegate a task
+ */
+export const TasksDelegateCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksDelegateCreateBodyDescriptionMax = 20000
+
+export const tasksDelegateCreateBodyReadOnlyToolsDefault = false
+
+export const TasksDelegateCreateBody = () => zod.object({
+    description: zod
+        .string()
+        .max(tasksDelegateCreateBodyDescriptionMax)
+        .describe(
+            "What the agent should do, in plain words. Keep the concrete details: names, ids, URLs, time ranges and what the result should look like. The server writes the agent's instructions from this text and picks the model, skills and PostHog tools for the run."
+        ),
+    read_only_tools: zod
+        .boolean()
+        .default(tasksDelegateCreateBodyReadOnlyToolsDefault)
+        .describe(
+            "Restrict the run to PostHog tools that only read. By default the run may be given write tools when the request asks for a change, and the run's token carries only the write scopes those tools need."
+        ),
+})
 
 /**
  * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.

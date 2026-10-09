@@ -87,6 +87,7 @@ import type {
     TaskCommentsResponseApi,
     TaskCreateApi,
     TaskCreateResponseDTOApi,
+    TaskDelegateRequestApi,
     TaskDetailDTOApi,
     TaskHandoffRequestApi,
     TaskMentionsListParams,
@@ -3014,6 +3015,27 @@ export const tasksConfigAgentInstructionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tasksAgentInstructionsApi),
+    })
+}
+
+export const getTasksDelegateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/delegate/`
+}
+
+/**
+ * Create a task from a plain-language request and its first cloud run. The run starts in status `not_started` and stage `briefing` while the server writes the agent's instructions and picks the model, skills and PostHog tools, then it is queued and runs like any other cloud run. The response carries the task and its `latest_run`; `run_error` is set when the run could not be created.
+ * @summary Delegate a task
+ */
+export const tasksDelegateCreate = async (
+    projectId: string,
+    taskDelegateRequestApi: TaskDelegateRequestApi,
+    options?: RequestInit
+): Promise<TaskCreateResponseDTOApi> => {
+    return apiMutator<TaskCreateResponseDTOApi>(getTasksDelegateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskDelegateRequestApi),
     })
 }
 

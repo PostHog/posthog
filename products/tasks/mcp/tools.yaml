@@ -444,6 +444,31 @@ tools:
                 - latest_run.scheduled_at
                 - latest_run.model
                 - latest_run.reasoning_effort
+    tasks-delegate:
+        operation: tasks_delegate_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Delegate a task to a cloud agent
+        description: >
+            Hand a job to a PostHog cloud agent from a plain-language description. The server writes the agent's
+            instructions, picks the model, the skills and the PostHog tools for the job, then starts the run. Keep the
+            concrete details in `description`: names, ids, URLs, time ranges and what the result should look like. Set
+            `read_only_tools` to forbid write tools. The response is the task with `latest_run`; the run is
+            `not_started` in stage `briefing` while the server briefs it, then it is queued and runs like any other
+            cloud run. Poll `tasks-runs-retrieve` with `latest_run.id` for status and read
+            `tasks-runs-session-logs-retrieve` for output. Check `run_error` for a queue failure. If the response is
+            lost, check the task's runs before you retry: a repeated call creates another task.
+        feature_flag: tasks-delegate
+        response:
+            exclude:
+                - latest_run.log_url
+                - latest_run.state.sandbox_connect_token
+                - latest_run.state.sandbox_url
     tasks-list:
         operation: tasks_list
         enabled: true

@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.desktop as desktop
+import products.tasks.backend.presentation.views.delegate as delegate
 import products.tasks.backend.presentation.views.config_api as config
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
@@ -28,6 +29,7 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"desktop", desktop_access.DesktopAccessViewSet, "project_desktop", ["team_id"])
     routers.projects.register(r"tasks/config", config.TasksTeamConfigViewSet, "project_tasks_config", ["team_id"])
+    routers.projects.register(r"tasks/delegate", delegate.TaskDelegateViewSet, "project_tasks_delegate", ["team_id"])
     routers.projects.register(
         r"tasks/repo_routing_rules",
         repo_routing_rules.RepoRoutingRuleViewSet,

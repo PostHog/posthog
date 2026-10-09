@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.ai_observability.backend.llm.types import StreamChunk
-from products.tasks.backend.logic.services.title_generator import _fallback_title, generate_task_title
+from products.tasks.backend.logic.services.title_generator import fallback_title, generate_task_title
 
 
 class TestTitleGenerator:
@@ -116,4 +116,4 @@ class TestFallbackTitle:
         ],
     )
     def test_fallback_title_various_inputs(self, description, expected):
-        assert _fallback_title(description) == expected
+        assert fallback_title(description) == expected

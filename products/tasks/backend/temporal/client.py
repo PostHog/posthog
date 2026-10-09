@@ -458,6 +458,27 @@ def execute_task_processing_workflow(
         )
 
 
+def execute_delegate_task_workflow(run_id: str, *, read_only: bool) -> None:
+    """Start the brief-then-dispatch workflow for a deferred delegated run. Raises on a start
+    failure so the caller can decide what the run's outcome is."""
+    from products.tasks.backend.temporal.delegate_task import (
+        DelegateTaskInput,  # noqa: PLC0415 — keeps the activity module off this import path
+    )
+
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "delegate-task",
+            DelegateTaskInput(run_id=run_id, read_only=read_only),
+            id=f"delegate-task-{run_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+    logger.info("delegate_task_workflow_started", extra={"run_id": run_id})
+
+
 def redispatch_orphaned_task_run(run_id: str) -> str:
     """Re-dispatch a run stuck in QUEUED whose create-time on_commit dispatch never fired.
 

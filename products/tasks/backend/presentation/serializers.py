@@ -5258,3 +5258,23 @@ class DesktopUsageSerializer(serializers.Serializer):
     is_pro = serializers.BooleanField()
     code_usage_subscribed = serializers.BooleanField()
     billing_period_end = serializers.CharField(allow_null=True)
+
+
+class TaskDelegateRequestSerializer(serializers.Serializer):
+    description = serializers.CharField(
+        max_length=20000,
+        help_text=(
+            "What the agent should do, in plain words. Keep the concrete details: names, ids, URLs, "
+            "time ranges and what the result should look like. The server writes the agent's instructions "
+            "from this text and picks the model, skills and PostHog tools for the run."
+        ),
+    )
+    read_only_tools = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Restrict the run to PostHog tools that only read. By default the run may be given write tools "
+            "when the request asks for a change, and the run's token carries only the write scopes those "
+            "tools need."
+        ),
+    )
