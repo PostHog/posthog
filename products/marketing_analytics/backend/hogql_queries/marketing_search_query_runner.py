@@ -72,6 +72,18 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             database=self.hogql_database,
         )
 
+    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
+                any(ad_group_criterion_keyword_text) AS keyword,
+                any(ad_group_criterion_keyword_match_type) AS match_type
+            FROM {keywords}
+            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
+            """,
+            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
+        )
+
     def _placement_fields(self, source: MarketingAnalyticsSearchSource) -> dict[str, ast.Expr]:
         table = self.hogql_database.get_table(source.statsTable.split("."))
         fields = (
@@ -87,18 +99,6 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 else value
             )
         return result
-
-    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
-        return parse_select(
-            """
-            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
-                any(ad_group_criterion_keyword_text) AS keyword,
-                any(ad_group_criterion_keyword_match_type) AS match_type
-            FROM {keywords}
-            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
-            """,
-            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
-        )
 
     def _source_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
