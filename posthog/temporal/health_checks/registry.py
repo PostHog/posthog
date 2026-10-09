@@ -29,8 +29,9 @@ HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.path_cleaning_suggestions",
     "products.error_tracking.backend.temporal.health_checks.missing_source_maps",
     "products.feature_flags.backend.temporal.health_checks.stale_flags",
-    "products.product_analytics.backend.temporal.health_checks.internal_traffic",
-    "products.product_analytics.backend.temporal.health_checks.stopped_insight_events",
+    "products.product_analytics.backend.temporal.health_checks.non_user_traffic",
+    "products.product_analytics.backend.temporal.health_checks.duplicate_pageviews",
+    "products.product_analytics.backend.temporal.health_checks.stopped_funnel_steps",
 ]
 
 _registry_loaded = False
