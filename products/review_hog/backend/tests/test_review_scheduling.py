@@ -142,15 +142,11 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
 
 
 @pytest.mark.parametrize(
-    "changes,expect_pending",
-    [
-        ({"resolve_comments": False}, False),
-        ({"resolve_comments": None}, True),
-        ({"dedupe_against_pr_comments": True}, True),
-    ],
+    "resolve_comments,dedupe_against_pr_comments,expect_pending",
+    [(False, False, False), (None, False, True), (False, True, True)],
 )
 def test_a_repeated_request_waits_when_it_changes_what_the_review_does(
-    changes: dict[str, object], expect_pending: bool
+    resolve_comments: bool | None, dedupe_against_pr_comments: bool, expect_pending: bool
 ) -> None:
     active = ReviewPRWorkflowInputs(
         team_id=1,
@@ -165,7 +161,7 @@ def test_a_repeated_request_waits_when_it_changes_what_the_review_does(
         acting_user_id=1,
         resolve_comments=False,
     )
-    request = replace(active, **changes)
+    request = replace(active, resolve_comments=resolve_comments, dedupe_against_pr_comments=dedupe_against_pr_comments)
     queue = ReviewRequestQueue(active=active)
 
     queue.add(request)
