@@ -28,6 +28,12 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
+        self.enterContext(
+            patch(
+                "posthog.models.integration.GitHubIntegration.list_all_cached_repositories",
+                return_value=CACHED_REPOSITORIES,
+            )
+        )
         self._set_level(OrganizationMembership.Level.ADMIN)
         self.other_team = Team.objects.create(organization=self.organization, name="Other project")
         for team in (self.team, self.other_team):
@@ -164,6 +170,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         [
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
+            ("unknown_to_the_installation", {**WEB, "full_name": "example-org/secret", "selected": True}, 400),
+            ("id_of_another_repository", {**WEB, "github_repo_id": 502, "selected": True}, 400),
+            (
+                "reserve_another_repositorys_id",
+                {**WEB, "full_name": "example-org/not-yet-created", "github_repo_id": 503, "flash_for": "off"},
+                400,
+            ),
         ]
     )
     def test_repository_writes_keep_rows_meaningful(self, _name: str, body: dict, expected_status: int) -> None:

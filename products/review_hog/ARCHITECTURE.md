@@ -835,7 +835,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   webhook prefilter (`OwnedRepositoryPrefilter`) caches a per-installation summary and fails open. Repository
   lookups match GitHub's repository id first and then the name, and backfill both. The repository list in the
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
-  core `installation_repositories` webhook keeps fresh.
+  core `installation_repositories` webhook keeps fresh. A repository write must match a name and id in that list,
+  so a project cannot reserve a repository id the installation does not report.
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret).
   The project that owns the repository runs and publishes the review, but only when that project is listed in
   `REVIEWHOG_TEAM_IDS`, because the shared secret is not tied to a project. `REVIEWHOG_RUN_USER_ID` (optional) applies

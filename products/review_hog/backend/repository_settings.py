@@ -5,6 +5,7 @@ The viewsets stay thin and call these classes. Every write keeps the ownership r
 repositories of an installation, and a project only stores what differs from what it inherits.
 """
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 from django.db import IntegrityError, models, transaction
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -31,6 +32,8 @@ from products.review_hog.backend.models import (
     ReviewUserRepositoryChoice,
 )
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef, find_matching_row, resolve_owner
+
+logger = logging.getLogger(__name__)
 
 
 class Unset:
@@ -108,6 +111,27 @@ class ProjectRepositories:
         if integration is None:
             raise RepositorySettingsError("This project has no GitHub connection for that installation.")
         return integration
+
+    def verified_ref(self, ref: RepositoryRef) -> RepositoryRef:
+        """The repository as the installation reports it. A client cannot store a pair GitHub does not know."""
+        integration = self.integration_for(ref.installation_id)
+        try:
+            repositories = GitHubIntegration(integration).list_all_cached_repositories()
+        except Exception:
+            # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
+            logger.warning("review_hog_repository_write_list_failed", exc_info=True)
+            raise RepositorySettingsError("GitHub did not return the repository list. Try again shortly.")
+        for repository in repositories:
+            github_repo_id = repository.get("id") if isinstance(repository.get("id"), int) else None
+            full_name = str(repository.get("full_name") or "")
+            if full_name.lower() != ref.full_name.lower():
+                continue
+            if ref.github_repo_id is not None and ref.github_repo_id != github_repo_id:
+                continue
+            return RepositoryRef(
+                installation_id=ref.installation_id, github_repo_id=github_repo_id, full_name=full_name
+            )
+        raise RepositorySettingsError(f"The GitHub installation has no repository {ref.full_name} with that id.")
 
     def claim_for(self, installation_id: str) -> ReviewInstallationClaim | None:
         return ReviewInstallationClaim.objects.for_team(self.team_id).filter(installation_id=installation_id).first()
@@ -197,7 +221,7 @@ class ProjectRepositories:
         flash_for: str | None | Unset = UNSET,
     ) -> RepositoryWriteResult:
         """Include or remove a repository, or set or clear its exception. Omitted fields keep their value."""
-        self.integration_for(ref.installation_id)
+        ref = self.verified_ref(ref)
         with transaction.atomic():
             row = find_matching_row(ref, RepositoryOwnership.rows_for(ref))
             if row is not None and row.team_id != self.team_id:
