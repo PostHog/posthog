@@ -47,6 +47,7 @@ import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
@@ -131,10 +132,10 @@ export class PluginServer implements NodeServer {
             cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
-        // Build typed deps objects for consumers. `emailValidationValkey` is null in
-        // the shared deps and set only by the cyclotron workers that run the hogflow
-        // email action (see `withEmailValidationValkey` at their loaders below) — no
-        // other consumer touches the SES Valkey.
+        // Build typed deps objects for consumers. `emailValidationValkey` and `frequencyCapValkey`
+        // are null in the shared deps and set only by the cyclotron workers that run the hogflow
+        // email action (see `withEmailActionValkeys` at their loaders below) — no
+        // other consumer touches the SES or frequency cap Valkey.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -149,6 +150,7 @@ export class PluginServer implements NodeServer {
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
                   emailValidationValkey: null,
+                  frequencyCapValkey: null,
               }
             : undefined
 
@@ -300,11 +302,7 @@ export class PluginServer implements NodeServer {
                 // instances naturally; locally we'd silently double-process when
                 // both capabilities are enabled in the same process.
                 const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(
-                    this.config,
-                    this.withEmailValidationValkey(cdpDeps!),
-                    queue
-                )
+                const worker = new CdpCyclotronWorkerHogFlow(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
             })
@@ -364,7 +362,7 @@ export class PluginServer implements NodeServer {
                           throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
                       })
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailValidationValkey(cdpDeps!), queue)
+                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
             })
@@ -450,9 +448,15 @@ export class PluginServer implements NodeServer {
      * for the SES rate limiter shouldn't hold connections from pods that never validate.
      * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
+     *
+     * Also grants the dedicated frequency cap Valkey pool, which the same send path checks.
      */
-    private withEmailValidationValkey(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
-        return { ...deps, emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation') }
+    private withEmailActionValkeys(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
+        return {
+            ...deps,
+            emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
+            frequencyCapValkey: createFrequencyCapValkeyPool(this.config),
+        }
     }
 
     private getCleanupResources(): CleanupResources {
