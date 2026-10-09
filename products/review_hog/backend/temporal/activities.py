@@ -294,7 +294,7 @@ class ResolveActingUserResult:
     # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
     # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
     # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
-    # because recorded workflow histories carry it.
+    # because recorded workflow histories carry it and their replay still reads it.
     review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False

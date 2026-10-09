@@ -544,6 +544,18 @@ class ReviewPRWorkflow:
         # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
         # flip gates). Inbox re-checks the receiver-side gate here for snapshot-at-resolve
         # consistency. A label always runs, and manual stays ungated.
+        # Histories from before the patch recorded the label opt-out, so they replay its early return.
+        if (
+            inputs.trigger_source == TRIGGER_LABEL
+            and not workflow.patched("reviewhog-label-always-runs-2026-10")
+            and inputs.acting_user_id is None
+            and not acting.review_labeled_prs
+        ):
+            workflow.logger.info(
+                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
+                "turned off; skipping review"
+            )
+            return report_id
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
