@@ -121,7 +121,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
                 assert prepared and finished and not failed
 
     async def test_judging_wait_bounds_sandbox_evaluation_workflows(self) -> None:
-        expected_minutes = 5107
+        expected_minutes = 4437
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
         started = now
@@ -166,7 +166,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=5192)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=4522)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))
@@ -240,28 +240,36 @@ class TestScoutTrialComparisonSerializer(SimpleTestCase):
 
 
 class TestScoutTrialComparisonStorage(SimpleTestCase):
-    @parameterized.expand(["empty", "populated", "failure"])
+    @parameterized.expand(["empty", "populated", "next_page", "invalid_page", "failure"])
     def test_history_listing_is_bounded_and_does_not_hide_storage_failures(self, scenario: str) -> None:
         prefix = "signals/scout-trials/2/comparison-history/17/example/"
+        start_after = prefix + "example.json" if scenario in {"next_page", "invalid_page"} else None
         client = MagicMock()
         client.list_objects_v2.return_value = (
-            {"Contents": [{"Key": prefix + "example.json"}]} if scenario == "populated" else {}
+            {"Contents": [{"Key": prefix + "example.json"}]} if scenario in {"populated", "invalid_page"} else {}
         )
+        if scenario == "next_page":
+            client.list_objects_v2.return_value = {"Contents": [{"Key": prefix + "next.json"}]}
         if scenario == "failure":
             client.list_objects_v2.side_effect = RuntimeError("Synthetic private storage failure")
         with patch.object(object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(client)):
-            if scenario == "failure":
+            if scenario in {"failure", "invalid_page"}:
                 with self.assertRaisesMessage(
                     object_storage.ObjectStorageError, "history could not be loaded"
                 ) as failure:
-                    list_comparison_history_keys(prefix, 10)
+                    list_comparison_history_keys(prefix, 10, start_after=start_after)
                 assert "private" not in str(failure.exception)
             else:
-                assert list_comparison_history_keys(prefix, 10) == (
-                    [prefix + "example.json"] if scenario == "populated" else []
+                assert list_comparison_history_keys(prefix, 10, start_after=start_after) == (
+                    [prefix + "example.json"]
+                    if scenario == "populated"
+                    else [prefix + "next.json"]
+                    if scenario == "next_page"
+                    else []
                 )
         assert client.list_objects_v2.call_args.kwargs["MaxKeys"] == 11
         assert client.list_objects_v2.call_args.kwargs["Prefix"] == prefix
+        assert client.list_objects_v2.call_args.kwargs.get("StartAfter") == start_after
 
     @parameterized.expand(["comparison", "evaluation"])
     def test_manual_and_automatic_evaluations_cannot_claim_the_same_identity(self, first_kind: str) -> None:

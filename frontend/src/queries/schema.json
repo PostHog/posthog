@@ -13098,6 +13098,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -29963,6 +29966,10 @@
                 },
                 "start": {
                     "$ref": "#/definitions/integer"
+                },
+                "url": {
+                    "description": "An https page with more detail about the notice. The editor links to it from the notice's hover.",
+                    "type": "string"
                 }
             },
             "required": ["message"],
@@ -36711,6 +36718,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -36881,6 +36891,9 @@
             "additionalProperties": false,
             "properties": {
                 "keywordTable": {
+                    "type": "string"
+                },
+                "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
@@ -45200,6 +45213,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
                         },
                         "posthogAttributionMode": {
                             "anyOf": [
