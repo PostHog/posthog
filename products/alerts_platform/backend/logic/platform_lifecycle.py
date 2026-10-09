@@ -320,9 +320,9 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
-_CHECK_STATUSES: Final = frozenset(
-    {PlatformAlertConfiguration.CheckStatus.ERRORED.value, PlatformAlertConfiguration.CheckStatus.BROKEN.value}
-)
+_CHECK_STATUSES: Final = frozenset(PlatformAlertConfiguration.CheckStatus.values) - {
+    PlatformAlertConfiguration.CheckStatus.OK.value
+}
 
 
 def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> str:

@@ -16,7 +16,6 @@ the shared machine configured with this source's policy, not from the logs produ
 
 import json
 import time
-import hashlib
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from itertools import batched
@@ -34,9 +33,7 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
-    CheckFailure,
     GroupingMode,
-    GroupOutcome,
     InstanceCheckState,
     MuteReason,
     PlatformAlertCheckInput,
@@ -45,7 +42,13 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.grouping import GroupObservation, decide_groups
+from products.alerts_platform.backend.facade.grouping import (
+    GroupObservation,
+    bounded_grouping_key,
+    decide_groups,
+    is_hashed_grouping_key,
+    muted_value,
+)
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
@@ -328,39 +331,17 @@ def _recorded(
     failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so every path states the firing the same way."""
-    firing_episode = decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY)
-    failure = (
-        CheckFailure(
-            kind=kind,
-            new_state=outcome.new_state.value,
-            notified=notified,
-            firing_episode=firing_episode,
-            muted_notification=muted_notification,
-        )
-        if failed
-        else None
-    )
-    groups = (
-        ()
-        if failed
-        else (
-            GroupOutcome(
-                grouping_key="",
-                kind=kind,
-                new_state=outcome.new_state.value,
-                notified=notified,
-                firing_episode=firing_episode,
-                value=value,
-                muted_notification=muted_notification,
-            ),
-        )
-    )
-    return PlatformAlertOutcome(
+    return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
         evaluation_key=evaluation_key,
         consecutive_failures=outcome.consecutive_failures,
-        groups=groups,
-        failure=failure,
+        kind=kind,
+        new_state=outcome.new_state.value,
+        notified=notified,
+        failed=failed,
+        firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
+        value=value,
+        muted_notification=muted_notification,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
@@ -388,7 +369,7 @@ def _delivery(
         value=value,
         error_message=outcome.error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=_muted_value(outcome),
+        muted_notification=muted_value(outcome),
         disable=outcome.disable,
         failed=failed,
     )
@@ -403,7 +384,6 @@ def _request(
     moves: Mapping[str, tuple[AlertState, AlertState]],
     *,
     sends_messages: bool,
-    overflowed: int = 0,
 ) -> AlertDeliveryRequest | None:
     """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
 
@@ -434,16 +414,12 @@ def _request(
         event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
-        overflowed=overflowed,
+        overflowed=recorded.overflowed,
     )
 
 
 def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[str, tuple[AlertState, AlertState]]:
     return {"": (AlertState(check.instance().state), outcome.new_state)}
-
-
-def _muted_value(outcome: AlertCheckOutcome) -> str:
-    return "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
 
 
 def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
@@ -612,21 +588,14 @@ def _evaluate_cohort(
     return decided
 
 
-# A grouping key is a stored column of at most 255 characters, so a longer label set is hashed.
-_MAX_GROUPING_KEY_LENGTH: Final = 255
-
-
 def grouping_key_of(labels: dict[str, str]) -> str:
-    """The instance key for one group's label values. Stable across checks, so a group keeps its row."""
-    key = json.dumps(labels, sort_keys=True, separators=(",", ":"))
-    if len(key) <= _MAX_GROUPING_KEY_LENGTH:
-        return key
-    return f"sha256:{hashlib.sha256(key.encode()).hexdigest()}"
+    """The instance key for one group's label values."""
+    return bounded_grouping_key(json.dumps(labels, sort_keys=True, separators=(",", ":")))
 
 
 def _labels_of(grouping_key: str) -> dict[str, str] | None:
     """The labels `grouping_key_of` encoded, or None for a hashed key, which keeps no labels."""
-    if grouping_key.startswith("sha256:"):
+    if is_hashed_grouping_key(grouping_key):
         return None
     try:
         labels = json.loads(grouping_key)
@@ -692,30 +661,33 @@ def _evaluate_grouped(
     # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
     # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
     truncated = len(result.groups) >= limit
-    absent = [key for key in open_keys if key not in counts and not (truncated and _labels_of(key) is None)]
-    observations: list[GroupObservation] = []
-    for key in [*counts, *absent]:
-        group = counts.get(key)
-        buckets = group.counts if group is not None else result.zero_counts()
+
+    def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
         current_breached, *prior_breached = _derive_breaches(
             buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
         ) or (False,)
-        observations.append(
-            GroupObservation(
-                grouping_key=key,
-                current_breached=current_breached,
-                prior_breached=tuple(prior_breached),
-                value=float(buckets[-1].count) if buckets else 0.0,
-                labels=group.labels if group is not None else (_labels_of(key) or {}),
-            )
+        return GroupObservation(
+            grouping_key=key,
+            current_breached=current_breached,
+            prior_breached=tuple(prior_breached),
+            value=float(buckets[-1].count) if buckets else 0.0,
+            labels=labels,
         )
+
+    def absent(key: str) -> GroupObservation | None:
+        labels = _labels_of(key)
+        if truncated and labels is None:
+            return None
+        return observe(key, result.zero_counts(), labels or {})
+
     decision = decide_groups(
         check,
-        observations,
+        [observe(key, group.counts, group.labels) for key, group in counts.items()],
         snapshot_of=lambda instance, prior: _snapshot(check, prior, instance),
         policy=PLATFORM_LOGS_ALERT_POLICY,
         now=now,
         muted=muted,
+        absent=absent,
     )
     for index, verdict in enumerate(decision.verdicts):
         _record_check_metrics(
@@ -728,13 +700,10 @@ def _evaluate_grouped(
             grouping_key=verdict.group.grouping_key,
             record_lag=index == 0,
         )
-    recorded = PlatformAlertOutcome(
+    recorded = decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, date_to),
-        consecutive_failures=0,
-        groups=tuple(verdict.group for verdict in decision.verdicts),
         query_duration_ms=result.query_duration_ms,
-        overflowed=decision.overflowed,
     )
     return recorded, _request(
         check,
@@ -744,7 +713,6 @@ def _evaluate_grouped(
             for verdict in decision.verdicts
         },
         sends_messages=any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts),
-        overflowed=recorded.overflowed,
     )
 
 

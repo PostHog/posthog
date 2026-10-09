@@ -43,9 +43,7 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
-    CheckFailure,
     GroupingMode,
-    GroupOutcome,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -53,7 +51,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.grouping import GroupObservation, decide_groups
+from products.alerts_platform.backend.facade.grouping import (
+    GroupObservation,
+    bounded_grouping_key,
+    decide_groups,
+    is_hashed_grouping_key,
+)
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     AlertSnapshot,
@@ -295,7 +298,6 @@ def _broken(
         error_message=message,
         skip=SkipReason.BROKEN_CONFIG,
         disable=True,
-        failed=True,
     )
 
 
@@ -319,6 +321,9 @@ def _query_failed(
         skip=SkipReason.QUERY_FAILED,
     )
 
+
+# Skips that mean the check could not evaluate, as opposed to a check the source chose not to run.
+_FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CONFIG})
 
 # The one label a grouped insight alert splits on: each breakdown value is a group.
 BREAKDOWN_GROUPING_KEY = "breakdown"
@@ -344,36 +349,30 @@ def _decide_grouped(
         return _skipped(check, snapshot, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
-    returned = {series.label for series in evaluated}
-    observations = [
-        GroupObservation(
-            grouping_key=series.label,
-            current_breached=bool(series.result.breaches),
-            value=series.result.value,
-            labels={BREAKDOWN_GROUPING_KEY: series.label},
-        )
-        for series in evaluated
-    ] + [
-        GroupObservation(grouping_key=label, current_breached=False, labels={BREAKDOWN_GROUPING_KEY: label})
-        for label in check.open_keys()
-        if label not in returned
-    ]
     decision = decide_groups(
         check,
-        observations,
+        [
+            GroupObservation(
+                grouping_key=bounded_grouping_key(series.label),
+                current_breached=bool(series.result.breaches),
+                value=series.result.value,
+                labels={BREAKDOWN_GROUPING_KEY: series.label},
+            )
+            for series in evaluated
+        ],
         snapshot_of=lambda instance, _prior: _snapshot(check, instance),
         policy=INSIGHT_ALERT_POLICY,
         now=now,
+        absent=lambda key: GroupObservation(
+            grouping_key=key,
+            current_breached=False,
+            labels={} if is_hashed_grouping_key(key) else {BREAKDOWN_GROUPING_KEY: key},
+        ),
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
-    return PlatformAlertOutcome(
-        configuration_id=check.id,
-        evaluation_key=_evaluation_key(check, now),
-        consecutive_failures=0,
-        groups=tuple(verdict.group for verdict in decision.verdicts),
-        query_duration_ms=duration_ms,
-        overflowed=decision.overflowed,
+    return decision.as_outcome(
+        configuration_id=check.id, evaluation_key=_evaluation_key(check, now), query_duration_ms=duration_ms
     )
 
 
@@ -400,7 +399,6 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
-        failed=skip == SkipReason.QUERY_FAILED,
     )
 
 
@@ -442,36 +440,34 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
-    failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
     _record_metrics(notification, check.instance().state, outcome.new_state.value, skip=skip)
-    kind = NOTIFICATION_EVENT_KINDS[notification]
-    firing_episode = decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY)
-    return PlatformAlertOutcome(
+    failed = skip in _FAILED_CHECKS
+    skipped = skip is not None and not failed
+    if check.grouping.mode != GroupingMode.SINGLE and not failed:
+        # A grouped check that ran reports through `_decide_grouped`; this one evaluated no group.
+        return PlatformAlertOutcome(
+            configuration_id=check.id,
+            evaluation_key=_evaluation_key(check, now),
+            consecutive_failures=outcome.consecutive_failures,
+            error_message=error_message,
+            disable=disable,
+            skipped=skipped,
+        )
+    return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
         consecutive_failures=outcome.consecutive_failures,
-        groups=()
-        if failed or check.grouping.mode != GroupingMode.SINGLE
-        else (
-            GroupOutcome(
-                grouping_key="",
-                kind=kind,
-                new_state=outcome.new_state.value,
-                notified=notified,
-                firing_episode=firing_episode,
-                value=value,
-            ),
-        ),
-        failure=CheckFailure(
-            kind=kind, new_state=outcome.new_state.value, notified=notified, firing_episode=firing_episode
-        )
-        if failed
-        else None,
+        kind=NOTIFICATION_EVENT_KINDS[notification],
+        new_state=outcome.new_state.value,
+        notified=notified,
+        failed=failed,
+        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+        value=value,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
-        skipped=skip is not None and not failed,
+        skipped=skipped,
     )

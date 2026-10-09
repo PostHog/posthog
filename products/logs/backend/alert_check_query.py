@@ -133,6 +133,21 @@ def _period_count_columns(ranges: list[tuple[dt.datetime, dt.datetime]]) -> list
     ]
 
 
+def _run_alert_query(
+    team: Team, query: ast.SelectQuery, *, ch_user: ClickHouseUser, settings: HogQLGlobalSettings
+) -> HogQLQueryResponse:
+    return execute_hogql_query(
+        query_type="alert_check",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        ch_user=ch_user,
+        settings=settings,
+        limit_context=LimitContext.QUERY,
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+    )
+
+
 def _bounded_settings(max_execution_time: int) -> HogQLGlobalSettings:
     # Throw rather than break: a partial count could resolve an alert that is actually breaching,
     # and the caller already handles a failed query.
@@ -568,16 +583,7 @@ class BatchedAlertCheckQuery:
         )
 
     def _run_query(self, query: ast.SelectQuery) -> HogQLQueryResponse:
-        return execute_hogql_query(
-            query_type="alert_check",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-            ch_user=self._ch_user,
-            settings=self._settings,
-            limit_context=LimitContext.QUERY,
-            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
-        )
+        return _run_alert_query(self.team, query, ch_user=self._ch_user, settings=self._settings)
 
     def _tag(self) -> None:
         # `QueryTags` doesn't allow per-batch custom fields, so we tag the first
@@ -660,16 +666,7 @@ class GroupedAlertCheckQuery:
         query = self._build_query(ranges)
 
         start_ms = time.monotonic_ns() // 1_000_000
-        response = execute_hogql_query(
-            query_type="alert_check",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-            ch_user=self._ch_user,
-            settings=self._settings,
-            limit_context=LimitContext.QUERY,
-            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
-        )
+        response = _run_alert_query(self.team, query, ch_user=self._ch_user, settings=self._settings)
         duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
 
         width = len(self.group_by)

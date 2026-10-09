@@ -77,7 +77,11 @@ class HeldTransport(RecordingTransport):
 
 
 def _request(
-    team_id: int, *, sends_messages: bool = True, incident_actions: dict[str, IncidentAction] | None = None
+    team_id: int,
+    *,
+    sends_messages: bool = True,
+    incident_actions: dict[str, IncidentAction] | None = None,
+    overflowed: int = 0,
 ) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
@@ -89,6 +93,7 @@ def _request(
         sends_messages=sends_messages,
         incident_actions=incident_actions or {},
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
+        overflowed=overflowed,
     )
 
 
@@ -133,6 +138,7 @@ class TestDeliverEvaluation(APIBaseTest):
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
+        overflowed: int = 0,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -152,7 +158,12 @@ class TestDeliverEvaluation(APIBaseTest):
             ),
         ):
             return deliver_evaluation(
-                _request(self.team.id, sends_messages=sends_messages, incident_actions=incident_actions)
+                _request(
+                    self.team.id,
+                    sends_messages=sends_messages,
+                    incident_actions=incident_actions,
+                    overflowed=overflowed,
+                )
             )
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
@@ -178,12 +189,16 @@ class TestDeliverEvaluation(APIBaseTest):
             _transition(AlertEventKind.RESOLVED, "search"),
         )
 
-        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]})
+        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]}, overflowed=3)
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
             "Log alert 'API errors' is firing",
             "Log alert 'API errors' is resolved",
         ]
+        overflow_notices = [
+            detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
+        ]
+        assert len(overflow_notices) == 1
 
     def test_a_delivery_that_exists_only_for_its_incident_sends_no_message(self) -> None:
         # Even a kind its destinations subscribe to reaches none of them when the source announced nothing.
