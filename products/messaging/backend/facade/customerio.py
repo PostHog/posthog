@@ -4,7 +4,7 @@ from typing import IO, Any
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.services import customerio_config
+from products.messaging.backend.services import customerio_config, customerio_webhook
 
 
 class CustomerIOConfigConflict(Exception):
@@ -97,3 +97,33 @@ def remove_track_config(team_id: int) -> None:
 def import_preferences_csv(team_id: int, csv_file: IO[bytes], created_by_id: int | None) -> dict[str, Any]:
     """Import recipient preferences from a Customer.io CSV export. Returns the result as the API serves it."""
     return customerio_config.import_preferences_csv(team_id, csv_file, created_by_id)
+
+
+@frozen
+class WebhookSigningSecret:
+    secret: str | None
+    integration_id: int
+
+
+def webhook_signing_secret(team_id: int) -> WebhookSigningSecret | None:
+    """The inbound webhook's signing secret, or None when the team has not enabled the webhook."""
+    found = customerio_webhook.signing_secret(team_id)
+    if found is None:
+        return None
+    secret, integration_id = found
+    return WebhookSigningSecret(secret=secret, integration_id=integration_id)
+
+
+def record_global_unsubscribe(team_id: int, email: str) -> None:
+    """Opt the recipient out of all marketing, unless they already are."""
+    customerio_webhook.global_unsubscribe(team_id, email)
+
+
+def record_global_resubscribe(team_id: int, email: str) -> None:
+    """Clear the recipient's global opt-out, when they have one."""
+    customerio_webhook.global_resubscribe(team_id, email)
+
+
+def record_topic_preferences(team_id: int, email: str, topics: dict[str, Any]) -> None:
+    """Map Customer.io topics onto the imported categories and store the changed statuses."""
+    customerio_webhook.apply_topic_preferences(team_id, email, topics)
