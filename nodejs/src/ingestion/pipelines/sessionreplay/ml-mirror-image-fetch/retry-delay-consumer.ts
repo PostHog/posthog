@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -37,7 +37,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
  */
 export class RetryDelayConsumer {
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly options: RetryDelayConsumerOptions
     ) {
         if (!Number.isFinite(options.delayMs) || options.delayMs <= 0) {

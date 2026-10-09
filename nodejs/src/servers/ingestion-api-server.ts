@@ -28,7 +28,7 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -278,7 +278,8 @@ export class IngestionApiServer implements NodeServer {
         })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+        this.ingestionProducerRegistry = await buildIngestionProducerRegistry(
+            this.config.KAFKA_CLIENT_RACK,
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
