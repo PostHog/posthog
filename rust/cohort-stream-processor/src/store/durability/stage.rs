@@ -312,7 +312,7 @@ pub(super) fn parent_dir(path: &Path) -> &Path {
     }
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(super) fn sync_dir(dir: &Path) -> io::Result<()> {
     File::open(dir)?.sync_all()
 }
 
