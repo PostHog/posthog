@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "kind": {
+            "description": "Only return suggestions of this kind.\n\n* `certify` - Certify\n* `deprecate` - Deprecate\n* `materialize` - Materialize",
+            "enum": ["certify", "deprecate", "materialize"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "status": {
+            "description": "Only return suggestions in this status.\n\n* `proposed` - Proposed\n* `accepted` - Accepted\n* `dismissed` - Dismissed\n* `expired` - Expired\n* `auto_resolved` - Auto-resolved",
+            "enum": ["proposed", "accepted", "dismissed", "expired", "auto_resolved"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
