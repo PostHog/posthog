@@ -1,6 +1,5 @@
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
-import { Flex } from "@radix-ui/themes";
 import { useState } from "react";
 import { useLoopBuilderTask } from "../hooks/useLoopBuilderTask";
 
@@ -36,8 +35,8 @@ export function LoopBuilderComposer({
   };
 
   return (
-    <Flex direction="column" gap="2">
-      <Flex gap="2" wrap="wrap">
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
         {chips.map((chip) => (
           <button
             key={chip.label}
@@ -49,12 +48,8 @@ export function LoopBuilderComposer({
             {chip.label}
           </button>
         ))}
-      </Flex>
-      <Flex
-        direction="column"
-        gap="2"
-        className="rounded-(--radius-4) border border-border bg-(--color-panel-solid) p-3 transition-colors focus-within:border-(--gray-8)"
-      >
+      </div>
+      <div className="flex flex-col gap-2 rounded-(--radius-4) border border-border bg-(--color-panel-solid) p-3 transition-colors focus-within:border-(--gray-8)">
         <textarea
           value={prompt}
           rows={2}
@@ -73,7 +68,7 @@ export function LoopBuilderComposer({
             }
           }}
         />
-        <Flex align="center" justify="between" gap="3">
+        <div className="flex items-center justify-between gap-3">
           <span className="text-[11px] text-gray-9">
             An agent builds the loop with you, then creates it on your
             confirmation
@@ -88,8 +83,8 @@ export function LoopBuilderComposer({
           >
             <ArrowUpIcon size={13} weight="bold" />
           </Button>
-        </Flex>
-      </Flex>
-    </Flex>
+        </div>
+      </div>
+    </div>
   );
 }
