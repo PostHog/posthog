@@ -199,6 +199,7 @@ the row lists both.
 | checkly                          | HTTP                        | requests                                                        | ✅                          |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
+| chess_com                        | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
 | cisco_meraki                     | HTTP                        | requests                                                        | ✅                          |
 | clarifai                         | HTTP                        | requests                                                        | ✅                          |
@@ -1380,6 +1381,7 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
+- rewardful
 - ringcentral
 - rocket_chat
 - rocket_matter
@@ -1495,6 +1497,7 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
+- userback
 - uservoice
 - vanta
 - vespa

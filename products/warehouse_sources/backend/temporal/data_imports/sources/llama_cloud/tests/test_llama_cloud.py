@@ -222,6 +222,56 @@ class TestLlamaCloudTransport:
             ]
         ]
 
+    def test_get_rows_extraction_runs_fans_out_over_agents(self) -> None:
+        session = FakeSession(
+            [
+                _page([{"id": "agent-1"}, {"id": "agent-2"}], next_page_token="agents-2"),
+                _page([{"id": "agent-3"}]),
+                {"items": [{"id": "run-1", "status": "SUCCESS", "data": {"total": 42}}], "total": 2},
+                {"items": [{"id": "run-2", "status": "ERROR", "extraction_metadata": {"x": 1}}], "total": 2},
+                {"items": [], "total": 0},
+                {"items": [{"id": "run-3", "status": "PENDING", "file": {"name": "doc.pdf"}}], "total": 1},
+            ]
+        )
+        manager = _make_manager()
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("llx-test", "na", "extraction_runs", MagicMock(), manager))
+
+        assert batches == [
+            [{"id": "run-1", "status": "SUCCESS"}],
+            [{"id": "run-2", "status": "ERROR"}],
+            [{"id": "run-3", "status": "PENDING"}],
+        ]
+        assert session.calls[0][0] == "https://api.cloud.llamaindex.ai/api/v1/beta/extraction-agents"
+        assert session.calls[1][1]["page_token"] == "agents-2"
+        assert [params for _, params in session.calls[2:]] == [
+            {"extraction_agent_id": "agent-1", "skip": 0, "limit": 100},
+            {"extraction_agent_id": "agent-1", "skip": 1, "limit": 100},
+            {"extraction_agent_id": "agent-2", "skip": 0, "limit": 100},
+            {"extraction_agent_id": "agent-3", "skip": 0, "limit": 100},
+        ]
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            LlamaCloudResumeConfig(parent_id="agent-1", skip=1),
+            LlamaCloudResumeConfig(parent_id="agent-2"),
+            LlamaCloudResumeConfig(parent_id="agent-3"),
+        ]
+
+    def test_get_rows_extraction_runs_resumes_from_saved_agent_and_skip(self) -> None:
+        session = FakeSession(
+            [
+                _page([{"id": "agent-1"}, {"id": "agent-2"}]),
+                {"items": [{"id": "run-5"}], "total": 6},
+            ]
+        )
+        manager = _make_manager(resume_state=LlamaCloudResumeConfig(parent_id="agent-2", skip=5))
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("llx-test", "na", "extraction_runs", MagicMock(), manager))
+
+        assert batches == [[{"id": "run-5"}]]
+        assert session.calls[1][1] == {"extraction_agent_id": "agent-2", "skip": 5, "limit": 100}
+
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:
         session = MagicMock()

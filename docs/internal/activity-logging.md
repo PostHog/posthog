@@ -145,6 +145,10 @@ An explicit replacement value can be stored as a non-secret input.
 Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
 Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
 
+New browser configuration builds leave out a site function while one of its secret values would reach the browser.
+That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
