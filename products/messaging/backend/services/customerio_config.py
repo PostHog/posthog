@@ -2,10 +2,17 @@ from typing import IO, Any
 
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
+
+
+@frozen
+class SavedConfig:
+    enabled: bool
+    has_credentials: bool
 
 
 class ConfigConflict(Exception):
@@ -109,7 +116,7 @@ def remove_app_config(team_id: int) -> None:
 
 def save_webhook_config(
     team_id: int, signing_secret: str | None, enabled: bool, created_by_id: int | None
-) -> tuple[bool, bool]:
+) -> SavedConfig:
     integration = Integration.objects.filter(team_id=team_id, kind="customerio-webhook").first()
 
     if integration and signing_secret:
@@ -132,7 +139,10 @@ def save_webhook_config(
     config.webhook_enabled = enabled
     config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
-    return enabled, bool(integration and integration.sensitive_config.get("webhook_signing_secret"))
+    return SavedConfig(
+        enabled=enabled,
+        has_credentials=bool(integration and integration.sensitive_config.get("webhook_signing_secret")),
+    )
 
 
 def remove_webhook_config(team_id: int) -> None:
@@ -148,7 +158,7 @@ def remove_webhook_config(team_id: int) -> None:
 
 def save_track_config(
     team_id: int, site_id: str | None, api_key: str | None, region: str, enabled: bool, created_by_id: int | None
-) -> tuple[bool, bool]:
+) -> SavedConfig:
     has_new_creds = bool(site_id and api_key)
     integration = Integration.objects.filter(team_id=team_id, kind="customerio-track").first()
 
@@ -173,8 +183,11 @@ def save_track_config(
     config.track_enabled = enabled
     config.save(update_fields=["track_integration", "track_enabled"])
 
-    return enabled, bool(
-        integration and integration.sensitive_config.get("site_id") and integration.sensitive_config.get("api_key")
+    return SavedConfig(
+        enabled=enabled,
+        has_credentials=bool(
+            integration and integration.sensitive_config.get("site_id") and integration.sensitive_config.get("api_key")
+        ),
     )
 
 

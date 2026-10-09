@@ -65,14 +65,12 @@ def save_webhook_config(
 ) -> WebhookConfigState:
     """Store the signing secret on first use, and turn the inbound webhook on or off."""
     try:
-        webhook_enabled, has_secret = customerio_config.save_webhook_config(
-            team_id, signing_secret, enabled, created_by_id
-        )
+        saved = customerio_config.save_webhook_config(team_id, signing_secret, enabled, created_by_id)
     except customerio_config.ConfigIncomplete as e:
         raise CustomerIOConfigIncomplete(str(e)) from e
     except customerio_config.ConfigConflict as e:
         raise CustomerIOConfigConflict(str(e)) from e
-    return WebhookConfigState(webhook_enabled=webhook_enabled, has_webhook_secret=has_secret)
+    return WebhookConfigState(webhook_enabled=saved.enabled, has_webhook_secret=saved.has_credentials)
 
 
 def remove_webhook_config(team_id: int) -> None:
@@ -84,14 +82,12 @@ def save_track_config(
 ) -> TrackConfigState:
     """Store the Track API credentials on first use, and turn outbound sync on or off."""
     try:
-        track_enabled, has_credentials = customerio_config.save_track_config(
-            team_id, site_id, api_key, region, enabled, created_by_id
-        )
+        saved = customerio_config.save_track_config(team_id, site_id, api_key, region, enabled, created_by_id)
     except customerio_config.ConfigIncomplete as e:
         raise CustomerIOConfigIncomplete(str(e)) from e
     except customerio_config.ConfigConflict as e:
         raise CustomerIOConfigConflict(str(e)) from e
-    return TrackConfigState(track_enabled=track_enabled, has_track_credentials=has_credentials)
+    return TrackConfigState(track_enabled=saved.enabled, has_track_credentials=saved.has_credentials)
 
 
 def remove_track_config(team_id: int) -> None:
