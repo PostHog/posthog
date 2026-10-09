@@ -426,8 +426,11 @@ class PRFetcher:
             changed_files=pr["changed_files"],
         )
 
-    def fetch_pr_comments(self, pr_filter: PRFilter) -> list[PRComment]:
-        """Fetch the PR's review comments (filtered files / test files dropped)."""
+    def fetch_pr_comments(self, pr_filter: PRFilter, *, raise_errors: bool = False) -> list[PRComment]:
+        """Fetch the PR's review comments (filtered files / test files dropped).
+
+        A GitHub error returns what was read so far, unless `raise_errors` asks for the error instead.
+        """
         pr_comments: list[PRComment] = []
         try:
             for comment in github_api_get_paginated(
@@ -451,6 +454,8 @@ class PRFetcher:
                     )
                 )
         except (GitHubAPIError, GitHubRateLimitError) as e:
+            if raise_errors:
+                raise
             logger.warning(f"Could not fetch review comments: {e}")
         return pr_comments
 

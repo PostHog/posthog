@@ -434,33 +434,31 @@ async def test_flash_dedup_transient_failure_retries_before_the_last_attempt(pr_
         await _dedupe_with_a_failing_flash_call(pr_metadata, non_retryable=False, final_attempt=False)
 
 
-def test_already_raised_lists_only_other_reviewers_comments() -> None:
-    # The status comment says another reviewer already raised these, so ReviewHog's own earlier comments
-    # and earlier findings must not appear, and a comment the dedup did not name must not either.
-    other = PRComment(
-        id=1,
-        path="a.py",
-        line=5,
-        body="Retries can double charge",
-        diff_hunk="",
-        user="greptile-apps[bot]",
-        created_at="c",
-    )
-    own = PRComment(
-        id=2,
-        path="a.py",
-        line=9,
-        body=f"**P2 · Old**\n\nx\n\n{REVIEW_HOG_FINDING_MARKER}",
-        diff_hunk="",
-        user="posthog[bot]",
-        created_at="c",
-    )
+def test_already_raised_lists_each_other_reviewers_comment_once() -> None:
+    # The status comment says another reviewer already raised these. ReviewHog's own comments and earlier
+    # findings must not appear, a human who pastes ReviewHog's public marker must not leave the list, and
+    # several perspectives repeating one comment must not fill the list with copies of it.
+    def comment(comment_id: int, user: str, body: str = "Retries can double charge") -> PRComment:
+        return PRComment(id=comment_id, path="a.py", line=5, body=body, diff_hunk="", user=user, created_at="c")
+
+    own_body = f"**P2 · Old**\n\nx\n\n{REVIEW_HOG_FINDING_MARKER}"
+    comments = [
+        comment(1, "greptile-apps[bot]"),
+        comment(2, "posthog[bot]", own_body),
+        comment(3, "someone", own_body),
+    ]
+    must_fix = _issue("1-4", "a.py", 5, 6).model_copy(update={"priority": IssuePriority.MUST_FIX})
     duplicates = [
         Duplicate(issue=_issue("1-1", "a.py", 5, 6), duplicate_of="1"),
+        Duplicate(issue=must_fix, duplicate_of="1"),
         Duplicate(issue=_issue("1-2", "a.py", 9, 9), duplicate_of="2"),
         Duplicate(issue=_issue("1-3", "a.py", 20, 21), duplicate_of="r1:a.py:20"),
+        Duplicate(issue=_issue("1-5", "a.py", 5, 5), duplicate_of="3"),
     ]
 
-    raised = already_raised(duplicates, [other, own])
+    raised = already_raised(duplicates, comments)
 
-    assert raised == [AlreadyRaised(title="Issue 1-1", level="P2", comment_id=1, commenter="greptile-apps[bot]")]
+    assert raised == [
+        AlreadyRaised(title="Issue 1-4", level="P1", comment_id=1, commenter="greptile-apps[bot]"),
+        AlreadyRaised(title="Issue 1-5", level="P2", comment_id=3, commenter="someone"),
+    ]
