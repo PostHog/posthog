@@ -711,6 +711,27 @@ class TestBenchmark(SimpleTestCase):
         for case in cases:
             assert case.acceptable - {OfferKind.NONE} <= case.available, case.name
 
+    @parameterized.expand([("default", None, True), ("enabled", True, True), ("disabled", False, False)])
+    def test_workflow_availability_matches_the_benchmark_case(
+        self, _name: str, workflows_available: bool | None, expected: bool
+    ) -> None:
+        raw: dict[str, str | list[str] | bool] = {
+            "name": "workflow-gate",
+            "category": "workflow",
+            "acceptable": ["none"],
+            "question": "Where do new users stop onboarding?",
+            "answer": "They stop before connecting a data source.",
+            "tools": ["query-funnel"],
+        }
+        if workflows_available is not None:
+            raw["workflows_available"] = workflows_available
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as cases_file:
+            json.dump([raw], cases_file)
+            cases_file.flush()
+            [case] = load_cases(Path(cases_file.name))
+
+        assert (OfferKind.WORKFLOW in case.available) is expected
+
     def test_scores_count_false_offers_misses_and_acceptable_borderline_offers(self):
         transcript = build_turn_transcript(_metric_turn())
 
