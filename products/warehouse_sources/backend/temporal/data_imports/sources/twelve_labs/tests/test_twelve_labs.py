@@ -209,6 +209,56 @@ class TestFanOut:
             "https://api.twelvelabs.io/v1.3/indexes/idx2/videos",
         ]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_asset_transcriptions_skip_assets_without_a_transcription(self, MockSession) -> None:
+        # An asset with no transcription 404s. That must skip the asset, not fail the sync, and each
+        # transcription row must carry its asset's id and creation time.
+        session = MockSession.return_value
+        not_found = Response()
+        not_found.status_code = 404
+        not_found.reason = "Not Found"
+        not_found.url = "https://api.twelvelabs.io/v1.3/assets/a1/transcription"
+        not_found._content = b'{"code": "resource_not_found"}'
+        transcription = Response()
+        transcription.status_code = 200
+        transcription.url = "https://api.twelvelabs.io/v1.3/assets/a2/transcription"
+        transcription._content = json.dumps(
+            {"status": "ready", "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}]}
+        ).encode()
+        snapshots = _wire(
+            session,
+            [
+                _page(
+                    [
+                        {"_id": "a1", "created_at": "2026-08-01T00:00:00Z"},
+                        {"_id": "a2", "created_at": "2026-08-02T00:00:00Z"},
+                    ],
+                    page=1,
+                    total_page=1,
+                ),
+                not_found,
+                transcription,
+            ],
+        )
+
+        rows = _rows(_source("asset_transcriptions"))
+
+        assert rows == [
+            {
+                "status": "ready",
+                "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}],
+                "asset_id": "a2",
+                "asset_created_at": "2026-08-02T00:00:00Z",
+            }
+        ]
+        assert [url for url, _ in snapshots] == [
+            "https://api.twelvelabs.io/v1.3/assets",
+            "https://api.twelvelabs.io/v1.3/assets/a1/transcription",
+            "https://api.twelvelabs.io/v1.3/assets/a2/transcription",
+        ]
+        assert snapshots[0][1]["asset_types"] == ["video", "audio"]
+        assert snapshots[1][1] == {"include": "sentences,utterances"}
+
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
         # migration must still construct.

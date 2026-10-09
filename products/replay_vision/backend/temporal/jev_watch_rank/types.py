@@ -12,6 +12,9 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     teams_enrolled: int = 0
     # Enrolled in the flag, but the organization has not approved AI data processing.
     teams_without_consent: int = 0
+    # Queued while the organization approved AI data processing, then skipped at their turn because
+    # it was revoked in between.
+    scanners_consent_revoked: int = 0
     scanners_judged: int = 0
     # Windows whose every row the judged set already holds, so no Jev call was spent.
     scanners_skipped_unchanged: int = 0

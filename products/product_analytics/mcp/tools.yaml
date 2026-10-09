@@ -79,12 +79,12 @@ tools:
 
             - Many breakdown rows that a person reads rather than compares: `ActionsTable`.
 
-            - Totals per country from a `$geoip_country_name` breakdown: `WorldMap`.
+            - Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.
 
 
             In a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked
             in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
-            X-axis value.
+            X-axis value, and `ActionsBarValue` draws the same bars horizontally.
         agent_note: >
             When you tell the user about this insight, name the display you chose and one or two other displays that
             also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
@@ -94,7 +94,7 @@ tools:
             - Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar`
             or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or
             `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series;
-            `WorldMap` only for a `$geoip_country_name` breakdown.
+            `WorldMap` only for a `$geoip_country_code` breakdown.
 
             - Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time,
             or `time_to_convert` for how long users take.

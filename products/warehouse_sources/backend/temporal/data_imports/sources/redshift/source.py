@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    REDSHIFT_READ_TIMEOUT_ERROR,
     RedshiftImplementation,
     get_connection_metadata as get_connection_metadata_redshift,
 )
@@ -173,10 +174,21 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     def get_retryable_errors(self) -> set[str]:
         # The bounded lookup in front of every connect raises these when the resolver stalls or
         # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
-        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
+        #
+        # `REDSHIFT_READ_TIMEOUT_ERROR` is the client-side limit on the wait for one batch of rows.
+        # The cluster was reachable and then sent nothing, so a later attempt can succeed.
+        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR, REDSHIFT_READ_TIMEOUT_ERROR}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
-        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
+        return {
+            HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            REDSHIFT_READ_TIMEOUT_ERROR: (
+                "Your Redshift cluster stopped sending rows in the middle of the sync, and it did so again "
+                "on every retry. Check that the cluster is not paused or resizing and that it has capacity "
+                "for the read. This sync is still enabled and will run again on its next schedule."
+            ),
+        }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

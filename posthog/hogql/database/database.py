@@ -8,9 +8,9 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
-from functools import cache
+from functools import cache, lru_cache
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -19,6 +19,7 @@ from django.conf import settings
 from django.db.models import Q, prefetch_related_objects
 
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -171,6 +172,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
@@ -217,6 +219,7 @@ if TYPE_CHECKING:
     )
 
 tracer = trace.get_tracer(__name__)
+_OTEL_DATABASE = OtelInstrumentFactory("hogql.database")
 
 
 @dataclasses.dataclass
@@ -799,6 +802,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
@@ -856,6 +860,7 @@ class Database(BaseModel):
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
+        self._table_slot_origins = {}
         self._denied_tables = set()
         self._connection_id = None
         self._direct_connection_metadata = None
@@ -1138,16 +1143,64 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node, table_conflict_mode="override" if self._is_direct_query() else "ignore")
+        self._record_table_slot_origins(node, "warehouse_table")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
+        self._record_table_slot_origins(node, "self_managed_table")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
+    @staticmethod
+    def _walk_table_slots(
+        node: TableNode, path: tuple[str, ...] = ()
+    ) -> Iterator[tuple[tuple[str, ...], FieldOrTable]]:
+        if path and node.table is not None:
+            yield path, node.table
+        for child in node.children.values():
+            yield from Database._walk_table_slots(child, (*path, child.name))
+
+    def _node_at_slot(self, path: tuple[str, ...]) -> TableNode | None:
+        node = self.tables
+        for name in path:
+            child = node.children.get(name)
+            if child is None:
+                return None
+            node = child
+        return node
+
+    def _record_table_slot_origins(self, node: TableNode, origin: str) -> None:
+        for path, table in self._walk_table_slots(node):
+            installed = self._node_at_slot(path)
+            if installed is not None and installed.table is table:
+                self._table_slot_origins[path] = origin
+
+    def _count_views_shadowed_by_tables(self, node: TableNode) -> None:
+        shadowed: dict[str, int] = {}
+        for path, _ in self._walk_table_slots(node):
+            occupant = self._node_at_slot(path)
+            if occupant is None or occupant.table is None:
+                continue
+            shadowed_by = self._table_slot_origins.get(path, "posthog_table")
+            if shadowed_by == "view":
+                continue
+            shadowed[shadowed_by] = shadowed.get(shadowed_by, 0) + 1
+
+        client = posthoganalytics.default_client
+        if not shadowed or client is None:
+            return
+        try:
+            for shadowed_by, count in shadowed.items():
+                client.metrics.count("hogql.database.views_shadowed", count, attributes={"shadowed_by": shadowed_by})
+        except Exception:
+            logger.warning("hogql_views_shadowed_metric_failed", exc_info=True)
+
     def _add_views(self, node: TableNode):
-        self.tables.merge_with(node)
+        self._count_views_shadowed_by_tables(node)
+        self.tables.merge_with(node, table_conflict_mode="ignore")
+        self._record_table_slot_origins(node, "view")
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
@@ -1683,6 +1736,8 @@ class Database(BaseModel):
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         """
+        build_started = time.perf_counter()
+
         if timings is None:
             timings = HogQLTimings()
 
@@ -1703,7 +1758,7 @@ class Database(BaseModel):
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
 
         def fetch_fresh() -> HogQLDatabaseSources:
-            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+            with _OTEL_DATABASE.timed_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "fetch_sources"}):
                 return Database._fetch_sources(
                     team_id,
                     team=team,
@@ -1741,10 +1796,17 @@ class Database(BaseModel):
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
             )
 
-        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
-            return Database._build_from_sources(
+        with _OTEL_DATABASE.timed_histogram_twin(
+            HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources"}
+        ):
+            database = Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+
+        total_seconds = time.perf_counter() - build_started
+        HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
+        _OTEL_DATABASE.record_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, total_seconds, {"phase": "total"})
+        return database
 
     @staticmethod
     def _sources_cache_key(
@@ -2883,7 +2945,7 @@ class Database(BaseModel):
                         continue
                     saved_expression_field = ExpressionField(
                         name=saved_expression.field_name,
-                        expr=parse_expr(saved_expression.expression),
+                        expr=copy.deepcopy(_cached_saved_expression(saved_expression.expression)),
                         isolate_scope=True,
                     )
                     expression_table.fields[saved_expression.field_name] = saved_expression_field
@@ -2931,6 +2993,12 @@ def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name:
 
 def _use_person_properties_from_events(database: Database) -> None:
     database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
+
+
+@lru_cache(maxsize=4096)
+def _cached_saved_expression(expression: str) -> ast.Expr:
+    """Parse each stored expression once. Callers copy the result because query resolution can modify the AST."""
+    return parse_expr(expression)
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:

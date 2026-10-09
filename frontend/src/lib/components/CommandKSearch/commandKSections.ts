@@ -81,8 +81,26 @@ const itemIdentity = (item: SearchItem): string => {
     return typeof type === 'string' && typeof ref === 'string' && ref ? `${type}:${ref}` : item.id
 }
 
-const itemRows = (section: CommandKSectionKey, items: SearchItem[]): CommandKRow[] =>
-    items.map((item) => ({ kind: 'item', key: `${section}/${itemIdentity(item)}`, item, section }))
+/**
+ * The file system can hold more than one entry for the same object, so a list can repeat an item.
+ * Row keys must be unique, because the highlight and the row DOM ids follow the key. Only the first
+ * row for each key stays, and the limit applies after that.
+ */
+const itemRows = (section: CommandKSectionKey, items: SearchItem[], limit = Infinity): CommandKRow[] => {
+    const rows: CommandKRow[] = []
+    const seen = new Set<string>()
+    for (const item of items) {
+        if (rows.length >= limit) {
+            break
+        }
+        const key = `${section}/${itemIdentity(item)}`
+        if (!seen.has(key)) {
+            seen.add(key)
+            rows.push({ kind: 'item', key, item, section })
+        }
+    }
+    return rows
+}
 
 const readySection = (key: CommandKSectionKey, rows: CommandKRow[]): CommandKSection => ({
     key,
@@ -108,12 +126,12 @@ function remoteSection(source: RemoteSource, slot: RemoteSlot, query: string): C
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
     const current = slot.cache[query]
     if (current) {
-        return current.length > 0 ? readySection(source, itemRows(source, current.slice(0, limit))) : null
+        return current.length > 0 ? readySection(source, itemRows(source, current, limit)) : null
     }
     const displayed = slot.displayedKey !== null ? slot.cache[slot.displayedKey] : undefined
     if (displayed) {
         return displayed.length > 0
-            ? { ...readySection(source, itemRows(source, displayed.slice(0, limit))), state: 'stale' }
+            ? { ...readySection(source, itemRows(source, displayed, limit)), state: 'stale' }
             : null
     }
     return source === 'results' ? loadingSection(source) : null
@@ -180,13 +198,13 @@ export interface SectionsInput {
 }
 
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
-    (source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)).slice(0, SECONDARY_LIMIT)
+    source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
         return [
-            readySection('recents', itemRows('recents', local.recents.slice(0, RECENTS_LIMIT))),
+            readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT)),
             readySection('starred', itemRows('starred', local.starred)),
             // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
             readySection(
@@ -221,8 +239,11 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
     if (mode !== 'value' && localQuery) {
         for (const source of LOCAL_SOURCES) {
             const filtered = filterLocal(source, local[source], localQuery)
-            const items = source === 'settings' && input.themeItem ? [input.themeItem, ...filtered] : filtered
-            sections.push(items.length > 0 ? readySection(source, itemRows(source, items)) : null)
+            const themeItem = source === 'settings' ? input.themeItem : null
+            const rows = themeItem
+                ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
+                : itemRows(source, filtered, SECONDARY_LIMIT)
+            sections.push(rows.length > 0 ? readySection(source, rows) : null)
         }
     }
     if (mode !== 'value') {

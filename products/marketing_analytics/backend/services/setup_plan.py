@@ -113,6 +113,7 @@ async def get_setup_plan(
     *,
     date_from: str = "-30d",
     user: User | None = None,
+    refresh_source_scan: bool = False,
 ) -> SetupPlan:
     """Build the ranked setup plan for a team."""
     date_range = QueryDateRange(
@@ -123,8 +124,16 @@ async def get_setup_plan(
     )
 
     results = await asyncio.gather(
-        get_marketing_diagnostic(team, include_conversion_goals=True, user=user),
-        get_attribution_health(team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS),
+        get_marketing_diagnostic(
+            team,
+            include_conversion_goals=True,
+            user=user,
+            cache_source_scan=True,
+            refresh_source_scan=refresh_source_scan,
+        ),
+        get_attribution_health(
+            team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS, cache_scan=True, refresh_scan=refresh_source_scan
+        ),
         suggest_conversion_goals(team),
         get_campaigns_with_spend_async(team, date_range, user=user),
         get_utm_campaign_catalogue_async(team, date_range, user=user),
