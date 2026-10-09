@@ -829,18 +829,7 @@ def capture_status_change_analytics(
     )
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
-    properties = {
-        "team_id": instance.team_id,
-        "report_id": str(instance.id),
-        "previous_status": prior_status,
-        "status": instance.status,
-        "signal_count": instance.signal_count,
-        "total_weight": instance.total_weight,
-        "run_count": instance.run_count,
-        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
-        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
-        "pending_reason": pending_reason,
-    }
+    properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team
@@ -889,6 +878,56 @@ def capture_status_change_analytics(
 
     # After commit so a rolled-back transition never emits a phantom label. Post-commit also means
     # artefacts written in the same transaction (e.g. the dismissal) are visible to the snapshot.
+    transaction.on_commit(_capture)
+
+
+def _status_change_properties(
+    instance: SignalReport, previous_status: str, *, pending_reason: str | None
+) -> dict[str, Any]:
+    return {
+        "team_id": instance.team_id,
+        "report_id": str(instance.id),
+        "previous_status": previous_status,
+        "status": instance.status,
+        "signal_count": instance.signal_count,
+        "total_weight": instance.total_weight,
+        "run_count": instance.run_count,
+        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
+        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
+    }
+
+
+def capture_verdict_reason_added_analytics(instance: SignalReport) -> None:
+    """Emit `signal_report_status_changed` when a reason lands on a verdict the report already holds.
+
+    The state API skips the save for a repeated verdict, so the receiver above stays quiet. The Today
+    home sets the verdict first and sends the reason in a second call, so without this event the
+    ranking labels never see the reason. `previous_status` equals `status` and `reason_added` is true,
+    so a reader that counts real transitions can filter the event out.
+    """
+    properties = {
+        **_status_change_properties(instance, instance.status, pending_reason=None),
+        "reason_added": True,
+    }
+    report_id = str(instance.id)
+    team = instance.team
+    transition_at = timezone.now()
+
+    def _capture() -> None:
+        try:
+            posthoganalytics.capture(
+                event="signal_report_status_changed",
+                distinct_id=str(team.uuid),
+                properties={
+                    **properties,
+                    **_classification_snapshot(report_id, include_dismissal=True, transition_at=transition_at),
+                },
+                groups=groups(team.organization, team),
+            )
+        except Exception:
+            logger.exception("Failed to capture signal_report_status_changed", report_id=report_id)
+
     transaction.on_commit(_capture)
 
 

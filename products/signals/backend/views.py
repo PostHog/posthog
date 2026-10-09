@@ -136,6 +136,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
@@ -3372,6 +3373,8 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+                if already_holds_verdict:
+                    capture_verdict_reason_added_analytics(report)
 
         # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
         # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so

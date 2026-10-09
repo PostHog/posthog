@@ -174,6 +174,11 @@ A report is a positive when someone clicked an intent action in the inbox UI (cr
 Self-driving's own `task` and `system` writes do not count: they are internal operational work.
 A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
 
+The Today home sends the same client events as the Inbox, with `surface: 'today'` and a `list` property (`briefing` or `sidebar_more`) on impressions and opens.
+Filter on `surface` where a metric must stay Inbox-only.
+Today sets a verdict first and sends its optional reason in a second state call, which does not change the status.
+For that call the server emits `signal_report_status_changed` with `previous_status` equal to `status` and `reason_added: true`, so the reason reaches the status-stream heads.
+
 `thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
 Both are rare, so neither clears its holdout bar on a single day.
 They are carried for the pooled newborn grade and as scorer inputs, not for a holdout AUC, and the promotion gate keeps ignoring an unreadable head.
