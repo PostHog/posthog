@@ -9842,7 +9842,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "marketing-analytics-mcp"
+        "feature_flag": "marketing-analytics-setup-plan-mcp"
     },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",

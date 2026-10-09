@@ -13,6 +13,7 @@ These counts guide connection suggestions; they do not change report attribution
 
 ## MCP setup recommendations
 
+The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes this tool to a user.
 The read-only `marketing-analytics-setup-plan` tool returns ranked source connection recommendations with evidence, confidence, and a connection link.
 It also returns other setup improvements and supports `refresh=true` for an explicit rescan.
 Connection links include the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.

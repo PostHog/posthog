@@ -135,7 +135,7 @@ tools:
             connection link to complete authorization. Use refresh=true for an explicit rescan. If degraded is
             non-empty, explain that some checks failed. If truncated is true, describe totals as approximate. Requires a
             project with the Marketing analytics setup plan enabled.
-        feature_flag: marketing-analytics-mcp
+        feature_flag: marketing-analytics-setup-plan-mcp
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true
