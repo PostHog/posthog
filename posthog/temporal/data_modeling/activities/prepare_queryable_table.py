@@ -1,5 +1,9 @@
+import typing
 import asyncio
 import dataclasses
+
+from django.conf import settings
+from django.db import transaction
 
 import deltalake
 from structlog import get_logger
@@ -9,7 +13,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
-from products.data_modeling.backend.facade.api import promote_view_nodes_to_matview
+from products.data_modeling.backend.facade.api import SnapshotPublicationConflict, promote_view_nodes_to_matview
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -18,7 +22,7 @@ from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PrepareQueryableTableInputs:
     team_id: int
     job_id: str
@@ -29,6 +33,8 @@ class PrepareQueryableTableInputs:
     # An incremental run's row_count covers only the window it upserted, so it must not be written
     # to the table as a total. Defaulted so old workflow histories decode without it.
     incremental: bool = False
+    snapshot_generation_uri: str | None = None
+    snapshot_state: dict[str, typing.Any] | None = None
 
 
 @database_sync_to_async_pool
@@ -41,13 +47,68 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
+def _snapshot_folder(saved_query: DataWarehouseSavedQuery, generation_uri: str) -> str:
+    prefix = f"{settings.BUCKET_URL.rstrip('/')}/{saved_query.folder_path}/"
+    if not generation_uri.startswith(prefix):
+        raise ValueError(f"Snapshot generation {generation_uri} is outside {prefix}")
+    return generation_uri.removeprefix(prefix).rstrip("/")
+
+
+def _snapshot_publication_state(inputs: PrepareQueryableTableInputs, current: object) -> str:
+    """Return "published", "ready" or "conflict" for this run's candidate against the stored state."""
+    assert inputs.snapshot_state is not None
+    stored = current if isinstance(current, dict) else {}
+    if stored.get("last_run_id") == inputs.snapshot_state.get("last_run_id"):
+        return "published"
+    if stored.get("generation_uri") != inputs.snapshot_state.get("parent_generation_uri"):
+        return "conflict"
+    return "ready"
+
+
+@database_sync_to_async_pool
+def _check_snapshot_parent(inputs: PrepareQueryableTableInputs) -> None:
+    assert inputs.snapshot_state is not None
+    current, config = DataWarehouseSavedQuery.objects.values_list("snapshot_state", "snapshot_config").get(
+        pk=inputs.saved_query_id
+    )
+    if _snapshot_publication_state(inputs, current) == "conflict":
+        raise SnapshotPublicationConflict("Snapshot parent generation changed before publication.")
+    # The key can change until the first generation is published. History built with another key must not become this model's history.
+    built_key = inputs.snapshot_state.get("unique_key")
+    if built_key is not None and (not isinstance(config, dict) or config.get("unique_key") != built_key):
+        raise SnapshotPublicationConflict("Snapshot configuration changed before publication.")
+
+
 @database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
-    saved_query.refresh_from_db()
-    saved_query.table_id = saved_query_table.id
-    saved_query.save()
+    state = None
+    with transaction.atomic():
+        if inputs.snapshot_state is not None:
+            locked = DataWarehouseSavedQuery.objects.select_for_update().get(pk=saved_query.pk)
+            state = _snapshot_publication_state(inputs, locked.snapshot_state)
+            if state == "published":
+                return
+            if state == "conflict":
+                # Table creation repointed the table at this run's candidate before the lock.
+                # Another run published first, so point the table back at its generation.
+                winner_uri = locked.snapshot_state.get("generation_uri") if locked.snapshot_state else None
+                if winner_uri:
+                    saved_query_table.queryable_folder = _snapshot_folder(saved_query, winner_uri)
+                    saved_query_table.save(update_fields=["queryable_folder"])
+            else:
+                locked.table_id = saved_query_table.id
+                locked.snapshot_state = inputs.snapshot_state
+                locked.save(update_fields=["table", "snapshot_state"])
+        else:
+            saved_query.refresh_from_db()
+            saved_query.table_id = saved_query_table.id
+            saved_query.save()
+
+    if state == "conflict":
+        # Raised after the block so the rollback does not undo the table restore.
+        raise SnapshotPublicationConflict("Snapshot parent generation changed before publication.")
 
     if not inputs.incremental:
         # `create_table_from_saved_query` already counted the published files, which is the whole
@@ -83,6 +144,11 @@ class PublishQueryableTableInputs(PrepareQueryableTableInputs):
 
 
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:
+    if inputs.snapshot_generation_uri is not None:
+        # Each attempt writes its own generation folder exactly once, and cleanup never deletes the
+        # published one, so readers can glob it directly instead of a copied folder.
+        return _snapshot_folder(saved_query, inputs.snapshot_generation_uri)
+
     queryable_folder = saved_query.table.queryable_folder if saved_query.table else None
     await logger.adebug(
         f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.normalized_name} "
@@ -106,6 +172,8 @@ async def _publish_table(
     logger,
 ) -> PrepareQueryableTableResult:
     await logger.ainfo("Preparing table for querying")
+    if inputs.snapshot_state is not None:
+        await _check_snapshot_parent(inputs)
     create_result = await create_table_from_saved_query(
         inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
     )
