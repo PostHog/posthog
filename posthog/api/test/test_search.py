@@ -11,11 +11,9 @@ from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.facade.models import Endpoint
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook

@@ -20,10 +20,9 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.facade.models import Endpoint
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
