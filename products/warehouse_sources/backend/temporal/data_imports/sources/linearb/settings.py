@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -30,6 +30,10 @@ MEASUREMENT_METRICS: tuple[tuple[str, Optional[str]], ...] = (
 # a full refresh re-pulls the window each run and merge dedupes on [after, organization_id].
 MEASUREMENTS_DEFAULT_WINDOW_DAYS = 90
 
+# The incidents search requires an `issued_at` range. This lower bound predates LinearB, so every
+# incident the organization has reported is returned.
+INCIDENTS_ISSUED_AFTER = "2000-01-01"
+
 
 @dataclass
 class LinearbEndpointConfig:
@@ -43,6 +47,8 @@ class LinearbEndpointConfig:
     # `None` when the endpoint documents no pagination params (a single response holds every row).
     page_size_param: Optional[str] = None
     page_size: Optional[int] = None
+    # Fixed JSON body for POST list endpoints, which take their filters and paging params in the body.
+    request_body: Optional[dict[str, Any]] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style field,
     # which would rewrite partitions on every sync.
@@ -78,6 +84,22 @@ LINEARB_ENDPOINTS: dict[str, LinearbEndpointConfig] = {
         path="/api/v1/deployments",
         page_size_param="limit",
         page_size=100,
+    ),
+    # Incidents can only be listed through the POST search endpoint. Full refresh only: `ended_at` and
+    # `status` change after an incident is issued, and the only server-side filter is on `issued_at`.
+    "incidents": LinearbEndpointConfig(
+        name="incidents",
+        path="/api/v1/incidents/search",
+        method="POST",
+        page_size_param="limit",
+        page_size=100,
+        request_body={
+            "issued_at": {"after": INCIDENTS_ISSUED_AFTER},
+            "sort_by": "issued_at",
+            "sort_dir": "asc",
+        },
+        primary_keys=["provider_id"],
+        partition_key="issued_at",
     ),
     # Measurements is a POST metric query rather than a list endpoint. It is plan-gated (LinearB
     # Business/Enterprise only), so it is off by default; users on an eligible plan opt in.
