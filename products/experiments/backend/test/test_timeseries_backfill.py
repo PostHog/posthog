@@ -9,8 +9,8 @@ from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated
 
 from posthog.models import Organization, Team, User
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -42,14 +42,14 @@ class TestBackfillExperimentTimeseries(BaseTest):
             end_date=datetime.datetime(2024, 12, 27, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
             metrics=[metric_data],
         )
-        spec = plan_metric(experiment, "test-metric-uuid")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "test-metric-uuid")
+        assert calculation_config is not None
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=team,
             experiment=experiment,
             metric=metric_data,
-            fingerprint=spec.calculation_key(),
+            fingerprint=calculation_config.calculation_key(),
             status=ExperimentTimeseriesRecalculation.Status.PENDING,
         )
 
@@ -91,7 +91,7 @@ class TestBackfillExperimentTimeseries(BaseTest):
             assert metric_result.query_from == experiment.start_date
             assert metric_result.status == ExperimentMetricResult.Status.COMPLETED
             assert metric_result.result == mock_result.model_dump()
-            assert MetricResultStore.stored_spec(metric_result) == spec
+            assert MetricResultStore.stored_spec(metric_result) == calculation_config
 
         assert result["recalculation_id"] == str(recalculation_request.id)
         assert result["experiment_id"] == experiment.id

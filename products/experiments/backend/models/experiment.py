@@ -466,7 +466,7 @@ class ExperimentMetricResult(models.Model):
     query_id = models.CharField(max_length=255, null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
-    # The calculation spec the row was computed from, as `StoredSpec` holds it: the JSON form and its version.
+    # The calculation config the row was computed from, as `StoredSpec` holds it: the JSON form and its version.
     # Rows written before specs were stored have neither.
     spec = models.JSONField(null=True, blank=True)
     spec_version = models.SmallIntegerField(null=True, blank=True)

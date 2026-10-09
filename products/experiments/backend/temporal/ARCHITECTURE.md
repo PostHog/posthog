@@ -70,7 +70,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 ### Recalc fingerprint, not config fingerprint
 
-Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `CalculationSpec.calculation_key()` in `metric_calculation/spec.py`. The spec holds the configuration the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
@@ -109,12 +109,12 @@ A daily write and a recalculation share a window only when an experiment stops w
 The daily write then takes over the recalculation's row, and the next reload recomputes that metric.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
-Each row also records the calculation spec that its fingerprint was derived from: `spec` holds the JSON form and `spec_version` the version whose reader decodes it (`StoredSpec` in `metric_calculation/spec.py`).
+Each row also records the calculation config that its fingerprint was derived from: `spec` holds the JSON form and `spec_version` the version whose reader decodes it (`StoredSpec` in `metric_calculation/config.py`).
 A write replaces the spec together with the fingerprint.
 A daily write stores no spec when the current configuration no longer gives the key that the daily discovery computed.
 A sync copy keeps the spec of the daily row it copies.
 Rows written before specs were stored have none.
-Code that stores no spec can still take a row over and leave the earlier spec behind, so `MetricResultStore.stored_spec` returns a spec only when its key, bare or salted, is the row's fingerprint.
+Code that stores no spec can still take a row over and leave the earlier spec behind, so `MetricResultStore.stored_spec` returns a config only when its key, bare or salted, is the row's fingerprint.
 A non-unique index on `(experiment, metric_uuid, fingerprint, query_to)` serves lookups by calculation key, so it keeps working when several rows share a window.
 
 ### Counters are derived, not stored

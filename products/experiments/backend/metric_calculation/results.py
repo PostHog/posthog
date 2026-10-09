@@ -17,9 +17,10 @@ Every write looks the row up on `(experiment, metric_uuid, query_to)` and stores
 field. A row that holds the window under another fingerprint is therefore updated in place, and no write can
 violate the unique constraint or create a second row for a window.
 
-Every write also stores the spec that its fingerprint was derived from, and replaces the spec together with the
-fingerprint. A daily write stores no spec when the current configuration no longer gives the key it files the row
-under. A sync copy keeps the stored spec of the row it copies. Rows written before specs were stored have none.
+Every write also stores the calculation config that its fingerprint was derived from, in the `spec` column, and
+replaces the spec together with the fingerprint. A daily write stores no spec when the current configuration no
+longer gives the key it files the row under. A sync copy keeps the stored spec of the row it copies. Rows written
+before specs were stored have none.
 
 Every query filters on the experiment first, so the `(experiment, metric_uuid, query_to)` indexes serve it.
 """
@@ -39,12 +40,12 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import (
-    CalculationSpec,
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
     StoredSpec,
     UnknownSpecVersionError,
-    plan,
-    spec_for_key,
+    build_calculation_configs,
+    find_calculation_config_by_key,
 )
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -123,11 +124,14 @@ class MetricResultStore:
         """
         if run.query_to is None:
             return []
-        specs = {spec.metric_id: spec for spec in plan(run.experiment)}
+        calculation_configs = {
+            calculation_config.metric_id: calculation_config
+            for calculation_config in build_calculation_configs(run.experiment)
+        }
         fingerprints = [
-            _recalc_fingerprint(specs[metric_uuid].calculation_key())
+            _recalc_fingerprint(calculation_configs[metric_uuid].calculation_key())
             for metric_uuid in run.metric_uuids or []
-            if metric_uuid in specs
+            if metric_uuid in calculation_configs
         ]
         if not fingerprints:
             return []
@@ -138,24 +142,24 @@ class MetricResultStore:
         )
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
 
-    def has_completed(self, spec: CalculationSpec, *, window: datetime) -> bool:
-        """Whether a recalculation already stored a completed result for this spec at this window."""
+    def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
+        """Whether a recalculation already stored a completed result for this calculation config at this window."""
         return ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id,
-            metric_uuid=spec.metric_id,
+            metric_uuid=calculation_config.metric_id,
             query_to=window,
-            fingerprint=_recalc_fingerprint(spec.calculation_key()),
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
             status=_COMPLETED,
         ).exists()
 
     def latest_daily_point(
-        self, spec: CalculationSpec, *, since: datetime, until: datetime
+        self, calculation_config: MetricCalculationConfig, *, since: datetime, until: datetime
     ) -> ExperimentMetricResult | None:
-        """The completed daily point of this spec with the latest query_to inside [since, until]."""
+        """The completed daily point of this calculation config with the latest query_to inside [since, until]."""
         rows = ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id,
-            metric_uuid=spec.metric_id,
-            fingerprint=spec.calculation_key(),
+            metric_uuid=calculation_config.metric_id,
+            fingerprint=calculation_config.calculation_key(),
             status=_COMPLETED,
             query_to__gte=since,
             query_to__lte=until,
@@ -220,7 +224,7 @@ class MetricResultStore:
     def record_run_result(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -230,7 +234,7 @@ class MetricResultStore:
         """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing."""
         self._record_for_run(
             recalculation_id,
-            spec,
+            calculation_config,
             window=window,
             query_from=query_from,
             status=_COMPLETED,
@@ -242,7 +246,7 @@ class MetricResultStore:
     def record_run_failure(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -252,7 +256,7 @@ class MetricResultStore:
         """Store the failure of one metric of a recalculation run, unless the run is terminal or missing."""
         self._record_for_run(
             recalculation_id,
-            spec,
+            calculation_config,
             window=window,
             query_from=query_from,
             status=_FAILED,
@@ -266,20 +270,21 @@ class MetricResultStore:
         metric_uuid: str,
         calculation_key: str,
         *,
-        spec: CalculationSpec | None,
+        calculation_config: MetricCalculationConfig | None,
         window: datetime,
         query_from: datetime,
         result: dict[str, Any],
     ) -> None:
         """Store a completed daily point under the bare calculation key. The backfill stores its past days here too.
 
-        `spec` is the spec that `calculation_key` was derived from, or None when the caller does not have it.
+        `calculation_config` is the config that `calculation_key` was derived from, or None when the caller does not
+        have it.
         """
         self._upsert(
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            spec=StoredSpec.of(spec) if spec is not None else None,
+            spec=StoredSpec.of(calculation_config) if calculation_config is not None else None,
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -293,17 +298,18 @@ class MetricResultStore:
         metric_uuid: str,
         calculation_key: str,
         *,
-        spec: CalculationSpec | None,
+        calculation_config: MetricCalculationConfig | None,
         window: datetime,
         query_from: datetime,
         error_message: str,
     ) -> None:
-        """Store a failed daily point under the bare calculation key. `spec` is as for `record_daily_point`."""
+        """Store a failed daily point under the bare calculation key. `calculation_config` is as for
+        `record_daily_point`."""
         self._upsert(
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            spec=StoredSpec.of(spec) if spec is not None else None,
+            spec=StoredSpec.of(calculation_config) if calculation_config is not None else None,
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -315,7 +321,7 @@ class MetricResultStore:
     def copy_into_sync_run(
         self,
         window: datetime,
-        points: Iterable[tuple[CalculationSpec, ExperimentMetricResult]],
+        points: Iterable[tuple[MetricCalculationConfig, ExperimentMetricResult]],
         *,
         query_from: datetime,
         completed_at: datetime,
@@ -324,11 +330,11 @@ class MetricResultStore:
 
         A copy keeps the stored spec of its daily point unchanged, or has none when the point has none.
         """
-        for spec, point in points:
+        for calculation_config, point in points:
             self._upsert(
-                spec.metric_id,
+                calculation_config.metric_id,
                 window,
-                fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
                 spec=(
                     StoredSpec(spec_version=point.spec_version, payload=point.spec)
                     if point.spec is not None and point.spec_version is not None
@@ -351,7 +357,7 @@ class MetricResultStore:
     def _record_for_run(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -360,7 +366,7 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
     ) -> None:
-        team_id = spec.settings.team_id
+        team_id = calculation_config.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
             Experiment.objects.select_for_update(no_key=True).filter(id=self.experiment_id, team_id=team_id).exists()
@@ -374,16 +380,16 @@ class MetricResultStore:
                 logger.warning(
                     "Skipping experiment metric result write for a terminal or missing recalculation",
                     recalculation_id=recalculation_id,
-                    metric_uuid=spec.metric_id,
+                    metric_uuid=calculation_config.metric_id,
                     recalculation_status=current_status,
                 )
                 return
 
             self._upsert(
-                spec.metric_id,
+                calculation_config.metric_id,
                 window,
-                fingerprint=_recalc_fingerprint(spec.calculation_key()),
-                spec=StoredSpec.of(spec),
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
+                spec=StoredSpec.of(calculation_config),
                 query_from=query_from,
                 status=status,
                 result=result,
@@ -428,9 +434,10 @@ class MetricResultStore:
         )
 
     @staticmethod
-    def stored_spec(row: ExperimentMetricResult) -> CalculationSpec | None:
-        """The spec that a row was computed from. None when the row stores no spec, stores a version that this code
-        cannot read, or stores a spec whose key is not the row's fingerprint.
+    def stored_spec(row: ExperimentMetricResult) -> MetricCalculationConfig | None:
+        """The calculation config that a row was computed from, decoded from its `spec` column. None when the row
+        stores no spec, stores a version that this code cannot read, or stores a spec whose key is not the row's
+        fingerprint.
 
         Code that stores no spec can still update a row that has one: an old pod during a deploy, or the code after
         a rollback. The row then holds the new write's fingerprint next to the earlier write's spec. So a stored
@@ -439,11 +446,11 @@ class MetricResultStore:
         if row.spec is None or row.spec_version is None:
             return None
         try:
-            spec = StoredSpec(spec_version=row.spec_version, payload=row.spec).decode()
+            calculation_config = StoredSpec(spec_version=row.spec_version, payload=row.spec).decode()
         except UnknownSpecVersionError:
             return None
-        key = spec.calculation_key()
-        return spec if row.fingerprint in (key, _recalc_fingerprint(key)) else None
+        key = calculation_config.calculation_key()
+        return calculation_config if row.fingerprint in (key, _recalc_fingerprint(key)) else None
 
     @staticmethod
     def sync_copy_window(newest_point: datetime) -> datetime:
@@ -508,18 +515,22 @@ def previous_completed_metric_result(
     return row.result if row is not None else None
 
 
-def _daily_spec(experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str) -> CalculationSpec | None:
+def _daily_calculation_config(
+    experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str
+) -> MetricCalculationConfig | None:
     experiment = (
         Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
     )
-    spec = spec_for_key(experiment, metric_uuid, calculation_key) if experiment is not None else None
-    if spec is None:
+    calculation_config = (
+        find_calculation_config_by_key(experiment, metric_uuid, calculation_key) if experiment is not None else None
+    )
+    if calculation_config is None:
         logger.info(
             "Storing a daily metric result without its spec, because no metric of the experiment has its key",
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
         )
-    return spec
+    return calculation_config
 
 
 def record_daily_metric_result(
@@ -538,9 +549,16 @@ def record_daily_metric_result(
     `calculation_key`. The key comes from the daily discovery, so a configuration change since then leaves the
     row without a spec.
     """
-    spec = _daily_spec(experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key)
+    calculation_config = _daily_calculation_config(
+        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    )
     MetricResultStore(experiment_id=experiment_id).record_daily_point(
-        metric_uuid, calculation_key, spec=spec, window=window, query_from=query_from, result=result
+        metric_uuid,
+        calculation_key,
+        calculation_config=calculation_config,
+        window=window,
+        query_from=query_from,
+        result=result,
     )
 
 
@@ -556,7 +574,14 @@ def record_daily_metric_failure(
 ) -> None:
     """Store a failed daily point, for the scheduled workflows outside the product. The row stores its spec as
     `record_daily_metric_result` describes."""
-    spec = _daily_spec(experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key)
+    calculation_config = _daily_calculation_config(
+        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    )
     MetricResultStore(experiment_id=experiment_id).record_daily_failure(
-        metric_uuid, calculation_key, spec=spec, window=window, query_from=query_from, error_message=error_message
+        metric_uuid,
+        calculation_key,
+        calculation_config=calculation_config,
+        window=window,
+        query_from=query_from,
+        error_message=error_message,
     )

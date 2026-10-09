@@ -7,8 +7,8 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
 from products.experiments.backend.facade.timeseries import (
+    apply_saved_metric_overrides,
     previous_completed_metric_result,
-    resolve_saved_metric_definition,
 )
 from products.experiments.backend.models.experiment import Experiment
 
@@ -103,7 +103,7 @@ def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         query = link.saved_metric.query
         if isinstance(query, dict) and query.get("uuid") == metric_uuid:
-            return resolve_saved_metric_definition(query, link.metadata)
+            return apply_saved_metric_overrides(query, link.metadata)
     return None
 
 

@@ -9,6 +9,11 @@ from django.db import connection
 
 from parameterized import parameterized
 
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    StoredSpec,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
@@ -16,7 +21,6 @@ from products.experiments.backend.metric_calculation.results import (
     record_daily_metric_failure,
     record_daily_metric_result,
 )
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, StoredSpec, plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -103,9 +107,9 @@ class TestMetricResultStore(BaseTest):
             spec_version=spec.spec_version if spec is not None else None,
         )
 
-    def _read(self, reader: str, experiment: Experiment, spec: CalculationSpec) -> list[int]:
+    def _read(self, reader: str, experiment: Experiment, calculation_config: MetricCalculationConfig) -> list[int]:
         store = MetricResultStore(experiment_id=experiment.id)
-        key = spec.calculation_key()
+        key = calculation_config.calculation_key()
         match reader:
             case "for_run":
                 run = ExperimentMetricsRecalculation.objects.create(
@@ -113,7 +117,9 @@ class TestMetricResultStore(BaseTest):
                 )
                 return [sample for row in store.for_run(run) for sample in _samples(row)]
             case "latest_daily_point":
-                return _samples(store.latest_daily_point(spec, since=_WINDOW - timedelta(days=1), until=_WINDOW))
+                return _samples(
+                    store.latest_daily_point(calculation_config, since=_WINDOW - timedelta(days=1), until=_WINDOW)
+                )
             case "timeseries":
                 return _samples(store.timeseries("m1", key, timezone=ZoneInfo("UTC")).by_day.get(_WINDOW_DAY))
             case "last_completed":
@@ -142,9 +148,13 @@ class TestMetricResultStore(BaseTest):
     )
     def test_rows_sharing_a_window_resolve_to_the_newest_write(self, _name: str, reader: str, tie: str) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        fingerprint = _recalc_fingerprint(spec.calculation_key()) if reader == "for_run" else spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        fingerprint = (
+            _recalc_fingerprint(calculation_config.calculation_key())
+            if reader == "for_run"
+            else calculation_config.calculation_key()
+        )
         # The unique constraint allows one row per (experiment, metric_uuid, query_to). Dropping it inside the
         # test transaction lets two rows share a window, and the rollback at the end of the test restores it.
         assert connection.in_atomic_block
@@ -158,13 +168,13 @@ class TestMetricResultStore(BaseTest):
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=1)
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=2)
 
-        assert self._read(reader, experiment, spec) == [2]
+        assert self._read(reader, experiment, calculation_config) == [2]
 
     def test_the_latest_window_inside_a_day_stands_for_that_day(self) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        key = spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
         # Both windows fall on 9 January. The later window was written first, so the write time alone picks the
         # other row.
         self._row(experiment, key, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=2)
@@ -180,9 +190,9 @@ class TestMetricResultStore(BaseTest):
     @parameterized.expand([("own_team", True), ("other_team", False)])
     def test_previous_completed_metric_result_reads_only_the_callers_team(self, _name: str, own_team: bool) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        key = spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
         self._row(experiment, key, query_to=_WINDOW, completed_at=_WINDOW, samples=7)
 
         result = previous_completed_metric_result(
@@ -200,27 +210,47 @@ class TestMetricResultStore(BaseTest):
             team=self.team, experiment=experiment, metric_uuids=["m1"], status=status, query_to=_WINDOW
         )
 
-    def _write(self, writer: str, experiment: Experiment, spec: CalculationSpec) -> None:
+    def _write(self, writer: str, experiment: Experiment, calculation_config: MetricCalculationConfig) -> None:
         store = MetricResultStore(experiment_id=experiment.id)
-        key = spec.calculation_key()
+        key = calculation_config.calculation_key()
         match writer:
             case "run_result":
                 run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
                 store.record_run_result(
-                    str(run.id), spec, window=_WINDOW, query_from=_START, result=_stored_result(9), query_id="q"
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
+                    query_id="q",
                 )
             case "run_failure":
                 run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
                 store.record_run_failure(
-                    str(run.id), spec, window=_WINDOW, query_from=_START, error_message="boom", query_id="q"
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
+                    query_id="q",
                 )
             case "daily_point":
                 store.record_daily_point(
-                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, result=_stored_result(9)
+                    "m1",
+                    key,
+                    calculation_config=calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
                 )
             case "daily_failure":
                 store.record_daily_failure(
-                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, error_message="boom"
+                    "m1",
+                    key,
+                    calculation_config=calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
                 )
             case "daily_metric_result":
                 record_daily_metric_result(
@@ -243,11 +273,13 @@ class TestMetricResultStore(BaseTest):
                     error_message="boom",
                 )
             case "sync_copy":
-                stored = StoredSpec.of(spec)
+                stored = StoredSpec.of(calculation_config)
                 point = ExperimentMetricResult(
                     result=_stored_result(9), spec=stored.payload, spec_version=stored.spec_version
                 )
-                store.copy_into_sync_run(_WINDOW, [(spec, point)], query_from=_START, completed_at=_WINDOW)
+                store.copy_into_sync_run(
+                    _WINDOW, [(calculation_config, point)], query_from=_START, completed_at=_WINDOW
+                )
             case _:
                 raise AssertionError(f"unknown writer {writer}")
 
@@ -266,10 +298,10 @@ class TestMetricResultStore(BaseTest):
         self, writer: str, salted: bool, status: str
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        other_spec = dataclasses.replace(
-            spec, settings=dataclasses.replace(spec.settings, only_count_matured_users=True)
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        other_config = dataclasses.replace(
+            calculation_config, settings=dataclasses.replace(calculation_config.settings, only_count_matured_users=True)
         )
         self._row(
             experiment,
@@ -277,16 +309,16 @@ class TestMetricResultStore(BaseTest):
             query_to=_WINDOW,
             completed_at=_WINDOW,
             samples=1,
-            spec=StoredSpec.of(other_spec),
+            spec=StoredSpec.of(other_config),
         )
 
-        self._write(writer, experiment, spec)
+        self._write(writer, experiment, calculation_config)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        key = spec.calculation_key()
+        key = calculation_config.calculation_key()
         assert row.fingerprint == (_recalc_fingerprint(key) if salted else key)
         assert row.status == status
-        assert MetricResultStore.stored_spec(row) == spec
+        assert MetricResultStore.stored_spec(row) == calculation_config
         if status == ExperimentMetricResult.Status.COMPLETED:
             assert (row.result, row.error_message) == (_stored_result(9), None)
         else:
@@ -297,15 +329,15 @@ class TestMetricResultStore(BaseTest):
         self, outcome: str
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         self._row(
             experiment,
-            spec.calculation_key(),
+            calculation_config.calculation_key(),
             query_to=_WINDOW,
             completed_at=_WINDOW,
             samples=1,
-            spec=StoredSpec.of(spec),
+            spec=StoredSpec.of(calculation_config),
         )
         stale_key = "key-of-the-configuration-before-an-edit"
 
@@ -345,19 +377,21 @@ class TestMetricResultStore(BaseTest):
         self, _name: str, stored: str | None, spec_version: int | None, counts: bool
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        other_spec = dataclasses.replace(
-            spec, settings=dataclasses.replace(spec.settings, only_count_matured_users=True)
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        other_config = dataclasses.replace(
+            calculation_config, settings=dataclasses.replace(calculation_config.settings, only_count_matured_users=True)
         )
-        payload = {"spec": StoredSpec.of(spec).payload, "other_spec": StoredSpec.of(other_spec).payload}
-        row = self._row(experiment, spec.calculation_key(), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        payload = {"spec": StoredSpec.of(calculation_config).payload, "other_spec": StoredSpec.of(other_config).payload}
+        row = self._row(
+            experiment, calculation_config.calculation_key(), query_to=_WINDOW, completed_at=_WINDOW, samples=1
+        )
         ExperimentMetricResult.objects.filter(id=row.id).update(
             spec=payload[stored] if stored is not None else None, spec_version=spec_version
         )
         row.refresh_from_db()
 
-        assert MetricResultStore.stored_spec(row) == (spec if counts else None)
+        assert MetricResultStore.stored_spec(row) == (calculation_config if counts else None)
 
     @parameterized.expand(
         [
@@ -368,8 +402,8 @@ class TestMetricResultStore(BaseTest):
     )
     def test_a_run_write_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
         if status is None:
             ExperimentMetricsRecalculation.objects.filter(id=run.id).delete()
@@ -379,7 +413,7 @@ class TestMetricResultStore(BaseTest):
 
         MetricResultStore(experiment_id=experiment.id).record_run_failure(
             str(run.id),
-            spec,
+            calculation_config,
             window=_WINDOW,
             query_from=_START,
             error_message="the orphan's late failure",

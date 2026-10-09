@@ -17,11 +17,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_query_builder import ExposureQueryParams
 from products.experiments.backend.hogql_queries.utils import BayesianSettings, FrequentistSettings
-from products.experiments.backend.metric_calculation.spec import (
-    CalculationSpec,
+from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
+    MetricCalculationConfig,
     StoredSpec,
-    plan,
+    build_calculation_configs,
 )
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
@@ -138,7 +138,7 @@ STORED_KEY_CASES = [
 ]
 
 
-class TestCalculationSpec(BaseTest):
+class TestMetricCalculationConfig(BaseTest):
     def _flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -204,22 +204,22 @@ class TestCalculationSpec(BaseTest):
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, kind, source, breakdown=breakdown)
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        assert spec.calculation_key() == stored_key
+        assert calculation_config.calculation_key() == stored_key
 
     @parameterized.expand([("no_breakdowns", False), ("with_breakdowns", True)])
-    def test_equivalent_inline_and_saved_metrics_have_equal_specs(self, _name: str, breakdown: bool) -> None:
+    def test_equivalent_inline_and_saved_metrics_have_equal_configs(self, _name: str, breakdown: bool) -> None:
         experiment = self._experiment()
         self._add_metric(experiment, "funnel", "inline", breakdown=breakdown, role="primary")
         self._add_metric(experiment, "funnel", "saved", breakdown=breakdown, role="secondary")
 
-        inline_spec, saved_spec = plan(experiment)
+        inline_config, saved_config = build_calculation_configs(experiment)
 
-        assert (inline_spec.metric_id, inline_spec.role) == ("inline-funnel", "primary")
-        assert (saved_spec.metric_id, saved_spec.role) == ("saved-funnel", "secondary")
-        assert inline_spec == saved_spec
-        assert inline_spec.calculation_key() == saved_spec.calculation_key()
+        assert (inline_config.metric_id, inline_config.role) == ("inline-funnel", "primary")
+        assert (saved_config.metric_id, saved_config.role) == ("saved-funnel", "secondary")
+        assert inline_config == saved_config
+        assert inline_config.calculation_key() == saved_config.calculation_key()
 
     def test_settings_resolve_team_defaults_and_flag_variants(self) -> None:
         team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
@@ -237,9 +237,9 @@ class TestCalculationSpec(BaseTest):
         )
         self._add_metric(experiment, "mean", "inline")
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        settings = spec.settings
+        settings = calculation_config.settings
         assert settings.variants == ("control", "test")
         assert settings.baseline == "control"
         assert settings.stats == FrequentistSettings(
@@ -271,21 +271,21 @@ class TestCalculationSpec(BaseTest):
             ),
         ]
     )
-    def test_configurations_that_compute_the_same_thing_have_equal_specs(
+    def test_configurations_that_compute_the_same_thing_have_equal_configs(
         self, _name: str, first: dict[str, Any], second: dict[str, Any]
     ) -> None:
         team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         team_config.default_cuped_enabled = True
         team_config.save()
         flag = self._flag()
-        specs = []
+        calculation_configs = []
         for overrides in (first, second):
             experiment = self._experiment(flag, **overrides)
             self._add_metric(experiment, "mean", "inline")
-            specs.extend(plan(experiment))
+            calculation_configs.extend(build_calculation_configs(experiment))
 
-        first_spec, second_spec = specs
-        assert first_spec == second_spec
+        first_config, second_config = calculation_configs
+        assert first_config == second_config
 
     @parameterized.expand(
         [
@@ -298,9 +298,9 @@ class TestCalculationSpec(BaseTest):
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, "mean", "inline")
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        assert len(spec.calculation_key()) == 64
+        assert len(calculation_config.calculation_key()) == 64
 
 
 _SETTINGS = ExperimentCalculationSettings(
@@ -332,8 +332,8 @@ _MEAN = {**DEFINITIONS["mean"], "uuid": "m1"}
     ],
 )
 def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool) -> None:
-    base_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
-    variant_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=variant).calculation_key()
+    base_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
+    variant_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal
 
 
@@ -388,23 +388,23 @@ _DRAFT_SETTINGS = dataclasses.replace(
 def test_a_stored_spec_decodes_to_the_spec_it_stored(
     settings: ExperimentCalculationSettings, definition: dict[str, Any]
 ) -> None:
-    spec = settings.spec_for(metric_id="m1", role="secondary", definition=definition)
-    stored = StoredSpec.of(spec)
+    calculation_config = settings.build_metric_config(metric_id="m1", role="secondary", definition=definition)
+    stored = StoredSpec.of(calculation_config)
 
     decoded = StoredSpec(spec_version=stored.spec_version, payload=json.loads(json.dumps(stored.payload))).decode()
 
-    assert decoded == spec
-    assert decoded.calculation_key() == spec.calculation_key()
+    assert decoded == calculation_config
+    assert decoded.calculation_key() == calculation_config.calculation_key()
     assert (decoded.metric_id, decoded.role, decoded.definition, decoded.settings.stored_exposure_criteria) == (
-        spec.metric_id,
-        spec.role,
-        spec.definition,
-        spec.settings.stored_exposure_criteria,
+        calculation_config.metric_id,
+        calculation_config.role,
+        calculation_config.definition,
+        calculation_config.settings.stored_exposure_criteria,
     )
 
 
-# A spec in the version 1 form, as result rows store it. It has the configuration of the ("mean", False, False)
-# case in STORED_KEYS, so it must keep decoding to that key.
+# A calculation config in the version 1 stored form, as the `spec` column of result rows holds it. It has the
+# configuration of the ("mean", False, False) case in STORED_KEYS, so it must keep decoding to that key.
 _STORED_VERSION_1_PAYLOAD: dict[str, Any] = {
     "metric_id": "inline-mean",
     "role": "secondary",
@@ -440,7 +440,7 @@ _STORED_VERSION_1_PAYLOAD: dict[str, Any] = {
 
 
 def test_a_version_1_spec_keeps_decoding_to_its_key() -> None:
-    decoded: CalculationSpec = StoredSpec(spec_version=1, payload=_STORED_VERSION_1_PAYLOAD).decode()
+    decoded: MetricCalculationConfig = StoredSpec(spec_version=1, payload=_STORED_VERSION_1_PAYLOAD).decode()
 
     assert decoded.spec_version == 1
     assert decoded.calculation_key() == STORED_KEYS[("mean", False, False)]
