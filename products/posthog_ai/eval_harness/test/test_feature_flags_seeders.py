@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
+from unittest.mock import patch
+
+from django.db import close_old_connections
 
 from parameterized import parameterized
+
+from posthog.models.user import User
 
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_stale_flags
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import WATCHED_FLAG_FIELDS
 from products.feature_flags.evals.seeders import (
+    REQUESTER_EMAIL,
     STALE_LOOKING_RECENT_UPDATE_DAYS_AGO,
+    _requester,
     seed_recently_updated_flag,
     seed_stale_full_rollout_flag,
     seed_stale_partial_rollout_flag,
@@ -110,3 +119,37 @@ class TestSeedRecentlyUpdatedFlag(BaseTest):
 
         assert flag.updated_at > datetime.now(UTC) - timedelta(days=30)
         assert flag.updated_at < datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO - 1)
+
+
+class TestSupportTicketRequesterRace(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_concurrent_setup_hooks_all_get_the_same_requester(self) -> None:
+        # User.email is unique across the whole database, so the gate cases share one
+        # persona. Managed and CI runs let four setup hooks run at once, and the losers of
+        # the insert race have to take the winner's row: an IntegrityError here aborts the
+        # trial during setup and reports infrastructure timing as an agent failure.
+        workers = 4
+        barrier = Barrier(workers, timeout=30)
+        create_user = User.objects.create_user
+
+        def create_user_in_lockstep(*args, **kwargs) -> User:
+            # Hold every thread until all of them have missed the lookup. Without this the
+            # race happens only when timing allows, and the test passes without reaching
+            # the recovery it exists to cover.
+            barrier.wait()
+            return create_user(*args, **kwargs)
+
+        def run() -> int:
+            close_old_connections()
+            try:
+                return _requester().id
+            finally:
+                close_old_connections()
+
+        with patch.object(User.objects, "create_user", side_effect=create_user_in_lockstep):
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                requester_ids = [future.result() for future in [executor.submit(run) for _ in range(workers)]]
+
+        assert len(set(requester_ids)) == 1
+        assert User.objects.filter(email=REQUESTER_EMAIL).count() == 1
