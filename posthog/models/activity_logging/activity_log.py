@@ -717,6 +717,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # on each settings toggle, and none of it is configuration.
         "pull_requests",
     ],
+    "StreamlitApp": [
+        # Reverse relations. Version uploads and activations log their own rows, and a version's
+        # str() includes the app name, so a rename would show a false versions change.
+        "versions",
+        "sandbox",
+    ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.

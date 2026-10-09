@@ -533,10 +533,7 @@ class TestStreamlitAppActivityLog(_StreamlitAppsFlagMixin, APIBaseTest):
         assert row.detail is not None
         assert row.detail["name"] == expected_name
         changed_fields = [change["field"] for change in row.detail["changes"] or []]
-        if expected_changed_field is None:
-            assert changed_fields == []
-        else:
-            assert expected_changed_field in changed_fields
+        assert changed_fields == ([] if expected_changed_field is None else [expected_changed_field])
 
     def test_write_outside_a_request_logs_a_system_row(self):
         last_id = ActivityLog.objects.order_by("-id").values_list("id", flat=True).first() or 0
