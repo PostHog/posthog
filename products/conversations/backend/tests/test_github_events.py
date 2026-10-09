@@ -112,6 +112,17 @@ class TestConversationsGitHubDeliveries(BaseTest):
         assert call_kwargs["delivery_id"] == "delivery-abc"
 
     @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
+    def test_routing_reads_stay_on_the_writer_when_the_router_points_elsewhere(self, mock_task):
+        # The test database has no "replica" alias, so a read that goes through the router fails
+        # instead of reaching settings older than the integration rows.
+        mock_task.delay = MagicMock()
+
+        with patch("django.db.router.db_for_read", return_value="replica"):
+            conversations_facade.accept_github_event(_delivery(_issue_event()))
+
+        assert mock_task.delay.call_args[1]["team_id"] == self.team.id
+
+    @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
     def test_falls_back_to_sha256_when_delivery_header_missing(self, mock_task):
         mock_task.delay = MagicMock()
         payload = _issue_event()
