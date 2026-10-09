@@ -322,7 +322,6 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": [{"name": "m1", "metric_type": "gauge"}]})
-        # The picker reads only the small names table, never the series table.
         self.assertEqual(execute.call_count, 1)
         self.assertNotIn("metric_series", str(execute.call_args.kwargs["query"]))
 
@@ -544,7 +543,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
             execute.return_value = MagicMock(results=[("m1", "gauge", "", timezone.now())])
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        # Names and their series details come back in one ClickHouse query.
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(rows[0]["sparkline"], [])
 

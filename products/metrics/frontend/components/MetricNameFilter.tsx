@@ -3,7 +3,7 @@ import { CSSProperties, useCallback, useMemo } from 'react'
 import { List } from 'react-window'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 
@@ -88,7 +88,7 @@ function MetricNameFilterInner({
     disabled?: boolean
     disabledReason?: string | null
 }): JSX.Element {
-    const { filteredItems: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
+    const { items, filteredItems: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
     const { setSearch } = useActions(metricNamePickerLogic)
 
     // The list holds one entry per name and type, and the type is not shown.
@@ -131,12 +131,13 @@ function MetricNameFilterInner({
                             fullWidth
                             value={search}
                             onChange={(val) => setSearch(val)}
+                            suffix={itemsLoading && search && filteredItems.length > 0 ? <Spinner textColored /> : null}
                             autoFocus
                         />
                     </div>
                     {itemsLoading && filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
-                            {search ? 'Searching metrics…' : 'Loading metrics…'}
+                            {search ? 'Searching…' : 'Loading metrics…'}
                         </div>
                     ) : filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
@@ -152,9 +153,6 @@ function MetricNameFilterInner({
                             rowProps={rowProps}
                         />
                     )}
-                    {itemsLoading && search && filteredItems.length > 0 && (
-                        <div className="px-2 py-1 text-muted text-xs">Searching for more metrics…</div>
-                    )}
                 </div>
             }
         >
@@ -163,7 +161,7 @@ function MetricNameFilterInner({
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronDown />}
-                loading={itemsLoading && !value}
+                loading={itemsLoading && !value && items.length === 0}
                 disabled={disabled}
                 disabledReason={disabledReason}
             >
