@@ -1407,6 +1407,7 @@ export interface FeatureFlagCleanupPrResponseApi {
  * * `single_repo` - Single repository
  * * `ambiguous` - Ambiguous
  * * `no_integration` - No integration
+ * * `refreshing` - Refreshing repositories
  */
 export type FlagCleanupRepositorySourceEnumApi =
     (typeof FlagCleanupRepositorySourceEnumApi)[keyof typeof FlagCleanupRepositorySourceEnumApi]
@@ -1417,6 +1418,7 @@ export const FlagCleanupRepositorySourceEnumApi = {
     SingleRepo: 'single_repo',
     Ambiguous: 'ambiguous',
     NoIntegration: 'no_integration',
+    Refreshing: 'refreshing',
 } as const
 
 export interface FeatureFlagCleanupTargetApi {
@@ -1425,13 +1427,14 @@ export interface FeatureFlagCleanupTargetApi {
      * @nullable
      */
     repository: string | null
-    /** How the repository was determined: `explicit` (requested on the call), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+    /** How the repository was determined: `explicit` (requested on the call), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened). `refreshing` means the repository cache is being loaded; retry the lookup.
      *
      * * `explicit` - Explicit
      * * `team_default` - Team default
      * * `single_repo` - Single repository
      * * `ambiguous` - Ambiguous
-     * * `no_integration` - No integration */
+     * * `no_integration` - No integration
+     * * `refreshing` - Refreshing repositories */
     source: FlagCleanupRepositorySourceEnumApi
     /** Repositories connected to the team's GitHub integration, to choose a target from. */
     candidates: string[]

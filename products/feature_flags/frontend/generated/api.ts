@@ -779,11 +779,12 @@ export const getFeatureFlagsCleanupPrCreateUrl = (projectId: string, id: number)
 }
 
 /**
- * Open a draft pull request that removes this archived flag from your code.
+ * Open a draft pull request that removes this flag from your code.
  *
  * Starts a Code task that searches the connected GitHub repository for the flag and removes its checks,
  * keeping the code path chosen with `keep`. The flag in PostHog is not changed. Returns 400 when the flag
- * is not archived, the chosen path does not exist on the flag, or no repository can be determined.
+ * is not archived when keeping the disabled path, the chosen path does not exist on the flag, or no repository
+ * can be determined. When keeping the enabled path or a variant, archive the flag after the PR deploys.
  */
 export const featureFlagsCleanupPrCreate = async (
     projectId: string,

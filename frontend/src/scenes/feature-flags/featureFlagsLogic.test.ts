@@ -1,3 +1,6 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -25,6 +28,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
+
+import * as flagApi from 'products/feature_flags/frontend/generated/api'
 
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
@@ -527,6 +532,47 @@ describe('updateFeatureFlagArchived', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it.each(['enabled', 'variant'] as const)('keeps the list unchanged while starting cleanup for %s', async (keep) => {
+        const update = jest.spyOn(api, 'update')
+        const request = keep === 'variant' ? { keep, variant_key: 'test' } : { keep }
+        const cleanup = jest.spyOn(flagApi, 'featureFlagsCleanupPrCreate').mockResolvedValue({
+            task_id: 'cleanup-task',
+            repository: 'example/app',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        const flags = logic.values.featureFlags
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog', cleanupPr: request })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update).not.toHaveBeenCalled()
+        expect(cleanup).toHaveBeenCalledWith(String(MOCK_DEFAULT_PROJECT.id), 1, request)
+        expect(logic.values.featureFlags).toEqual(flags)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it('starts cleanup for the saved flag after navigation unmounts the list', async () => {
+        let resolveArchive: (flag: Partial<FeatureFlagType>) => void = () => {}
+        jest.spyOn(api, 'update').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveArchive = resolve
+                })
+        )
+        const cleanup = jest.spyOn(flagApi, 'featureFlagsCleanupPrCreate').mockResolvedValue({
+            task_id: 'cleanup-task',
+            repository: 'example/app',
+        })
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, cleanupPr: { keep: 'disabled' } })
+        logic.unmount()
+        resolveArchive({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        await waitFor(() =>
+            expect(cleanup).toHaveBeenCalledWith(String(MOCK_DEFAULT_PROJECT.id), 1, { keep: 'disabled' })
+        )
     })
 
     it('marks the row as updating until the archive resolves', async () => {

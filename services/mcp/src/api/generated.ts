@@ -50338,6 +50338,7 @@ export namespace Schemas {
      * * `single_repo` - Single repository
      * * `ambiguous` - Ambiguous
      * * `no_integration` - No integration
+     * * `refreshing` - Refreshing repositories
      */
     export type FlagCleanupRepositorySourceEnum = typeof FlagCleanupRepositorySourceEnum[keyof typeof FlagCleanupRepositorySourceEnum];
 
@@ -50348,6 +50349,7 @@ export namespace Schemas {
       SingleRepo: 'single_repo',
       Ambiguous: 'ambiguous',
       NoIntegration: 'no_integration',
+      Refreshing: 'refreshing',
     } as const;
 
     export interface FeatureFlagCleanupTarget {
@@ -50356,13 +50358,14 @@ export namespace Schemas {
          * @nullable
          */
       repository: string | null;
-      /** How the repository was determined: `explicit` (requested on the call), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+      /** How the repository was determined: `explicit` (requested on the call), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened). `refreshing` means the repository cache is being loaded; retry the lookup.
        *
        * * `explicit` - Explicit
        * * `team_default` - Team default
        * * `single_repo` - Single repository
        * * `ambiguous` - Ambiguous
-       * * `no_integration` - No integration */
+       * * `no_integration` - No integration
+       * * `refreshing` - Refreshing repositories */
       source: FlagCleanupRepositorySourceEnum;
       /** Repositories connected to the team's GitHub integration, to choose a target from. */
       candidates: string[];
@@ -84166,6 +84169,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -84195,6 +84199,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
       SignalReport: 'signal_report',
       Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
@@ -84255,6 +84260,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `feature_flags` - Feature flags
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -106121,6 +106127,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `feature_flags` - Feature flags
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -107804,6 +107811,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `feature_flags` - Feature flags
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -126459,6 +126467,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -126604,6 +126613,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
       SignalReport: 'signal_report',
       Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',

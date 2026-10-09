@@ -79,6 +79,8 @@ See [API write ownership](api-writes.md) for the call path and transaction bound
 | `POST` | `.../feature_flags/{pk}/disable/`                       | Set `active: false` only                                                        |
 | `POST` | `.../feature_flags/{pk}/archive/`                       | Set `archived: true`, disabling the flag in the same write when needed          |
 | `POST` | `.../feature_flags/{pk}/unarchive/`                     | Set `archived: false` only, leaving the flag disabled                           |
+| `GET`  | `.../feature_flags/{pk}/cleanup_target/`                | Resolve the connected GitHub repository for a cleanup PR                        |
+| `POST` | `.../feature_flags/{pk}/cleanup_pr/`                    | Start or return the flag's existing cleanup task                                |
 
 ### Organization endpoints
 
@@ -115,6 +117,22 @@ A flag already in the requested state is returned unchanged with no write at all
 `archive` matches the UI contract by disabling an enabled flag in the same write, because an archived flag must be disabled.
 `unarchive` leaves the flag disabled; enabling it is a separate call.
 It is the one action that cannot return a 409: every gated action declines a change that sets none of `active`, `filters` and `bucketing_identifier`, so an `archived`-only write never opens a change request.
+
+### Cleanup pull requests
+
+Both cleanup endpoints require PostHog Desktop access.
+`cleanup_target` reads the repository cache and schedules a background refresh when it is stale.
+An empty cache being refreshed returns `source: refreshing`; retry the lookup once the refresh completes.
+Repository resolution excludes archived repositories and validates the chosen repository against the team's GitHub installation before starting a task.
+
+`cleanup_pr` requires both `feature_flag:write` and `task:write`, enforces the task usage limit, and rejects requests from sandbox agents.
+Each flag has one cleanup task, so retries and archive cycles return the existing task instead of starting another run.
+The task is attributed to feature flags and uses read-only PostHog MCP scopes.
+
+The caller chooses the code to keep: `enabled`, `disabled`, or `variant` with a `variant_key` from the flag.
+Keeping the disabled path requires the flag to be archived first.
+Keeping the enabled path or a variant leaves the flag's current settings unchanged; archive it after the cleanup PR is merged and deployed.
+The endpoint does not archive or change the flag itself.
 
 ### `create_static_cohort_for_flag`
 

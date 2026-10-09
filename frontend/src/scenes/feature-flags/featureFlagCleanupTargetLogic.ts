@@ -19,6 +19,7 @@ export interface featureFlagCleanupTargetLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     cleanupTarget: FeatureFlagCleanupTargetApi | null
+    cleanupTargetError: string | null
     cleanupTargetFailed: boolean
     cleanupTargetLoading: boolean
 }
@@ -77,6 +78,18 @@ export const featureFlagCleanupTargetLogic = kea<featureFlagCleanupTargetLogicTy
                 loadCleanupTarget: () => false,
                 loadCleanupTargetSuccess: () => false,
                 loadCleanupTargetFailure: () => true,
+            },
+        ],
+        cleanupTargetError: [
+            null as string | null,
+            {
+                loadCleanupTarget: () => null,
+                loadCleanupTargetSuccess: () => null,
+                loadCleanupTargetFailure: (_, { errorObject }) =>
+                    errorObject?.status === 403
+                        ? errorObject?.data?.error ||
+                          'PostHog Desktop access is required to open a cleanup PR. Contact your organization admin.'
+                        : 'Could not check which repositories are connected. Try again.',
             },
         ],
     }),

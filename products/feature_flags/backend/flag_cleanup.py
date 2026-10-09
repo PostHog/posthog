@@ -7,16 +7,23 @@ the PR targets, and the instructions handed to the coding agent.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
+from uuid import UUID
 
-from django.db import models
+from django.db import IntegrityError, models
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 
 if TYPE_CHECKING:
+    from posthog.models.integration import GitHubIntegration
     from posthog.models.team import Team
 
-CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
+CleanupRepositorySource = Literal[
+    "explicit", "team_default", "single_repo", "ambiguous", "no_integration", "refreshing"
+]
 
 
 class CleanupRepositoryTarget(TypedDict):
@@ -38,6 +45,7 @@ class FlagCleanupRepositorySource(models.TextChoices):
     SINGLE_REPO = "single_repo", "Single repository"
     AMBIGUOUS = "ambiguous", "Ambiguous"
     NO_INTEGRATION = "no_integration", "No integration"
+    REFRESHING = "refreshing", "Refreshing repositories"
 
 
 class FlagCleanupKeep(models.TextChoices):
@@ -49,24 +57,22 @@ class FlagCleanupKeep(models.TextChoices):
 MAX_CANDIDATES = 1000
 
 
-def _cached_repositories(github: Any, *, must_include: str | None) -> dict[str, str]:
-    """Lower-cased name -> GitHub's own casing, read from the cache without a blocking GitHub sync.
-
-    A stale snapshot is fine for a picker. The sync runs only when the cache is empty, or when it lacks
-    the repository the caller asked for, so a new repository does not need to wait for a background refresh.
-    """
-
-    def read(*, allow_refresh: bool) -> dict[str, str]:
-        return {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(allow_refresh=allow_refresh)
-            if (full_name := repo.get("full_name"))
-        }
-
-    cached = read(allow_refresh=False)
-    if not cached or (must_include and must_include.lower() not in cached):
-        cached = read(allow_refresh=True)
-    return cached
+def _cached_repositories(github: GitHubIntegration, *, must_include: str | None, allow_refresh: bool) -> dict[str, str]:
+    try:
+        repositories = github.list_all_cached_repositories(allow_refresh=allow_refresh)
+        if (
+            allow_refresh
+            and must_include
+            and not any(repo.get("full_name", "").lower() == must_include.lower() for repo in repositories)
+        ):
+            repositories = github.sync_repository_cache()
+    except Exception as error:
+        raise ValidationError({"repository": "Could not refresh connected repositories. Try again."}) from error
+    return {
+        full_name.lower(): full_name
+        for repo in repositories
+        if repo.get("archived") is not True and (full_name := repo.get("full_name"))
+    }
 
 
 def resolve_cleanup_repository(
@@ -75,6 +81,7 @@ def resolve_cleanup_repository(
     requested_repository: str | None,
     saved_repository: str | None,
     team_default_repository: str | None,
+    allow_refresh: bool = True,
 ) -> CleanupRepositoryTarget:
     """Repository a cleanup PR targets: the requested one, else the saved one, else the team
     default, else the team's only cached GitHub repo. Several repos (or no GitHub integration)
@@ -93,14 +100,22 @@ def resolve_cleanup_repository(
     github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
     if github is None:
         return {"repository": None, "source": "no_integration", "candidates": []}
+    github.priority = Priority.NORMAL
     explicit = requested_repository or saved_repository
-    cached = _cached_repositories(github, must_include=explicit)
+    cached = _cached_repositories(github, must_include=explicit, allow_refresh=allow_refresh)
+    refreshing = not allow_refresh and github.repository_cache_is_stale()
+    if refreshing:
+        from posthog.tasks.integrations import (
+            refresh_github_repository_cache,  # noqa: PLC0415 -- avoids the task import graph on the API path
+        )
+
+        refresh_github_repository_cache.delay(github.integration.id, team.id)
     # The picker shows a bounded list, but membership is checked against the whole cache.
     candidates = sorted(cached.values(), key=str.lower)[:MAX_CANDIDATES]
     if not cached:
         # An integration with nothing to target is as good as none — without this, a
         # stale saved repo would report "ambiguous" and the UI would show an empty picker.
-        return {"repository": None, "source": "no_integration", "candidates": []}
+        return {"repository": None, "source": "refreshing" if refreshing else "no_integration", "candidates": []}
     if explicit:
         # An explicit repo must still belong to this team's installation — GitHub
         # installations can be shared, so an unchecked name could reach another
@@ -159,16 +174,15 @@ def output_line(title: str) -> str:
 
 
 @frozen
-class ArchivedFlagCleanupPrompt:
+class FlagCleanupPrompt:
     title: str
     description: str
 
 
-def build_archived_flag_cleanup_prompt(
+def build_flag_cleanup_prompt(
     flag_key: str, variant_keys: list[str], keep: FlagCleanupKeep, keep_variant: str | None
-) -> ArchivedFlagCleanupPrompt:
-    """The task title and the agent's instructions for removing an archived flag's code."""
-    title = f"Clean up feature flag {flag_key}"
+) -> FlagCleanupPrompt:
+    title = f"Clean up feature flag {flag_key}"[:255]
     flag = quote(flag_key)
     if keep == FlagCleanupKeep.VARIANT:
         keep_rules = [
@@ -188,7 +202,7 @@ def build_archived_flag_cleanup_prompt(
 
     description = "\n".join(
         [
-            "Remove the scaffolding for a PostHog feature flag that was archived and is no longer needed, and open a draft pull request.",
+            "Remove the scaffolding for a PostHog feature flag that is no longer needed, and open a draft pull request.",
             UNTRUSTED_KEYS_NOTE,
             "",
             f"Feature flag key: {flag}",
@@ -208,4 +222,59 @@ def build_archived_flag_cleanup_prompt(
             output_line(title),
         ]
     )
-    return ArchivedFlagCleanupPrompt(title=title, description=description)
+    return FlagCleanupPrompt(title=title, description=description)
+
+
+@frozen
+class FlagCleanupTask:
+    task_id: UUID
+    repository: str
+
+
+def create_flag_cleanup_task(
+    *, team: Team, flag_id: int, prompt: FlagCleanupPrompt, repository: str, user_id: int
+) -> FlagCleanupTask:
+    from products.tasks.backend.facade import (
+        api as tasks_facade,  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+    )
+
+    origin_key = f"feature-flag-cleanup:{flag_id}"
+    existing = tasks_facade.get_task_by_origin_key(team.id, origin_key)
+    if existing is not None:
+        return FlagCleanupTask(task_id=existing.id, repository=existing.repository or repository)
+    try:
+        created = tasks_facade.create_and_run_task(
+            team=team,
+            title=prompt.title,
+            description=prompt.description,
+            origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
+            origin_key=origin_key,
+            user_id=user_id,
+            repository=repository,
+            create_pr=True,
+            interaction_origin="feature_flags",
+            ai_stage="implementation",
+            posthog_mcp_scopes="read_only",
+        )
+    except IntegrityError as error:
+        # The task's unique origin key prevents concurrent requests from dispatching two runs.
+        existing = tasks_facade.get_task_by_origin_key(team.id, origin_key)
+        if existing is None:
+            if (
+                getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+                == "posthog_task_origin_key_uniq"
+            ):
+                raise ValidationError(
+                    "A previous cleanup task for this flag was deleted. Start a new task in PostHog Desktop."
+                ) from error
+            raise
+        return FlagCleanupTask(task_id=existing.id, repository=existing.repository or repository)
+    return FlagCleanupTask(task_id=created.task_id, repository=repository)
+
+
+def cleanup_default_repository(team: Team) -> str | None:
+    from products.experiments.backend.models.team_experiments_config import (
+        TeamExperimentsConfig,  # noqa: PLC0415 -- experiments imports the shared cleanup resolver
+    )
+
+    return TeamExperimentsConfig.objects.filter(team=team).values_list("flag_cleanup_repository", flat=True).first()

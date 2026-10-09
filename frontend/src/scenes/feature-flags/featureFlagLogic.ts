@@ -3402,13 +3402,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     via?: FeatureFlagArchivedSource
                     cleanupPr?: FeatureFlagCleanupPrRequestApi
                 }) => {
-                    if (!values.featureFlag.id) {
+                    const flag = values.featureFlag
+                    if (!flag.id) {
                         throw new Error('Cannot archive an unsaved flag')
+                    }
+                    const projectId = values.currentProjectId
+                    if (archived && cleanupPr && cleanupPr.keep !== 'disabled') {
+                        await requestFeatureFlagCleanupPr(projectId, flag.id, cleanupPr)
+                        return flag
                     }
                     // Archiving also disables the flag — the backend rejects archived+enabled flags
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        `api/projects/${projectId}/feature_flags/${flag.id}`,
                         archived
                             ? { archived: true, active: false, ...values.rowVersionToken }
                             : { archived: false, ...values.rowVersionToken }
@@ -3418,7 +3424,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         reportFeatureFlagArchived(via)
                     }
                     if (archived && cleanupPr) {
-                        void requestFeatureFlagCleanupPr(values.currentProjectId, values.featureFlag.id, cleanupPr)
+                        void requestFeatureFlagCleanupPr(projectId, savedFlag.id, cleanupPr)
                     }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },

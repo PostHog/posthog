@@ -80,7 +80,6 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
@@ -106,7 +105,6 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -149,7 +147,9 @@ from products.feature_flags.backend.flag_analytics import increment_request_coun
 from products.feature_flags.backend.flag_cleanup import (
     FlagCleanupKeep,
     FlagCleanupRepositorySource,
-    build_archived_flag_cleanup_prompt,
+    build_flag_cleanup_prompt,
+    cleanup_default_repository,
+    create_flag_cleanup_task,
     resolve_cleanup_repository,
 )
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -183,8 +183,6 @@ from products.feature_flags.backend.version_history import (
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import code_access_required_response
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
@@ -3849,6 +3847,7 @@ class FeatureFlagCleanupTargetSerializer(serializers.Serializer):
             "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
             "`ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or "
             "`no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened)."
+            " `refreshing` means the repository cache is being loaded; retry the lookup."
         ),
     )
     candidates = serializers.ListField(
@@ -5696,6 +5695,10 @@ class FeatureFlagViewSet(
         GitHub repository. When the team has several repositories and no default (source=ambiguous), pass
         one via `repository` on `cleanup_pr`.
         """
+        from products.tasks.backend.facade.access import (
+            code_access_required_response,  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+        )
+
         self.get_object()
         if access_response := code_access_required_response(request, self.organization):
             return access_response
@@ -5703,9 +5706,8 @@ class FeatureFlagViewSet(
             self.team,
             requested_repository=None,
             saved_repository=None,
-            team_default_repository=get_or_create_team_extension(
-                self.team, TeamExperimentsConfig
-            ).flag_cleanup_repository,
+            team_default_repository=cleanup_default_repository(self.team),
+            allow_refresh=False,
         )
         return Response(FeatureFlagCleanupTargetSerializer(target).data)
 
@@ -5725,20 +5727,33 @@ class FeatureFlagViewSet(
     )
     def cleanup_pr(self, request: ValidatedRequest, **kwargs):
         """
-        Open a draft pull request that removes this archived flag from your code.
+        Open a draft pull request that removes this flag from your code.
 
         Starts a Code task that searches the connected GitHub repository for the flag and removes its checks,
         keeping the code path chosen with `keep`. The flag in PostHog is not changed. Returns 400 when the flag
-        is not archived, the chosen path does not exist on the flag, or no repository can be determined.
+        is not archived when keeping the disabled path, the chosen path does not exist on the flag, or no repository
+        can be determined. When keeping the enabled path or a variant, archive the flag after the PR deploys.
         """
+        from products.tasks.backend.facade.access import (  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+            code_access_required_response,
+            usage_limit_response,
+        )
+        from products.tasks.backend.facade.client_provenance import (
+            is_sandbox_origin_request,  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+        )
+
         feature_flag = self.get_object()
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("Sandbox agents cannot start cleanup tasks.")
         if access_response := code_access_required_response(request, self.organization):
             return access_response
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
         data = request.validated_data
-        if not feature_flag.archived:
+        keep = FlagCleanupKeep(data["keep"])
+        if not feature_flag.archived and keep == FlagCleanupKeep.DISABLED:
             raise exceptions.ValidationError("Archive the flag before opening a cleanup pull request.")
 
-        keep = FlagCleanupKeep(data["keep"])
         variant_key = data.get("variant_key") or None
         variant_keys = [v["key"] for v in feature_flag.variants if v.get("key")]
         if keep == FlagCleanupKeep.VARIANT:
@@ -5755,9 +5770,7 @@ class FeatureFlagViewSet(
             self.team,
             requested_repository=data.get("repository") or None,
             saved_repository=None,
-            team_default_repository=get_or_create_team_extension(
-                self.team, TeamExperimentsConfig
-            ).flag_cleanup_repository,
+            team_default_repository=cleanup_default_repository(self.team),
         )
         repository = target["repository"]
         if repository is None:
@@ -5765,22 +5778,16 @@ class FeatureFlagViewSet(
                 {"repository": "No GitHub repository could be determined. Connect GitHub or choose a repository."}
             )
 
-        prompt = build_archived_flag_cleanup_prompt(feature_flag.key, variant_keys, keep, variant_key)
-        created = tasks_facade.create_and_run_task(
+        prompt = build_flag_cleanup_prompt(feature_flag.key, variant_keys, keep, variant_key)
+        created = create_flag_cleanup_task(
             team=self.team,
-            title=prompt.title,
-            description=prompt.description,
-            origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+            flag_id=feature_flag.id,
+            prompt=prompt,
             user_id=cast(User, request.user).id,
             repository=repository,
-            create_pr=True,
-            interaction_origin="feature_flags",
-            ai_stage="implementation",
-            # Opening a PR needs repository access only, so the run gets no write access to PostHog data.
-            posthog_mcp_scopes="read_only",
         )
         return Response(
-            FeatureFlagCleanupPrResponseSerializer({"task_id": created.task_id, "repository": repository}).data
+            FeatureFlagCleanupPrResponseSerializer({"task_id": created.task_id, "repository": created.repository}).data
         )
 
     @action(methods=["POST"], detail=True)

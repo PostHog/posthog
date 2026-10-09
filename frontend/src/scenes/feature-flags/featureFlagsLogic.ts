@@ -545,24 +545,28 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     via?: FeatureFlagArchivedSource
                     cleanupPr?: FeatureFlagCleanupPrRequestApi
                 }) => {
+                    const projectId = values.currentProjectId
+                    const featureFlags = values.featureFlags
                     try {
+                        if (archived && cleanupPr && cleanupPr.keep !== 'disabled') {
+                            await requestFeatureFlagCleanupPr(projectId, id, cleanupPr)
+                            actions.setFeatureFlagUpdating(id, false)
+                            return featureFlags
+                        }
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                        const response = await api.update(
-                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            {
-                                ...(archived ? { archived: true, active: false } : { archived: false }),
-                                ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
-                            }
-                        )
-                        const updatedFlags = values.featureFlags.results.map((flag) =>
-                            flag.id === response.id ? response : flag
-                        )
+                        const response = await api.update(`api/projects/${projectId}/feature_flags/${id}`, {
+                            ...(archived ? { archived: true, active: false } : { archived: false }),
+                            ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
+                        })
                         if (archived && via) {
                             reportFeatureFlagArchived(via)
                         }
                         if (archived && cleanupPr) {
-                            void requestFeatureFlagCleanupPr(values.currentProjectId, id, cleanupPr)
+                            void requestFeatureFlagCleanupPr(projectId, response.id, cleanupPr)
                         }
+                        const updatedFlags = values.featureFlags.results.map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
                         return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                     } catch (e: any) {
                         actions.setFeatureFlagUpdating(id, false)

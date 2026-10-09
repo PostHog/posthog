@@ -1,9 +1,11 @@
 from celery import shared_task
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    Integration,
     defer_repository_cache_fields,
     refresh_backoff_active,
 )
@@ -11,6 +13,23 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.facade.api import delete_ses_identity
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.INTEGRATIONS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    time_limit=120,
+)
+def refresh_github_repository_cache(integration_id: int, team_id: int) -> None:
+    integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    if integration is None:
+        return
+    github = GitHubIntegration(integration, source="flag_cleanup", priority=Priority.BATCH)
+    if github.repository_cache_is_stale():
+        github.sync_repository_cache()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)

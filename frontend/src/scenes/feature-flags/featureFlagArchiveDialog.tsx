@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
@@ -41,13 +41,19 @@ function FeatureFlagArchiveDialogContent({
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
     const [keep, setKeep] = useState<string | null>(null)
     const [repository, setRepository] = useState<string | null>(null)
+    const submitted = useRef(false)
+    const [submitting, setSubmitting] = useState(false)
 
     // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access.
     const cleanupAvailable = !!featureFlags[FEATURE_FLAGS.TASKS] && featureFlag.id != null
     const { cleanupTarget } = useValues(featureFlagCleanupTargetLogic({ featureFlagId: featureFlag.id ?? 0 }))
     // The checkbox stays locked until the repository lookup answers, so an opt-in always has a target to check.
     const withCleanupPr =
-        cleanupAvailable && openCleanupPr && cleanupTarget != null && cleanupTarget.source !== 'no_integration'
+        cleanupAvailable &&
+        openCleanupPr &&
+        cleanupTarget != null &&
+        cleanupTarget.source !== 'no_integration' &&
+        cleanupTarget.source !== 'refreshing'
     // With several connected repositories and no default, the backend refuses to guess, so a pick is required.
     const needsRepositoryPick = cleanupTarget?.source === 'ambiguous'
 
@@ -61,7 +67,11 @@ function FeatureFlagArchiveDialogContent({
 
     return (
         <>
-            <p className="mb-0">{archiveDescription(featureFlag.active)}</p>
+            <p className="mb-0">
+                {withCleanupPr && keep && keep !== 'disabled'
+                    ? 'The flag keeps its current settings while the cleanup PR is prepared. Archive it after the PR is merged and deployed.'
+                    : archiveDescription(featureFlag.active)}
+            </p>
             {cleanupAvailable && (
                 <FeatureFlagArchiveCleanupOptions
                     featureFlagId={featureFlag.id as number}
@@ -85,12 +95,18 @@ function FeatureFlagArchiveDialogContent({
                     size="small"
                     data-attr="feature-flag-archive-confirm"
                     disabledReason={archiveDisabledReason}
+                    loading={submitting}
                     onClick={() => {
+                        if (submitted.current) {
+                            return
+                        }
+                        submitted.current = true
+                        setSubmitting(true)
                         closeDialog()
                         onArchive(withCleanupPr && keep ? cleanupKeepToRequest(keep, repository) : undefined)
                     }}
                 >
-                    Archive
+                    {withCleanupPr && keep && keep !== 'disabled' ? 'Start cleanup PR' : 'Archive'}
                 </LemonButton>
             </div>
         </>

@@ -32,7 +32,7 @@ export function FeatureFlagArchiveCleanupOptions({
     onRepositoryChange,
 }: FeatureFlagArchiveCleanupOptionsProps): JSX.Element {
     const logic = featureFlagCleanupTargetLogic({ featureFlagId })
-    const { cleanupTarget, cleanupTargetLoading, cleanupTargetFailed } = useValues(logic)
+    const { cleanupTarget, cleanupTargetLoading, cleanupTargetFailed, cleanupTargetError } = useValues(logic)
     const { loadCleanupTarget } = useActions(logic)
 
     return (
@@ -46,10 +46,10 @@ export function FeatureFlagArchiveCleanupOptions({
                 onRepositoryChange={onRepositoryChange}
                 dataAttrPrefix="feature-flag-archive"
                 disabledReason={
-                    cleanupTargetLoading
+                    cleanupTargetLoading || cleanupTarget?.source === 'refreshing'
                         ? 'Checking connected repositories'
                         : cleanupTargetFailed
-                          ? 'Could not check connected repositories'
+                          ? cleanupTargetError || 'Could not check connected repositories'
                           : undefined
                 }
             >
@@ -65,17 +65,16 @@ export function FeatureFlagArchiveCleanupOptions({
                             data-attr="feature-flag-archive-cleanup-keep"
                         />
                     </div>
-                    {isFlagActive && (
+                    {isFlagActive && keep === 'disabled' && (
                         <div className="text-xs text-muted">
-                            Archiving disables the flag now. Until the PR is merged and deployed, users get the code
-                            that runs when the flag is off.
+                            Archiving disables the flag now. Users get the code that runs when the flag is off.
                         </div>
                     )}
                 </>
             </FlagCleanupPrOptions>
-            {cleanupTargetFailed && (
+            {(cleanupTargetFailed || cleanupTarget?.source === 'refreshing') && (
                 <div className="text-xs text-muted flex items-center gap-1">
-                    Could not check which repositories are connected.
+                    {cleanupTargetError || 'Connected repositories are being refreshed. Try again in a moment.'}
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadCleanupTarget()}>
                         Try again
                     </LemonButton>

@@ -188,7 +188,10 @@ class TestExperimentCleanupPr(APIBaseTest):
         if cached_repos is None:
             mock_resolve_github.return_value = None
         else:
-            mock_resolve_github.return_value = SimpleNamespace(list_all_cached_repositories=lambda **_: cached_repos)
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda **_: cached_repos,
+                sync_repository_cache=lambda **_: cached_repos,
+            )
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         if team_default:
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
