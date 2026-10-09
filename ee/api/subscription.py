@@ -1980,7 +1980,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             .order_by("-created_at")
             .values("created_at")[:1]
         )
-        deliveries = (
+        visible_ids = (
             SubscriptionDelivery.objects.filter(
                 source_filter,
                 team_id=self.team_id,
@@ -1990,7 +1990,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             )
             .exclude(change_summary="")
             .filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
-            .distinct()
+            .values("id")
+        )
+        # An id subquery instead of DISTINCT lets Postgres compute period_start only for the rows on the page.
+        deliveries = (
+            SubscriptionDelivery.objects.filter(id__in=visible_ids)
             .select_related("subscription")
             # content_snapshot holds full query results, so load only the fields the serializer returns.
             .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
