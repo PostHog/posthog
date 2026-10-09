@@ -50,7 +50,6 @@ class PreferenceField:
     default: PreferenceValue
     # None for a boolean preference.
     choices: tuple[str, ...] | None = None
-    # Whether a project can set a default that people inherit.
     project_default: bool = False
 
     def is_valid(self, value: object) -> bool:

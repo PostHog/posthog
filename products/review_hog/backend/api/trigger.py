@@ -147,7 +147,6 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         Returns `(team_id, user_id)` when every gate passes, else the error `Response` to return.
         (Shared-secret auth runs before body validation in each action, so it is not part of this.)
         """
-        # The project that reviews the repository runs and publishes the review.
         owner = RepositoryOwnership.find_by_name(repo)
         if owner is None:
             return Response(

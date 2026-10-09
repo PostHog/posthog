@@ -184,7 +184,6 @@ class TestResolveActingUser(BaseTest):
             user_id=self.user.id,
             preferences={"resolve_comments": True, "celebrate_clean_reviews": False},
         )
-        # Acting as the author: their own preferences apply.
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
