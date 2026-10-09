@@ -174,6 +174,10 @@ export const broadcastAudienceListLogic = kea<broadcastAudienceListLogicType>([
         }
 
         const importPeople = async (csv: File): Promise<void> => {
+            if (values.currentProjectId === null) {
+                actions.createListCohortFinished("Couldn't find the project. Reload the page and try again.")
+                return
+            }
             const projectId = String(values.currentProjectId)
             let rows: Record<string, string>[]
             try {
@@ -182,16 +186,26 @@ export const broadcastAudienceListLogic = kea<broadcastAudienceListLogicType>([
                 actions.createListCohortFinished(error?.message ?? "Couldn't read the file.")
                 return
             }
-            let cohort: CohortType
             let summary: PeopleImportApi
             try {
                 summary = await workflowPeopleImportsCreate(projectId, { name: values.cohortName.trim(), rows })
-                cohort = (await cohortsRetrieve(projectId, summary.cohort_id)) as unknown as CohortType
             } catch (error: any) {
                 actions.createListCohortFinished(
                     `Couldn't import the people: ${error?.detail ?? error?.message ?? 'unknown error'}`
                 )
                 return
+            }
+            // The import has started, so a failed read must not let a retry start a second one.
+            let cohort: CohortType
+            try {
+                cohort = (await cohortsRetrieve(projectId, summary.cohort_id)) as unknown as CohortType
+            } catch {
+                cohort = {
+                    id: summary.cohort_id,
+                    name: values.cohortName.trim(),
+                    is_static: true,
+                    is_calculating: true,
+                } as CohortType
             }
             addCohortToAudience(cohort)
             const skippedRows =

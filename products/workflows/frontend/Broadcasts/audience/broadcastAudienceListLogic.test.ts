@@ -142,6 +142,15 @@ describe('broadcastAudienceListLogic', () => {
             importedRows: [{ email: 'ada@example.com' }],
         },
         {
+            outcome: 'adds the cohort even when reading it back fails, so a retry cannot import twice',
+            csv: 'email\nada@example.com\n',
+            response: IMPORTED,
+            cohortReadFails: true,
+            expected: ADDED,
+            audience: [SPRING_SALE_COHORT],
+            importedRows: [{ email: 'ada@example.com' }],
+        },
+        {
             outcome: 'rejects a file that is not UTF-8',
             csv: new Uint8Array([
                 ...new TextEncoder().encode('email\nzo'),
@@ -192,9 +201,10 @@ describe('broadcastAudienceListLogic', () => {
         },
     ])(
         'with the people import flag on, an upload $outcome',
-        async ({ csv, response, expected, audience, importedRows }) => {
+        async ({ csv, response, cohortReadFails, expected, audience, importedRows }) => {
             let sentRows: unknown
             useMocks({
+                ...(cohortReadFails ? { get: { '/api/projects/:team/cohorts/:id/': () => [500, {}] } } : {}),
                 post: {
                     '/api/projects/:team_id/workflow_people_imports/': async ({ request }) => {
                         sentRows = ((await request.json()) as { rows: unknown }).rows
@@ -208,6 +218,7 @@ describe('broadcastAudienceListLogic', () => {
             const logic = broadcastAudienceListLogic({ id: 'new' })
             logic.mount()
             logic.actions.openListModal()
+            logic.actions.setCohortName('Spring sale recipients')
             logic.actions.setFile(new File([csv], 'people.csv', { type: 'text/csv' }))
 
             await expectLogic(logic, () => {
