@@ -2,14 +2,19 @@
 
 ## Routing security fixes
 
-**Security fixes are developed in private, never in this public repo.**
-A public PR, branch, issue, or comment about a vulnerability discloses it before the fix is deployed.
+**A fix for an exploitable vulnerability is developed in private, never in this public repo.**
+A public PR, branch, issue, or comment about a live vulnerability discloses it before the fix is deployed.
 
-- **Where:** open the change against the private mirror **`PostHog/posthog-private`**, not `PostHog/posthog`.
-- **Branch name:** start it with **`security/`**, for example `security/idor-dashboards`.
-- **Never on `PostHog/posthog`:** no PR, branch, or issue that fixes or describes a security weakness, however small or obvious, and no test that demonstrates the exploit.
-- **What counts:** closing an access-control or IDOR gap, an injection (SQL, HogQL, command, path), SSRF, an auth, session, or token weakness, secret exposure, XSS, CSRF, an open redirect, or any change whose purpose is to close an exploitable hole.
-- **If unsure, treat it as a security fix** and route it privately.
+- **What goes private:** a change that closes a hole someone could exploit in production today, if they read the PR while it is open.
+  Examples: an access-control or IDOR gap, an injection (SQL, HogQL, command, path), SSRF, an auth, session, or token weakness, secret exposure, XSS, CSRF, or an open redirect.
+- **What stays public:** security work that discloses no exploitable hole.
+  Examples: defense-in-depth hardening, a new semgrep rule, a dependency bump for a CVE the code cannot reach, or a fix for a weakness that is not reachable in any deployed code path.
+- **Ask before you route privately.** Before you create a branch, push, or open a PR in **`PostHog/posthog-private`**, stop and ask the user.
+  Say why the change looks exploitable while public, and let the user decide.
+  Never open a `posthog-private` PR without that confirmation in the current conversation.
+- **If unsure whether it is exploitable**, do not push anywhere yet. Ask the user before you push to either repo.
+- **When the user confirms private:** open the change against `PostHog/posthog-private`, on a branch that starts with **`security/`**, for example `security/idor-dashboards`.
+  Put no PR, branch, issue, or reproducer test for that vulnerability on `PostHog/posthog`.
 - **Reporting:** keep audit and review findings in the session or private channels; never paste exploit details or vulnerable paths into a public PR, issue, or comment.
 
 This section is about where the fix lands; the rest of this doc is about writing secure code.
