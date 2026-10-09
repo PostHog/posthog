@@ -214,10 +214,6 @@ Read the comment at the top of `.github/workflows/ci-backend.yml` for the curren
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 Jest selection includes imported JSON files, such as terminal package manifests, because changes to data can break their consumers without changing TypeScript.
-Frontend jest selection follows only the imports that load a module when a test runs.
-An import used only as a type does not select a test, because the jest transformer removes it.
-Jest loads its configuration, its setup files, and the MSW mocks for every test, so selection cannot follow a change to one of them through imports.
-A ready PR that changes one takes the full matrix.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs

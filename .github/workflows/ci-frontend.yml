@@ -369,20 +369,19 @@ jobs:
                   fi
 
                   # Skip selection when jest config / build / lock files change, or
-                  # when a file changes whose consumers --findRelatedTests misses.
-                  # replay-shared sits outside the frontend jest roots. Jest loads
-                  # the MSW mocks for every test through a setup file, so no test
-                  # has to import them. Pattern matches mirror the frontend_code
+                  # when replay-shared source changes: that package sits outside
+                  # the frontend jest roots, so --findRelatedTests misses its
+                  # frontend consumers. Pattern matches mirror the frontend_code
                   # paths-filter in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
-                          frontend/jest.*|babel.config.js|tsconfig.json|tsconfig.*.json|\
+                          jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
                           .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
                               exit 0
                               ;;
-                          common/replay-shared/src/*|frontend/src/mocks/*|frontend/src/lib/api.mock.ts)
+                          common/replay-shared/src/*)
                               fall_back unindexed_dependency "$f"
                               exit 0
                               ;;
