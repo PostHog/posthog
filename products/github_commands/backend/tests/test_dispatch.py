@@ -16,12 +16,14 @@ from social_django.models import UserSocialAuth
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
+from posthog.token_bucket import BucketDecision
 
 from products.github_commands.backend.logic.commands import CommandContext, PullRequestFacts
 from products.github_commands.backend.logic.dispatch import dispatch_comment_command
 from products.github_commands.backend.logic.github import Reaction
-from products.github_commands.backend.logic.handlers import handle_loop
+from products.github_commands.backend.logic.handlers import handle_loop, handle_qa
 from products.github_commands.backend.logic.intake import CommentCommandRequest
+from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
@@ -29,6 +31,11 @@ FLAG = "products.github_commands.backend.logic.dispatch.posthog_feature_flag_ena
 REQUEST_STAMPHOG_REVIEW = "products.github_commands.backend.logic.handlers.stamphog_requests.request_review"
 LIST_LOOPS = "products.github_commands.backend.logic.handlers.loops_facade.list_loops"
 FIRE_LOOP = "products.github_commands.backend.logic.handlers.loops_facade.fire_loop_api_for_user"
+HAS_LOOPS_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.has_loops_access"
+DESKTOP_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
+CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.create_and_run_task"
+CLAIM_CACHE = "products.github_commands.backend.logic.dispatch.cache"
+CONSUME_BUDGET = "products.github_commands.backend.logic.dispatch.consume"
 RUN_COMMENT_COMMAND = "products.github_commands.backend.tasks.tasks.run_comment_command.delay"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
@@ -41,8 +48,10 @@ class FakeGitHub:
         self.pull_request_facts = pull_request or _pull_request()
         self.reactions: list[Reaction] = []
         self.replies: list[str] = []
+        self.permission_lookups: list[int] = []
 
-    def collaborator_permission(self, repository: str, login: str) -> str:
+    def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str:
+        self.permission_lookups.append(github_user_id)
         return self.permission
 
     def pull_request(self, repository: str, number: int) -> PullRequestFacts | None:
@@ -115,6 +124,8 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert outcome == "accepted"
         request_review.assert_called_once_with(self.team.id, user_id=self.user.id, repository=REPOSITORY, pr_number=7)
+        # A login can pass to another account after a rename; the permission must be for this id.
+        assert github.permission_lookups == [self.github_id]
         assert github.reactions == ["eyes", "rocket"]
         assert github.replies == ["<!-- posthog-github-command:555 -->\n@octo Stamphog is reviewing this pull request."]
 
@@ -166,6 +177,38 @@ class TestDispatchCommentCommand(BaseTest):
         assert (first, second) == ("accepted", "duplicate")
         request_review.assert_called_once()
 
+    def test_a_comment_that_cannot_be_claimed_does_not_run(self) -> None:
+        # Running without the claim would let a redelivery start a second paid run.
+        self._link_github_login()
+        github = FakeGitHub()
+
+        with (
+            patch(CLAIM_CACHE) as claim_cache,
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+        ):
+            claim_cache.add.side_effect = ConnectionError("redis is down")
+            outcome = dispatch_comment_command(self._request(), github=github)
+
+        assert outcome == "claim_unavailable"
+        assert github.reactions == [] and github.replies == []
+        request_review.assert_not_called()
+
+    def test_a_rate_limited_commenter_costs_no_github_call_and_gets_no_answer(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub()
+        denied = BucketDecision(allowed=False, remaining=0, limit=5, retry_after=60, reset=600)
+
+        with (
+            patch(CONSUME_BUDGET, return_value=denied),
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+        ):
+            outcome = dispatch_comment_command(self._request(), github=github)
+
+        assert outcome == "rate_limited"
+        assert github.permission_lookups == []
+        assert github.reactions == [] and github.replies == []
+        request_review.assert_not_called()
+
     @parameterized.expand(
         [
             ("fork", _pull_request(is_fork=True), "fork_refused"),
@@ -204,11 +247,32 @@ class TestDispatchCommentCommand(BaseTest):
         )
         teammates_loop = SimpleNamespace(id="loop-1", name="triage pr", created_by_id=self.user.id + 1)
 
-        with patch(LIST_LOOPS, return_value=[teammates_loop]), patch(FIRE_LOOP) as fire:
+        with (
+            patch(HAS_LOOPS_ACCESS, return_value=True),
+            patch(LIST_LOOPS, return_value=[teammates_loop]),
+            patch(FIRE_LOOP) as fire,
+        ):
             outcome = handle_loop(context)
 
         assert not outcome.accepted
         fire.assert_not_called()
+
+    def test_qa_refuses_without_posthog_code_access(self) -> None:
+        context = CommandContext(
+            request=self._request(verb="qa"),
+            pull_request=_pull_request(),
+            user_id=self.user.id,
+            team_ids=(self.team.id,),
+        )
+
+        with (
+            patch(DESKTOP_ACCESS, return_value=DesktopAccessDecision.SIGNUPS_PAUSED),
+            patch(CREATE_TASK) as create_task,
+        ):
+            outcome = handle_qa(context)
+
+        assert not outcome.accepted
+        create_task.assert_not_called()
 
     @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:

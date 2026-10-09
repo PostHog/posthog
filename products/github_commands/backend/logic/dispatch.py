@@ -6,17 +6,19 @@ Every command passes the same checks, in this order, before its handler runs:
    says nothing.
 2. The comment is new to us. Ingress dedups the delivery, and this claims the comment itself, so
    a redelivery or a second consumer path cannot run one comment twice.
-3. GitHub says the commenter can write to the repository. The webhook's `author_association`
-   only filtered noise; organization members can lack write access to a given repository.
-4. The commenter is within their rate limit.
+3. The commenter is within their rate limit. This runs before any GitHub call, so a flood of
+   comments costs no GitHub quota.
+4. GitHub says the commenter's account, matched by its numeric id, can write to the repository.
+   The webhook's `author_association` only filtered noise; organization members can lack write
+   access to a given repository.
 5. The command exists, and the comment holds exactly one.
 6. The commenter's GitHub account is linked to exactly one active PostHog user, and that user is a
    member of a rolled-out project whose GitHub integration uses this installation.
 7. The pull request is open, and the command allows forks if the head is a fork.
 8. The user has the access the command declares on the project, in PostHog access control.
 
-People who fail check 3 get no answer at all, so the bot gives outsiders nothing to probe and no
-way to make it post. Everyone past it gets a reply that says what happened.
+People who fail checks 1 to 4 get no answer at all, so the bot gives outsiders nothing to probe and
+no way to make it post. Everyone past them gets a reply that says what happened.
 """
 
 from collections.abc import Callable
@@ -54,6 +56,7 @@ _COMMENTER_BUDGET = Budget(burst=5, per_hour=30)
 
 DispatchOutcome = Literal[
     "duplicate",
+    "claim_unavailable",
     "not_rolled_out",
     "no_installation",
     "no_write_access",
@@ -143,22 +146,24 @@ def _admit(request: CommentCommandRequest, github: CommandGitHub | None) -> _Adm
     rolled_out_team_ids = _rolled_out_team_ids(request.installation_id)
     if not rolled_out_team_ids:
         return "not_rolled_out"
-    if not _claim_comment(request.comment_id):
-        return "duplicate"
+    claim_refusal = _claim_comment(request.comment_id)
+    if claim_refusal is not None:
+        return claim_refusal
+    if not _within_rate_limit(request.commenter_github_id):
+        return "rate_limited"
     if github is None:
         github = InstallationGitHub.for_installation(request.installation_id)
         if github is None:
             return "no_installation"
     try:
-        permission = github.collaborator_permission(request.repository, request.commenter_login)
+        permission = github.collaborator_permission(
+            request.repository, request.commenter_login, request.commenter_github_id
+        )
     except GitHubCallFailed:
         logger.warning("github_command_permission_lookup_failed", repository=request.repository, exc_info=True)
         return "permission_lookup_failed"
     if permission not in _WRITE_PERMISSIONS:
         return "no_write_access"
-    if not _within_rate_limit(request.commenter_github_id):
-        github.react(request.repository, request.comment_id, "confused")
-        return "rate_limited"
     return _Admitted(github=github, rolled_out_team_ids=rolled_out_team_ids)
 
 
@@ -251,13 +256,16 @@ def _reply_body(request: CommentCommandRequest, message: str) -> str:
     return f"<!-- posthog-github-command:{request.comment_id} -->\n@{request.commenter_login} {message}"
 
 
-def _claim_comment(comment_id: int) -> bool:
+def _claim_comment(comment_id: int) -> DispatchOutcome | None:
+    """None when this call claimed the comment, else the outcome that stops dispatch."""
     try:
-        return bool(cache.add(f"github_commands:comment:{comment_id}", 1, timeout=_CLAIM_TTL_SECONDS))
+        claimed = cache.add(f"github_commands:comment:{comment_id}", 1, timeout=_CLAIM_TTL_SECONDS)
     except Exception:
-        # Fail open: ingress already dedups the delivery, and a cache outage must not drop commands.
+        # Fail closed: the cache shares Redis with the Celery broker, so an outage that drops this
+        # command drops it anyway, while failing open lets a redelivery start a second paid run.
         logger.warning("github_command_claim_failed", comment_id=comment_id, exc_info=True)
-        return True
+        return "claim_unavailable"
+    return None if claimed else "duplicate"
 
 
 def _within_rate_limit(github_user_id: int) -> bool:
@@ -286,11 +294,11 @@ def _rolled_out_team_ids(installation_id: str) -> frozenset[int]:
 
 
 def _teams_with_access(user: User, team_ids: tuple[int, ...], access: ResourceAccess) -> tuple[int, ...]:
-    allowed: list[int] = []
-    for team_id in team_ids:
-        # Products keep their rows, and their access rules, on the parent project.
-        team = Team.objects.get(id=resolve_effective_team_id(team_id))
+    # Products keep their rows, and their access rules, on the parent project.
+    effective_team_ids = {team_id: resolve_effective_team_id(team_id) for team_id in team_ids}
+    teams = Team.objects.in_bulk(set(effective_team_ids.values()))
+    has_access: dict[int, bool] = {}
+    for effective_team_id, team in teams.items():
         access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        if access_control.check_access_level_for_resource(access.resource, access.level):
-            allowed.append(team_id)
-    return tuple(allowed)
+        has_access[effective_team_id] = access_control.check_access_level_for_resource(access.resource, access.level)
+    return tuple(team_id for team_id in team_ids if has_access.get(effective_team_ids[team_id], False))

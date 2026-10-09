@@ -13,13 +13,13 @@ People with write access to a repository can ask PostHog to do something on a pu
 Each command dispatches into the product that owns the work.
 This product owns the parsing, the checks and the replies, and owns no work of its own.
 
-| Command                   | Dispatches to                                  | What happens                                                                |
-| ------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| `@posthog review [flash]` | PostHog Review (`review_hog` facade `reviews`) | Starts a review with the commenter as the acting user.                      |
-| `@posthog stamp`          | Stamphog (`stamphog` facade `review_requests`) | Queues a Stamphog review. Stamphog alone decides whether to approve.        |
-| `@posthog qa [focus]`     | PostHog Code (`tasks` facade `api`)            | Starts a task that runs the `qa-frontend` skill on the pull request head.   |
-| `@posthog loop <name>`    | Loops (`tasks` facade `loops`)                 | Fires one of the commenter's own loops, with the pull request as its input. |
-| `@posthog help`           | none                                           | Lists the commands.                                                         |
+| Command                   | Dispatches to                                  | What happens                                                                                |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `@posthog review [flash]` | PostHog Review (`review_hog` facade `reviews`) | Starts a review with the commenter as the acting user. It never pushes fixes to the branch. |
+| `@posthog stamp`          | Stamphog (`stamphog` facade `review_requests`) | Queues a Stamphog review. Stamphog alone decides whether to approve.                        |
+| `@posthog qa [focus]`     | PostHog Code (`tasks` facade `api`)            | Starts a task that runs the `qa-frontend` skill on the pull request head.                   |
+| `@posthog loop <name>`    | Loops (`tasks` facade `loops`)                 | Fires one of the commenter's own loops, with the pull request as its input.                 |
+| `@posthog help`           | none                                           | Lists the commands.                                                                         |
 
 ## How a comment becomes a command
 
@@ -45,12 +45,13 @@ So a command can only do what the commenter could already do in PostHog, and a c
 
 The checks that make that true:
 
-- **Who is asking.** The webhook's `author_association` filters out outside contributors before a task is queued. The task then asks GitHub for the commenter's permission on the repository and requires write access.
+- **Who is asking.** The webhook's `author_association` filters out outside contributors before a task is queued. The task then asks GitHub for the commenter's permission on the repository and requires write access, for the commenter's numeric account id, so a login that changed hands does not count.
 - **Which PostHog user.** The match is on GitHub's numeric user id, never on the login, and only through identities GitHub confirmed to PostHog: a connected GitHub account or GitHub login. A GitHub account linked to two PostHog accounts runs nothing.
 - **Which project.** Only projects whose GitHub integration uses the installation the comment came from, that the user is a member of, and that are in the `github-commands` rollout.
+- **Which product gates.** A command applies the gates the target product's own API applies. `loop` needs Loops access, and `qa` needs PostHog Code access for the commenter's organization.
 - **What the person typed.** Only a new comment counts, so an edit cannot turn a reviewed comment into a command. Comments by bots, and comments a GitHub App posted with a person's token, never run a command. That covers PostHog's own replies and coding agents that act as a user.
-- **One run per comment.** Ingress dedups the delivery, and dispatch claims the comment id.
-- **Cost.** Each commenter has a rate limit.
+- **One run per comment.** Ingress dedups the delivery, and dispatch claims the comment id. If the claim cannot be written, the command does not run, so a redelivery cannot start a second paid run.
+- **Cost.** Each commenter has a rate limit, checked before any GitHub call. A commenter over the limit gets no reaction and no reply.
 
 ## Prompt injection
 

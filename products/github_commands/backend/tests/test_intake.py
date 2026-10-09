@@ -48,7 +48,10 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         ("> @posthog stamp\n\nWhy did this run?", None),
         ("```\n@posthog stamp\n```", None),
         ("~~~md\n@posthog stamp\n~~~", None),
+        # A shorter fence inside a longer one is displayed text, not the end of the block.
+        ("````\n```\n@posthog stamp\n```\n````", None),
         ("`@posthog stamp`", None),
+        ("Run `this\n@posthog stamp` later", None),
         ("<!-- @posthog stamp -->", None),
         ("<!--\n@posthog stamp\n-->", None),
         ("@posthog stamp\n@posthog qa", AmbiguousCommand(count=2)),

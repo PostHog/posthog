@@ -17,7 +17,8 @@ MAX_ARGUMENT_LENGTH = 200
 
 _FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?(?:-->|$)", re.DOTALL)
-_INLINE_CODE_RE = re.compile(r"(`+).*?\1", re.DOTALL)
+# A code span can cross a line break, but not a blank line, which ends the paragraph.
+_INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\n[ \t]*\n).)*?\1", re.DOTALL)
 # The mention must stand alone: `@posthog-bot` and `@posthogx` are other accounts.
 _COMMAND_LINE_RE = re.compile(
     rf"^\s{{0,3}}{re.escape(MENTION)}(?![\w-])[ \t]+(?P<verb>[A-Za-z][\w-]{{0,31}})(?P<rest>.*)$",
@@ -85,11 +86,12 @@ def _live_lines(body: str) -> list[str]:
         if fence_match is not None:
             marker = fence_match.group(1)
             if fence is None:
-                fence = marker[0] * 3
+                fence = marker
+            # Only a run of the same character, at least as long as the opening one, closes a block.
             elif marker.startswith(fence):
                 fence = None
             continue
         if fence is not None or line.lstrip().startswith(">"):
             continue
-        lines.append(_INLINE_CODE_RE.sub("", line))
-    return lines
+        lines.append(line)
+    return _INLINE_CODE_RE.sub("", "\n".join(lines)).split("\n")

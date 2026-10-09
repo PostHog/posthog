@@ -8,6 +8,7 @@ identifiers, and the downstream product reads the content itself as untrusted da
 
 import structlog
 
+from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -19,6 +20,7 @@ from products.stamphog.backend.facade import (
     review_requests as stamphog_requests,
 )
 from products.tasks.backend.facade import (
+    access as tasks_access,
     api as tasks_facade,
     loops as loops_facade,
 )
@@ -82,8 +84,21 @@ def handle_qa(context: CommandContext) -> CommandOutcome:
     """Start a PostHog Code task that runs the frontend QA skill against the pull request head."""
     pull_request = context.pull_request
     team_id = context.team_ids[0]
+    team = Team.objects.select_related("organization").get(id=team_id)
+    # The Tasks API applies the same gate before it starts a run.
+    try:
+        decision = tasks_access.get_desktop_access_decision(User.objects.get(id=context.user_id), team.organization)
+    except tasks_access.DesktopAccessResolutionError:
+        logger.warning("github_command_desktop_access_unresolved", team_id=team_id, exc_info=True)
+        return CommandOutcome(
+            accepted=False, message="I couldn't check your PostHog Code access. Try again in a few minutes."
+        )
+    if not decision.allowed:
+        return CommandOutcome(
+            accepted=False, message="PostHog Code isn't available for your organization, so I can't start a QA run."
+        )
     created = tasks_facade.create_and_run_task(
-        team=Team.objects.get(id=team_id),
+        team=team,
         title=f"QA {pull_request.repository}#{pull_request.number}",
         description=build_qa_instructions(context),
         origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
@@ -125,28 +140,44 @@ def handle_loop(context: CommandContext) -> CommandOutcome:
         return CommandOutcome(accepted=False, message="Name the loop to run, for example `@posthog loop Triage PR`.")
     user = User.objects.get(id=context.user_id)
     unowned_match = False
+    loops_enabled = False
+    checked_team_ids: set[int] = set()
     for team_id in context.team_ids:
-        for loop in loops_facade.list_loops(team_id, user):
-            if loop.name.casefold() != name.casefold():
-                continue
-            if loop.created_by_id != context.user_id:
-                unowned_match = True
-                continue
-            result = loops_facade.fire_loop_api_for_user(
-                loop.id,
-                team_id,
-                user,
-                payload=_loop_payload(context),
-                idempotency_key=f"github-comment-{context.request.comment_id}",
-            )
-            if result is None or not result.created:
-                reason = result.reason if result is not None else "not_found"
-                logger.info("github_command_loop_not_fired", loop_id=str(loop.id), reason=reason)
-                return CommandOutcome(
-                    accepted=False,
-                    message="The loop did not start. Check that it is enabled and has an API trigger.",
+        team = Team.objects.select_related("organization").get(id=team_id)
+        # Loops live on the parent project, so environments of one project share them.
+        canonical_team_id = team.parent_team_id or team.id
+        if canonical_team_id in checked_team_ids:
+            continue
+        checked_team_ids.add(canonical_team_id)
+        # The Loops API applies this flag through its permission class; the facade does not.
+        if not tasks_access.has_loops_access(user, team):
+            continue
+        loops_enabled = True
+        # The Loop manager fails closed without a team scope, and a Celery task has none.
+        with team_scope(canonical_team_id, canonical=True):
+            for loop in loops_facade.list_loops(canonical_team_id, user):
+                if loop.name.casefold() != name.casefold():
+                    continue
+                if loop.created_by_id != context.user_id:
+                    unowned_match = True
+                    continue
+                result = loops_facade.fire_loop_api_for_user(
+                    loop.id,
+                    canonical_team_id,
+                    user,
+                    payload=_loop_payload(context),
+                    idempotency_key=f"github-comment-{context.request.comment_id}",
                 )
-            return CommandOutcome(accepted=True, message="Started the loop.")
+                if result is None or not result.created:
+                    reason = result.reason if result is not None else "not_found"
+                    logger.info("github_command_loop_not_fired", loop_id=str(loop.id), reason=reason)
+                    return CommandOutcome(
+                        accepted=False,
+                        message="The loop did not start. Check that it is enabled and has an API trigger.",
+                    )
+                return CommandOutcome(accepted=True, message="Started the loop.")
+    if not loops_enabled:
+        return CommandOutcome(accepted=False, message="Loops aren't enabled for your account.")
     if unowned_match:
         return CommandOutcome(accepted=False, message="Only the loop's owner can run it from a comment.")
     return CommandOutcome(accepted=False, message="No loop with that name belongs to you.")

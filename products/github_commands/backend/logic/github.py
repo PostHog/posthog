@@ -16,7 +16,7 @@ from .commands import PullRequestFacts
 
 logger = structlog.get_logger(__name__)
 
-Reaction = Literal["eyes", "rocket", "confused"]
+Reaction = Literal["eyes", "rocket"]
 
 _SOURCE = "github_commands"
 
@@ -28,7 +28,7 @@ class GitHubCallFailed(Exception):
 
 
 class CommandGitHub(Protocol):
-    def collaborator_permission(self, repository: str, login: str) -> str: ...
+    def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str: ...
 
     def pull_request(self, repository: str, number: int) -> PullRequestFacts | None: ...
 
@@ -49,9 +49,9 @@ class InstallationGitHub:
             return None
         return cls(GitHubIntegration(integration, source=_SOURCE))
 
-    def collaborator_permission(self, repository: str, login: str) -> str:
+    def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str:
         try:
-            return self._client.get_collaborator_permission(repository, login)
+            return self._client.get_collaborator_permission(repository, login, expected_user_id=github_user_id)
         except _CALL_ERRORS as error:
             raise GitHubCallFailed from error
 

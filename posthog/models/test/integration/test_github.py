@@ -107,6 +107,23 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
 
+class TestCollaboratorPermission(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("same_account", {"permission": "write", "user": {"id": 42}}, "write"),
+            # The login now belongs to another account, for example after a rename.
+            ("other_account", {"permission": "write", "user": {"id": 43}}, "none"),
+            ("no_account", {"permission": "write"}, "none"),
+        ]
+    )
+    def test_permission_counts_only_for_the_expected_account(self, _name, body, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = body
+        with patch.object(github, "api_request", return_value=response):
+            assert github.get_collaborator_permission("example/repo", "octocat", expected_user_id=42) == expected
+
+
 class TestPullRequestCommentMarker(SimpleTestCase):
     @parameterized.expand(
         [
