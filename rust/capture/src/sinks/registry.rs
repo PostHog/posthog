@@ -170,8 +170,8 @@ impl<R> OutputTable<R> {
             Destination::AiMain => Some(&self.ai_main),
             Destination::AiOverflow => match &self.ai_overflow {
                 Some(target) if !target.topic.is_empty() => Some(target),
-                // Unreachable: routing only selects this output when the
-                // valve is armed, i.e. exactly when the topic is set.
+                // Callers select this output only when the valve is armed,
+                // i.e. exactly when the topic is set.
                 _ => Some(&self.ai_main),
             },
             Destination::Custom(_) => None,
