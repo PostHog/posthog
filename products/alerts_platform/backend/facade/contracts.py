@@ -351,8 +351,8 @@ class SourceBatchEvaluation:
 
     outcomes: tuple[PlatformAlertOutcome, ...]
     deliveries: tuple[AlertDeliveryRequest, ...]
-    # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
-    # them, the way a truncated cohort already behaves.
+    # Pairs the payload bound or a full evaluation pool left out. They keep their due time and a
+    # later tick re-evaluates them, the way a truncated cohort already behaves.
     omitted: int = 0
 
 
