@@ -11,7 +11,9 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -256,10 +258,19 @@ class AccessControlSerializer(serializers.ModelSerializer):
 TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
 
 
+def is_terraform_request(request: Request) -> bool:
+    """A request from the Terraform provider, authenticated with a personal API key, whose owner is the
+    Terraform account. A session never counts, so nothing done in the browser marks a project."""
+    return (
+        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        and get_event_source(request) == EventSource.TERRAFORM
+    )
+
+
 def apply_access_control_rule(
     *,
     team: Team,
-    user: User,
+    request: Request,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> AccessControl | None:
@@ -271,8 +282,11 @@ def apply_access_control_rule(
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
 
-    # Every rule write goes through here. When Terraform manages the project, only its account may write.
-    if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
+    user = cast(User, request.user)
+    terraform_request = is_terraform_request(request)
+    # Every rule write goes through here. When Terraform manages the project, only its account may
+    # write, and a write from Terraform itself marks the project for the account behind its API key.
+    if not terraform_request and not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
@@ -289,6 +303,8 @@ def apply_access_control_rule(
         instance.delete()
         # Drop the preloaded access-control snapshot so later reads this request are fresh.
         user_access_control._clear_cache()
+        if terraform_request:
+            access_control_api.mark_terraform_managed(team_id=team.id, user_id=user.id)
         return None
 
     if instance:
@@ -298,6 +314,8 @@ def apply_access_control_rule(
     rule = serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
+    if terraform_request:
+        access_control_api.mark_terraform_managed(team_id=team.id, user_id=user.id)
 
     return rule
 
@@ -305,14 +323,14 @@ def apply_access_control_rule(
 def upsert_access_control(
     *,
     team: Team,
-    user: User,
+    request: Request,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> Response:
     """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
     PUT actions expect."""
     rule = apply_access_control_rule(
-        team=team, user=user, user_access_control=user_access_control, build_serializer=build_serializer
+        team=team, request=request, user_access_control=user_access_control, build_serializer=build_serializer
     )
     if rule is None:
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -551,7 +569,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return upsert_access_control(
             team=team,
-            user=cast(User, request.user),
+            request=request,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )

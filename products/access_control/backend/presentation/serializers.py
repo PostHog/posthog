@@ -296,15 +296,22 @@ class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
 
 class AccessControlManagementRequestSerializer(serializers.Serializer):
     managed = serializers.BooleanField(
-        help_text="True hands this project's access rules to the caller's own account, which is how Terraform marks "
-        "the project it applies to. False hands them back to the UI."
+        help_text="Must be false, which hands this project's access rules back to the UI. Terraform marks a project "
+        "itself when it writes access rules with its API key."
     )
+
+    def validate_managed(self, value: bool) -> bool:
+        if value:
+            raise serializers.ValidationError(
+                "Terraform marks a project itself when it applies access rules, so this can only turn it off."
+            )
+        return value
 
 
 class AccessControlManagementSerializer(serializers.Serializer):
     managed = serializers.BooleanField(
-        help_text="Whether Terraform manages this project's access rules. While true, only the account that marked "
-        "the project may change them."
+        help_text="Whether Terraform manages this project's access rules. While true, only the account behind "
+        "Terraform's API key may change them."
     )
     managed_at = serializers.DateTimeField(allow_null=True, help_text="When the project was marked, or null.")
 

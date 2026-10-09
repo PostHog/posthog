@@ -252,14 +252,24 @@ def get_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
     return contracts.TerraformManagement(managed=config is not None, managed_at=config.managed_at if config else None)
 
 
-def set_terraform_management(*, team_id: int, membership_id: UUID | None) -> contracts.TerraformManagement:
-    """Hand the project's access rules to the account behind `membership_id`, or back to the UI with
-    None. The caller passes its own membership, which is how Terraform marks the project it applies to."""
+def mark_terraform_managed(*, team_id: int, user_id: int) -> None:
+    """Record the user behind the Terraform API key that just wrote this project's access rules. A
+    second Terraform account takes over, so that a rotated service account keeps working."""
     team = get_object_or_404(Team, id=team_id)
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).first()
+    if membership is None:
+        return
     config = get_or_create_team_extension(team, TeamAccessControlConfig)
-    config.managed_by_id = membership_id
-    config.managed_at = timezone.now() if membership_id else None
+    if config.managed_by_id == membership.id:
+        return
+    config.managed_by = membership
+    config.managed_at = timezone.now()
     config.save(update_fields=["managed_by", "managed_at"])
+
+
+def clear_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
+    """Hand the project's access rules back to the UI. The next Terraform write marks it again."""
+    TeamAccessControlConfig.objects.filter(team_id=team_id).update(managed_by=None, managed_at=None)
     return get_terraform_management(team_id=team_id)
 
 

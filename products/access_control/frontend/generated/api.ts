@@ -184,7 +184,7 @@ export const getOrganizationsProjectsAccessControlManagementUpdateUrl = (organiz
 }
 
 /**
- * Mark this project's access rules as managed by Terraform, or hand them back to the UI. With `managed: true` the caller's own account becomes the one account that may change the rules, so Terraform calls this with the API key it applies with. Project admins and organization admins may call it.
+ * Hand this project's access rules back to the UI. Terraform marks a project itself when it writes access rules with its API key, so this only turns it off, and the next Terraform write turns it on again. Project admins and organization admins may call it.
  */
 export const organizationsProjectsAccessControlManagementUpdate = async (
     organizationId: string,
