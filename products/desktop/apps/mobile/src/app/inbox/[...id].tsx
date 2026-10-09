@@ -53,6 +53,7 @@ import {
 import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
+import { ReportSourceSuggestion } from "@/features/inbox/components/ReportSourceSuggestion";
 import { ReportVerdictBanner } from "@/features/inbox/components/ReportVerdictBanner";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
 import {
@@ -574,6 +575,15 @@ export default function ReportDetailScreen() {
         )}
         {signalsQuery.isLoading && (
           <Text className="text-[12px] text-gray-9">Loading signals…</Text>
+        )}
+
+        {report.source_suggestion && (
+          <View className="mb-4">
+            <ReportSourceSuggestion
+              report={report}
+              suggestion={report.source_suggestion}
+            />
+          </View>
         )}
 
         {/* Activity log */}
