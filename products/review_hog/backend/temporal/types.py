@@ -75,6 +75,8 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
     @property
     def repository(self) -> str:

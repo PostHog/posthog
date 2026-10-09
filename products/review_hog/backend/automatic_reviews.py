@@ -128,16 +128,31 @@ def plan_automatic_review(
     return AutomaticDispatch(outcome="started", team_id=team_id, run_as_user_id=author_user_id)
 
 
-def automatic_flash_allowed(*, team_id: int, repository: str, user_id: int, author_login: str) -> bool:
+def automatic_flash_allowed(
+    *,
+    team_id: int,
+    repository: str,
+    user_id: int,
+    author_login: str,
+    installation_id: str | None = None,
+    github_repo_id: int | None = None,
+) -> bool:
     """Whether the rules still give this pull request an automatic Flash review run as `user_id`.
 
     The workflow calls this again when the run starts, because ownership, settings and lists can
     change while the task waits in the queue.
     """
-    owner = RepositoryOwnership.find_by_name(repository)
+    if installation_id:
+        # The installation id comes from the signed webhook. The cached account name of the
+        # integration can be a placeholder, so a lookup by name can miss an owner the dispatch found.
+        owner = RepositoryOwnership.find(
+            RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=repository)
+        )
+    else:
+        owner = RepositoryOwnership.find_by_name(repository)
     if owner is None or owner.team_id != team_id:
         return False
-    ref = RepositoryRef(installation_id=owner.installation_id, github_repo_id=None, full_name=repository)
+    ref = RepositoryRef(installation_id=owner.installation_id, github_repo_id=github_repo_id, full_name=repository)
     return plan_automatic_review(ref, owner, author_login=author_login).run_as_user_id == user_id
 
 
@@ -218,6 +233,8 @@ class AuthoredPRReview:
             review_mode=REVIEW_MODE_FLASH,
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
+            installation_id=self.installation_id,
+            github_repo_id=self.github_repo_id,
         )
         # After the start, so a retried task cannot count a dispatch it never made.
         _observe_dispatch("started")

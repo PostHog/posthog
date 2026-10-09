@@ -75,18 +75,26 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, True, True, True),
-            ("opted_out", False, True, True, True),
-            ("inactive", True, False, True, True),
-            ("left_organization", True, True, False, True),
-            ("repository_removed", True, True, True, False),
+            ("enabled", True, True, True, True, "PostHog", None),
+            ("opted_out", False, True, True, True, "PostHog", None),
+            ("inactive", True, False, True, True, "PostHog", None),
+            ("left_organization", True, True, False, True, "PostHog", None),
+            ("repository_removed", True, True, True, False, "PostHog", None),
+            ("placeholder_account_name", True, True, True, True, "installation-1234", "1234"),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
-        self, _name: str, opted_in: bool, active: bool, member: bool, repository_added: bool
+        self,
+        _name: str,
+        opted_in: bool,
+        active: bool,
+        member: bool,
+        repository_added: bool,
+        account_name: str,
+        installation_id: str | None,
     ) -> None:
         Integration.objects.create(
-            team=self.team, kind="github", integration_id="1234", config={"account": {"name": "PostHog"}}
+            team=self.team, kind="github", integration_id="1234", config={"account": {"name": account_name}}
         )
         if repository_added:
             ReviewInstallationClaim.objects.for_team(self.team.id).create(
@@ -120,6 +128,7 @@ class TestResolveActingUser(BaseTest):
                 trigger_source=TRIGGER_AUTOMATIC,
                 report_id=str(report.id),
                 repository="posthog/PostHog",
+                installation_id=installation_id,
             )
         )
         eligible = opted_in and active and member and repository_added
