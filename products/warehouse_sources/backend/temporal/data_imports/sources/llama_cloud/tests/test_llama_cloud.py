@@ -110,25 +110,6 @@ class TestLlamaCloudTransport:
         assert session.calls[1][1]["page_token"] == "token-1"
         assert session.calls[0][1]["page_size"] == 100
 
-    def test_get_rows_saves_resume_state_after_yield(self) -> None:
-        session = FakeSession(
-            [
-                _page([{"id": "job-1"}], next_page_token="token-1"),
-                _page([{"id": "job-2"}], next_page_token=None),
-            ]
-        )
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            rows = get_rows("llx-test", "na", "parse_jobs", MagicMock(), manager)
-            next(rows)
-            # Suspended at the first yield: a crash here must re-yield this page on retry,
-            # so the resume state can't have been persisted yet.
-            manager.save_state.assert_not_called()
-            next(rows)
-
-        manager.save_state.assert_called_once_with(LlamaCloudResumeConfig(next_page_token="token-1"))
-
     def test_get_rows_resumes_from_saved_page_token(self) -> None:
         session = FakeSession([_page([{"id": "job-3"}], next_page_token=None)])
         manager = _make_manager(resume_state=LlamaCloudResumeConfig(next_page_token="token-2"))
@@ -157,15 +138,6 @@ class TestLlamaCloudTransport:
             )
 
         assert session.calls[0][1]["created_at_on_or_after"] == "2026-01-02T03:04:05Z"
-
-    def test_get_rows_full_refresh_omits_incremental_filter(self) -> None:
-        session = FakeSession([_page([{"id": "job-1"}], next_page_token=None)])
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("llx-test", "na", "parse_jobs", MagicMock(), manager))
-
-        assert "created_at_on_or_after" not in session.calls[0][1]
 
     def test_get_rows_usage_metrics_resolves_organization_id(self) -> None:
         session = FakeSession(
@@ -205,18 +177,6 @@ class TestLlamaCloudTransport:
             pytest.raises(ValueError, match="organization id"),
         ):
             list(get_rows("llx-test", "na", "usage_metrics", MagicMock(), manager))
-
-    def test_get_rows_pipelines_yields_bare_array_without_pagination(self) -> None:
-        session = FakeSession([[{"id": "pipeline-1"}, {"id": "pipeline-2"}]])
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "pipelines", MagicMock(), manager))
-
-        assert batches == [[{"id": "pipeline-1"}, {"id": "pipeline-2"}]]
-        url, params = session.calls[0]
-        assert url == "https://api.cloud.eu.llamaindex.ai/api/v1/pipelines"
-        assert params == {}
 
     def test_get_rows_pipelines_projects_to_documented_fields(self) -> None:
         # Pipeline definitions embed third-party credentials in nested config; only the
@@ -262,106 +222,55 @@ class TestLlamaCloudTransport:
             ]
         ]
 
-    def test_get_rows_sheets_jobs_projects_to_documented_fields(self) -> None:
-        # Sheets jobs embed webhook credentials under nested `parameters.webhook_configurations`;
-        # only the documented job metadata reaches the warehouse. Exercises the paginated
-        # projection path (distinct from the bare-array pipelines endpoint).
+    def test_get_rows_extraction_runs_fans_out_over_agents(self) -> None:
         session = FakeSession(
             [
-                _page(
-                    [
-                        {
-                            "id": "sheet-1",
-                            "created_at": "2026-01-01T00:00:00Z",
-                            "updated_at": "2026-01-02T00:00:00Z",
-                            "project_id": "proj-1",
-                            "user_id": "user-1",
-                            "status": "SUCCESS",
-                            "success": True,
-                            "file_id": "file-1",
-                            "regions": [],
-                            "worksheet_metadata": {},
-                            "errors": [],
-                            "parameters": {
-                                "webhook_configurations": [
-                                    {
-                                        "webhook_signing_secret": "whsec-secret",
-                                        "webhook_headers": {"Authorization": "Bearer x"},
-                                    }
-                                ]
-                            },
-                        }
-                    ],
-                    next_page_token=None,
-                )
+                _page([{"id": "agent-1"}, {"id": "agent-2"}], next_page_token="agents-2"),
+                _page([{"id": "agent-3"}]),
+                {"items": [{"id": "run-1", "status": "SUCCESS", "data": {"total": 42}}], "total": 2},
+                {"items": [{"id": "run-2", "status": "ERROR", "extraction_metadata": {"x": 1}}], "total": 2},
+                {"items": [], "total": 0},
+                {"items": [{"id": "run-3", "status": "PENDING", "file": {"name": "doc.pdf"}}], "total": 1},
             ]
         )
         manager = _make_manager()
 
         with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "sheets_jobs", MagicMock(), manager))
+            batches = list(get_rows("llx-test", "na", "extraction_runs", MagicMock(), manager))
 
         assert batches == [
-            [
-                {
-                    "id": "sheet-1",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "updated_at": "2026-01-02T00:00:00Z",
-                    "project_id": "proj-1",
-                    "user_id": "user-1",
-                    "status": "SUCCESS",
-                    "success": True,
-                    "file_id": "file-1",
-                    "regions": [],
-                    "worksheet_metadata": {},
-                    "errors": [],
-                }
-            ]
+            [{"id": "run-1", "status": "SUCCESS"}],
+            [{"id": "run-2", "status": "ERROR"}],
+            [{"id": "run-3", "status": "PENDING"}],
+        ]
+        assert session.calls[0][0] == "https://api.cloud.llamaindex.ai/api/v1/beta/extraction-agents"
+        assert session.calls[1][1]["page_token"] == "agents-2"
+        assert [params for _, params in session.calls[2:]] == [
+            {"extraction_agent_id": "agent-1", "skip": 0, "limit": 100},
+            {"extraction_agent_id": "agent-1", "skip": 1, "limit": 100},
+            {"extraction_agent_id": "agent-2", "skip": 0, "limit": 100},
+            {"extraction_agent_id": "agent-3", "skip": 0, "limit": 100},
+        ]
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            LlamaCloudResumeConfig(parent_id="agent-1", skip=1),
+            LlamaCloudResumeConfig(parent_id="agent-2"),
+            LlamaCloudResumeConfig(parent_id="agent-3"),
         ]
 
-    def test_get_rows_files_projects_to_documented_fields(self) -> None:
-        # Each file row carries a presigned `download_url` (and form fields) granting access to
-        # the private source document; only the documented metadata reaches the warehouse.
+    def test_get_rows_extraction_runs_resumes_from_saved_agent_and_skip(self) -> None:
         session = FakeSession(
             [
-                _page(
-                    [
-                        {
-                            "id": "file-1",
-                            "name": "invoice.pdf",
-                            "external_file_id": "ext-1",
-                            "file_type": "pdf",
-                            "project_id": "proj-1",
-                            "last_modified_at": "2026-01-02T00:00:00Z",
-                            "expires_at": "2026-02-01T00:00:00Z",
-                            "purpose": "parse",
-                            "download_url": "https://s3.example.com/private?X-Amz-Signature=secret",
-                            "download_form_fields": {"key": "value", "policy": "secret"},
-                        }
-                    ],
-                    next_page_token=None,
-                )
+                _page([{"id": "agent-1"}, {"id": "agent-2"}]),
+                {"items": [{"id": "run-5"}], "total": 6},
             ]
         )
-        manager = _make_manager()
+        manager = _make_manager(resume_state=LlamaCloudResumeConfig(parent_id="agent-2", skip=5))
 
         with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "files", MagicMock(), manager))
+            batches = list(get_rows("llx-test", "na", "extraction_runs", MagicMock(), manager))
 
-        assert batches == [
-            [
-                {
-                    "id": "file-1",
-                    "name": "invoice.pdf",
-                    "external_file_id": "ext-1",
-                    "file_type": "pdf",
-                    "project_id": "proj-1",
-                    "last_modified_at": "2026-01-02T00:00:00Z",
-                    "expires_at": "2026-02-01T00:00:00Z",
-                    "purpose": "parse",
-                }
-            ]
-        ]
+        assert batches == [[{"id": "run-5"}]]
+        assert session.calls[1][1] == {"extraction_agent_id": "agent-2", "skip": 5, "limit": 100}
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:

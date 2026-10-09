@@ -1130,7 +1130,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         <LemonBanner type="info">
                                             Release conditions are managed by the running experiment.{' '}
                                             <Link
-                                                to={urls.experiment(lockedByExperimentId)}
+                                                to={urls.experiment(lockedByExperimentId, null, { tab: 'variants' })}
                                                 data-attr="feature-flag-form-experiment-release-conditions-link"
                                             >
                                                 Edit them in the experiment

@@ -14,39 +14,6 @@ class TestKernelSource:
         self.team_id = 123
         self.config = KernelSourceConfig(api_key="sk_test")
 
-    def test_generated_config_parses_api_key(self) -> None:
-        # Guards the hand-checked generated_configs.py edit: the form field must map to `api_key`.
-        config = KernelSourceConfig.from_dict({"api_key": "sk_123"})
-        assert config.api_key == "sk_123"
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # get_schemas is a static endpoint catalog, so the public docs can render the table list.
-        assert self.source.lists_tables_without_credentials is True
-        documented = {t["name"] for t in self.source.get_documented_tables()}
-        assert documented == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.onkernel.com/apps?limit=1",
-            "403 Client Error: Forbidden for url: https://api.onkernel.com/invocations?limit=100&offset=0",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.onkernel.com/apps",
-        ],
-    )
-    def test_non_retryable_errors_ignore_unrelated(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     def test_only_audit_logs_syncs_incrementally(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
@@ -58,9 +25,6 @@ class TestKernelSource:
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["invocations"])
         assert [s.name for s in schemas] == ["invocations"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected_valid",

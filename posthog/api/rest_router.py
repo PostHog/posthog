@@ -8,6 +8,7 @@ from posthog.api import (
     metalytics,
     my_notifications,
     project,
+    terminal_netplay,
     user_integration,
     user_push_token,
 )
@@ -124,6 +125,12 @@ projects_router.register(
     r"my_notifications",
     my_notifications.MyNotificationsViewSet,
     "project_my_notifications",
+    ["project_id"],
+)
+projects_router.register(
+    r"terminal_netplay",
+    terminal_netplay.TerminalNetplayViewSet,
+    "project_terminal_netplay",
     ["project_id"],
 )
 

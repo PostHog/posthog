@@ -61,6 +61,19 @@ Part of whole, one value per series (`data[0]`).
 - `theme.backgroundColor` is required for the hover pop-out mask; without it the pop-out is skipped. `disableHoverOffset` turns the pop-out off.
 - Children read `useRadialLayout()` for `layout.slices`, `innerRadius`, `outerRadius`, `cx`, `cy`, and `centroidAngle`.
 
+## ProportionBar
+
+Part of whole as one horizontal bar that fills 100% of its width, with no axes.
+It takes the same `series` as `PieChart` and sizes each part the same way as a pie with the default slice value.
+
+- It is a preset over `BarChart` with `barLayout: 'percent'` and `axisOrientation: 'horizontal'`, like `Sparkline` is a preset over `BarChart` and `LineChart`.
+- It shares these props with `PieChart`: `series`, `valueFormatter`, `tooltip`, `onSliceClick`, and `config.legend`.
+- It has no `isPercent`, `sliceValueDisplay` or `config.sliceValue`. The bar always shows each part's share and value, and always values a part as the sum of its data. A pie that sets any of these does not swap to a bar unchanged.
+- A part thinner than about a pixel cannot be hovered or clicked. Its legend row still shows its share, and the legend can isolate it.
+- The legend shows below the bar by default. Each row shows `share · value` as its `secondaryLabel`, because the bar has no axis to read a size from. A part hidden through the legend leaves the total, and its row shows no share.
+- A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
+- `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
+
 ## BoxPlot
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
@@ -117,9 +130,11 @@ Bars use `hitArea: 'band'`.
 A left-aligned tile: headline number, change pill, sparkline.
 
 - `title={null}` drops the title row. The header band collapses when there is no title and no change pill, and the subtitle row is omitted when there is no subtitle and no `labels`, so a value-only card renders just the number.
-- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header.
+- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header. The inline pill wraps under the headline when the card is too narrow for both.
+- `headlineClassName` replaces the headline's default `text-4xl`, for example with container query sizes so a narrow tile keeps the number on one line.
 - `sparklineFill` makes the sparkline fill the card's remaining height instead of a fixed `sparklineHeight`; `sparklineDashedFromIndex` dashes it from that index onward (an in-progress trailing period).
 - `subtitle` always wins. `restingSubtitle` (`'Avg'`) shows only at rest and yields to the hovered point's label on hover; pair it with a `value` that summarizes the series.
+- `formatLabel` formats the point label in the default subtitle, for example an ISO time as a short date. The sparkline keeps the raw `labels`, so they stay unique.
 - `hoverChangeFromPreviousPoint` keeps the resting `change` pill at rest but, while hovering, swaps it for the hovered point's change versus the previous point (hidden at the first point).
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
 

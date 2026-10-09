@@ -96,6 +96,8 @@ def _build_inputs(
     signal_priority: ReportPriority | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    installation_id: str | None = None,
+    github_repo_id: int | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -134,6 +136,8 @@ def _build_inputs(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        installation_id=installation_id,
+        github_repo_id=github_repo_id,
     )
     return inputs, workflow_id
 
@@ -208,6 +212,8 @@ def start_review_pr_workflow(
     resolve_comments: bool | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    installation_id: str | None = None,
+    github_repo_id: int | None = None,
 ) -> str:
     """Start or signal the review queue without blocking and return the workflow id.
 
@@ -234,6 +240,8 @@ def start_review_pr_workflow(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        installation_id=installation_id,
+        github_repo_id=github_repo_id,
     )
 
     client = sync_connect()

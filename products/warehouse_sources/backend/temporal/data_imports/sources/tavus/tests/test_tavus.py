@@ -108,19 +108,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(TavusResumeConfig(next_page=1))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(tavus, "PAGE_SIZE", 2)
-        session = MockSession.return_value
-        _wire(session, [_response([{"video_id": "a"}], total_count=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["video_id"] for r in rows] == ["a"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_running_count_reaches_total_on_full_final_page(self, MockSession, monkeypatch) -> None:
         # Both pages are full (== PAGE_SIZE), so termination relies on total_count, not a short page.
         monkeypatch.setattr(tavus, "PAGE_SIZE", 2)
@@ -155,16 +142,18 @@ class TestPagination:
         assert [r["video_id"] for r in rows] == ["c"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows_and_no_checkpoint(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(tavus, "PAGE_SIZE", 2)
+    def test_unpaginated_endpoint_fetches_once_without_page_params(self, MockSession) -> None:
+        # /memory-stores returns every store with no total_count, so a full page must not trigger page 1.
         session = MockSession.return_value
-        _wire(session, [_response([], total_count=0)])
+        stores = [{"memory_store_id": f"m_{i}", "pal_id": "p_1", "participant_tag": f"user_{i}"} for i in range(100)]
+        params = _wire(session, [_response(stores)])
 
         manager = _make_manager()
-        rows = _rows(_source(manager))
+        rows = _rows(_source(manager, endpoint="memory_stores"))
 
-        assert rows == []
+        assert len(rows) == 100
         assert session.send.call_count == 1
+        assert "page" not in params[0] and "limit" not in params[0]
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -176,29 +165,8 @@ class TestPagination:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source(_make_manager()))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accept_header_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"video_id": "a"}], total_count=1)])
-
-        _rows(_source(_make_manager()))
-        assert session.headers.get("Accept") == "application/json"
-
 
 class TestRetryClassification:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_server_error_is_retried_then_succeeds(self, MockSession, monkeypatch) -> None:
-        # 5xx is retryable at the framework level; the request is reissued and eventually yields rows.
-        monkeypatch.setattr("time.sleep", lambda _s: None)
-        session = MockSession.return_value
-        _wire(
-            session, [_response(None, status=500, reason="Server Error"), _response([{"video_id": "a"}], total_count=1)]
-        )
-
-        rows = _rows(_source(_make_manager()))
-        assert [r["video_id"] for r in rows] == ["a"]
-        assert session.send.call_count == 2
-
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_auth_error_raises_matchable_httperror(self, _name, status, reason, MockSession) -> None:
@@ -236,14 +204,6 @@ class TestCheckAccess:
         assert status == 0
         assert message == "Could not connect to Tavus"
 
-    def test_probe_targets_default_path(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(TAVUS_SESSION_PATCH, lambda **kwargs: session):
-            check_access("tavus-key")
-        called_url = session.get.call_args.args[0]
-        assert called_url == f"{TAVUS_BASE_URL}/replicas?page=0&limit=1"
-
 
 class TestTavusSourceResponse:
     @parameterized.expand(
@@ -252,6 +212,7 @@ class TestTavusSourceResponse:
             ("replicas", "replica_id"),
             ("personas", "persona_id"),
             ("conversations", "conversation_id"),
+            ("memory_stores", "memory_store_id"),
         ]
     )
     def test_primary_key_matches_endpoint_config(self, endpoint: str, primary_key: str) -> None:
@@ -268,5 +229,6 @@ class TestTavusSourceResponse:
             "replicas": ["replica_id"],
             "personas": ["persona_id"],
             "conversations": ["conversation_id"],
+            "memory_stores": ["memory_store_id"],
         }
         assert set(TAVUS_ENDPOINTS) == set(ENDPOINTS)

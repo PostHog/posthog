@@ -41,6 +41,7 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
@@ -69,6 +70,7 @@ from posthog.models.event_ingestion_restriction_config import (
 )
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
+from posthog.models.integration.model import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -129,7 +131,7 @@ from products.customer_analytics.backend.facade.account_property_pins import (
     validate_pinned_account_properties,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
-from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -993,6 +995,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    default_email_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the verified email integration that new broadcasts and workflow email steps use as "
+            "their sender. Null means no default. Set automatically when the project's first email "
+            "sender is verified, and cleared when that integration is deleted."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -1000,6 +1012,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "default_email_integration_id",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1030,6 +1043,20 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
 
+    def validate_default_email_integration_id(self, value: int | None) -> int | None:
+        if self.parent or value is None:
+            return value
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
+        if sender is None:
+            raise serializers.ValidationError("Choose an email sender from this project.")
+        if not sender.config.get("verified"):
+            raise serializers.ValidationError("Verify this sender's domain before making it the default.")
+        return value
+
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
@@ -1059,7 +1086,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this default pinned account property.",
     )
     id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
@@ -3381,6 +3408,20 @@ def validate_team_attrs(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
                 )
+
+    # A new team has no warehouse tables yet, so only an update can reach a denied one.
+    if "test_account_filters" in attrs and instance is not None:
+        team = instance if isinstance(instance, Team) else instance.passthrough_team
+        denied_table = table_blocking_property_filters(
+            cast(User, view.request.user), team, attrs["test_account_filters"]
+        )
+        if denied_table:
+            raise exceptions.ValidationError(
+                {
+                    "test_account_filters": f"This filter uses the table '{denied_table}', which you don't have access to."
+                },
+                code="permission_denied",
+            )
 
     if "primary_dashboard" in attrs:
         if not instance:

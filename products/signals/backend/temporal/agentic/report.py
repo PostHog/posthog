@@ -25,7 +25,7 @@ from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalActorKind,
@@ -62,6 +62,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -848,16 +849,28 @@ async def _persist_agentic_report_artefacts(
     # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
+def _suggestable_products(team_id: int) -> list[SuggestedSourceProduct]:
+    """Products the research turn may suggest this team turn on. Fails closed to none, so a failed
+    probe costs the report its suggestion, never the report."""
+    try:
+        return unused_suggestable_products(Team.objects.get(id=team_id))
+    except Exception:
+        logger.exception("signals.research.suggestable_products_failed", team_id=team_id)
+        return []
+
+
 def _team_runs_scouts(team_id: int) -> bool:
     """Whether this team's scout fleet could take an `agent` check dispatched at it.
 
-    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
-    research turn is never offered a kind whose lane does not exist. A project at its daily run
-    budget still counts as running scouts: a research check stays pending until its report resolves
-    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
-    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    The enrollment and lane halves of the gate the check dispatcher applies, read at authoring time
+    so the research turn is never offered a kind whose lane does not exist. Research checks name no
+    skill, so the lane is the fleet's fallback scout. A paused lane still counts, because dispatch
+    waits for the resume. A project at its daily run budget still counts as running scouts: a
+    research check stays pending until its report resolves and its soak passes, so today's budget
+    says nothing about that day, and the dispatcher defers a throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
     kind, never the report.
     """
+    from products.signals.backend.report_check_agent import agent_check_lane_available  # noqa: PLC0415
     from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
         ScoutRunRejectionKind,
         check_fleet_gates,
@@ -865,7 +878,10 @@ def _team_runs_scouts(team_id: int) -> bool:
 
     try:
         rejection = check_fleet_gates(team_id)
-        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
+        if rejection is not None and rejection.kind != ScoutRunRejectionKind.THROTTLED:
+            return False
+        team = Team.objects.only("id", "parent_team_id").get(id=team_id)
+        return agent_check_lane_available(team.parent_team_id or team.id)
     except Exception:
         logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
         return False
@@ -970,6 +986,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
                 input.team_id
             )
+            suggestable_products = await database_sync_to_async(_suggestable_products, thread_sensitive=False)(
+                input.team_id
+            )
             # 2. Load previous research if this is a re-promoted report
             checks_snapshot = await database_sync_to_async(_load_check_snapshot, thread_sensitive=False)(
                 input.team_id, input.report_id
@@ -1015,6 +1034,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 metrics_enabled=metrics_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
+                suggestable_products=suggestable_products,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

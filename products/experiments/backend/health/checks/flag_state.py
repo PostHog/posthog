@@ -1,7 +1,7 @@
 """
 Conflicting states of an experiment and its feature flag. Pure functions, no I/O.
 
-A port of the page's `experimentWarning` selector (frontend/src/scenes/experiments/experimentLogic.tsx)
+A port of the page's `browserExperimentWarning` selector (frontend/src/scenes/experiments/experimentLogic.tsx)
 and the flag helpers it calls (`hasZeroRollout`, `hasMultipleVariantsActive`, `isSingleVariantShipped`).
 Change both sides together until the page reads these findings.
 """
@@ -32,7 +32,7 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
         return None
 
     zero_rollout = _has_zero_rollout(flag)
-    single_variant_shipped = _is_single_variant_shipped(flag)
+    single_variant_shipped = is_single_variant_shipped(flag)
 
     if ctx.is_running:
         if not flag.active:
@@ -57,7 +57,7 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
                 ),
             )
         if single_variant_shipped:
-            variant_key = _shipped_variant_key(flag)
+            variant_key = shipped_variant_key(flag)
             shipped = f'Variant "{variant_key}" is' if variant_key else "One variant is"
             return _finding(
                 code=ExperimentHealthFindingCode.VARIANT_SHIPPED_WHILE_RUNNING,
@@ -128,7 +128,7 @@ def _has_multiple_variants_active(flag: FlagState) -> bool:
     return sum(1 for variant in flag.variants if variant.rollout_percentage != 0) > 1
 
 
-def _is_single_variant_shipped(flag: FlagState) -> bool:
+def is_single_variant_shipped(flag: FlagState) -> bool:
     first_group = flag.release_groups[0] if flag.release_groups else None
     return (
         flag.active
@@ -139,5 +139,5 @@ def _is_single_variant_shipped(flag: FlagState) -> bool:
     )
 
 
-def _shipped_variant_key(flag: FlagState) -> str | None:
+def shipped_variant_key(flag: FlagState) -> str | None:
     return next((variant.key for variant in flag.variants if variant.rollout_percentage == 100), None) or None
