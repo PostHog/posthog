@@ -88,14 +88,8 @@ function MetricNameFilterInner({
     disabled?: boolean
     disabledReason?: string | null
 }): JSX.Element {
-    const { items, filteredItems: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
-    const { setSearch } = useActions(metricNamePickerLogic)
-
-    // The list holds one entry per name and type, and the type is not shown.
-    const filteredItems = useMemo(
-        () => pickerItems.filter((item, index) => pickerItems.findIndex((other) => other.name === item.name) === index),
-        [pickerItems]
-    )
+    const { items, filteredItems, fullItemsLoading, searchedItemsLoading, search } = useValues(metricNamePickerLogic)
+    const { setSearch, openPicker } = useActions(metricNamePickerLogic)
 
     const onPick = useCallback(
         (name: string) => {
@@ -121,6 +115,7 @@ function MetricNameFilterInner({
     return (
         <LemonDropdown
             closeOnClickInside
+            onVisibilityChange={(visible) => visible && openPicker()}
             overlay={
                 <div className="space-y-px p-1">
                     <div className="px-1 pb-1">
@@ -131,11 +126,15 @@ function MetricNameFilterInner({
                             fullWidth
                             value={search}
                             onChange={(val) => setSearch(val)}
-                            suffix={itemsLoading && search && filteredItems.length > 0 ? <Spinner textColored /> : null}
+                            suffix={
+                                searchedItemsLoading && search && filteredItems.length > 0 ? (
+                                    <Spinner textColored />
+                                ) : null
+                            }
                             autoFocus
                         />
                     </div>
-                    {itemsLoading && filteredItems.length === 0 ? (
+                    {(fullItemsLoading || searchedItemsLoading) && filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
                             {search ? 'Searching…' : 'Loading metrics…'}
                         </div>
@@ -161,7 +160,7 @@ function MetricNameFilterInner({
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronDown />}
-                loading={itemsLoading && !value && items.length === 0}
+                loading={fullItemsLoading && !value && items.length === 0}
                 disabled={disabled}
                 disabledReason={disabledReason}
             >

@@ -15,6 +15,8 @@ export type MetricNameItem = _MetricPickerNameApi
 // and search filters it locally without a request.
 export const METRIC_NAMES_LIMIT = 1000
 const SEARCH_LIMIT = 100
+// Opening the picker reloads a list older than this, so names that started reporting since show up.
+const STALE_AFTER_MS = 60_000
 
 /** Same rank as the backend search: exact, then prefix, then suffix, then server order. */
 export function filterMetricNames(items: MetricNameItem[], search: string): MetricNameItem[] {
@@ -42,10 +44,13 @@ export interface metricNamePickerLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
     filteredItems: MetricNameItem[]
+    fullItems: MetricNameItem[]
+    fullItemsLoading: boolean
     items: MetricNameItem[]
     itemsComplete: boolean
-    itemsLoading: boolean
     search: string
+    searchedItems: MetricNameItem[]
+    searchedItemsLoading: boolean
     services: string[]
 }
 
@@ -60,11 +65,17 @@ export interface metricNamePickerLogicActions {
         errorObject?: any
     }
     loadItemsSuccess: (
-        items: _MetricPickerNameApi[],
+        fullItems: _MetricPickerNameApi[],
         payload?: any
     ) => {
-        items: _MetricPickerNameApi[]
+        fullItems: _MetricPickerNameApi[]
         payload?: any
+    }
+    openPicker: () => {
+        value: true
+    }
+    primeItems: () => {
+        value: true
     }
     searchItems: () => any
     searchItemsFailure: (
@@ -75,14 +86,11 @@ export interface metricNamePickerLogicActions {
         errorObject?: any
     }
     searchItemsSuccess: (
-        items: _MetricPickerNameApi[],
+        searchedItems: _MetricPickerNameApi[],
         payload?: any
     ) => {
-        items: _MetricPickerNameApi[]
+        searchedItems: _MetricPickerNameApi[]
         payload?: any
-    }
-    primeItems: () => {
-        value: true
     }
     setSearch: (search: string) => {
         search: string
@@ -103,6 +111,7 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         // Loads the list once per mount. The scene gate calls it again after the feature preview is on,
         // because the scene logic mounts this logic before the gate renders.
         primeItems: true,
+        openPicker: true,
         setSearch: (search: string) => ({ search }),
         // Pushed in by the viewer rather than read from it: the viewer already
         // reads this logic's `items`, so a connection the other way would cycle.
@@ -112,12 +121,12 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         search: ['' as string, { setSearch: (_, { search }) => search }],
         services: [[] as string[], { setServices: (_, { services }) => services }],
         // True when the full load fit under the limit: then local filtering sees
-        // every name in the scope, and a search needs no request.
+        // every name in the scope, and a search with local matches needs no request.
         itemsComplete: [
             false,
             {
                 setServices: () => false,
-                loadItemsSuccess: (_, { items }) => items.length < METRIC_NAMES_LIMIT,
+                loadItemsSuccess: (_, { fullItems }) => fullItems.length < METRIC_NAMES_LIMIT,
             },
         ],
     }),
@@ -132,10 +141,10 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
                 ...(values.services.length ? { service: values.services.join(',') } : {}),
             })
         return {
-            items: [
+            // The full list for the current scope.
+            fullItems: [
                 [] as MetricNameItem[],
                 {
-                    // The full list for the current scope. Replaces what was loaded before.
                     loadItems: async (_, breakpoint) => {
                         if (!canViewMetrics()) {
                             return []
@@ -144,29 +153,41 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
                         breakpoint()
                         return response.results
                     },
-                    // Background search for names past the loaded list. Adds to the list,
-                    // so the dropdown keeps the local matches while it runs.
+                },
+            ],
+            // Names a server search found past the full list. Kept apart from the full list, so a
+            // search never ends the full load's loading state or replaces its names.
+            searchedItems: [
+                [] as MetricNameItem[],
+                {
+                    // Runs on every search change, so a newer call cancels a pending one even when it sends nothing.
                     searchItems: async (_, breakpoint) => {
                         const search = values.search.trim()
-                        if (!canViewMetrics() || !search) {
-                            return values.items
+                        if (!canViewMetrics() || !search || (values.itemsComplete && values.filteredItems.length > 0)) {
+                            return values.searchedItems
                         }
                         // Keystrokes only — matches the 300ms cadence used in the viewer logic.
                         await breakpoint(300)
                         const services = values.services
                         const response = await fetchNames(search, SEARCH_LIMIT)
                         breakpoint()
-                        // A scope change while this ran reloads the list; old-scope names must not join it.
+                        // A scope change while this ran cleared the list; old-scope names must not join it.
                         if (services !== values.services) {
-                            return values.items
+                            return values.searchedItems
                         }
-                        return mergeMetricNames(values.items, response.results)
+                        return mergeMetricNames(values.searchedItems, response.results)
                     },
                 },
             ],
         }
     }),
+    reducers({
+        // A new scope starts empty rather than showing the old scope's names while it loads.
+        fullItems: { setServices: () => [] },
+        searchedItems: { setServices: () => [] },
+    }),
     selectors({
+        items: [(s) => [s.fullItems, s.searchedItems], mergeMetricNames],
         filteredItems: [(s) => [s.items, s.search], filterMetricNames],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -177,18 +198,22 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
             cache.primed = true
             actions.loadItems()
         },
-        setSearch: () => {
-            if (!values.itemsComplete && values.search.trim()) {
-                actions.searchItems()
+        openPicker: () => {
+            const stale = !cache.loadedAt || Date.now() - cache.loadedAt > STALE_AFTER_MS
+            if (cache.primed && !values.fullItemsLoading && (stale || values.fullItems.length === 0)) {
+                actions.loadItems()
             }
+        },
+        setSearch: () => {
+            actions.searchItems()
         },
         // Not debounced: the scope changes on a click, not a keystroke.
         setServices: () => {
             actions.loadItems()
         },
-        // The full load replaces any names a search added, so search again if the list is partial.
         loadItemsSuccess: () => {
-            if (!values.itemsComplete && values.search.trim()) {
+            cache.loadedAt = Date.now()
+            if (values.search.trim()) {
                 actions.searchItems()
             }
         },

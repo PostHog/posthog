@@ -14,6 +14,14 @@ jest.mock('../generated/api', () => ({
     metricsNamesRetrieve: jest.fn(),
 }))
 
+const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => (resolve = r))
+    return { promise, resolve }
+}
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const fullPage = Array.from({ length: METRIC_NAMES_LIMIT }, (_, i) => ({ name: `m${i}`, metric_type: 'gauge' }))
+
 const ITEMS = [
     { name: 'server.http', metric_type: 'sum' },
     { name: 'http.requests', metric_type: 'sum' },
@@ -66,16 +74,70 @@ describe('metricNamePickerLogic', () => {
         logic.actions.setSearch('HTTP')
 
         expect(logic.values.filteredItems).toEqual([ITEMS[3], ITEMS[1], ITEMS[0]])
-        expect(logic.values.itemsLoading).toBe(false)
-        await expectLogic(logic).toNotHaveDispatchedActions(['searchItems'])
+        await expectLogic(logic).toFinishAllListeners()
         expect(metricsNamesRetrieve).not.toHaveBeenCalled()
     })
 
+    it('searches the server when a complete list has no local match', async () => {
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess']).toMatchValues({ itemsComplete: true })
+
+        jest.mocked(metricsNamesRetrieve).mockResolvedValueOnce({ results: [{ name: 'checkout.orders' }] } as any)
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('checkout')
+        }).toDispatchActions(['searchItemsSuccess'])
+
+        expect(logic.values.filteredItems).toEqual([{ name: 'checkout.orders' }])
+    })
+
+    it('reloads an empty list when the picker opens', async () => {
+        jest.mocked(metricsNamesRetrieve).mockResolvedValueOnce({ results: [] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess']).toMatchValues({ items: [] })
+
+        await expectLogic(logic, () => {
+            logic.actions.openPicker()
+        })
+            .toDispatchActions(['loadItemsSuccess'])
+            .toMatchValues({ items: ITEMS })
+        expect(metricsNamesRetrieve).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the first load running when an early search finishes', async () => {
+        const firstLoad = deferred<any>()
+        jest.mocked(metricsNamesRetrieve)
+            .mockReturnValueOnce(firstLoad.promise)
+            .mockResolvedValueOnce({ results: [] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('zzz')
+        }).toDispatchActions(['searchItemsSuccess'])
+
+        expect(logic.values.fullItemsLoading).toBe(true)
+        firstLoad.resolve({ results: ITEMS })
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess']).toMatchValues({ items: ITEMS })
+    })
+
+    it('does not send a search that was cleared during the debounce', async () => {
+        jest.mocked(metricsNamesRetrieve).mockResolvedValueOnce({ results: fullPage } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+        jest.mocked(metricsNamesRetrieve).mockClear()
+
+        logic.actions.setSearch('zzz')
+        logic.actions.setSearch('')
+        await wait(400)
+
+        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.searchedItemsLoading).toBe(false)
+    })
+
     it('searches in the background and adds new names when the list is partial', async () => {
-        const fullPage = Array.from({ length: METRIC_NAMES_LIMIT }, (_, i) => ({
-            name: `m${i}`,
-            metric_type: 'gauge',
-        }))
         jest.mocked(metricsNamesRetrieve).mockResolvedValueOnce({ results: fullPage } as any)
         logic = metricNamePickerLogic()
         logic.mount()
@@ -87,9 +149,9 @@ describe('metricNamePickerLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearch('m1')
         })
-            .toMatchValues({ itemsLoading: true })
+            .toMatchValues({ searchedItemsLoading: true })
             .toDispatchActions(['searchItemsSuccess'])
-            .toMatchValues({ itemsLoading: false })
+            .toMatchValues({ searchedItemsLoading: false })
 
         expect(metricsNamesRetrieve).toHaveBeenLastCalledWith(
             expect.any(String),
@@ -108,12 +170,32 @@ describe('metricNamePickerLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setServices(['api'])
         })
+            .toMatchValues({ items: [] })
             .toDispatchActions(['loadItemsSuccess'])
             .toMatchValues({ items: [ITEMS[2]] })
         expect(metricsNamesRetrieve).toHaveBeenLastCalledWith(
             expect.any(String),
             expect.objectContaining({ value: '', service: 'api' })
         )
+    })
+
+    it('drops a search that finishes after the service scope changes', async () => {
+        const oldScopeSearch = deferred<any>()
+        jest.mocked(metricsNamesRetrieve)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+            .mockReturnValueOnce(oldScopeSearch.promise)
+            .mockResolvedValueOnce({ results: [ITEMS[2]] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+
+        logic.actions.setSearch('old')
+        await wait(350)
+        logic.actions.setServices(['api'])
+        oldScopeSearch.resolve({ results: [{ name: 'old.scope.metric' }] })
+
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess']).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.name)).not.toContain('old.scope.metric')
     })
 })
 
