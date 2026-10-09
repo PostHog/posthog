@@ -225,17 +225,17 @@ test.describe('Billing usage and spend', () => {
             expect(params.get('top_projects')).toBeNull()
         })
 
-        test('holds the project filter while its list loads, then offers every project with usage', async ({
+        test('offers live projects while the project list loads, then adds deleted projects with usage', async ({
             page,
         }) => {
-            await mockBilling(page, workspace, { projectsDelayMs: 1500 })
+            await mockBilling(page, workspace, { projectsDelayMs: 3000 })
             await openPage(page, 'usage')
 
-            await expect(page.getByPlaceholder('Loading projects…')).toBeDisabled()
-            await expect(page.getByTestId('billing-usage-projects')).toBeVisible({ timeout: 10000 })
-
-            const options = await openProjects(page, 'usage')
+            await page.getByTestId('billing-usage-projects').click()
+            const options = page.locator('.Popover').last()
             await expect(options.getByText(workspace.team_name, { exact: true })).toBeVisible()
+            await expect(options.getByText(`ID: ${DELETED_TEAM_ID} (deleted)`)).toHaveCount(0)
+            await expect(options.getByText(`ID: ${DELETED_TEAM_ID} (deleted)`)).toBeVisible({ timeout: 10000 })
         })
 
         test('a project selection narrows the request and names the export, until it covers every project', async ({
