@@ -6,9 +6,9 @@ import { Suspense, useId, useMemo, useState } from 'react'
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { LazyModalLoading } from 'lib/components/LazyModalLoading/LazyModalLoading'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -200,7 +200,7 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             {recordings && (
-                <Suspense fallback={<LazyModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
+                <Suspense fallback={<DashboardModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
                     <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
                 </Suspense>
             )}

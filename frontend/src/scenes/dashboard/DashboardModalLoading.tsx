@@ -6,8 +6,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 // A short delay keeps a cached chunk from opening this modal for one frame before the real one.
 const SHOW_AFTER_MS = 200
 
-/** Suspense fallback for a lazily loaded modal, so the click that opened it gets a response. */
-export function LazyModalLoading({
+/** Suspense fallback for a lazily loaded dashboard modal, so the click that opened it gets a response. */
+export function DashboardModalLoading({
     isOpen,
     onClose,
     label = 'Loading',
