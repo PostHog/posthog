@@ -67,6 +67,11 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "workflow": "workflows",
 }
 
+# The Cloud Agents origin maps to one of two products, so it is not in the map above: the run's
+# provenance decides. Mirrors resolveGatewayProduct in gateway.ts.
+CLOUD_AGENTS_ORIGIN = "cloud_agents"
+CLOUD_AGENTS_PRODUCT = "cloud_agents"
+
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
 _SIGNALS_STAGE_PRODUCTS = frozenset(
     {"scout", "research", "implementation", "repo_selection", "custom_agent", "inbox", "chat", "scout_suggestions"}
@@ -89,8 +94,12 @@ _SCOUT_STAGE_PREFIX = "scout:"
 # bills the run's own team to AI credits, and the mint refuses an exhausted balance.
 # posthog_code is the customer's own product: the token bills the run's team, and the rollout
 # flag, the plan pin and the credit bucket gate the mint.
+# cloud_agents qualifies because validate_origin_product reserves its origin and only the Cloud
+# Agents create path stamps the provenance. Its token bills the run's team, and its credit
+# bucket gates the mint.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "cloud_agents",
         "posthog_ai",
         "posthog_code",
         "review_hog",
@@ -113,7 +122,7 @@ INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
 # Interactive and user runs with no wall-clock cap; their tokens last the sandbox lifetime, and
 # each new sandbox mints its own token.
-SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"posthog_ai", "slack_app", "posthog_code"})
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"posthog_ai", "slack_app", "posthog_code", "cloud_agents"})
 
 AI_CREDITS_BILLED_PRODUCTS = frozenset(p for p, bucket in PRODUCT_CREDIT_BUCKET.items() if bucket == "ai_credits")
 
@@ -125,8 +134,18 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
+def resolve_sandbox_ai_product(
+    origin_product: str | None,
+    ai_stage: str | None,
+    *,
+    internal: bool = False,
+    client_provenance: str | None = None,
+) -> str:
     """The `ai_product` the agent server will resolve for this run."""
+    if origin_product == CLOUD_AGENTS_ORIGIN:
+        # Every Cloud Agents task is internal, so `internal` cannot separate a billed run. The
+        # provenance stamp does: a run without it is PostHog's own work and stays unbilled.
+        return CLOUD_AGENTS_PRODUCT if client_provenance == CLOUD_AGENTS_ORIGIN else "background_agents"
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.

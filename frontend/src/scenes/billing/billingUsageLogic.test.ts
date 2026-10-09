@@ -50,6 +50,20 @@ describe('convertDesktopUsageSeries', () => {
         ],
         ['Sandbox compute credits', 'sandbox_compute_credits_used_in_period', 266, 2.66, 'Cloud compute spend (USD)'],
         [
+            'Cloud agents token credits',
+            'cloud_agents_token_credits_used_in_period',
+            1234,
+            12.34,
+            'Cloud agents token spend (USD)',
+        ],
+        [
+            'Cloud agents compute credits',
+            'cloud_agents_compute_credits_used_in_period',
+            368,
+            3.68,
+            'Cloud agents compute spend (USD)',
+        ],
+        [
             'Sandbox compute CPU millicore-seconds',
             'sandbox_compute_cpu_millicore_seconds_in_period',
             1500,

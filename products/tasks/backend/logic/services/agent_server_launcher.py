@@ -340,6 +340,7 @@ class AgentServerLaunchMixin(SandboxBase):
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
+        claude_subscription_source: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -363,7 +364,9 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             unset_bedrock=self.disable_direct_bedrock,
         )
-        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
+        subscription_flag = build_subscription_flags(
+            claude_model_access, codex_model_access, claude_subscription_source
+        )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -421,6 +424,8 @@ class AgentServerLaunchMixin(SandboxBase):
         return None
 
     def _stage_codex_run_token(self, codex_run_token: str) -> None:
+        # The name is from the first user of this token. Every run that pulls a credential from
+        # PostHog gets one: a ChatGPT plan or a stored Claude plan token.
         self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
         # Best effort: a child process must not read the token out of the agent-server's memory.
         # agentsh still traces its own descendants under scope 1. Kernels without Yama ignore this,
@@ -704,6 +709,7 @@ class AgentServerLaunchMixin(SandboxBase):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
+        claude_subscription_source: str | None = None,
         sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
@@ -792,6 +798,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 codex_model_access=codex_model_access,
                 codex_run_token_file=codex_run_token_file,
                 sandbox_runtime=sandbox_runtime or self._sandbox_runtime(),
+                claude_subscription_source=claude_subscription_source,
             )
             if memory_watchdog_ready:
                 return f"{build_memory_watchdog_start_command()}; {command}"

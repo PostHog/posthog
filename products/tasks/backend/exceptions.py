@@ -114,15 +114,21 @@ class SandboxProvisionError(ProcessTaskTransientError):
     pass
 
 
+# A failed run stores one of these as its error message and nothing else that names the
+# cause, so readers that classify a run end match on them.
+ORGANIZATION_DEACTIVATED_ERROR_MESSAGE = "Your organization has been deactivated."
+COMPUTE_USAGE_LIMIT_ERROR_MESSAGE = "Your organization reached its PostHog Desktop usage limit."
+
+
 class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
     def __init__(self, context: dict[str, Any], reason: str = "posthog_code_billing_limit_exceeded"):
         from products.tasks.backend.logic.services.compute_quota import ORGANIZATION_DEACTIVATED_DENIAL_CODE
 
         self.reason = reason
         message = (
-            "Your organization has been deactivated."
+            ORGANIZATION_DEACTIVATED_ERROR_MESSAGE
             if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE
-            else "Your organization reached its PostHog Desktop usage limit."
+            else COMPUTE_USAGE_LIMIT_ERROR_MESSAGE
         )
         super().__init__(
             message,
@@ -293,6 +299,18 @@ class CredentialUnavailableError(ProcessTaskFatalError):
 
     def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
         ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
+
+
+class BilledInferenceUnavailableError(ProcessTaskFatalError):
+    """A billed run that uses PostHog inference got no billed gateway token.
+
+    Without the token the agent would use the fallback gateway, where the model usage of this
+    run is not billed. So the run stops here. Captured to error tracking, because a billed
+    product with no token is a configuration or gateway fault and not a state a customer causes.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, non_retryable=True)
 
 
 class PersonalAPIKeyError(ProcessTaskTransientError):

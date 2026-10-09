@@ -26,6 +26,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_cloud_agents_credits,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -36,6 +37,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
+    get_teams_with_cloud_agents_compute_usage_in_period,
+    get_teams_with_cloud_agents_token_credits_used_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_logs_bytes_in_period,
@@ -98,6 +101,7 @@ class QuotaResource(Enum):
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
+    CLOUD_AGENTS_CREDITS = "cloud_agents_credits"
 
 
 class QuotaLimitingCaches(Enum):
@@ -124,6 +128,7 @@ OVERAGE_BUFFER = {
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
     QuotaResource.REPLAY_VISION_CREDITS: 0,
+    QuotaResource.CLOUD_AGENTS_CREDITS: 0,
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
@@ -132,6 +137,7 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.SIGNALS_CREDITS,
     QuotaResource.REPLAY_VISION_CREDITS,
     QuotaResource.POSTHOG_CODE_CREDITS,
+    QuotaResource.CLOUD_AGENTS_CREDITS,
 }
 
 
@@ -159,6 +165,9 @@ class UsageCounters(TypedDict):
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
     replay_vision_credits: int
+    cloud_agents_credits: int
+    cloud_agents_token_credits: int
+    cloud_agents_compute_credits: int
 
 
 INFORMATIONAL_USAGE_RESOURCES = (
@@ -166,6 +175,8 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_credits",
     "sandbox_compute_cpu_millicore_seconds",
     "sandbox_compute_memory_mib_seconds",
+    "cloud_agents_token_credits",
+    "cloud_agents_compute_credits",
 )
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
@@ -309,6 +320,7 @@ def team_quota_snapshot(team: Team) -> dict[str, Any]:
         limited_resources = dict.fromkeys(QuotaResource, False)
         limited_resources[QuotaResource.AI_CREDITS] = True
         limited_resources[QuotaResource.POSTHOG_CODE_CREDITS] = True
+        limited_resources[QuotaResource.CLOUD_AGENTS_CREDITS] = True
     else:
         limited_resources = get_fresh_team_limited_resources(team.api_token)
     limited: dict[str, dict[str, Any]] = {}
@@ -1234,6 +1246,19 @@ def update_all_orgs_billing_quotas(
         "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
     )
     compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
+    cloud_agents_token_credits = convert_team_usage_rows_to_dict(
+        _timed_query(
+            "cloud_agents_token_credits",
+            get_teams_with_cloud_agents_token_credits_used_in_period,
+            period.start,
+            period.end,
+        )
+    )
+    cloud_agents_compute_credits = convert_team_usage_rows_to_dict(
+        _timed_query(
+            "cloud_agents_compute", get_teams_with_cloud_agents_compute_usage_in_period, period.start, period.end
+        ).credits
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1296,6 +1321,14 @@ def update_all_orgs_billing_quotas(
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
             sandbox_compute_usage.memory_mib_seconds
         ),
+        "teams_with_cloud_agents_credits_used_in_period": {
+            team_id: combine_cloud_agents_credits(
+                cloud_agents_token_credits.get(team_id, 0), cloud_agents_compute_credits.get(team_id, 0)
+            )
+            for team_id in cloud_agents_token_credits.keys() | cloud_agents_compute_credits.keys()
+        },
+        "teams_with_cloud_agents_token_credits_used_in_period": cloud_agents_token_credits,
+        "teams_with_cloud_agents_compute_credits_used_in_period": cloud_agents_compute_credits,
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period.start, period.end)
         ),
@@ -1386,6 +1419,11 @@ def update_all_orgs_billing_quotas(
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
             replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),
+            cloud_agents_credits=all_data["teams_with_cloud_agents_credits_used_in_period"].get(team.id, 0),
+            cloud_agents_token_credits=all_data["teams_with_cloud_agents_token_credits_used_in_period"].get(team.id, 0),
+            cloud_agents_compute_credits=all_data["teams_with_cloud_agents_compute_credits_used_in_period"].get(
+                team.id, 0
+            ),
         )
 
         org_id = str(team.organization.id)
@@ -1640,7 +1678,11 @@ def update_all_orgs_billing_quotas(
         # Re-project every team limited before or after this run: the blob TTL is the limit's end,
         # which can move for a team that stays limited.
         changed_ai_tokens: set[str] = set()
-        for resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+        for resource in (
+            QuotaResource.AI_CREDITS,
+            QuotaResource.POSTHOG_CODE_CREDITS,
+            QuotaResource.CLOUD_AGENTS_CREDITS,
+        ):
             changed_ai_tokens |= set(previously_quota_limited_team_tokens[resource.value]) | set(
                 quota_limited_teams[resource.value]
             )

@@ -14,7 +14,7 @@ import { Params } from 'scenes/sceneTypes'
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { billingProductDisplayName } from './billingProductDisplayName'
-import { SPEND_TYPES, USAGE_TYPES } from './constants'
+import { FLAG_GATED_USAGE_TYPES, SPEND_TYPES, USAGE_TYPES, type UsageTypeOption } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -558,11 +558,22 @@ export const buildSpendTrackingProperties = (
     values: Parameters<typeof buildTrackingProperties>[1]
 ): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
 
-export const getUsageTypeOptions = (): { key: string; label: string }[] =>
-    USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+const toVisibleOptions = (
+    types: readonly UsageTypeOption[],
+    featureFlags: FeatureFlagsSet
+): { key: string; label: string }[] =>
+    types
+        .filter((opt) => {
+            const flag = FLAG_GATED_USAGE_TYPES[opt.value]
+            return !flag || !!featureFlags[flag]
+        })
+        .map((opt) => ({ key: opt.value, label: opt.label }))
 
-export const getSpendTypeOptions = (): { key: string; label: string }[] =>
-    SPEND_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet = {}): { key: string; label: string }[] =>
+    toVisibleOptions(USAGE_TYPES, featureFlags)
+
+export const getSpendTypeOptions = (featureFlags: FeatureFlagsSet = {}): { key: string; label: string }[] =>
+    toVisibleOptions(SPEND_TYPES, featureFlags)
 
 const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
 

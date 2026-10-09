@@ -1,0 +1,648 @@
+---
+title: Cloud agents API
+sidebar: Docs
+showTitle: true
+---
+
+Cloud agents runs a coding agent in a cloud sandbox.
+You send a prompt and a GitHub repository, the agent works on the task, and a pull request comes back.
+You can start and follow runs from the API or from the PostHog MCP server.
+
+Cloud agents is in limited availability behind a feature flag.
+Until it is enabled for your organization, every endpoint on this page returns `403`.
+
+All paths on this page are relative to your project:
+
+```text
+https://us.posthog.com/api/projects/:project_id/cloud_agents/
+```
+
+Use `eu.posthog.com` for EU Cloud.
+
+## Quickstart
+
+1. Create a [personal API key](/docs/api#authentication) with the `cloud_agent:write` scope. Read-only calls need `cloud_agent:read`.
+   While Cloud agents is in limited availability, the key settings page does not list this scope. Create the key with the personal API keys API, or use a key with all access.
+2. Connect the GitHub integration to your PostHog project and give it access to the repository. The agent uses it to clone the repository and to open the pull request.
+3. Start a run:
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Idempotency-Key: fix-signup-typo-1" \
+  --data '{
+    "prompt": "Fix the typo in the signup page heading and add a test for it.",
+    "repositories": [{ "name": "acme/web" }]
+  }'
+```
+
+The response has status `201` and a run with the status `queued`.
+Keep its `id`.
+
+4. Follow the run until it stops:
+
+```bash
+curl "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/$RUN_ID/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"
+```
+
+5. When the status is `idle` or `done`, read `result.pr_url` for the pull request, `result.summary` for the agent's summary, and `cost` for what the run cost. An `idle` run with the reason `turn_closed` means the agent finished its turn.
+
+## Start a run
+
+```text
+POST /api/projects/:project_id/cloud_agents/runs/
+```
+
+The smallest request has a `prompt` and a `repositories` list with one repository.
+The call returns at once.
+It does not wait for the agent.
+
+| Field              | Type             | Default                        | Description                                                                                                                                                                                                                         |
+| ------------------ | ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`           | string           | Required                       | The task for the agent, in plain language. Up to 64,000 characters.                                                                                                                                                                 |
+| `repositories`     | array of objects | From the preset or the project | The repositories that the agent works in. Only one repository is supported for now. Each item has a `name` in the format `owner/name` and an optional `initial_branch`. Required unless the preset or the project settings set one. |
+| `preset`           | string           | The project's default preset   | ID or name of a [preset](#presets) whose defaults the run uses.                                                                                                                                                                     |
+| `model`            | string           | Selected by PostHog            | Model ID from the [catalog](#box-sizes-and-pricing).                                                                                                                                                                                |
+| `reasoning_effort` | string           | The default of the model       | How much the model reasons before it answers: `low`, `medium`, `high`, `xhigh`, `max` or `ultracode`. A model supports only some of these values.                                                                                   |
+| `size`             | string           | `4x16`                         | Sandbox size, as `<vCPU>x<memory in GiB>`. See [box sizes and pricing](#box-sizes-and-pricing).                                                                                                                                     |
+| `inference`        | string           | `auto`                         | Who pays for model usage: `auto`, `own_subscription` or `posthog`. See [inference](#inference).                                                                                                                                     |
+| `instructions`     | string           | None                           | Instructions that the agent gets before the prompt. Up to 20,000 characters.                                                                                                                                                        |
+| `create_pr`        | boolean          | `true`                         | Whether the agent opens a pull request when it finishes.                                                                                                                                                                            |
+| `idle_minutes`     | integer          | `10`                           | How many minutes the sandbox waits with no activity before it stops, from 1 to 120. See [idle time and cost](#idle-time-and-cost).                                                                                                  |
+| `output_schema`    | object           | None                           | A JSON Schema with `type` set to `object`. The agent returns a result that matches it, in `result.output`. See [structured output](#structured-output).                                                                             |
+| `tags`             | array of strings | `[]`                           | Up to 20 tags of up to 50 characters each. The tags of the preset are added to them.                                                                                                                                                |
+| `metadata`         | object           | `{}`                           | Your own key and value pairs, returned with the run. Up to 16 pairs. Keys have up to 64 characters and values up to 512. Both are strings.                                                                                          |
+
+### How defaults resolve
+
+Each field takes its value from the first level that sets it:
+
+1. The request.
+2. The preset that the request names, or the project's default preset.
+3. The project settings.
+4. The product default in the table above.
+
+Two fields combine instead of overriding.
+`instructions` are joined in the order project, preset, request, so the most specific text comes last.
+`tags` are the preset's tags followed by the request's tags, without duplicates.
+
+The project settings are at `GET` and `PATCH /api/projects/:project_id/cloud_agents/settings/`.
+They hold the same default fields as a preset, plus `default_preset`.
+
+### Idempotency
+
+Send an `Idempotency-Key` header of 1 to 100 characters to make a retry safe.
+
+- The same key with the same body returns the first run with status `200` and the header `Idempotency-Replayed: true`. No second run starts.
+- The same key with a different body returns `422` with the code `idempotency_key_reused`.
+
+Without the header, every request starts a new run.
+
+## The run object
+
+```json
+{
+  "id": "0199c1f4-6b1e-7a43-9c55-2f0c8f3a1d27",
+  "status": "idle",
+  "status_reason": "turn_closed",
+  "status_detail": null,
+  "created_at": "2026-10-07T09:14:02.118000Z",
+  "started_at": "2026-10-07T09:14:31.902000Z",
+  "ended_at": "2026-10-07T09:32:51.440000Z",
+  "updated_at": "2026-10-07T09:33:20.006000Z",
+  "prompt": "Fix the typo in the signup page heading and add a test for it.",
+  "repositories": [{ "name": "acme/web", "initial_branch": null }],
+  "preset": null,
+  "config": {
+    "model": "example-model-id",
+    "reasoning_effort": null,
+    "size": {
+      "name": "4x16",
+      "vcpu": 4,
+      "memory_gib": 16,
+      "price_per_hour_usd": "0.368"
+    },
+    "inference": "own_subscription",
+    "create_pr": true,
+    "idle_minutes": 10,
+    "output_schema": null,
+    "instructions_applied": false
+  },
+  "result": {
+    "pr_url": "https://github.com/acme/web/pull/412",
+    "pr_urls": ["https://github.com/acme/web/pull/412"],
+    "summary": "Fixed the heading typo in SignupPage and added a render test.",
+    "output": null
+  },
+  "cost": {
+    "compute_usd": "0.1124",
+    "inference_usd": null,
+    "total_usd": "0.1124",
+    "vcpu_seconds": "4400.000",
+    "gib_seconds": "17600.000",
+    "billing_mode": "billed",
+    "inference_billing": "own_subscription",
+    "final": true
+  },
+  "agent_sessions": [
+    {
+      "index": 1,
+      "status": "ended",
+      "started_at": "2026-10-07T09:14:31.902000Z",
+      "ended_at": "2026-10-07T09:32:51.440000Z"
+    }
+  ],
+  "tags": [],
+  "metadata": {},
+  "created_by": {
+    "id": 42,
+    "email": "dev@example.com"
+  },
+  "caller": "api"
+}
+```
+
+The model ID in this example is a placeholder.
+Read the catalog for the real IDs.
+
+| Field                                  | Description                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                                   | ID of the run.                                                                                                                             |
+| `status`                               | Where the run is. See the status table.                                                                                                    |
+| `status_reason`                        | Why the run is `idle` or `done`. `null` while the run is `queued` or `running`. See the status reason table.                               |
+| `status_detail`                        | A short message about what the reason means and what to do next. `null` when there is nothing to add.                                      |
+| `created_at`, `started_at`, `ended_at` | When the run was created, when the agent first started work, and when the last agent session ended.                                        |
+| `prompt`, `repositories`               | What the run started with. A `null` `initial_branch` means the default branch of the repository.                                           |
+| `preset`                               | `id` and `name` of the preset that the run used, or `null`.                                                                                |
+| `config`                               | The configuration after the defaults resolved. `config.inference` is the mode the run really uses, so it is never `auto`.                  |
+| `config.idle_minutes`                  | How many minutes the sandbox waits with no activity before it stops.                                                                       |
+| `config.output_schema`                 | The JSON Schema that the result must match, or `null`.                                                                                     |
+| `config.instructions_applied`          | Whether the agent got instructions from the request, the preset or the project settings.                                                   |
+| `result.pr_url`, `result.pr_urls`      | The pull request that the agent opened last, and all pull requests that it opened.                                                         |
+| `result.summary`                       | Summary of the work, written by the agent.                                                                                                 |
+| `result.output`                        | The structured result for the `output_schema` of the run. `null` when the run has no schema or no result yet.                              |
+| `cost`                                 | What the run cost. See [box sizes and pricing](#box-sizes-and-pricing).                                                                    |
+| `agent_sessions`                       | The agent sessions of the run, oldest first. A message to an `idle` run starts a new session. A session is `queued`, `running` or `ended`. |
+| `tags`, `metadata`                     | The tags of the run, including the tags of its preset, and your own key and value pairs.                                                   |
+| `created_by`                           | `id` and `email` of the user who started the run.                                                                                          |
+| `caller`                               | `api` for an API client, `app` for the PostHog app, `internal` for a PostHog product.                                                      |
+
+### Status values
+
+| Status    | Meaning                                                                                   | Accepts a follow-up                         |
+| --------- | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `queued`  | The run waits for a sandbox.                                                              | Yes                                         |
+| `running` | An agent is at work.                                                                      | Yes                                         |
+| `idle`    | The sandbox stopped. A message starts a new agent session and continues the run.          | Yes                                         |
+| `done`    | The run is finished for good: you cancelled it, or its pull request was merged or closed. | No. Returns `409` with the code `run_done`. |
+
+A run whose agent finished its turn is `idle` with the reason `turn_closed`.
+A run that failed is also `idle`, with a failure reason, and you can continue it.
+
+### Status reasons
+
+| Status reason        | Status | Meaning                                                                                                        |
+| -------------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| `turn_closed`        | `idle` | The agent finished its turn. Send a message to continue.                                                       |
+| `timed_out`          | `idle` | The run stopped because it reached its time limit. Send a message to continue.                                 |
+| `credit_spent`       | `idle` | The project reached its usage limit. Raise the limit in billing settings, then send a message to continue.     |
+| `provision_failed`   | `idle` | A problem with the sandbox at PostHog stopped the run. You are not billed for it. Send a message to try again. |
+| `unexpected_failure` | `idle` | The run failed. Send a message to try again, or start a new run.                                               |
+| `finished`           | `done` | The pull request of the run was merged.                                                                        |
+| `closed`             | `done` | Every pull request of the run was closed and not merged.                                                       |
+| `cancelled`          | `done` | You cancelled the run.                                                                                         |
+
+### List runs
+
+```text
+GET /api/projects/:project_id/cloud_agents/runs/
+```
+
+Runs come newest first, in a page with `count`, `next`, `previous` and `results`.
+Use `limit` and `offset` to page.
+Filter with `status` (`queued`, `running`, `idle` or `done`), `preset_id`, `repository`, `tag`, `created_after` and `created_before`.
+A list with a `status` filter covers the newest 1,000 runs that are active, for `queued` and `running`, or that have no agent at work, for `idle` and `done`.
+To read older runs, add `created_before`.
+
+## Follow a run
+
+You can follow a run in three ways.
+Webhooks for run events are not available yet.
+
+### Poll the run
+
+```text
+GET /api/projects/:project_id/cloud_agents/runs/:id/
+```
+
+Read the run every 15 to 30 seconds until the status is `idle` or `done`.
+
+### Read the stored events as JSON
+
+The events endpoint returns JSON by default.
+A request with no `Accept` header, `Accept: */*` or `Accept: application/json` gets the stored events.
+You can also add `?format=json`.
+
+```bash
+curl "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/$RUN_ID/events/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"
+```
+
+The response is one JSON object:
+
+```json
+{
+  "events": [],
+  "truncated": false
+}
+```
+
+`events` holds the stored events of all agent sessions, oldest first.
+`truncated` is `true` when the event log is too large to return in full.
+The response then has the earliest agent sessions that fit.
+
+### Stream events
+
+To follow a live run, send `Accept: text/event-stream`. The same endpoint is then a Server-Sent Events stream of the current agent session:
+
+```bash
+curl --no-buffer "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/$RUN_ID/events/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Accept: text/event-stream"
+```
+
+The first frame is always `event: run`, with the ID, the status and the status reason of the run when the connection opened:
+
+```text
+event: run
+data: {"id": "0199c1f4-6b1e-7a43-9c55-2f0c8f3a1d27", "status": "running", "status_reason": null}
+```
+
+`Last-Event-ID` and `?start=latest` apply to the stream only.
+To resume after a disconnect, send the `id` of the last event that you received in the `Last-Event-ID` header.
+The stream then sends the events after it.
+Add `?start=latest` to skip the stored events and get only new ones.
+
+Each event after the first frame is one message of the agent protocol, as the agent produced it.
+Only the envelope on this page is stable: the `run` frame, the event `id` values, and the `events` and `truncated` fields of the JSON response.
+The content of an event can change when the agent changes, so do not build strict parsers on it.
+Use the run object for the status, the result and the cost.
+
+## Follow-ups and cancel
+
+### Send a message
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/$RUN_ID/messages/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"content": "Also update the changelog."}'
+```
+
+The response has status `202`:
+
+```json
+{
+  "resumed": false,
+  "run": {}
+}
+```
+
+`run` is the full run object after the message.
+
+- When the agent is at work, it gets the message in its current session, and `resumed` is `false`.
+- When the run is `idle`, the message starts a new agent session, the run goes back to `queued`, and `resumed` is `true`. This works for every `idle` run, including a run that timed out or failed. The new session keeps the size and the model of the run.
+- When the run is `done`, the API returns `409` with the code `run_done`. Start a new run to continue the work.
+
+A message to an `idle` run starts a sandbox, so it counts against the concurrency limit and it is billed.
+If the run is between two states, the API returns `409` with `run_stopping` or `run_not_ready`.
+Wait a few seconds and send the message again.
+
+### Cancel a run
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/$RUN_ID/cancel/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"
+```
+
+Cancel works for a `queued` or `running` run.
+The response has status `202` and the run, which can still be `running` for a short time.
+The run then becomes `done` with the reason `cancelled`, and it cannot continue.
+An `idle` or `done` run has no agent to stop, so it is returned with status `200` and does not change.
+
+## Presets
+
+A preset is a named set of run defaults.
+Create one for each kind of task, then start runs with only a prompt.
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/presets/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "name": "web-fixes",
+    "description": "Small fixes in the web app",
+    "repositories": [{ "name": "acme/web", "initial_branch": "main" }],
+    "size": "4x8",
+    "idle_minutes": 5,
+    "instructions": "Run the linter and the unit tests before you open the pull request.",
+    "tags": ["web"]
+  }'
+```
+
+A preset accepts `name`, `description`, `repositories`, `model`, `reasoning_effort`, `size`, `inference`, `instructions`, `create_pr`, `idle_minutes`, `output_schema` and `tags`.
+Only `name` is required, and it is unique in the project without regard to case.
+A `null` field sets no default.
+
+Start a run from the preset, by name or by ID, with only a prompt:
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"preset": "web-fixes", "prompt": "Fix the broken link in the footer."}'
+```
+
+Override a field for one run by sending it in the request:
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"preset": "web-fixes", "prompt": "Upgrade the build tool to the next major version.", "size": "8x32"}'
+```
+
+| Method and path       | Purpose                                                            |
+| --------------------- | ------------------------------------------------------------------ |
+| `GET presets/`        | List presets.                                                      |
+| `POST presets/`       | Create a preset.                                                   |
+| `GET presets/:id/`    | Retrieve a preset.                                                 |
+| `PATCH presets/:id/`  | Change the fields in the request. A `null` value clears a default. |
+| `DELETE presets/:id/` | Delete a preset. Runs that used it keep their configuration.       |
+
+## Structured output
+
+Send an `output_schema` to get a result in a fixed shape.
+The schema is a JSON Schema object, and its top-level `type` must be `object`.
+The agent returns a JSON result that matches the schema, and the run has it in `result.output`.
+
+```bash
+curl --request POST "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/runs/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "prompt": "Count the TODO comments in the src folder and list the five oldest.",
+    "repositories": [{ "name": "acme/web" }],
+    "create_pr": false,
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "todo_count": { "type": "integer" },
+        "oldest": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["todo_count", "oldest"]
+    }
+  }'
+```
+
+When the agent finishes, the run has the result:
+
+```json
+{
+  "result": {
+    "pr_url": null,
+    "pr_urls": [],
+    "summary": "Found 31 TODO comments. The oldest five are listed in the output.",
+    "output": {
+      "todo_count": 31,
+      "oldest": ["src/billing.ts:42", "src/auth.ts:17", "src/cart.ts:88", "src/search.ts:9", "src/ui/menu.ts:120"]
+    }
+  }
+}
+```
+
+`result.output` is `null` while the run has no result yet, and for a run with no `output_schema`.
+A request with an invalid schema returns `400` with the code `invalid_input` and `attr` set to `output_schema`.
+You can also set `output_schema` on a preset or in the project settings.
+
+## Idle time and cost
+
+When the agent has no activity, the sandbox keeps running until the idle time ends, then it stops.
+The run is then `idle`, and a message starts a new sandbox.
+`idle_minutes` sets the wait, from 1 to 120 minutes, and the default is 10.
+Compute is billed for the seconds that the sandbox is up, so a shorter wait costs less compute.
+While the agent is in the middle of a turn, the sandbox waits at least 10 minutes.
+A shorter wait means the next message starts a new sandbox sooner.
+
+## Box sizes and pricing
+
+A run is billed per second for the size you selected, for as long as its sandbox is up. A run that is `idle` has no sandbox, so it costs nothing until you send a message.
+The catalog endpoint is the source of truth for available sizes, current rates, models and your project's limits:
+
+```bash
+curl "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/catalog/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"
+```
+
+The size of a run is fixed for the life of the run, including later agent sessions.
+
+### Cost fields on a run
+
+| Field                                   | Description                                                                                        |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `cost.compute_usd`                      | Compute cost, as a decimal string. `null` until the first sandbox reports usage.                   |
+| `cost.inference_usd`                    | Model usage cost through PostHog. `null` when the run uses your own subscription.                  |
+| `cost.total_usd`                        | Sum of the two. `null` until the compute cost is known.                                            |
+| `cost.vcpu_seconds`, `cost.gib_seconds` | The compute that the run used.                                                                     |
+| `cost.billing_mode`                     | `billed` when the project pays for the run, `unbilled` when it does not.                           |
+| `cost.inference_billing`                | Who pays for model usage: `posthog` or `own_subscription`.                                         |
+| `cost.final`                            | `false` while the cost can still change. The cost can change for a short time after the run stops. |
+
+Wait for `cost.final` to be `true` before you record the cost of a run.
+
+### What is not billed
+
+A run that fails because of PostHog infrastructure is not billed for compute.
+The usage of that run shows its sandboxes with `"waived": true` and a cost of zero.
+
+### Estimate and usage
+
+Estimate the compute cost of a size for a number of minutes.
+Model usage is not included.
+
+```bash
+curl "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/estimate/?size=4x16&minutes=30" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"
+```
+
+```json
+{
+  "size": "4x16",
+  "minutes": 30,
+  "price_per_hour_usd": "0.368",
+  "estimate_usd": "0.1840"
+}
+```
+
+Read the cost of one run with each sandbox that it used:
+
+```text
+GET /api/projects/:project_id/cloud_agents/runs/:id/usage/
+```
+
+```json
+{
+  "run_id": "0199c1f4-6b1e-7a43-9c55-2f0c8f3a1d27",
+  "cost": {
+    "compute_usd": "0.1124",
+    "inference_usd": null,
+    "total_usd": "0.1124",
+    "vcpu_seconds": "4400.000",
+    "gib_seconds": "17600.000",
+    "billing_mode": "billed",
+    "inference_billing": "own_subscription",
+    "final": true
+  },
+  "sessions": [
+    {
+      "vcpu": "4",
+      "memory_gib": "16",
+      "started_at": "2026-10-07T09:14:31.902000Z",
+      "ended_at": "2026-10-07T09:32:51.902000Z",
+      "seconds": 1100,
+      "cost_usd": "0.1124",
+      "waived": false
+    }
+  ]
+}
+```
+
+Read totals for the runs created in a date range, for each UTC day or for each preset:
+
+```bash
+curl --get "https://us.posthog.com/api/projects/$PROJECT_ID/cloud_agents/usage/" \
+  --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --data-urlencode "date_from=2026-10-01T00:00:00Z" \
+  --data-urlencode "group_by=preset"
+```
+
+`group_by` is `day` or `preset`, and the default is `day`.
+The default range is the 30 days before `date_to`, and the longest range is 366 days.
+A summary covers the newest 2,000 runs of the range. Use a shorter range for a project with more runs.
+The response has `totals` and `buckets`, each with `runs`, `compute_usd`, `inference_usd`, `total_usd`, `vcpu_seconds` and `gib_seconds`.
+
+## Inference
+
+`inference` sets who pays for the model usage of a run.
+
+| Mode               | Who pays                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| `auto`             | Your own subscription when one is connected for the runtime, and PostHog otherwise. The default. |
+| `own_subscription` | Your own subscription with the model provider. The provider bills you.                           |
+| `posthog`          | PostHog. Model usage uses your AI credits.                                                       |
+
+A Codex run uses your ChatGPT subscription, and a Claude run uses your Claude subscription.
+The run object shows the result in `config.inference` and `cost.inference_billing`.
+
+An explicit `own_subscription` never falls back to PostHog billing.
+If you have no usable subscription for the runtime, the request fails with `400` and a message that says what to connect.
+
+### Connect a subscription
+
+A subscription belongs to a user, not to a project.
+You connect it in the PostHog app, not through this API.
+
+1. In PostHog, open **Cloud agents** and select the **Settings** tab.
+2. In **Bring your own subscription**, select **Connect Codex** to connect your ChatGPT subscription, or **Connect Claude** to connect your Claude subscription.
+3. Follow the steps in the dialog. It gives you a command to run in a terminal, and you paste the result.
+
+The ChatGPT subscription is the same connection that **Settings > AI > Bring your own subscription** shows.
+PostHog stores the sign-in encrypted, and no response returns it.
+You can disconnect at any time from the same section.
+
+Subscriptions are in limited availability.
+The section shows only the subscriptions that are enabled for your organization.
+
+### Who can continue a run
+
+A run on `own_subscription` uses the subscription of the user who started it.
+Only that user can send it a message.
+Another user gets `403` with the code `credential_owner_required`.
+Other users can still read and cancel the run.
+
+### Security
+
+The agent uses your subscription inside the sandbox to call the model provider.
+Code that the agent runs in the sandbox, including code from the repository, may be able to read that sign-in.
+Run agents only on repositories that you trust, and disconnect the subscription if you think that the sign-in is exposed.
+
+## Limits and errors
+
+| Limit                        | Default                                            |
+| ---------------------------- | -------------------------------------------------- |
+| Active runs at the same time | 5 for each project                                 |
+| Runs started                 | 60 an hour for each project, in bursts of up to 10 |
+
+`limits` in the catalog shows the values for your project.
+An `idle` run that you continue counts as an active run again.
+
+A request over a limit returns `429` with a `Retry-After` header in seconds.
+Wait that long, then send the request again.
+
+Errors use the standard PostHog error body.
+`code` identifies the error, `detail` says what to do, and `attr` names the field at fault when there is one:
+
+```json
+{
+  "type": "validation_error",
+  "code": "repository_required",
+  "detail": "Set a repository on the run, on its preset, or in the project settings.",
+  "attr": "repositories"
+}
+```
+
+| Code                        | Status | Meaning                                                                                         |
+| --------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| `invalid_input`             | 400    | A field is not valid. `attr` names the field.                                                   |
+| `repository_required`       | 400    | No repository on the run, its preset, or the project settings.                                  |
+| `permission_denied`         | 403    | Cloud agents is not available for this organization, or the API key lacks the scope.            |
+| `organization_deactivated`  | 403    | The organization is deactivated. Contact support.                                               |
+| `credential_owner_required` | 403    | The run uses the subscription of the user who started it. Only that user can send it a message. |
+| `run_not_found`             | 404    | The run does not exist in this project.                                                         |
+| `preset_not_found`          | 404    | The preset does not exist in this project.                                                      |
+| `run_not_ready`             | 409    | The run is still starting. Try again in a few seconds.                                          |
+| `run_stopping`              | 409    | The run is stopping. Wait until it stops, then try again.                                       |
+| `run_done`                  | 409    | The run is done and cannot continue. Start a new run.                                           |
+| `run_not_resumable`         | 409    | The run cannot be resumed. Start a new run.                                                     |
+| `idempotency_key_reused`    | 422    | The idempotency key was used with a different request. Use a new key.                           |
+| `concurrency_limited`       | 429    | The project is at its limit of active runs. Wait until a run stops.                             |
+| `create_rate_limited`       | 429    | The project starts runs too quickly. Wait for `Retry-After`.                                    |
+| `usage_limited`             | 429    | The project reached its usage limit. Raise the limit in billing settings.                       |
+| `cancel_unavailable`        | 503    | The run could not be cancelled now. Try again in a few seconds.                                 |
+
+## MCP tools
+
+The [PostHog MCP server](/docs/model-context-protocol) has tools for cloud agents.
+They are available when Cloud agents is enabled for your organization.
+
+| Tool                         | Scope               | What it does                                                 |
+| ---------------------------- | ------------------- | ------------------------------------------------------------ |
+| `cloud-agents-run-create`    | `cloud_agent:write` | Start a run. This starts a billed sandbox.                   |
+| `cloud-agents-run-list`      | `cloud_agent:read`  | List runs, newest first, with filters.                       |
+| `cloud-agents-run-get`       | `cloud_agent:read`  | Get one run with its status, result and cost.                |
+| `cloud-agents-run-events`    | `cloud_agent:read`  | Get the stored events of one run as JSON.                    |
+| `cloud-agents-run-message`   | `cloud_agent:write` | Send a follow-up message, or continue an `idle` run.         |
+| `cloud-agents-run-cancel`    | `cloud_agent:write` | Ask a `queued` or `running` run to stop.                     |
+| `cloud-agents-run-usage`     | `cloud_agent:read`  | Get the cost of one run with each sandbox that it used.      |
+| `cloud-agents-preset-list`   | `cloud_agent:read`  | List presets.                                                |
+| `cloud-agents-preset-get`    | `cloud_agent:read`  | Get one preset.                                              |
+| `cloud-agents-preset-create` | `cloud_agent:write` | Create a preset.                                             |
+| `cloud-agents-catalog`       | `cloud_agent:read`  | Get sizes, prices, models, inference modes and limits.       |
+| `cloud-agents-estimate`      | `cloud_agent:read`  | Estimate the compute cost of a size for a number of minutes. |
+| `cloud-agents-usage-summary` | `cloud_agent:read`  | Get cost and usage totals for a date range.                  |
+
+`cloud-agents-run-create` cannot send an idempotency key, so each call starts a new run.
+Project settings, and changes or deletes of presets, are not available as MCP tools.
+Use the REST API for them.

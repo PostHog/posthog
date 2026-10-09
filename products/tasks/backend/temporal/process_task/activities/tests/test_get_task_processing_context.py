@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from asgiref.sync import async_to_sync
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import OrganizationMembership, User
+from posthog.models.integration.claude_subscription import ClaudeSubscriptionStore
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalScoutRun
@@ -58,6 +60,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
+FAKE_CLAUDE_SUBSCRIPTION_TOKEN = "sk-ant-oat01-not-a-real-token-0003"
 FEATURE_ENABLED_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
     "get_task_processing_context.posthoganalytics.feature_enabled"
@@ -402,6 +405,76 @@ class TestGetTaskProcessingContextActivity:
                 assert result.codex_model_access == "own-subscription"
             else:
                 with pytest.raises(ProcessTaskFatalError, match="ChatGPT account is not connected"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "token_holder, storage_flag, runtime, expected_error",
+        [
+            ("owner", True, Task.Runtime.ACP, None),
+            (
+                "owner",
+                False,
+                Task.Runtime.ACP,
+                "Connect your Claude subscription in Cloud agents settings, then start the run again.",
+            ),
+            (
+                None,
+                True,
+                Task.Runtime.ACP,
+                "Connect your Claude subscription in Cloud agents settings, then start the run again.",
+            ),
+            (
+                "another_member",
+                True,
+                Task.Runtime.ACP,
+                "Connect your Claude subscription in Cloud agents settings, then start the run again.",
+            ),
+            (
+                "owner",
+                True,
+                Task.Runtime.PI,
+                "Your Claude subscription requires the Claude runtime. Select Claude and try again.",
+            ),
+        ],
+    )
+    def test_run_on_a_stored_claude_subscription_needs_the_owners_token(
+        self, activity_environment, test_task, token_holder, storage_flag, runtime, expected_error
+    ):
+        owner = User.objects.create_user(
+            email="credential-owner@example.com", password=None, first_name="Owner", distinct_id="credential-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        if token_holder == "owner":
+            ClaudeSubscriptionStore.connect(owner.id, FAKE_CLAUDE_SUBSCRIPTION_TOKEN)
+        elif token_holder == "another_member":
+            ClaudeSubscriptionStore.connect(test_task.created_by_id, FAKE_CLAUDE_SUBSCRIPTION_TOKEN)
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={"claude_model_access": "own-subscription", "claude_subscription_source": "server"},
+        )
+        if runtime != test_task.runtime:
+            test_task.runtime = runtime
+            test_task.save(update_fields=["runtime"])
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        module = "products.tasks.backend.temporal.process_task.activities.get_task_processing_context"
+
+        # Every PostHog flag is off, so a pass shows that the relayed-subscription rollout flag is not asked.
+        with (
+            patch(f"{module}.posthoganalytics.feature_enabled", return_value=False),
+            patch(f"{module}.claude_subscription_storage_enabled", return_value=storage_flag),
+        ):
+            if expected_error is None:
+                result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+                assert (result.claude_model_access, result.codex_model_access) == (
+                    "own-subscription",
+                    "posthog-gateway",
+                )
+                assert result.model_access.owner_id == owner.id
+                assert result.model_access.uses_stored_claude_subscription is True
+                assert FAKE_CLAUDE_SUBSCRIPTION_TOKEN not in repr(result)
+            else:
+                with pytest.raises(ProcessTaskFatalError, match=re.escape(expected_error)):
                     async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
     @pytest.mark.django_db(transaction=True)
@@ -1927,6 +2000,21 @@ class TestResolveSandboxBackend:
         # gated here — a flagged run wins hogland over them (covered by the caller
         # force-off test).
         assert self._resolve_with_flag(True, **overrides) == "modal"
+
+    @pytest.mark.parametrize(
+        "state,expected",
+        [
+            ({"sandbox_size": "8x32"}, "modal"),
+            ({"sandbox_size": "8x32", "sandbox_backend": "hogland"}, "modal"),
+            ({"sandbox_size": "not-a-size"}, "modal"),
+            ({"sandbox_size": "4x16"}, "hogland"),
+            ({}, "hogland"),
+        ],
+        ids=["non_default_size", "non_default_size_with_hogland_pin", "unknown_size", "default_size", "no_size"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_only_a_non_default_sandbox_size_keeps_a_run_off_hogland(self, state, expected):
+        assert self._resolve_with_flag(True, state=state) == expected
 
     @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
     def test_eu_stays_on_modal(self):

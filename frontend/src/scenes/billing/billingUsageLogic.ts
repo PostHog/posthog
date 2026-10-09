@@ -84,6 +84,8 @@ const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label:
         divisor: 1_024,
         label: 'Cloud compute memory (GiB-seconds)',
     },
+    cloud_agents_token_credits_used_in_period: { divisor: 100, label: 'Cloud agents token spend (USD)' },
+    cloud_agents_compute_credits_used_in_period: { divisor: 100, label: 'Cloud agents compute spend (USD)' },
 }
 
 export const convertDesktopUsageSeries = (

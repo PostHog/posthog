@@ -29,8 +29,10 @@ from posthog.temporal.usage_report.types import (
     RunUsageReportsInputs,
 )
 from posthog.temporal.usage_report.workflow import (
+    CLOUD_AGENTS_QUERY_NAMES,
     SANDBOX_COMPUTE_QUERY_NAME,
     RunUsageReportsWorkflow,
+    _queries_for_cloud_agents_patch,
     _queries_for_sandbox_compute_patch,
     build_context,
 )
@@ -39,6 +41,15 @@ from posthog.temporal.usage_report.workflow import (
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
     assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
     assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+
+
+def test_cloud_agents_queries_are_versioned_for_existing_histories() -> None:
+    all_names = {spec.name for spec in QUERIES}
+    pre_patch = {spec.name for spec in _queries_for_cloud_agents_patch(QUERIES, False)}
+
+    assert CLOUD_AGENTS_QUERY_NAMES <= all_names
+    assert pre_patch == all_names - CLOUD_AGENTS_QUERY_NAMES
+    assert _queries_for_cloud_agents_patch(QUERIES, True) == QUERIES
 
 
 @parameterized.expand(

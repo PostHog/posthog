@@ -1350,13 +1350,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'workflow',
             'space_setup',
             'business_knowledge',
+            'cloud_agents',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         ),
     repository: zod
         .string()
@@ -1547,13 +1548,14 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'workflow',
             'space_setup',
             'business_knowledge',
+            'cloud_agents',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         ),
     repository: zod
         .string()
@@ -1702,13 +1704,14 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'workflow',
             'space_setup',
             'business_knowledge',
+            'cloud_agents',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `cloud_agents` - Cloud Agents'
         ),
     repository: zod
         .string()
@@ -3468,10 +3471,11 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected account. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Codex rejected so the server refreshes it early, once.
- * @summary Issue a ChatGPT access token for a Codex run
+ * Give the run's agent-server the credential the run was started with: a short-lived ChatGPT access token from the run owner's connected account, or the Claude subscription token the run owner stored. Only the run's sandbox may call this, and it must present the run token it received at launch. A run on PostHog credits gets no credential. For 'codex', send the digest of a token Codex rejected so the server refreshes it early, once.
+ * @summary Issue the model credential of a run
  */
 export const tasksRunsSubscriptionTokenCreateBodyRejectedAccessTokenSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+export const tasksRunsSubscriptionTokenCreateBodyCredentialDefault = `codex`
 
 export const TasksRunsSubscriptionTokenCreateBody = /* @__PURE__ */ zod.object({
     rejected_access_token_sha256: zod
@@ -3480,6 +3484,13 @@ export const TasksRunsSubscriptionTokenCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.'
+        ),
+    credential: zod
+        .enum(['codex', 'claude_subscription'])
+        .describe('\* `codex` - codex\n\* `claude_subscription` - claude_subscription')
+        .default(tasksRunsSubscriptionTokenCreateBodyCredentialDefault)
+        .describe(
+            "Credential the run needs. 'codex' (the default) returns a ChatGPT access token. 'claude_subscription' returns the Claude subscription token the run owner stored, and only for a run that was started with it.\n\n\* `codex` - codex\n\* `claude_subscription` - claude_subscription"
         ),
 })
 

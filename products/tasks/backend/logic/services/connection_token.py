@@ -330,7 +330,11 @@ def create_codex_subscription_run_token(
     sandbox_id: str,
     ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
 ) -> str:
-    """Create the run-scoped JWT the agent-server presents to fetch the owner's ChatGPT access token.
+    """Create the run-scoped JWT the agent-server presents to fetch a credential that PostHog holds
+    for the run owner: a ChatGPT access token or a stored Claude plan token.
+
+    The name and the audience are from the first of these. The run state, not the token, decides
+    which credential a run may fetch.
 
     The token is a second factor next to the sandbox OAuth token: it reaches the agent-server
     over an inherited file descriptor and never enters the sandbox environment, so a process

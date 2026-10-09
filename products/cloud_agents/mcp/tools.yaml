@@ -1,0 +1,344 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cloud_agents
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cloud_agents
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Cloud agents
+feature: cloud_agents
+url_prefix: /cloud-agents
+ui_apps: {}
+tools:
+    cloud-agents-catalog:
+        operation: cloud_agents_catalog_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get cloud agents catalog
+        description: >
+            Get what a cloud agent run can use in this project: the sandbox sizes with their price per hour, the model
+            IDs, the inference modes, the compute rates, and the project limits (concurrent runs and runs started per
+            hour). Use it before cloud-agents-run-create to pick a valid `size` or `model`, or to answer a pricing
+            question. The prices here are the source of truth.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-estimate:
+        operation: cloud_agents_estimate_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Estimate cloud agent compute cost
+        description: >
+            Estimate the compute cost of one sandbox size for a number of minutes. It starts nothing and costs nothing.
+            The estimate covers compute only. Model usage is not included, and a run is billed for the seconds it really
+            uses. Use cloud-agents-catalog to see the sizes.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-preset-create:
+        operation: cloud_agents_presets_create
+        enabled: true
+        scopes:
+            - cloud_agent:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: presets/{id}
+        title: Create cloud agent preset
+        description: >
+            Create a preset: a named set of run defaults such as `repositories` (one repository for now), model,
+            `reasoning_effort`, size, inference mode, instructions, `create_pr`, `idle_minutes`, `output_schema` and
+            tags. A run that names the preset uses these defaults, so later runs need only a prompt. Only `name` is
+            required, and the name must be unique in the project. Creating a preset starts no run and costs nothing. A
+            value sent on a run overrides the preset value for that run.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-preset-delete:
+        operation: cloud_agents_presets_destroy
+        enabled: false
+        disabled_reason: Deleting a shared preset changes what later runs of other people use, so a person does it.
+    cloud-agents-preset-get:
+        operation: cloud_agents_presets_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: presets/{id}
+        title: Get cloud agent preset
+        description: >
+            Get one preset by ID, with all the run defaults it sets. A null field sets no default. Use
+            cloud-agents-preset-list to find the ID.
+        param_overrides:
+            id:
+                description: ID of the preset (a UUID). A preset name is not accepted here.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-preset-list:
+        operation: cloud_agents_presets_list
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: presets/{id}
+        list: true
+        title: List cloud agent presets
+        description: >
+            List the presets of the project. A preset is a named set of run defaults. Use it to find a preset to pass as
+            `preset` to cloud-agents-run-create, by ID or by name.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+        response:
+            exclude:
+                - instructions
+                - created_by
+    cloud-agents-preset-update:
+        operation: cloud_agents_presets_partial_update
+        enabled: false
+        disabled_reason: Changing a shared preset changes what later runs of other people use, so a person does it.
+    cloud-agents-run-cancel:
+        operation: cloud_agents_runs_cancel_create
+        enabled: true
+        scopes:
+            - cloud_agent:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Cancel cloud agent run
+        description: >
+            Ask a `queued` or `running` run to stop. The agent stops in the middle of its work, and compute billing ends
+            when the sandbox stops. The run can stay `running` for a short time, so read it again with
+            cloud-agents-run-get until the status is `done` with the status reason `cancelled`. A canceled run is final:
+            a message to it is refused. An `idle` or `done` run has no agent to stop and is returned unchanged.
+        param_overrides:
+            id:
+                description: ID of the run to cancel (a UUID).
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+        response:
+            include:
+                - id
+                - status
+                - status_reason
+                - status_detail
+                - ended_at
+                - result
+                - cost
+    cloud-agents-run-create:
+        operation: cloud_agents_runs_create
+        enabled: true
+        scopes:
+            - cloud_agent:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: runs/{id}
+        title: Start cloud agent run
+        description: >
+            Start a cloud agent run: a cloud sandbox runs a coding agent on your prompt in a GitHub repository and, by
+            default, opens a pull request. This starts a billed sandbox. Compute is billed per second for the selected
+            size until the sandbox stops, and model usage is billed according to the inference mode. Only start a run
+            when the user asked for one. The shortest call is `prompt` plus `preset` (a preset ID or name that holds the
+            repository and the other defaults). Without a preset, send `prompt` and `repositories`, a list with one item
+            such as `[{"name": "acme/web"}]`. The call returns at once with a `queued` run. Keep the `id`, then poll
+            cloud-agents-run-get until the status is `idle` or `done`. The sandbox stops after `idle_minutes` (1 to 120,
+            default 10) with no activity, and a shorter wait costs less compute. Send `output_schema` (a JSON Schema
+            object) to get a structured result in `result.output`. This tool cannot send an idempotency key, so every
+            call starts a new run. Do not call it again after a timeout or an unclear error: first check
+            cloud-agents-run-list for the run. A 429 error means the project is at its concurrency, rate or usage limit,
+            so wait before you try again.
+        param_overrides:
+            prompt:
+                description: >
+                    The task for the agent, in plain language. Say what to change and how to know it is done. The agent
+                    sees only this text, the instructions, and the repository.
+            size:
+                description: >
+                    Sandbox size, as `<vCPU>x<memory in GiB>`. A larger size costs more per second. Leave it out to use
+                    the default of the preset or the project. See cloud-agents-catalog for prices.
+            model:
+                description: |
+                    Model ID from cloud-agents-catalog. Leave it out to use the default of the preset or the project.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+        response:
+            include:
+                - id
+                - status
+                - created_at
+                - repositories
+                - preset
+                - config.model
+                - config.size
+                - config.inference
+                - config.reasoning_effort
+                - config.idle_minutes
+                - config.create_pr
+                - tags
+    cloud-agents-run-events:
+        operation: cloud_agents_runs_events_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get cloud agent run events
+        description: >
+            Get the stored events of a run as JSON, oldest first, across all its agent sessions. Each event is one
+            message of the agent protocol with the time it was recorded: prompts, agent text, tool calls and their
+            results. Use it to see what the agent did or why a run failed. The response can be very large for a long
+            run, so use cloud-agents-run-get when you need only the status, the result or the cost. `truncated` is true
+            when the log was too large to return in full.
+        exclude_params:
+            - start
+            - format
+        param_overrides:
+            id:
+                description: ID of the run (a UUID).
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-run-get:
+        operation: cloud_agents_runs_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: runs/{id}
+        title: Get cloud agent run
+        description: >
+            Get one run by ID: its status, status reason, status detail, configuration, pull request URLs, summary,
+            structured output and cost. Use it to poll a run after cloud-agents-run-create. `queued` and `running` are
+            active. `idle` means the sandbox stopped and a message continues the run. `done` means the run is final.
+            `status_reason` says why (`turn_closed`, `timed_out`, `credit_spent`, `provision_failed`,
+            `unexpected_failure`, `finished`, `closed`, `cancelled`), and `status_detail` explains it in one sentence.
+            An `idle` run with a failure reason can still be continued. `result.pr_url` is the pull request,
+            `result.summary` is the agent's own summary, and `result.output` is the structured result when the run has
+            an `output_schema`. `cost.final` is false while the cost can still change. Poll every 15 to 30 seconds, not
+            faster.
+        param_overrides:
+            id:
+                description: ID of the run (a UUID).
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-run-list:
+        operation: cloud_agents_runs_list
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: runs/{id}
+        list: true
+        title: List cloud agent runs
+        description: >
+            List the runs of the project, newest first. Filter by `status` (`queued`, `running`, `idle` or `done`),
+            `preset_id`, `repository`, `tag`, or a creation time range. A status filter covers the newest 1,000 matching
+            runs. Each row is a short form of the run. Use cloud-agents-run-get for the configuration, the agent
+            sessions and the full cost of one run.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+        response:
+            include:
+                - id
+                - status
+                - status_reason
+                - status_detail
+                - created_at
+                - ended_at
+                - prompt
+                - repositories
+                - preset
+                - result.pr_url
+                - cost.total_usd
+                - cost.final
+                - tags
+    cloud-agents-run-message:
+        operation: cloud_agents_runs_messages_create
+        enabled: true
+        scopes:
+            - cloud_agent:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send message to cloud agent run
+        description: >
+            Send a follow-up message to a run. A running agent gets the message in its current session. A message to an
+            `idle` run starts a new agent session, which starts a billed sandbox again and moves the run back to
+            `queued`. `resumed` in the response says which of the two happened. Use it to ask for changes to the pull
+            request, or to continue an `idle` run that waited, timed out or failed, in the same repository state. A
+            `done` run is final, and the call fails with status 409 and the code `run_done`: start a new run instead. A
+            run that uses the subscription of the user who started it accepts messages from that user only. Each call
+            sends one more message, so do not repeat a call that may have succeeded.
+        param_overrides:
+            id:
+                description: ID of the run to send the message to (a UUID).
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+        response:
+            include:
+                - resumed
+                - run.id
+                - run.status
+                - run.status_reason
+                - run.status_detail
+                - run.agent_sessions
+    cloud-agents-run-usage:
+        operation: cloud_agents_runs_usage_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get cloud agent run usage
+        description: >
+            Get the cost of one run up to now, with each sandbox that the run used: its size, start and end time, billed
+            seconds and compute cost. `waived` is true for a sandbox that PostHog did not bill. Use it to explain the
+            cost of a run. cloud-agents-run-get already has the cost totals.
+        param_overrides:
+            id:
+                description: ID of the run (a UUID).
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable
+    cloud-agents-settings-update:
+        operation: cloud_agents_settings_partial_update
+        enabled: false
+        disabled_reason: Project defaults apply to every run of the project, so a person changes them.
+    cloud-agents-usage-summary:
+        operation: cloud_agents_usage_retrieve
+        enabled: true
+        scopes:
+            - cloud_agent:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get cloud agents usage summary
+        description: >
+            Get cost and usage totals for the runs created in a date range, with one bucket for each UTC day or for each
+            preset (`group_by=preset`). The default range is the last 30 days and the longest range is 366 days. Use it
+            for spend questions across many runs. Use cloud-agents-run-usage for one run.
+        feature_flag: cloud-agents
+        feature_flag_behavior: enable

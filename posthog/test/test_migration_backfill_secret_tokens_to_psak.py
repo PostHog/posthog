@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 import structlog.testing
 
@@ -14,7 +14,7 @@ LEAK_REVOKED = "phs_backfill_test_leak_revoked_token"
 DOUBLE_COLLIDING = "phs_backfill_test_double_collision_token"
 
 
-class TestBackfillSecretTokensToPsak(TestMigrations):
+class TestBackfillSecretTokensToPsak(NonAtomicTestMigrations):
     migrate_from = "1393_revokedteamsecrettoken"
     migrate_to = "1394_backfill_secret_tokens_to_psak"
 

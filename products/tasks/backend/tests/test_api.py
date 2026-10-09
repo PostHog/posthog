@@ -32,6 +32,7 @@ from rest_framework.views import APIView
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.integration.claude_subscription import ClaudeSubscriptionStore
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
@@ -78,6 +79,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
 )
 from products.tasks.backend.logic.services.task_usage import TaskTokenUsageUnavailable, TaskUsage
 from products.tasks.backend.logic.services.workflow_dispatch import materialize_due_scheduled_task_runs
+from products.tasks.backend.logic.stream import sse as stream_sse
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
@@ -109,7 +111,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactChartRequestSerializer,
     TaskSerializer,
 )
-from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -118,6 +119,8 @@ from ee.billing.quota_limiting import QuotaResource
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
 GATED_MODEL_FLAG = "tasks-test-model-gate"
+FAKE_CLAUDE_SUBSCRIPTION_TOKEN = "sk-ant-oat01-not-a-real-token-0003"
+STORED_CLAUDE_SUBSCRIPTION_STATE = {"claude_model_access": "own-subscription", "claude_subscription_source": "server"}
 
 TASK_ANALYTICS_QUERY: dict[str, Any] = {
     "kind": "InsightVizNode",
@@ -2853,6 +2856,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
+            (Task.OriginProduct.CLOUD_AGENTS,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -7509,11 +7513,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "resume_from_run_id": "server-resume-id",
                 "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
+                "claude_subscription_source": "relay",
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
+                "sandbox_size": "2x8",
+                "burstable_sandbox_resources_enabled": False,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
@@ -7589,11 +7596,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "resume_from_run_id": "caller-resume-id",
                     "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
+                    "claude_subscription_source": "server",
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
+                    "sandbox_size": "16x64",
+                    "burstable_sandbox_resources_enabled": True,
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
@@ -7668,6 +7678,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["claude_model_access"] == "own-subscription"
+        assert run.state["claude_subscription_source"] == "relay"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["analytics_query_context"] == []
         assert run.state["resume_from_run_id"] == "server-resume-id"
@@ -7678,6 +7689,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_id"] == "sb-real"
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
+        assert run.state["sandbox_size"] == "2x8"
+        assert run.state["burstable_sandbox_resources_enabled"] is False
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
@@ -11990,7 +12003,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
             ["boot1-4", None],
         )
         self.assertEqual(events[-1]["event"], "stream-end")
-        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+        self.assertEqual(stream_sse._backlog_inflight_bytes, 0)
 
     def test_stream_thin_tail_resumes_backlog_from_log_cursor(self):
         task, run = self._make_thin_tail_run_with_backlog()
@@ -12044,7 +12057,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
     ):
         task, run = self._make_thin_tail_run_with_backlog(tail_event_ids=tail_event_ids, tail_method=method)
 
-        with patch.object(views_api, "observe_stream_backlog_gap") as observe_gap:
+        with patch.object(stream_sse, "observe_stream_backlog_gap") as observe_gap:
             response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
             events = self._collect_sse_events(response)
 
@@ -12068,7 +12081,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
         # A cap of 0 trips the elapsed check on the first backlog frame; without the
         # in-loop check a slow replay would hold its stream slot past the cap.
-        with patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
+        with patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
             response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
             events = self._collect_sse_events(response)
 
@@ -12076,7 +12089,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         data_events = [event for event in events if event["event"] is None]
         self.assertEqual([event["id"] for event in data_events], ["log-0"])
         self.assertEqual(events[-1], {"event": "end", "id": None, "data": {"type": "rotated"}})
-        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+        self.assertEqual(stream_sse._backlog_inflight_bytes, 0)
 
     def test_stream_thin_tail_backlog_read_failure_emits_retryable_error(self):
         task, run = self._make_thin_tail_run_with_backlog()
@@ -12091,7 +12104,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([event["event"] for event in events], ["error"])
         self.assertEqual(events[0]["data"], {"error": "Backlog unavailable"})
-        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+        self.assertEqual(stream_sse._backlog_inflight_bytes, 0)
 
     def test_stream_thin_tail_expired_redis_cursor_replays_backlog_before_drained_end(self):
         task = self.create_task()
@@ -12126,7 +12139,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([event["event"] for event in events], ["error"])
         self.assertEqual(events[0]["data"], {"error": "Backlog busy"})
-        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+        self.assertEqual(stream_sse._backlog_inflight_bytes, 0)
 
     @override_settings(TASK_RUN_STREAM_BACKLOG_MAX_BYTES=1)
     def test_stream_thin_tail_oversized_backlog_degrades_to_live_window(self):
@@ -12150,7 +12163,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
         with (
             patch.object(TaskRunRedisStream, "exists", new=AsyncMock(return_value=False)),
-            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+            patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
         ):
             response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
             events = self._collect_sse_events(response)
@@ -12184,7 +12197,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         with (
             patch.object(TaskRunRedisStream, "read_stream_entries", fake_read),
             patch.object(TaskRunRedisStream, "get_latest_stream_id", AsyncMock(return_value="5-5")) as mock_latest,
-            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+            patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
         ):
             response = self.client.get(self._stream_url(task, run) + "?start=latest")
             events = self._collect_sse_events(response)
@@ -12265,7 +12278,7 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
         with (
             patch.object(TaskRunRedisStream, "exists", new=AsyncMock(side_effect=[False, True])),
             patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
-            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS", 0),
         ):
             response = cast(
                 StreamingHttpResponse,
@@ -12392,8 +12405,8 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
             # exercises the rotation path without sleeping through real time. The
             # keepalive case proves the check runs on idle yields too: if it only
             # ran after real events, an idle stream would never rotate.
-            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
-            patch("products.tasks.backend.presentation.views.api.observe_stream_connection_closed", observe_closed),
+            patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
+            patch("products.tasks.backend.logic.stream.sse.observe_stream_connection_closed", observe_closed),
         ):
             response = cast(
                 StreamingHttpResponse,
@@ -12421,7 +12434,7 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
 
         # A cap of 0 rotates the first connection after its first yield, leaving
         # the two console events for the resumed connection to pick up.
-        with patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
+        with patch("products.tasks.backend.logic.stream.sse.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
             first_response = cast(
                 StreamingHttpResponse,
                 self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
@@ -14212,6 +14225,138 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "reauth_required")
+
+    @parameterized.expand(
+        [
+            # name, run state, requested credential, token stored, caller, token sandbox, status
+            (
+                "stored_subscription",
+                STORED_CLAUDE_SUBSCRIPTION_STATE,
+                "claude_subscription",
+                True,
+                "sandbox",
+                "sandbox-1",
+                200,
+            ),
+            (
+                "gateway_run",
+                {"claude_model_access": "posthog-gateway"},
+                "claude_subscription",
+                True,
+                "sandbox",
+                "sandbox-1",
+                403,
+            ),
+            (
+                "relayed_subscription_run",
+                {"claude_model_access": "own-subscription"},
+                "claude_subscription",
+                True,
+                "sandbox",
+                "sandbox-1",
+                403,
+            ),
+            ("default_body", STORED_CLAUDE_SUBSCRIPTION_STATE, None, True, "sandbox", "sandbox-1", 403),
+            (
+                "human_session",
+                STORED_CLAUDE_SUBSCRIPTION_STATE,
+                "claude_subscription",
+                True,
+                "session",
+                "sandbox-1",
+                403,
+            ),
+            (
+                "wrong_sandbox",
+                STORED_CLAUDE_SUBSCRIPTION_STATE,
+                "claude_subscription",
+                True,
+                "sandbox",
+                "other-sandbox",
+                403,
+            ),
+            (
+                "nothing_stored",
+                STORED_CLAUDE_SUBSCRIPTION_STATE,
+                "claude_subscription",
+                False,
+                "sandbox",
+                "sandbox-1",
+                404,
+            ),
+            ("unknown_credential", STORED_CLAUDE_SUBSCRIPTION_STATE, "github_token", True, "sandbox", "sandbox-1", 400),
+            (
+                "anthropic_api_key",
+                STORED_CLAUDE_SUBSCRIPTION_STATE,
+                "anthropic_api_key",
+                True,
+                "sandbox",
+                "sandbox-1",
+                400,
+            ),
+            ("openai_api_key", STORED_CLAUDE_SUBSCRIPTION_STATE, "openai_api_key", True, "sandbox", "sandbox-1", 400),
+        ]
+    )
+    def test_subscription_token_returns_the_stored_claude_subscription_only_to_the_run_that_selected_it(
+        self, _name, run_state, credential, stored, caller, token_sandbox_id, expected_status
+    ):
+        if stored:
+            ClaudeSubscriptionStore.connect(self.user.id, FAKE_CLAUDE_SUBSCRIPTION_TOKEN)
+        task = self.create_task(created_by=self.user)
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, **run_state, "claude_subscription_user_id": self.user.id}
+        run.save(update_fields=["state"])
+        self._open_sandbox_session(run, "sandbox-1")
+        client = self._sandbox_oauth_client(task.id) if caller == "sandbox" else self.client
+
+        with patch(
+            "products.tasks.backend.logic.services.inference_resolution.claude_subscription_storage_enabled",
+            return_value=True,
+        ):
+            response = client.post(
+                self._subscription_token_url(task, run),
+                {} if credential is None else {"credential": credential},
+                format="json",
+                HTTP_X_TASK_RUN_TOKEN=create_codex_subscription_run_token(run, sandbox_id=token_sandbox_id),
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(
+                response.json(), {"credential": "claude_subscription", "secret": FAKE_CLAUDE_SUBSCRIPTION_TOKEN}
+            )
+        else:
+            self.assertNotIn(FAKE_CLAUDE_SUBSCRIPTION_TOKEN, response.content.decode())
+        if expected_status == status.HTTP_404_NOT_FOUND:
+            self.assertEqual(
+                response.json(),
+                {"error": "The run owner has no stored Claude subscription token.", "code": "credential_missing"},
+            )
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "credential")
+
+    def test_subscription_token_never_returns_the_credential_of_a_user_who_does_not_own_the_run(self):
+        owner = self.create_organization_user("run-owner")
+        ClaudeSubscriptionStore.connect(self.user.id, FAKE_CLAUDE_SUBSCRIPTION_TOKEN)
+        task = self.create_task(created_by=self.user)
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, **STORED_CLAUDE_SUBSCRIPTION_STATE, "claude_subscription_user_id": owner.id}
+        run.save(update_fields=["state"])
+        self._open_sandbox_session(run, "sandbox-1")
+
+        with patch(
+            "products.tasks.backend.logic.services.inference_resolution.claude_subscription_storage_enabled",
+            return_value=True,
+        ):
+            response = self._sandbox_oauth_client(task.id).post(
+                self._subscription_token_url(task, run),
+                {"credential": "claude_subscription"},
+                format="json",
+                HTTP_X_TASK_RUN_TOKEN=create_codex_subscription_run_token(run, sandbox_id="sandbox-1"),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn(FAKE_CLAUDE_SUBSCRIPTION_TOKEN, response.content.decode())
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):

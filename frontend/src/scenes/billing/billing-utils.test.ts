@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { BillingProductV2Type } from '~/types'
 
@@ -13,19 +16,42 @@ import { BillingGaugeItemKind } from './types'
 
 describe('getUsageTypeOptions', () => {
     it('includes informational Desktop component metrics in Usage but not Spend', () => {
-        const usageOptions = getUsageTypeOptions()
-        const spendOptions = getSpendTypeOptions()
+        const featureFlags = { [FEATURE_FLAGS.CLOUD_AGENTS]: true }
+        const usageOptions = getUsageTypeOptions(featureFlags)
+        const spendOptions = getSpendTypeOptions(featureFlags)
         const componentTypes = [
             'posthog_code_token_credits_used_in_period',
             'sandbox_compute_credits_used_in_period',
             'sandbox_compute_cpu_millicore_seconds_in_period',
             'sandbox_compute_memory_mib_seconds_in_period',
+            'cloud_agents_token_credits_used_in_period',
+            'cloud_agents_compute_credits_used_in_period',
         ]
 
         for (const usageType of componentTypes) {
             expect(usageOptions.some((option) => option.key === usageType)).toBe(true)
             expect(spendOptions.some((option) => option.key === usageType)).toBe(false)
         }
+    })
+
+    it.each<{ case: string; featureFlags: FeatureFlagsSet; offered: boolean }>([
+        { case: 'the flag is on', featureFlags: { [FEATURE_FLAGS.CLOUD_AGENTS]: true }, offered: true },
+        { case: 'the flag is off', featureFlags: { [FEATURE_FLAGS.CLOUD_AGENTS]: false }, offered: false },
+        { case: 'the flag is not present', featureFlags: {}, offered: false },
+    ])('offers the Cloud agents types only behind their flag when $case', ({ featureFlags, offered }) => {
+        const usageKeys = getUsageTypeOptions(featureFlags).map((option) => option.key)
+        const spendKeys = getSpendTypeOptions(featureFlags).map((option) => option.key)
+
+        expect(spendKeys.includes('cloud_agents_credits_used_in_period')).toBe(offered)
+        for (const usageType of [
+            'cloud_agents_credits_used_in_period',
+            'cloud_agents_token_credits_used_in_period',
+            'cloud_agents_compute_credits_used_in_period',
+        ]) {
+            expect(usageKeys.includes(usageType)).toBe(offered)
+        }
+        expect(usageKeys).toContain('event_count_in_period')
+        expect(spendKeys).toContain('event_count_in_period')
     })
 
     it('reports only selectable Spend types in interaction analytics', () => {

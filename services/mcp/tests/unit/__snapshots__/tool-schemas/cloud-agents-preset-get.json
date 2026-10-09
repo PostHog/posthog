@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the preset (a UUID). A preset name is not accepted here.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

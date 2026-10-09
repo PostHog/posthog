@@ -43,6 +43,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
+    required_model_access_flags,
     sandbox_repo_path,
 )
 from products.tasks.backend.logic.stream.redis_stream import release_task_run_milestone_claims
@@ -500,8 +501,10 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             event_ingest_token = run_token
         if task.runtime == Task.Runtime.PI:
             task_run_session_token = run_token
+    # Minted for every run that pulls a credential from PostHog: a ChatGPT plan or a stored Claude
+    # plan token. The name is from the first of these.
     codex_run_token: str | None = None
-    if ctx.model_access.adapter == "codex":
+    if ctx.model_access.credential_kind is not None:
         codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
     mcp_configs = (
@@ -654,6 +657,7 @@ def _invoke_start_agent_server(
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,
+            claude_subscription_source=ctx.model_access.claude_subscription_source,
             sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
             if isinstance(sandbox, ModalSandbox)
             else None,
@@ -684,16 +688,28 @@ def _invoke_start_agent_server(
 
 
 def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
-    adapter = ctx.model_access.adapter
+    model_access = ctx.model_access
+    adapter = model_access.adapter
     if adapter is None:
         return
-    plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
-    flag = SUBSCRIPTION_CLI_FLAGS[adapter]
-    result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
-    if result.exit_code != 0:
+    # An agent-server without the option would ignore it or stop at an unknown option. Refuse
+    # here so that the run fails with a clear message and never starts on the wrong credentials.
+    for flag in required_model_access_flags(
+        model_access.access_for("claude"), model_access.access_for("codex"), model_access.claude_subscription_source
+    ):
+        result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        if result.exit_code == 0:
+            continue
+        if flag in SUBSCRIPTION_CLI_FLAGS.values():
+            plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+            message = (
+                f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
+                f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".'
+            )
+        else:
+            message = "This sandbox build cannot use your stored Claude subscription yet. Start a new run."
         raise ProcessTaskFatalError(
-            f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
-            f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
+            message,
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=RuntimeError(f"agent-server lacks {flag}"),
             capture=False,

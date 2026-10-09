@@ -48,6 +48,16 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.user_integration_claude_subscription import (
+    UserClaudeSubscriptionConnectRequestSerializer,
+    UserClaudeSubscriptionSerializer,
+    connect_claude_subscription,
+    disconnect_claude_subscription,
+    ensure_claude_subscription_connect_enabled,
+    ensure_not_sandbox_claude_subscription_request,
+    get_claude_subscription,
+    get_own_user,
+)
 from posthog.api.user_integration_codex import (
     UserCodexConnectRequestSerializer,
     UserCodexIntegrationSerializer,
@@ -65,7 +75,11 @@ from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
-from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
+from posthog.rate_limit import (
+    ClaudeSubscriptionConnectUserThrottle,
+    CodexConnectUserThrottle,
+    UserAuthenticationThrottle,
+)
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
@@ -300,6 +314,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_install_requests",
         "slack_linkable",
         "codex",
+        "claude_subscription",
     ]
     scope_object_write_actions = [
         "create",
@@ -316,6 +331,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "slack_destroy",
         "codex_connect",
         "codex_destroy",
+        "claude_subscription_connect",
+        "claude_subscription_destroy",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -329,6 +346,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         throttles = super().get_throttles()
         if self.action == "codex_connect":
             throttles.append(CodexConnectUserThrottle())
+        if self.action == "claude_subscription_connect":
+            throttles.append(ClaudeSubscriptionConnectUserThrottle())
         return throttles
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -899,6 +918,56 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ensure_not_sandbox_request(request)
         user = self._get_user()
         return disconnect_codex_integration(user)
+
+    @extend_schema(
+        summary="Show the Claude subscription stored for cloud agent runs",
+        description="Shows the last 4 characters of the stored token. No response carries the token.",
+        responses={
+            200: UserClaudeSubscriptionSerializer,
+            403: OpenApiResponse(description="A cloud agent sandbox token cannot read the stored subscription."),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="claude_subscription")
+    def claude_subscription(self, request: Request, **_kwargs) -> Response:
+        ensure_not_sandbox_claude_subscription_request(request)
+        user = get_own_user(request, self.kwargs.get("parent_lookup_uuid"))
+        return get_claude_subscription(user)
+
+    @validated_request(
+        request_serializer=UserClaudeSubscriptionConnectRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=UserClaudeSubscriptionSerializer, description="The token is stored."),
+            400: OpenApiResponse(description="The token does not have the format of a Claude subscription token."),
+            403: OpenApiResponse(description="A cloud agent sandbox token cannot store a subscription."),
+            404: OpenApiResponse(description="Claude subscriptions for cloud agents are not available to this user."),
+        },
+        summary="Store a Claude subscription for cloud agent runs",
+        description=(
+            "Submit the token that `claude setup-token` prints on the user's machine. PostHog stores it encrypted "
+            "and uses it for the user's cloud agent runs on the Claude runtime. It replaces any stored token. Only "
+            "the owning user can connect. No response carries the token."
+        ),
+    )
+    @claude_subscription.mapping.post
+    def claude_subscription_connect(self, request: ValidatedRequest, **_kwargs) -> Response:
+        ensure_not_sandbox_claude_subscription_request(request)
+        user = get_own_user(request, self.kwargs.get("parent_lookup_uuid"))
+        ensure_claude_subscription_connect_enabled(user)
+        return connect_claude_subscription(user, request.validated_data["token"])
+
+    @extend_schema(
+        summary="Delete the Claude subscription stored for cloud agent runs",
+        description="Deletes the stored token. Idempotent.",
+        responses={
+            204: OpenApiResponse(description="No token is stored any more."),
+            403: OpenApiResponse(description="A cloud agent sandbox token cannot delete the stored subscription."),
+        },
+    )
+    @claude_subscription.mapping.delete
+    def claude_subscription_destroy(self, request: Request, **_kwargs) -> Response:
+        ensure_not_sandbox_claude_subscription_request(request)
+        user = get_own_user(request, self.kwargs.get("parent_lookup_uuid"))
+        return disconnect_claude_subscription(user)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):

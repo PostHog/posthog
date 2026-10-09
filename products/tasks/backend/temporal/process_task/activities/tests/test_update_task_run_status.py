@@ -4,12 +4,14 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.constants import COMPUTE_WAIVED_REASON_STATE_KEY
+from products.tasks.backend.models import Loop, SandboxSession, Task, TaskClientProvenance, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -443,6 +445,51 @@ class TestUpdateTaskRunStatusActivity:
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
         assert props.get("sandbox_backend") == expected_backend
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "origin,status,error_type,waived",
+        [
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, "SandboxProvisionError", True),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, "SandboxControlPlaneUnavailableError", True),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, "SnapshotCreationError", True),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, "agent_reported", False),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, "RepositoryCloneError", False),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.FAILED, None, False),
+            (Task.OriginProduct.CLOUD_AGENTS, TaskRun.Status.COMPLETED, "SandboxProvisionError", False),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.FAILED, "SandboxProvisionError", False),
+        ],
+    )
+    def test_infrastructure_failure_waives_cloud_agents_sandbox_time_only(
+        self, activity_environment, test_task_run, origin, status, error_type, waived
+    ):
+        Task.objects.filter(id=test_task_run.task_id).update(
+            origin_product=origin, client_provenance=TaskClientProvenance.CLOUD_AGENTS
+        )
+        TaskRun.objects.filter(id=test_task_run.id).update(environment=TaskRun.Environment.CLOUD, origin_product=origin)
+        started = timezone.now() - timedelta(hours=1)
+        SandboxSession.objects.for_team(test_task_run.team_id).create(
+            team_id=test_task_run.team_id,
+            task_run=test_task_run,
+            sandbox_id="sb-waiver",
+            origin_product=origin,
+            client_provenance=TaskClientProvenance.CLOUD_AGENTS,
+            cpu_cores=4,
+            memory_gb=16,
+            ttl_seconds=7200,
+            created_at=started,
+            ttl_expires_at=started + timedelta(hours=2),
+            user_attributed_at=started,
+            ended_at=started + timedelta(minutes=30),
+        )
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status, error_type=error_type)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.state.get(COMPUTE_WAIVED_REASON_STATE_KEY) == (error_type if waived else None)
+        if origin == Task.OriginProduct.CLOUD_AGENTS:
+            assert test_task_run.state["compute_cost"] == (0 if waived else 18)
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")

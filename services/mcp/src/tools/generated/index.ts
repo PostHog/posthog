@@ -14,6 +14,7 @@ import { GENERATED_TOOLS as business_knowledge } from './business_knowledge'
 import { GENERATED_TOOLS as canvas } from './canvas'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
+import { GENERATED_TOOLS as cloud_agents } from './cloud_agents'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as context_layer } from './context_layer'
 import { GENERATED_TOOLS as conversations } from './conversations'
@@ -83,6 +84,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...canvas,
     ...cdp_function_templates,
     ...cdp_functions,
+    ...cloud_agents,
     ...cohorts,
     ...context_layer,
     ...conversations,

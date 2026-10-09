@@ -1,0 +1,181 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "create_pr": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether the agent opens a pull request when it finishes. Null uses the product default."
+        },
+        "idle_minutes": {
+            "anyOf": [
+                {
+                    "maximum": 120,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How many minutes the sandbox waits with no activity before it stops, from 1 to 120. The run is then `idle`, and a message continues it. While the agent is in the middle of a turn, the sandbox waits 10 minutes at least. Null uses the product default, 10."
+        },
+        "inference": {
+            "anyOf": [
+                {
+                    "description": "* `auto` - Auto\n* `own_subscription` - Own Subscription\n* `posthog` - PostHog",
+                    "enum": ["auto", "own_subscription", "posthog"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How the agent pays for model usage. `auto` uses your own subscription when one is connected for the runtime, and PostHog inference otherwise. Null uses the product default.\n\n* `auto` - Auto\n* `own_subscription` - Own Subscription\n* `posthog` - PostHog"
+        },
+        "instructions": {
+            "anyOf": [
+                {
+                    "maxLength": 20000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Instructions that the agent gets before the prompt. Project instructions come first, then preset instructions, then the instructions of the run."
+        },
+        "metadata": {
+            "additionalProperties": {
+                "maxLength": 512,
+                "type": "string"
+            },
+            "description": "Your own key and value pairs, stored with the run and returned with it. At most 16 pairs. Keys and values are strings.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "model": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Model ID from cloud-agents-catalog. Leave it out to use the default of the preset or the project."
+        },
+        "output_schema": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "A JSON Schema with `type` set to `object`. When set, the agent must return a JSON result that matches it, and the run returns the result in `result.output`. Null asks for no structured result."
+        },
+        "preset": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID or name of the preset whose defaults the run uses. Null uses the default preset of the project, when one is set."
+        },
+        "prompt": {
+            "description": "The task for the agent, in plain language. Say what to change and how to know it is done. The agent sees only this text, the instructions, and the repository.",
+            "maxLength": 64000,
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "anyOf": [
+                {
+                    "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `xhigh` - Extra high\n* `max` - Max\n* `ultracode` - Ultracode",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How much the model reasons before it answers. A model supports only some of the values. Null uses the default of the model.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `xhigh` - Extra high\n* `max` - Max\n* `ultracode` - Ultracode"
+        },
+        "repositories": {
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "initial_branch": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 255,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Branch that the agent starts from. Null uses the default branch of the repository."
+                            },
+                            "name": {
+                                "description": "GitHub repository, in the format `owner/name`.",
+                                "maxLength": 255,
+                                "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["name"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The repositories that the agent works in. Only one repository is supported for now. Required unless the preset or the project settings set a default."
+        },
+        "size": {
+            "anyOf": [
+                {
+                    "description": "* `1x2` - 1 vCPU, 2 GiB\n* `2x4` - 2 vCPU, 4 GiB\n* `2x8` - 2 vCPU, 8 GiB\n* `4x8` - 4 vCPU, 8 GiB\n* `4x16` - 4 vCPU, 16 GiB\n* `8x16` - 8 vCPU, 16 GiB\n* `8x32` - 8 vCPU, 32 GiB\n* `16x64` - 16 vCPU, 64 GiB",
+                    "enum": ["1x2", "2x4", "2x8", "4x8", "4x16", "8x16", "8x32", "16x64"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Sandbox size, as `<vCPU>x<memory in GiB>`. A larger size costs more per second. Leave it out to use the default of the preset or the project. See cloud-agents-catalog for prices."
+        },
+        "tags": {
+            "description": "Tags for the run. The tags of the preset are added to them.",
+            "items": {
+                "maxLength": 50,
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+        }
+    },
+    "required": ["prompt"],
+    "type": "object"
+}

@@ -78,6 +78,12 @@ class UserIntegration(UUIDModel):
       stores the rotated token under a row lock. See `posthog.models.integration.codex`.
     - One row per user: Desktop replaces it on reconnect.
 
+    Contents for kind=claude_subscription:
+    - `integration_id` holds the first 16 hex characters of the SHA-256 digest of the token
+    - `config` holds {token_suffix, connected_at, last_used_at}
+    - `sensitive_config` holds {secret}. See `posthog.models.integration.claude_subscription`.
+    - One row per user: a new token replaces the stored one.
+
     The `unique_together = ("user", "kind", "integration_id")` constraint only
     forbids the same PostHog user linking the same Slack workspace identity
     twice (which would have to be a re-OAuth that `update_or_create` already
@@ -90,6 +96,7 @@ class UserIntegration(UUIDModel):
         GITHUB = "github"
         SLACK = "slack"
         CODEX = "codex"
+        CLAUDE_SUBSCRIPTION = "claude_subscription"
 
     user = models.ForeignKey(
         "posthog.User",
@@ -112,6 +119,11 @@ class UserIntegration(UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["user"], condition=models.Q(kind="codex"), name="unique_codex_user_integration"
+            ),
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(kind="claude_subscription"),
+                name="unique_claude_subscription_user_integration",
             ),
         ]
         indexes = [

@@ -361,6 +361,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
     cross_project_dashboard: 'Behind a feature flag.',
+    cloud_agent: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
     vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
 }
@@ -605,6 +606,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'cloud_agent',
             'today',
             'loop',
             'signal_scout',

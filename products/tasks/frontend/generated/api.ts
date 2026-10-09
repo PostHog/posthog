@@ -134,7 +134,7 @@ import type {
     TaskRunResponseApi,
     TaskRunStartRequestApi,
     TaskRunSubscriptionTokenRequestApi,
-    TaskRunSubscriptionTokenResponseApi,
+    TaskRunSubscriptionTokenResultApi,
     TaskSearchResultApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
@@ -2517,8 +2517,8 @@ export const getTasksRunsSubscriptionTokenCreateUrl = (projectId: string, taskId
 }
 
 /**
- * Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected account. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Codex rejected so the server refreshes it early, once.
- * @summary Issue a ChatGPT access token for a Codex run
+ * Give the run's agent-server the credential the run was started with: a short-lived ChatGPT access token from the run owner's connected account, or the Claude subscription token the run owner stored. Only the run's sandbox may call this, and it must present the run token it received at launch. A run on PostHog credits gets no credential. For 'codex', send the digest of a token Codex rejected so the server refreshes it early, once.
+ * @summary Issue the model credential of a run
  */
 export const tasksRunsSubscriptionTokenCreate = async (
     projectId: string,
@@ -2526,8 +2526,8 @@ export const tasksRunsSubscriptionTokenCreate = async (
     id: string,
     taskRunSubscriptionTokenRequestApi?: TaskRunSubscriptionTokenRequestApi,
     options?: RequestInit
-): Promise<TaskRunSubscriptionTokenResponseApi> => {
-    return apiMutator<TaskRunSubscriptionTokenResponseApi>(
+): Promise<TaskRunSubscriptionTokenResultApi> => {
+    return apiMutator<TaskRunSubscriptionTokenResultApi>(
         getTasksRunsSubscriptionTokenCreateUrl(projectId, taskId, id),
         {
             ...options,

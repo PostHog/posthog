@@ -29,6 +29,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'business_knowledge:write',
     'canvas:read',
     'canvas:write',
+    'cloud_agent:read',
+    'cloud_agent:write',
     'cohort:read',
     'cohort:write',
     'comment:read',

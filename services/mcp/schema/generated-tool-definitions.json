@@ -2605,6 +2605,214 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
     },
+    "cloud-agents-catalog": {
+        "description": "Get what a cloud agent run can use in this project: the sandbox sizes with their price per hour, the model IDs, the inference modes, the compute rates, and the project limits (concurrent runs and runs started per hour). Use it before cloud-agents-run-create to pick a valid `size` or `model`, or to answer a pricing question. The prices here are the source of truth.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agents catalog",
+        "title": "Get cloud agents catalog",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-estimate": {
+        "description": "Estimate the compute cost of one sandbox size for a number of minutes. It starts nothing and costs nothing. The estimate covers compute only. Model usage is not included, and a run is billed for the seconds it really uses. Use cloud-agents-catalog to see the sizes.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Estimate cloud agent compute cost",
+        "title": "Estimate cloud agent compute cost",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-preset-create": {
+        "description": "Create a preset: a named set of run defaults such as `repositories` (one repository for now), model, `reasoning_effort`, size, inference mode, instructions, `create_pr`, `idle_minutes`, `output_schema` and tags. A run that names the preset uses these defaults, so later runs need only a prompt. Only `name` is required, and the name must be unique in the project. Creating a preset starts no run and costs nothing. A value sent on a run overrides the preset value for that run.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Create cloud agent preset",
+        "title": "Create cloud agent preset",
+        "required_scopes": ["cloud_agent:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-preset-get": {
+        "description": "Get one preset by ID, with all the run defaults it sets. A null field sets no default. Use cloud-agents-preset-list to find the ID.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agent preset",
+        "title": "Get cloud agent preset",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-preset-list": {
+        "description": "List the presets of the project. A preset is a named set of run defaults. Use it to find a preset to pass as `preset` to cloud-agents-run-create, by ID or by name.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "List cloud agent presets",
+        "title": "List cloud agent presets",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-cancel": {
+        "description": "Ask a `queued` or `running` run to stop. The agent stops in the middle of its work, and compute billing ends when the sandbox stops. The run can stay `running` for a short time, so read it again with cloud-agents-run-get until the status is `done` with the status reason `cancelled`. A canceled run is final: a message to it is refused. An `idle` or `done` run has no agent to stop and is returned unchanged.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Cancel cloud agent run",
+        "title": "Cancel cloud agent run",
+        "required_scopes": ["cloud_agent:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-create": {
+        "description": "Start a cloud agent run: a cloud sandbox runs a coding agent on your prompt in a GitHub repository and, by default, opens a pull request. This starts a billed sandbox. Compute is billed per second for the selected size until the sandbox stops, and model usage is billed according to the inference mode. Only start a run when the user asked for one. The shortest call is `prompt` plus `preset` (a preset ID or name that holds the repository and the other defaults). Without a preset, send `prompt` and `repositories`, a list with one item such as `[{\"name\": \"acme/web\"}]`. The call returns at once with a `queued` run. Keep the `id`, then poll cloud-agents-run-get until the status is `idle` or `done`. The sandbox stops after `idle_minutes` (1 to 120, default 10) with no activity, and a shorter wait costs less compute. Send `output_schema` (a JSON Schema object) to get a structured result in `result.output`. This tool cannot send an idempotency key, so every call starts a new run. Do not call it again after a timeout or an unclear error: first check cloud-agents-run-list for the run. A 429 error means the project is at its concurrency, rate or usage limit, so wait before you try again.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Start cloud agent run",
+        "title": "Start cloud agent run",
+        "required_scopes": ["cloud_agent:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-events": {
+        "description": "Get the stored events of a run as JSON, oldest first, across all its agent sessions. Each event is one message of the agent protocol with the time it was recorded: prompts, agent text, tool calls and their results. Use it to see what the agent did or why a run failed. The response can be very large for a long run, so use cloud-agents-run-get when you need only the status, the result or the cost. `truncated` is true when the log was too large to return in full.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agent run events",
+        "title": "Get cloud agent run events",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-get": {
+        "description": "Get one run by ID: its status, status reason, status detail, configuration, pull request URLs, summary, structured output and cost. Use it to poll a run after cloud-agents-run-create. `queued` and `running` are active. `idle` means the sandbox stopped and a message continues the run. `done` means the run is final. `status_reason` says why (`turn_closed`, `timed_out`, `credit_spent`, `provision_failed`, `unexpected_failure`, `finished`, `closed`, `cancelled`), and `status_detail` explains it in one sentence. An `idle` run with a failure reason can still be continued. `result.pr_url` is the pull request, `result.summary` is the agent's own summary, and `result.output` is the structured result when the run has an `output_schema`. `cost.final` is false while the cost can still change. Poll every 15 to 30 seconds, not faster.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agent run",
+        "title": "Get cloud agent run",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-list": {
+        "description": "List the runs of the project, newest first. Filter by `status` (`queued`, `running`, `idle` or `done`), `preset_id`, `repository`, `tag`, or a creation time range. A status filter covers the newest 1,000 matching runs. Each row is a short form of the run. Use cloud-agents-run-get for the configuration, the agent sessions and the full cost of one run.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "List cloud agent runs",
+        "title": "List cloud agent runs",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-message": {
+        "description": "Send a follow-up message to a run. A running agent gets the message in its current session. A message to an `idle` run starts a new agent session, which starts a billed sandbox again and moves the run back to `queued`. `resumed` in the response says which of the two happened. Use it to ask for changes to the pull request, or to continue an `idle` run that waited, timed out or failed, in the same repository state. A `done` run is final, and the call fails with status 409 and the code `run_done`: start a new run instead. A run that uses the subscription of the user who started it accepts messages from that user only. Each call sends one more message, so do not repeat a call that may have succeeded.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Send message to cloud agent run",
+        "title": "Send message to cloud agent run",
+        "required_scopes": ["cloud_agent:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-run-usage": {
+        "description": "Get the cost of one run up to now, with each sandbox that the run used: its size, start and end time, billed seconds and compute cost. `waived` is true for a sandbox that PostHog did not bill. Use it to explain the cost of a run. cloud-agents-run-get already has the cost totals.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agent run usage",
+        "title": "Get cloud agent run usage",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
+    "cloud-agents-usage-summary": {
+        "description": "Get cost and usage totals for the runs created in a date range, with one bucket for each UTC day or for each preset (`group_by=preset`). The default range is the last 30 days and the longest range is 366 days. Use it for spend questions across many runs. Use cloud-agents-run-usage for one run.",
+        "category": "Cloud agents",
+        "feature": "cloud_agents",
+        "summary": "Get cloud agents usage summary",
+        "title": "Get cloud agents usage summary",
+        "required_scopes": ["cloud_agent:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cloud-agents",
+        "feature_flag_behavior": "enable"
+    },
     "cohorts-add-persons-to-static-cohort-partial-update": {
         "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",

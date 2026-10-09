@@ -37,6 +37,26 @@ export type CodexSubscriptionTokenErrorCode =
   | "forbidden"
   | "request_failed";
 
+/** A credential PostHog stores for the run owner, as the `subscription_token` endpoint names it. */
+export type StoredRunCredentialKind = "claude_subscription";
+
+export type RunCredentialErrorCode =
+  | "credential_missing"
+  | "forbidden"
+  | "request_failed";
+
+export class RunCredentialError extends Error {
+  constructor(
+    readonly credential: StoredRunCredentialKind,
+    readonly code: RunCredentialErrorCode,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RunCredentialError";
+  }
+}
+
 export class CodexSubscriptionTokenError extends Error {
   constructor(
     readonly code: CodexSubscriptionTokenErrorCode,
@@ -366,6 +386,73 @@ export class PostHogAPIClient {
       code,
       response.status,
       `Failed to get a ChatGPT token: [${response.status}] ${body.error ?? response.statusText}`,
+    );
+  }
+
+  /**
+   * The Claude plan token that the run owner stored, for a run that was
+   * started with it. Same endpoint and same proof as the ChatGPT token: the
+   * run token from fd 3. The secret is returned to the caller only. It is never
+   * logged, and an error never carries the response body.
+   */
+  async requestStoredRunCredential(
+    taskId: string,
+    runId: string,
+    runToken: string,
+    credential: StoredRunCredentialKind,
+    timeoutMs: number,
+  ): Promise<string> {
+    const teamId = this.getTeamId();
+    const response = await this.performRequestWithRetry(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/subscription_token/`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Task-Run-Token": runToken,
+        },
+        body: JSON.stringify({ credential }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    ).catch(() => {
+      throw new RunCredentialError(
+        credential,
+        "request_failed",
+        0,
+        "Could not reach PostHog to get the credential of this run.",
+      );
+    });
+    if (response.ok) {
+      const body = (await response.json().catch(() => ({}))) as {
+        credential?: string;
+        secret?: string;
+      };
+      // A server that predates this field ignores it and answers in the
+      // ChatGPT shape, so the credential name must be checked.
+      if (body.credential !== credential || !body.secret) {
+        throw new RunCredentialError(
+          credential,
+          "request_failed",
+          response.status,
+          "PostHog did not return the credential of this run.",
+        );
+      }
+      return body.secret;
+    }
+    const errorBody = (await response.json().catch(() => ({}))) as {
+      code?: string;
+    };
+    const code: RunCredentialErrorCode =
+      errorBody.code === "credential_missing"
+        ? "credential_missing"
+        : response.status === 403 || response.status === 404
+          ? "forbidden"
+          : "request_failed";
+    throw new RunCredentialError(
+      credential,
+      code,
+      response.status,
+      `Failed to get the credential of this run: [${response.status}] ${code}`,
     );
   }
 

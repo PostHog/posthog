@@ -36,8 +36,10 @@ POSTHOG_CODE_PRODUCT = "posthog_code"
 
 # Mirrors PRODUCTS[*].credit_bucket in services/llm-gateway/src/llm_gateway/products/config.py.
 # Both gateways refuse an exhausted bucket, and a mint checks it first so a capped or deactivated
-# org never gets a token.
+# org never gets a token. `cloud_agents` has no entry in that file, because the legacy gateway
+# does not serve the product.
 PRODUCT_CREDIT_BUCKET: dict[str, str] = {
+    "cloud_agents": "cloud_agents_credits",
     "posthog_ai": "ai_credits",
     "posthog_code": "posthog_code_credits",
     "slack_app": "ai_credits",

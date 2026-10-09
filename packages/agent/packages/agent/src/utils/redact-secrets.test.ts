@@ -97,6 +97,12 @@ describe("redactSecrets", () => {
     },
   );
 
+  it("redacts a legacy OpenAI key and keeps a word that ends in sk-", () => {
+    const key = `sk-${"aB3".repeat(16)}`;
+    expect(redactSecrets(`key=${key} ok`)).toBe("key=[REDACTED] ok");
+    expect(redactSecrets("a risk-free task-list")).toBe("a risk-free task-list");
+  });
+
   it("redacts every segment of a JWT", () => {
     const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY2N0XzEifQ.c2lnbmF0dXJl";
     expect(redactSecrets(`Bearer ${jwt} ok`)).toBe("Bearer [REDACTED] ok");

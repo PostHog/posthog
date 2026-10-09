@@ -23,6 +23,23 @@ export const TOKEN_RULES: TokenRule[] = [
     body: URL_SAFE_BODY,
   },
   {
+    label: "openai project api key",
+    prefix: "sk-proj-",
+    body: URL_SAFE_BODY,
+  },
+  {
+    label: "openai service account api key",
+    prefix: "sk-svcacct-",
+    body: URL_SAFE_BODY,
+  },
+  {
+    // Legacy OpenAI keys are "sk-" and a bare alphanumeric body, with no further marker.
+    label: "openai legacy api key",
+    prefix: "sk-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
     label: "github installation token",
     prefix: "ghs_",
     body: URL_SAFE_BODY,

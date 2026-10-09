@@ -22,6 +22,7 @@ from posthog.security.outbound_proxy import internal_requests
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+from products.tasks.backend.exceptions import BilledInferenceUnavailableError
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
@@ -120,13 +121,23 @@ class TestSharedRoutingContract:
     )
     def test_resolve_matches_contract(self, case):
         assert (
-            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+            resolve_sandbox_ai_product(
+                case["origin_product"],
+                case["ai_stage"],
+                internal=case["internal"],
+                client_provenance=case["client_provenance"],
+            )
             == case["expected"]
         )
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
-        ai_product = resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+        ai_product = resolve_sandbox_ai_product(
+            case["origin_product"],
+            case["ai_stage"],
+            internal=case["internal"],
+            client_provenance=case["client_provenance"],
+        )
         assert sandbox_product_routed(ai_product, case["ai_stage"], case["allowlist"]) == case["expected"]
 
 
@@ -638,19 +649,93 @@ class TestProvisioningBoundaries:
             patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
             patch.object(utils, "record_gateway_routing"),
         ):
-            out = utils.run_gateway_env_vars(self._ctx(), self._task())
+            task = self._task()
+            out = utils.run_gateway_env_vars(self._ctx(), task)
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
             team_id=7,
             origin_product="signals_scout",
             ai_stage="scout:logs",
             internal=True,
+            client_provenance=task.client_provenance,
             distinct_id="user-1",
             state={"ai_stage": "scout:logs"},
             model="claude-sonnet-5",
             runtime="acp",
             prior_slack_run=False,
         )
+
+    @pytest.mark.parametrize(
+        "client_provenance,expected_product",
+        [("cloud_agents", "cloud_agents"), (None, None), ("posthog_desktop", None)],
+    )
+    def test_cloud_agents_provenance_decides_the_minted_product(
+        self, mint_settings, client_provenance, expected_product
+    ):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "cloud_agents,background_agents"
+        with patch(_CREDIT_LOOKUP, return_value=None), patch.object(utils, "mint_scoped_token", return_value="phe_x"):
+            env = ai_gateway_env_vars(
+                team_id=2,
+                origin_product="cloud_agents",
+                internal=True,
+                client_provenance=client_provenance,
+                runtime="acp",
+            )
+        assert env.get("AI_GATEWAY_PRODUCT") == expected_product
+        assert ("AI_GATEWAY_TOKEN" in env) is (expected_product is not None)
+
+    @pytest.mark.parametrize(
+        "origin_product,client_provenance,env,fatal",
+        [
+            # A billed run with no billed token must not start on the unbilled fallback.
+            ("cloud_agents", "cloud_agents", {"AI_GATEWAY_URL": "url", "AI_GATEWAY_PRODUCTS": "x"}, True),
+            ("cloud_agents", "cloud_agents", {}, True),
+            ("cloud_agents", "cloud_agents", RuntimeError("billing is down"), True),
+            (
+                "cloud_agents",
+                "cloud_agents",
+                {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "background_agents"},
+                True,
+            ),
+            ("cloud_agents", "cloud_agents", {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "cloud_agents"}, False),
+            # PostHog's own Cloud Agents work is not billed, so it keeps the fallback.
+            ("cloud_agents", None, {}, False),
+            ("cloud_agents", None, RuntimeError("billing is down"), False),
+            ("user_created", "cloud_agents", {}, False),
+            ("user_created", "posthog_desktop", RuntimeError("billing is down"), False),
+            ("signals_scout", None, {}, False),
+        ],
+    )
+    def test_only_a_billed_cloud_agents_run_fails_without_a_billed_token(
+        self, origin_product, client_provenance, env, fatal
+    ):
+        ctx = self._ctx()
+        ctx.origin_product = origin_product
+        ctx.state = {}
+        task = self._task()
+        task.client_provenance = client_provenance
+        routing = {"side_effect": env} if isinstance(env, Exception) else {"return_value": dict(env)}
+        with (
+            patch.object(utils, "ai_gateway_env_vars", **routing),
+            patch.object(utils, "record_gateway_routing") as record,
+            patch.object(utils, "_record_pinned_gateway_product", return_value=True),
+        ):
+            if fatal:
+                with pytest.raises(BilledInferenceUnavailableError) as raised:
+                    utils.run_gateway_env_vars(ctx, task)
+                assert raised.value.non_retryable is True
+                record.assert_not_called()
+            else:
+                assert utils.run_gateway_env_vars(ctx, task) == ({} if isinstance(env, Exception) else env)
+
+    def test_billed_cloud_agents_run_on_its_own_subscription_needs_no_token(self, mint_settings):
+        ctx = self._ctx()
+        ctx.origin_product = "cloud_agents"
+        ctx.claude_model_access = "own-subscription"
+        task = self._task()
+        task.client_provenance = "cloud_agents"
+        with patch.object(utils, "record_gateway_routing"):
+            assert utils.run_gateway_env_vars(ctx, task) == {}
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
@@ -971,6 +1056,7 @@ class TestUserPinAndCapOverride:
             ("workflows", "75"),
             ("posthog_ai", "75"),
             ("posthog_code", "500"),
+            ("cloud_agents", "500"),
             ("signals_scout_suggestions", "10"),
         ],
     )
@@ -1223,6 +1309,7 @@ class TestMintRefusalScope:
         from ee.billing.quota_limiting import QuotaResource
 
         assert PRODUCT_CREDIT_BUCKET == {
+            "cloud_agents": "cloud_agents_credits",
             "posthog_ai": "ai_credits",
             "posthog_code": "posthog_code_credits",
             "slack_app": "ai_credits",
@@ -1231,16 +1318,26 @@ class TestMintRefusalScope:
         assert set(PRODUCT_CREDIT_BUCKET.values()) == {
             QuotaResource.AI_CREDITS.value,
             QuotaResource.POSTHOG_CODE_CREDITS.value,
+            QuotaResource.CLOUD_AGENTS_CREDITS.value,
         }
 
-    def test_posthog_code_refuses_on_its_own_bucket(self):
+    @pytest.mark.parametrize(
+        "ai_product,bucket",
+        [("posthog_code", "posthog_code_credits"), ("cloud_agents", "cloud_agents_credits")],
+    )
+    def test_customer_billed_product_refuses_on_its_own_bucket(self, ai_product, bucket):
         with (
             patch(_POSTHOG_CODE_GATE, return_value=None),
-            patch(_CREDIT_LOOKUP, return_value="posthog_code_credits_exhausted") as quota,
+            patch(_CREDIT_LOOKUP, return_value=f"{bucket}_exhausted") as quota,
         ):
-            refusal = mint_refusal("posthog_code", team_id=2, state=None, model=None, runtime="acp")
-        assert refusal == "posthog_code_credits_exhausted"
-        quota.assert_called_once_with(2, "posthog_code_credits")
+            refusal = mint_refusal(ai_product, team_id=2, state=None, model=None, runtime="acp")
+        assert refusal == f"{bucket}_exhausted"
+        quota.assert_called_once_with(2, bucket)
+
+    def test_cloud_agents_is_mintable_for_the_sandbox_lifetime(self):
+        assert "cloud_agents" in MINTABLE_PRODUCTS
+        assert "cloud_agents" in SANDBOX_BOUND_MINTABLE_PRODUCTS
+        assert "background_agents" not in MINTABLE_PRODUCTS
 
     def test_lookup_failure_names_the_bucket(self):
         with patch(_POSTHOG_CODE_GATE, return_value=None), patch(_CREDIT_LOOKUP, side_effect=RuntimeError("down")):

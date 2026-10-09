@@ -12,7 +12,19 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.exceptions import (
+    SandboxControlPlaneError,
+    SandboxControlPlaneUnavailableError,
+    SandboxProvisionError,
+    SandboxRateLimitedError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+    SnapshotNotFoundError,
+    SnapshotNotReadyError,
+    SnapshotTimeoutError,
+)
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
+from products.tasks.backend.logic.services.sandbox_usage import waive_run_sandbox_sessions
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
@@ -35,6 +47,24 @@ _TERMINAL_STATE_MARKERS = (
 )
 
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+# Failures of the sandbox provider, its control plane, or a snapshot. The workflow sends the
+# class name of the failed activity's error as `error_type`. Errors that the customer's
+# repository or commands can cause, such as a failed clone or a failed command, are not here.
+INFRASTRUCTURE_ERROR_TYPES = frozenset(
+    error.__name__
+    for error in (
+        SandboxProvisionError,
+        SandboxControlPlaneError,
+        SandboxRateLimitedError,
+        SandboxControlPlaneUnavailableError,
+        SandboxTimeoutError,
+        SnapshotNotFoundError,
+        SnapshotNotReadyError,
+        SnapshotCreationError,
+        SnapshotTimeoutError,
+    )
+)
 
 
 @dataclass(frozen=False)
@@ -125,6 +155,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
+        _waive_cloud_agents_infrastructure_failure(task_run, input)
         try:
             if task_run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_cost(run_id=task_run.id, team_id=task_run.team_id)
@@ -173,6 +204,21 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         status=input.status,
         termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
+
+
+def _waive_cloud_agents_infrastructure_failure(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
+    """A Cloud Agents run that our infrastructure failed is not billed for its sandbox time."""
+    if (
+        input.status != TaskRun.Status.FAILED
+        or input.error_type not in INFRASTRUCTURE_ERROR_TYPES
+        or task_run.task.origin_product != Task.OriginProduct.CLOUD_AGENTS
+    ):
+        return
+    try:
+        waive_run_sandbox_sessions(task_run.id, task_run.team_id, input.error_type)
+    except Exception:
+        # A lost waiver bills the customer for our failure, so it must reach error tracking.
+        activity.logger.exception(f"Failed to waive sandbox sessions for run {task_run.id}")
 
 
 def _capture_posthog_ai_chat_analytics(

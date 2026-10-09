@@ -76,7 +76,11 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        credit_buckets = {QuotaResource.AI_CREDITS.value, QuotaResource.POSTHOG_CODE_CREDITS.value}
+        credit_buckets = {
+            QuotaResource.AI_CREDITS.value,
+            QuotaResource.POSTHOG_CODE_CREDITS.value,
+            QuotaResource.CLOUD_AGENTS_CREDITS.value,
+        }
         for resource in QuotaResource:
             expected = resource.value in credit_buckets
             self.assertIs(data["limited"][resource.value]["limited"], expected)

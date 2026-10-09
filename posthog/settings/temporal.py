@@ -113,6 +113,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "workflows": "75",
     "posthog_ai": "75",
     "posthog_code": "500",
+    "cloud_agents": "500",
 }
 # A JSON object merged onto the defaults per product. Malformed JSON is captured at mint and
 # leaves the defaults in force.
@@ -159,6 +160,13 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
 TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
     False,
+    type_cast=str_to_bool,
+)
+
+# Separate from the switch above, so Cloud Agents enforcement does not follow PostHog Desktop's.
+CLOUD_AGENTS_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "CLOUD_AGENTS_QUOTA_ENFORCEMENT_ENABLED",
+    True,
     type_cast=str_to_bool,
 )
 
