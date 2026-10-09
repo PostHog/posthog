@@ -1,10 +1,18 @@
+use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::packer::{PackTargets, Packer};
+use crate::batcher::retry_policy::RetryPolicy;
+use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
-use crate::routing::RoutingStrategy;
+use crate::routing::{Router, RoutingStrategy};
+use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
@@ -163,6 +171,38 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How long the key-table scheduler waits before it retries a failed
+    /// send, and how often a request with no routable worker tries again
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
+    /// Target request size in events for the key-table packer: once this many
+    /// events are ready, a free worker slot gets a request at once. One key's
+    /// run never holds more, so a key's backlog leaves in consecutive requests.
+    /// `0` disables the event target and the cap, and needs a byte target.
+    /// Only read under `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
+    pub pack_target_events: usize,
+
+    /// Target request size in key-plus-value bytes for the key-table packer.
+    /// One key's run never holds more. `0` (default) disables the byte target
+    /// and the cap, and needs an event target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
+    pub pack_target_bytes: usize,
+
+    /// How long ready events below the target wait for more, counted from
+    /// when a worker slot is free for them, before the key-table packer sends
+    /// them short of the target (milliseconds). `0` (default) waits for
+    /// nothing: each free slot gets what is ready, packed up to the target.
+    /// At most half of `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
+    pub pack_latency_budget_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
@@ -272,6 +312,13 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
+    /// pins with a per-batch stash) or `key_table` (the batcher state
+    /// machine: at most one in-flight request per key, with packing). The
+    /// switch back is the rollback.
+    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
+    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
@@ -387,6 +434,29 @@ fn parse_kafka_consumer_env_overrides() -> Vec<(String, String)> {
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+
+    /// The key-table scheduler's state machine. It reuses the stream's
+    /// un-acked cap as its per-worker request cap, the parked-retry interval
+    /// for every retry, and the deferred-flush timeout as its stall timeout.
+    pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
+        let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(self.pack_target_events),
+            bytes: NonZeroUsize::new(self.pack_target_bytes),
+            latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
+        });
+        let assigner = WorkerAssigner::new(
+            Router::new(self.routing_strategy),
+            self.ingestion_worker_concurrent_batches,
+        )?;
+        let retry = RetryPolicy::uniform(Duration::from_millis(self.parked_retry_interval_ms))?;
+        BatcherStateMachine::new(
+            packer,
+            assigner,
+            retry,
+            Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
+            Instant::now(),
+        )
     }
 
     pub fn worker_urls(&self) -> Vec<String> {

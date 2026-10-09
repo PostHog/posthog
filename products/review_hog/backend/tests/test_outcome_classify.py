@@ -1,4 +1,6 @@
+import json
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -8,9 +10,11 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.team import Team
@@ -23,10 +27,16 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
     OUTCOME_JUDGE_FAILURE_STREAK,
     OUTCOME_JUDGE_REASONING_MAX_CHARS,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     VALIDATION_MODEL,
+    VALIDATION_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
@@ -83,10 +93,17 @@ def _verdict(issue_key: str = _ISSUE_KEY) -> ValidationVerdict:
 class TestClassifyReportDecision:
     """The precedence + emit logic, with the DB helpers mocked so no database or thread is involved."""
 
-    def _inputs(self, *, comment: dict[str, Any] | None, compare_files: list[dict[str, Any]]) -> _ReportInputs:
+    def _inputs(
+        self,
+        *,
+        comment: dict[str, Any] | None,
+        compare_files: list[dict[str, Any]],
+        reactions: list[dict[str, Any]] | None = None,
+    ) -> _ReportInputs:
         return _ReportInputs(
             compares={"base_sha": compare_files},
             review_comments=[comment] if comment else [],
+            reactions_by_comment={comment["id"]: reactions} if comment and reactions else {},
             published=[
                 _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=comment, reviewed_head="base_sha")
             ],
@@ -108,14 +125,23 @@ class TestClassifyReportDecision:
             )
         return captured, judge
 
-    def test_reacted_takes_precedence_and_skips_the_judge(self):
-        # A reaction settles the finding as `reacted` before we spend a judge call — even though the
-        # diff also touched its lines. Precedence inversion here would waste tokens and mislabel.
+    @parameterized.expand(
+        [
+            # A reaction settles the finding as `reacted` before we spend a judge call — even though the
+            # diff also touched its lines. Precedence inversion here would waste tokens and mislabel.
+            ("someone_reacted", {"login": "alice", "type": "User"}, "reacted", "comment_reaction"),
+            ("only_our_queue_marker", {"login": "reviewhog[bot]", "type": "Bot"}, "addressed", "judge_confirmed"),
+        ]
+    )
+    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="reviewhog[bot]")
+    def test_a_reaction_takes_precedence_unless_it_is_ours(
+        self, _name: str, reactor: dict[str, Any], outcome: str, method: str
+    ):
         comment = {"id": 1, "path": "f.py", "body": "### Off-by-one\n\nbody", "reactions": {"total_count": 1}}
-        captured, judge = self._run(inputs=self._inputs(comment=comment, compare_files=_TOUCHING))
-        judge.assert_not_awaited()
-        assert captured[0]["properties"]["outcome"] == "reacted"
-        assert captured[0]["properties"]["classification_method"] == "comment_reaction"
+        reactions = [{"user": reactor, "content": "eyes"}]
+        captured, _judge = self._run(inputs=self._inputs(comment=comment, compare_files=_TOUCHING, reactions=reactions))
+        assert captured[0]["properties"]["outcome"] == outcome
+        assert captured[0]["properties"]["classification_method"] == method
 
     def test_addressed_when_touched_and_judge_confirms(self):
         captured, judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), judge_return=True)
@@ -128,26 +154,54 @@ class TestClassifyReportDecision:
         assert captured[0]["properties"]["outcome"] == "ignored"
         assert captured[0]["properties"]["classification_method"] == "judge_rejected"
 
-    def test_the_outcome_event_carries_the_review_arm(self):
-        # Per-tier precision splits this event by the report's arm as it stands when the outcome is
-        # classified: a row in a cheaper tier must label its findings with that tier and effort, not
-        # the default pins.
+    @parameterized.expand(
+        [
+            ("legacy", None, "gpt-5.6-sol"),
+            ("unreadable", "unreadable", "gpt-5.6-sol"),
+            ("full", REVIEW_MODE_FULL, "gpt-5.6-sol"),
+            ("flash", REVIEW_MODE_FLASH, "gpt-5.6-sol"),
+            ("flash_with_stale_report_arm", REVIEW_MODE_FLASH, "gpt-removed"),
+        ]
+    )
+    def test_the_outcome_event_carries_the_review_arm(
+        self, _name: str, context_mode: str | None, report_model: str
+    ) -> None:
         report = ReviewReport(
             repository="o/r",
             pr_number=7,
             review_tier="agent_p2",
             review_runtime_adapter="codex",
-            review_model="gpt-5.6-sol",
+            review_model=report_model,
             review_reasoning_effort="medium",
             review_initial_permission_mode="full-access",
         )
-        captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), report=report)
+        inputs = self._inputs(comment=None, compare_files=_TOUCHING)
+        is_flash = context_mode == REVIEW_MODE_FLASH
+        if context_mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH):
+            inputs.published[0].finding.validation_context = json.dumps(
+                {
+                    "head_sha": "base_sha",
+                    "review_mode": context_mode,
+                    "review_arm": asdict(FLASH_ARM if is_flash else DEFAULT_REVIEW_ARM),
+                    "validation_arm": asdict(FLASH_ARM if is_flash else DEFAULT_VALIDATION_ARM),
+                }
+            )
+        else:
+            inputs.published[0].finding.validation_context = context_mode
+
+        with patch("products.review_hog.backend.reviewer.constants.FLASH_ARM", DEFAULT_REVIEW_ARM):
+            captured, _judge = self._run(inputs=inputs, report=report)
         props = captured[0]["properties"]
         assert props["review_tier"] == "agent_p2"
-        assert props["review_model"] == "gpt-5.6-sol"
+        assert props["review_mode"] == (context_mode if context_mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH) else None)
+        assert props["review_runtime_adapter"] == "codex"
+        assert props["review_model"] == (FLASH_ARM.model if is_flash else report_model)
         assert props["review_reasoning_effort"] == "medium"
         assert props["review_arm_fallback"] is False
-        assert props["validator_model"] == VALIDATION_MODEL
+        assert props["validator_model"] == (FLASH_ARM.model if is_flash else VALIDATION_MODEL)
+        assert props["validator_reasoning_effort"] == (
+            FLASH_ARM.reasoning_effort.value if is_flash else VALIDATION_REASONING_EFFORT.value
+        )
 
     def test_the_judges_reasoning_is_persisted_with_the_outcome(self):
         # The ruling is the only record of why a finding was classified as it was; the diff it read
@@ -310,6 +364,7 @@ class TestClassifyReportDecision:
         inputs = _ReportInputs(
             compares={"base_sha": _TOUCHING},
             review_comments=[],
+            reactions_by_comment={},
             published=published,
             distinct_id="user-distinct",
             judge_user_id=0,
@@ -331,6 +386,7 @@ class TestClassifyReportDecision:
         return _ReportInputs(
             compares={"base_sha": _TOUCHING},
             review_comments=[],
+            reactions_by_comment={},
             published=[
                 _PublishedFinding(
                     finding=_finding(issue_key=f"r1:f.py:{i}:logic"),
@@ -487,11 +543,13 @@ class TestGatherAndIdempotency(BaseTest):
 
     def test_gather_selects_published_finding_pairs_its_comment_and_resolves_distinct_id(self):
         report = self._report()
-        comment = {"id": 1, "path": "f.py", "body": "### Off-by-one\n\nbody", "reactions": {"total_count": 0}}
+        comment = {"id": 1, "path": "f.py", "body": "### Off-by-one\n\nbody", "reactions": {"total_count": 1}}
+        reactions = [{"user": {"login": "alice", "type": "User"}, "content": "+1"}]
         with (
             patch(f"{_CLASSIFY}._installation_auth", return_value=("tok", "inst")),
             patch(f"{_CLASSIFY}.fetch_compare_files", return_value=_FAR),
             patch(f"{_CLASSIFY}.fetch_review_comments", return_value=[comment]),
+            patch(f"{_CLASSIFY}.fetch_comment_reactions", return_value=reactions),
         ):
             inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
 
@@ -499,6 +557,7 @@ class TestGatherAndIdempotency(BaseTest):
         assert inputs.published[0].reviewed_head == "base_sha"
         assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
         assert inputs.published[0].comment == comment  # the finding was paired with its posted comment
+        assert inputs.reactions_by_comment == {1: reactions}
         assert inputs.distinct_id == self.user.distinct_id
 
     def test_each_turn_is_compared_from_the_head_it_published_at(self):

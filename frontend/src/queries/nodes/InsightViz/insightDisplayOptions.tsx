@@ -3,11 +3,11 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import type { RetentionFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -62,6 +62,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showMultipleYAxes,
         showAlertThresholdLines,
         showAnnotations,
+        annotationsScope,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -90,7 +91,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isBoxPlot
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
-    const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
+    const showAnnotationsConfig = ((isTrends && !hideContinuousChartOptions) || isTrendsFunnel) && !isBoxPlot
     const showTrendLinesConfig = (isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions
     // Stickiness defaults to its line chart when display is unset, same as trends does — but
     // isDefaultTrendsLineDisplay only matches TrendsQuery, so we handle the stickiness case here.
@@ -103,6 +104,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
+    const isPartOfWhole = !!display && PART_OF_WHOLE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
     // A pie is the exception: it can show the value and the percentage together.
     const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
@@ -171,13 +173,13 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
             displayItems.push(DisplayOptions.Legend)
         }
         if (isPie) {
-            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
+            displayItems.push(DisplayOptions.SliceNames)
+        }
+        if (isPartOfWhole) {
+            displayItems.push(DisplayOptions.PieTotal)
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
-        }
-        if (showAnnotationsConfig) {
-            displayItems.push(DisplayOptions.Annotations)
         }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertAnomalyPoints)
@@ -192,6 +194,15 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const displayItems = getDisplayItems()
     if (showDisplaySection && displayItems.length > 0) {
         displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
+    }
+    if (showAnnotationsConfig) {
+        displaySections.push({
+            key: 'annotations',
+            title: 'Annotations',
+            tooltip:
+                'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
+            items: [DisplayOptions.Annotations],
+        })
     }
     if (showUnit) {
         displaySections.push({ key: 'unit', title: 'Unit', items: [DisplayOptions.Unit] })
@@ -273,9 +284,20 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     if (showAlertThresholdLinesConfig && !isBoxPlot) {
         overlayItems.push(DisplayOptions.AlertThresholdLines)
     }
+    if (isRetention && isLineChartInsight) {
+        overlayItems.push(DisplayOptions.RetentionMeanLine)
+    }
     const linesSections: DisplayOptionSection[] = []
     if (styleItems.length > 0) {
         linesSections.push({ key: 'style', title: 'Style', items: styleItems })
+    }
+    if (isRetention && isLineChartInsight) {
+        linesSections.push({
+            key: 'retention-series-colors',
+            title: 'Cohort line colors',
+            tooltip: 'One shade draws every cohort in the same color, with the newest cohort the most solid.',
+            items: [DisplayOptions.RetentionSeriesColorMode],
+        })
     }
     if (overlayItems.length > 0) {
         linesSections.push({
@@ -288,14 +310,17 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
 
     const unitIsSet =
         showUnit && !!trendsFilter?.aggregationAxisFormat && trendsFilter.aggregationAxisFormat !== 'numeric'
+    // A proportion bar shows its legend by default, so only the user's own choice counts as a change.
+    const legendIsChanged =
+        display === ChartDisplayType.ActionsProportionBar ? trendsFilter?.showLegend !== undefined : showLegend
     const displayCount = countTruthy(
         supportsValueOnSeries && showValuesOnSeries,
         isLifecycle && showPercentagesOnSeries,
         showPercentStackView,
         isPie && trendsFilter?.showLabelsOnSeries,
         unitIsSet,
-        (hasLegend || showFunnelLegendConfig) && showLegend,
-        showAnnotationsConfig && showAnnotations === false,
+        (hasLegend || showFunnelLegendConfig) && legendIsChanged,
+        showAnnotationsConfig && (showAnnotations === false || !!annotationsScope),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
@@ -315,7 +340,11 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showTrendLinesConfig && !isBoxPlot && (insightFilter as TrendsFilter | undefined)?.showTrendLines,
         showStatisticalOverlays && showMovingAverage,
         showStatisticalOverlays && showConfidenceIntervals,
-        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines
+        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines,
+        isRetention &&
+            isLineChartInsight &&
+            (insightFilter as TrendsFilter | undefined)?.chartStyle?.seriesColorMode === 'opacity',
+        isRetention && isLineChartInsight && (insightFilter as RetentionFilter | undefined)?.showMeanLine
     )
 
     const allTabs: DisplayOptionTab[] = [

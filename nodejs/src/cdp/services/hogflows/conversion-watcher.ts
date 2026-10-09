@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
+import { durationSeconds } from './duration'
 import { hasEventOrActionTarget } from './hogflow-utils'
 
 // A goal is configured if either detection path has something to evaluate. Gates the watcher: a
@@ -67,11 +68,9 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
 // workflow whose own steps run past this can never measure the back half of its own runs.
 export const DEFAULT_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
 
-// The ceiling on an explicitly configured window. It exists only to bound the table: a row that never
-// expires is a row the sweep can never reclaim. It cannot sit below the default, or a workflow could
-// ask for less than it gets by asking for nothing. Raising it further waits on an unambiguous way to
-// express the window, since today's out-of-range values are minutes fields holding second counts.
-export const MAX_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
+// The ceiling on a window given as a duration string. It exists only to bound the table: a row that
+// never expires is a row the sweep can never reclaim.
+export const MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
 
 // Substituting our window for the configured one changes what the workflow's conversion rate measures,
 // so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
@@ -80,14 +79,33 @@ const counterConversionWindowClamped = new Counter({
     help: 'Runs enrolled with a conversion window shortened to the cap because the workflow configured a longer one. Each one measures its conversion rate over a shorter period than the workflow asked for.',
 })
 
+// A window we cannot parse is another silent substitution of the measured period, so it gets the same
+// treatment as the clamp above: a counter, not a quiet fallback. It reads zero while the API and worker
+// share one ASCII grammar, so a non-zero value flags a row that reached storage past validation.
+const counterConversionWindowInvalid = new Counter({
+    name: 'cdp_conversion_window_invalid',
+    help: 'Runs whose stored conversion window string could not be parsed, so the run fell back to the default or legacy window instead of the one the workflow configured.',
+})
+
 function conversionWindowMinutes(hogFlow: HogFlow): number {
-    const configured = hogFlow.conversion?.window_minutes
-    if (!configured || configured <= 0) {
-        return DEFAULT_CONVERSION_WINDOW_MINUTES
+    const window = hogFlow.conversion?.window
+    if (window) {
+        const seconds = durationSeconds(window)
+        if (seconds !== null && seconds > 0) {
+            return clampWindow(seconds / 60, MAX_CONVERSION_WINDOW_MINUTES)
+        }
+        // A present window that will not parse means a write reached the row past the API's validation
+        // (the two share one ASCII grammar), such as a direct database write. Record the substitution,
+        // then fall back: measuring over the fallback window beats measuring over a window nobody can read.
+        counterConversionWindowInvalid.inc()
     }
-    if (configured > MAX_CONVERSION_WINDOW_MINUTES) {
+    return DEFAULT_CONVERSION_WINDOW_MINUTES
+}
+
+function clampWindow(minutes: number, ceiling: number): number {
+    if (minutes > ceiling) {
         counterConversionWindowClamped.inc()
-        return MAX_CONVERSION_WINDOW_MINUTES
+        return ceiling
     }
-    return configured
+    return minutes
 }

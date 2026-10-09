@@ -11,13 +11,17 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery, isBIVisualizationNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
+
+import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/home/InsightHomeGuide'
 
 import { teamLogic } from '../teamLogic'
 import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
+import { InsightFlagCalledBanner } from './InsightFlagCalledBanner'
 import { insightLogic } from './insightLogic'
+import { InsightQueryScanBanner } from './InsightQueryScanBanner'
 import { InsightSceneHeader } from './InsightSceneHeader'
 import { insightVizDataLogic } from './insightVizDataLogic'
 import { SqlInsightFilters } from './SqlInsightFilters'
@@ -90,7 +94,13 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                     <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
 
+                {insightId === 'new' && isEditing && <InsightHomeGuide query={query} />}
+
                 <InsightRetentionBanner insightProps={insightProps} />
+
+                <InsightFlagCalledBanner insightProps={insightProps} />
+
+                {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
 
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (

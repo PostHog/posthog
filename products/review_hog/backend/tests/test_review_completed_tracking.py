@@ -4,17 +4,19 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
+    FLASH_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     REVIEW_MODEL,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -24,10 +26,16 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
+    FlashSessionStats,
+    GatePushInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    _gate_push,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -35,6 +43,8 @@ from products.review_hog.backend.temporal.activities import (
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL
 from products.signals.backend.enums import ReportPriority
+
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 _PR_URL = "https://github.com/o/r/pull/7"
 
@@ -90,7 +100,17 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
     def _tracking_input(
-        self, report_id: str, *, published: bool = True, turn_trigger_source: str = "manual"
+        self,
+        report_id: str,
+        *,
+        published: bool = True,
+        turn_trigger_source: str = "manual",
+        review_mode: str = REVIEW_MODE_FULL,
+        flash_reasoning_effort: str = "medium",
+        marker: ReviewHogMarker | None = None,
+        flash_turn: FlashTurnStats | None = None,
+        flash_sessions: FlashSessionStats | None = None,
+        review_design: str = REVIEW_DESIGN_PIPELINE,
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -100,6 +120,12 @@ class TestTrackReviewCompleted(BaseTest):
             published=published,
             workflow_started_at=(datetime.now(UTC) - timedelta(seconds=90)).isoformat(),
             turn_trigger_source=turn_trigger_source,
+            review_mode=review_mode,
+            flash_reasoning_effort=flash_reasoning_effort,
+            marker=marker,
+            flash_turn=flash_turn,
+            flash_sessions=flash_sessions,
+            review_design=review_design,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -135,7 +161,13 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, published=published))
+            _track_review_completed(
+                self._tracking_input(
+                    report_id,
+                    published=published,
+                    marker=ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234"),
+                )
+            )
 
         capture.assert_called_once()
         kwargs = capture.call_args.kwargs
@@ -155,6 +187,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["findings_must_fix"] == 0  # downgraded by the validator's adjusted_priority
         assert props["findings_should_fix"] == 1
         assert props["findings_consider"] == 0
+        assert props["review_mode"] == "full"
         assert props["review_model"] == REVIEW_MODEL
         assert props["review_runtime_adapter"] == DEFAULT_REVIEW_ARM.runtime_adapter.value
         assert props["review_reasoning_effort"] == DEFAULT_REVIEW_ARM.reasoning_effort.value
@@ -168,6 +201,48 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
         assert 90 <= props["duration_seconds"] < 600
+        assert props["reviewhog_version"] == "reviewhog-full-9-9"
+        assert props["reviewhog_fingerprint"] == "abc1234"
+
+    def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
+        # The cap, the dedup calls, and the lens sessions are only measurable through these
+        # properties, the must-fix share is how priority inflation shows up before the must-fix
+        # ceiling starts cutting, and a dedup fallback marks a turn whose drops were positional only.
+        report_id = self._review_report()
+        turn = FlashTurnStats(
+            cap=6,
+            lens_part_count=2,
+            reviewable_lines=900,
+            candidates={"main": 4, "performance_reliability": 0, "contracts_security": 3},
+            must_fix={"main": 1, "performance_reliability": 0, "contracts_security": 3},
+            after_dedup=5,
+            dropped={"dedup_anchor": 2, "cap": 1},
+            kept=4,
+            dedup_fell_back=True,
+        )
+        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id, flash_turn=turn, flash_sessions=sessions))
+            _track_review_completed(self._tracking_input(report_id))
+
+        single_agent, pipeline = (call.kwargs["properties"] for call in capture.call_args_list)
+        assert {key: value for key, value in single_agent.items() if key.startswith("flash_")} == {
+            "flash_cap": 6,
+            "flash_lens_parts": 2,
+            "flash_reviewable_lines": 900,
+            "flash_candidates": {"main": 4, "performance_reliability": 0, "contracts_security": 3},
+            "flash_must_fix": {"main": 1, "performance_reliability": 0, "contracts_security": 3},
+            "flash_must_fix_share": {"main": 0.25, "performance_reliability": None, "contracts_security": 1.0},
+            "flash_after_dedup": 5,
+            "flash_dropped": {"dedup_anchor": 2, "cap": 1},
+            "flash_kept": 4,
+            "flash_dedup_fallback": True,
+            "flash_lens_failures": 1,
+            "flash_lens_timeouts": 1,
+            "flash_slowest_session_seconds": 412.5,
+        }
+        assert not [key for key in pipeline if key.startswith("flash_")]
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go
@@ -182,37 +257,112 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_additions"] is None
         assert props["pr_reviewable_additions"] is None
         assert props["findings_total"] == 0
+        # A turn without a marker ran on an unknown release; the current deploy's version would mislabel it.
+        assert props["reviewhog_version"] is None
+        assert props["reviewhog_fingerprint"] is None
 
     @parameterized.expand([("completed",), ("failed",), ("started",)])
-    def test_event_uuid_is_stable_across_retries(self, event: str) -> None:
-        # A Temporal retry after a successful capture re-emits the event; a stable uuid lets
-        # ingestion dedupe it instead of double-counting the turn.
+    def test_event_uuid_is_stable_across_retries_and_separate_for_each_mode_and_design(self, event: str) -> None:
+        # A failed turn keeps its run index, so a Flash turn on the other design can reuse it. A shared
+        # id there makes PostHog drop the second turn's event.
         report_id = self._review_report()
         emit = {
-            "completed": lambda: _track_review_completed(self._tracking_input(report_id)),
-            "failed": lambda: _track_review_failed(
+            "completed": lambda mode, design: _track_review_completed(
+                self._tracking_input(report_id, review_mode=mode, review_design=design)
+            ),
+            "failed": lambda mode, design: _track_review_failed(
                 TrackReviewFailedInput(
-                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source="manual"
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    turn_trigger_source="manual",
+                    review_mode=mode,
+                    review_design=design,
                 )
             ),
-            "started": lambda: _track_review_started(
+            "started": lambda mode, design: _track_review_started(
                 TrackReviewStartedInput(
                     team_id=self.team.id,
                     report_id=report_id,
                     head_sha="sha1",
                     run_index=1,
                     turn_trigger_source="manual",
+                    review_mode=mode,
+                    review_design=design,
                 )
             ),
         }[event]
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            emit()
-            emit()
+            emit(REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT)
 
+        full, full_retry, flash, flash_retry, single_agent = capture.call_args_list
+        assert full.kwargs["uuid"] == str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_{event}:{report_id}:1"))
+        assert flash.kwargs["uuid"] == str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_{event}:{report_id}:1:flash")
+        )
+        assert full.kwargs["uuid"] == full_retry.kwargs["uuid"]
+        assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
+        assert len({full.kwargs["uuid"], flash.kwargs["uuid"], single_agent.kwargs["uuid"]}) == 3
+
+    def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
+        # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
+        # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
+        report_id = self._review_report()
+        for head_sha in ("sha1", "sha2"):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha=head_sha,
+                pr_metadata=_pr_metadata(),
+                pr_comments=[],
+                pr_files=[],
+            )
+        decision = PushGateDecision(
+            skip=True,
+            would_skip=True,
+            reason="system_one_below_threshold",
+            probability=0.03,
+            model="jevk5",
+            own_commits=2,
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            for head_sha in ("sha1", "sha2"):
+                assert (
+                    _gate_push(
+                        GatePushInput(
+                            team_id=self.team.id,
+                            report_id=report_id,
+                            repository="o/r",
+                            previous_head_sha="sha0",
+                            head_sha=head_sha,
+                            run_index=2,
+                            review_mode=REVIEW_MODE_FLASH,
+                        )
+                    )
+                    == decision
+                )
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
         first, second = capture.call_args_list
-        assert first.kwargs["uuid"]
-        assert first.kwargs["uuid"] == second.kwargs["uuid"]
+        assert first.kwargs["event"] == "reviewhog_push_gate_decided"
+        props = first.kwargs["properties"]
+        assert (props["skipped"], props["reason"], props["system_one_probability"]) == (
+            True,
+            "system_one_below_threshold",
+            0.03,
+        )
+        assert first.kwargs["uuid"] != second.kwargs["uuid"]
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any
@@ -261,7 +411,7 @@ class TestTrackReviewCompleted(BaseTest):
         # the report's first turn. The started event is the third event of a turn: a dashboard
         # compares it against completed to see a lift, so it must carry the same labels.
         signal_report_id = str(uuid.uuid4())
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        with patch(_INTERNAL_FLAG, return_value=True):
             report_id = self._review_report(
                 signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
             )
@@ -292,7 +442,7 @@ class TestTrackReviewCompleted(BaseTest):
             assert props["signal_priority"] == "P3"
             assert props["signal_report_id"] == signal_report_id
             assert props["trigger_source"] == "inbox"
-            assert props["review_model"] == "gpt-5.6-sol"
+            assert props["review_model"] == "gpt-6.1-sol"
             assert props["review_reasoning_effort"] == "low"
             assert props["review_arm_fallback"] is False
             # The validator and resolver are fixed pins, but the event is where a cost dashboard
@@ -305,6 +455,56 @@ class TestTrackReviewCompleted(BaseTest):
         # Three events per turn, three uuid namespaces: a shared one would dedupe a start or a
         # failure against the completion of the same turn.
         assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3
+
+    @parameterized.expand(
+        [
+            ("medium", REVIEW_MODEL, "medium"),
+            ("xhigh", REVIEW_MODEL, "xhigh"),
+            ("stale_model", "gpt-9-vanished", "xhigh"),
+        ]
+    )
+    def test_flash_turn_events_name_the_flash_arm_in_both_seats(self, _name: str, model: str, effort: str) -> None:
+        # The cost comparison splits on review_mode and reads the reviewer and validator models off
+        # the same events; a flash turn reporting the stored Sol/Opus pins would price every flash
+        # review as a full one and contaminate the per-arm dashboards.
+        report_id = self._review_report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(review_model=model)
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(
+                self._tracking_input(report_id, review_mode=REVIEW_MODE_FLASH, flash_reasoning_effort=effort)
+            )
+            _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    review_mode=REVIEW_MODE_FLASH,
+                    flash_reasoning_effort=effort,
+                )
+            )
+            _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    head_sha="sha1",
+                    run_index=1,
+                    turn_trigger_source="ui",
+                    review_mode=REVIEW_MODE_FLASH,
+                    flash_reasoning_effort=effort,
+                )
+            )
+
+        for call in capture.call_args_list:
+            props = call.kwargs["properties"]
+            assert props["review_mode"] == "flash"
+            assert props["review_model"] == FLASH_ARM.model
+            assert props["review_reasoning_effort"] == effort
+            assert props["validator_model"] == FLASH_ARM.model
+            assert props["validator_reasoning_effort"] == effort
+            assert props["review_arm_fallback"] is False
+            # The tier stays the report's: flash is a per-turn switch, not a tier.
+            assert props["review_tier"] == "human"
 
     @parameterized.expand(
         [

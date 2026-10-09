@@ -10,18 +10,43 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+import posthoganalytics
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
 logger = logging.getLogger(__name__)
+
+COMPARE_MODE_MATERIALIZATION_FLAG = "endpoints-materialized-compare-mode"
+
+
+def compare_mode_materialization_enabled(team: Team) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                COMPARE_MODE_MATERIALIZATION_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
 
 
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
@@ -73,7 +98,7 @@ def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
     return "unknown"
 
 
-def can_materialize_query(query: dict | None) -> tuple[bool, str]:
+def can_materialize_query(query: dict | None, team: Team | None = None) -> tuple[bool, str]:
     """Check whether an endpoint query can be materialized.
 
     Returns: (can_materialize: bool, reason: str)
@@ -96,10 +121,13 @@ def can_materialize_query(query: dict | None) -> tuple[bool, str]:
 
     assert query is not None
 
-    # Block compare mode — materialization can't reconstruct doubled series
     compare_filter = query.get("compareFilter") or {}
     if compare_filter.get("compare"):
-        return False, "Compare mode is not supported for materialized endpoints."
+        compare_mode_supported = (
+            query_kind == "TrendsQuery" and team is not None and compare_mode_materialization_enabled(team)
+        )
+        if not compare_mode_supported:
+            return False, "Compare mode is not supported for materialized endpoints."
 
     # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
     # inject_series_index tags as separate series, causing a mismatch at read time.
@@ -313,7 +341,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
         Returns: (can_materialize: bool, reason: str)
         """
-        return can_materialize_query(self.query)
+        return can_materialize_query(self.query, self.team)
 
     @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
@@ -354,7 +382,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
+class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:

@@ -234,13 +234,19 @@ _INVALID_KEY_MESSAGE = (
     "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your "
     "Clerk dashboard and reconnect."
 )
-_FORBIDDEN_KEY_MESSAGE = (
-    "Your Clerk secret key does not have permission to access this endpoint. Please check the "
-    "key's permissions in your Clerk dashboard."
+# The users list has no feature gate, and Clerk secret keys carry no per-key permissions, so a 403
+# there is Clerk refusing the key for its instance.
+FORBIDDEN_KEY_MESSAGE = (
+    "Clerk refused access with your secret key. Copy the secret key of your active Clerk instance "
+    "from your Clerk dashboard, then update it here."
 )
 _UNSUPPORTED_CHARACTER_MESSAGE = (
     "Your Clerk secret key contains a character that can't be sent to Clerk, such as an invisible "
     "one pasted from another app. Copy the key again from your Clerk dashboard and reconnect."
+)
+INSTANCE_NOT_FOUND_MESSAGE = (
+    "Clerk can't find the data this secret key points at, so this table can't sync. Check the key "
+    "belongs to an active Clerk instance, then reconnect."
 )
 
 
@@ -248,8 +254,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
-    # than letting the encoding error surface.
-    if not secret_key.isascii():
+    # than letting the encoding error surface. A carriage return or newline is ASCII but still
+    # breaks the header (requests raises InvalidHeader), which happens when someone pastes a whole
+    # multi-line snippet — e.g. a .env file — into the secret key field instead of just the key.
+    if not secret_key.isascii() or "\r" in secret_key or "\n" in secret_key:
         return False, _UNSUPPORTED_CHARACTER_MESSAGE
 
     url = "https://api.clerk.com/v1/users"
@@ -272,7 +280,12 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
         # revoked key, so explain it the same way instead of filing an error.
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
-        return False, _FORBIDDEN_KEY_MESSAGE
+        return False, FORBIDDEN_KEY_MESSAGE
+    if response.status_code == 404:
+        # The users list exists on every Clerk instance, so a 404 here is Clerk refusing to resolve
+        # the instance the key belongs to rather than a missing record. That is user input like the
+        # statuses above, so explain it instead of filing an error.
+        return False, INSTANCE_NOT_FOUND_MESSAGE
 
     # Any other status is unexpected for this endpoint; keep the raw detail for us instead of
     # surfacing it to the user.

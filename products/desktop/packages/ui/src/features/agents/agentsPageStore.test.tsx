@@ -69,11 +69,12 @@ describe("agents page selection", () => {
     });
   });
 
-  it("drops the agent when returning to a page tab", () =>
+  it("drops the agent when returning to a page tab", () => {
+    agentsPageActions().showTab("memory");
     expect(
-      (agentsPageActions().showTab("memory"),
-      lastSearch({ from: "/activity", agent: "a", agentTab: "output" })),
-    ).toEqual({ from: "/activity", tab: "memory" }));
+      lastSearch({ from: "/activity", agent: "a", agentTab: "output" }),
+    ).toEqual({ from: "/activity", tab: "memory" });
+  });
 
   it("replaces the entry when switching the agent's own tab", () => {
     agentsPageActions().showAgentTab("settings");

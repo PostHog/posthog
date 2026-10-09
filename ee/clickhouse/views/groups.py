@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema_field, inline_serializer
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -23,13 +23,14 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, get_group_by_key, list_groups, raw_create_group_ch, save_group
@@ -48,7 +49,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.models import PropertyType, effective_project_id_expr, group_type_index_key_expr
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
     build_markdown_notebook_content,
@@ -102,17 +103,29 @@ def detect_group_property_type(value):
     return PropertyType.String
 
 
-def create_property_definition(team_id: int, group_type_index: int, property_name: str, property_value):
+def create_property_definition(
+    team_id: int, project_id: int, group_type_index: int, property_name: str, property_value
+):
     """Create or update PostgreSQL PropertyDefinition for group property"""
     property_type = detect_group_property_type(property_value)
     is_numerical = property_type == PropertyType.Numeric
 
-    PropertyDefinition.objects.update_or_create(
-        team_id=team_id,
+    # Match on the key of posthog_propdef_proj_uniq. Then the lookup is a single index seek, and it finds a
+    # definition that another environment of the project created, so the insert cannot violate that constraint.
+    PropertyDefinition.objects.alias(
+        effective_project_id=effective_project_id_expr(),
+        group_type_index_key=group_type_index_key_expr(),
+    ).filter(effective_project_id=project_id, group_type_index_key=group_type_index).update_or_create(
         name=property_name,
         type=PropertyDefinition.Type.GROUP,
-        group_type_index=group_type_index,
         defaults={
+            "property_type": property_type.value,
+            "is_numerical": is_numerical,
+        },
+        create_defaults={
+            "team_id": team_id,
+            "project_id": project_id,
+            "group_type_index": group_type_index,
             "property_type": property_type.value,
             "is_numerical": is_numerical,
         },
@@ -249,6 +262,8 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class GroupSerializer(serializers.HyperlinkedModelSerializer):
+    group_properties = serializers.DictField(child=serializers.JSONField(), help_text="The group's properties.")
+
     class Meta:
         model = Group
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
@@ -271,6 +286,47 @@ class CreateGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = ["group_type_index", "group_key", "group_properties"]
+
+
+# The action rejects a null value, so the schema lists the JSON types it accepts rather than
+# leaving the field as an untyped blob.
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "object"},
+            # Without `items` the zod generator emits a bare `zod.array()`, which does not compile.
+            {"type": "array", "items": {}},
+        ]
+    }
+)
+class GroupPropertyValueField(serializers.JSONField):
+    pass
+
+
+class GroupUpdatePropertyRequestSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Name of the property to set.")
+    value = GroupPropertyValueField(help_text="Value to set. Any JSON value other than null.")
+
+
+# The key is `$unset`, which no field name can carry, so the body is declared inline.
+GROUP_DELETE_PROPERTY_REQUEST_SCHEMA = inline_serializer(
+    name="GroupDeleteProperty",
+    fields={"$unset": serializers.CharField(help_text="Name of the property to delete.")},
+)
+
+
+RELATED_ACTORS_SCHEMA = PolymorphicProxySerializer(
+    component_name="RelatedActor",
+    serializers={
+        "person": SerializedPersonActorSerializer,
+        "group": SerializedGroupActorSerializer,
+    },
+    resource_type_field_name="type",
+    many=True,
+)
 
 
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -479,6 +535,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         for prop_name, prop_value in group.group_properties.items():
             create_property_definition(
                 team_id=self.team.pk,
+                project_id=self.team.project_id,
                 group_type_index=group.group_type_index,
                 property_name=prop_name,
                 property_value=prop_value,
@@ -533,7 +590,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 "Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.",
                 required=False,
             ),
-        ]
+        ],
+        responses={200: FindGroupSerializer},
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
@@ -575,7 +633,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the key of the group to find",
                 required=True,
             ),
-        ]
+        ],
+        request=GroupUpdatePropertyRequestSerializer,
+        responses={200: GroupSerializer},
     )
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def update_property(self, request: request.Request, **_kw) -> response.Response:
@@ -594,6 +654,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
             create_property_definition(
                 team_id=self.team.pk,
+                project_id=self.team.project_id,
                 group_type_index=group.group_type_index,
                 property_name=property_key,
                 property_value=property_value,
@@ -657,7 +718,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the key of the group to find",
                 required=True,
             ),
-        ]
+        ],
+        request=GROUP_DELETE_PROPERTY_REQUEST_SCHEMA,
+        responses={200: GroupSerializer},
     )
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def delete_property(self, request: request.Request, **_kw) -> response.Response:
@@ -768,25 +831,24 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         except Group.DoesNotExist:
             raise NotFound()
 
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Group",
             team_id=self.team_id,
             item_ids=[group.pk],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         parameters=[
             OpenApiParameter(
                 "group_type_index",
                 OpenApiTypes.INT,
-                description="Specify the group type to find",
-                required=True,
+                description="Group type of the actor to find related actors for. Omit when the actor is a person.",
+                required=False,
             ),
             OpenApiParameter(
                 "id",
@@ -794,7 +856,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the id of the user to find groups for",
                 required=True,
             ),
-        ]
+        ],
+        responses={200: RELATED_ACTORS_SCHEMA},
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:

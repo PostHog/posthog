@@ -11,16 +11,12 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDelivery,
-    AlertDestinationConfig,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    EventKindSpec,
-)
 from products.alerts.backend.facade.destinations import serialize_deliveries
-from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
+    HOG_FUNCTION_DESTINATION_TYPES,
+    build_alert_destination_config,
+)
 from products.alerts.backend.logic.destinations import (
     SPEC_BY_TEMPLATE_ID,
     AlertDestinationGroupKey,
@@ -36,6 +32,15 @@ from products.alerts.backend.logic.destinations import (
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
+    AlertDestinationConfig,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    EventKindSpec,
+    IncidentAction,
+)
 from products.cdp.backend.facade.models import HogFunction
 
 ALLOWED_EVENT_IDS = (
@@ -50,6 +55,12 @@ _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.WEBHOOK: {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.PAGERDUTY: {
+        "type": DestinationType.PAGERDUTY,
+        "pagerduty_routing_key": "0123456789abcdef0123456789abcdef",
+        "pagerduty_severity": "critical",
+        "pagerduty_region": "us",
+    },
 }
 
 
@@ -61,15 +72,20 @@ def webhook_inputs(url: str) -> dict[str, Any]:
     return {"url": {"value": url}}
 
 
+def pagerduty_inputs(routing_key: str, *, severity: str = "critical") -> dict[str, Any]:
+    return {"routing_key": {"value": routing_key}, "severity": {"value": severity}, "region": {"value": "us"}}
+
+
 _READABLE_INPUTS_BY_TEMPLATE: dict[str, dict[str, Any]] = {
     "template-slack": slack_inputs("C-ENG"),
     "template-webhook": webhook_inputs("https://example.com/hook"),
     "template-microsoft-teams": {"webhookUrl": {"value": "https://teams.example.com/hook"}},
+    "template-pagerduty": pagerduty_inputs("0123456789abcdef0123456789abcdef"),
 }
 
 
-def _schema_declaring_every_input(inputs: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{"key": key, "type": "string"} for key in inputs]
+def _schema_declaring_every_input(inputs: dict[str, Any], secret_keys: set[str]) -> list[dict[str, Any]]:
+    return [{"key": key, "type": "string", "secret": key in secret_keys} for key in inputs]
 
 
 class AlertDestinationTestCase(APIBaseTest):
@@ -82,6 +98,7 @@ class AlertDestinationTestCase(APIBaseTest):
         inputs: dict[str, Any] | None = None,
         team: Team | None = None,
         name: str = "Test destination",
+        secret_keys: set[str] | None = None,
     ) -> HogFunction:
         resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id, {}) if inputs is None else inputs
         return HogFunction.objects.create(
@@ -90,7 +107,7 @@ class AlertDestinationTestCase(APIBaseTest):
             type="destination",
             template_id=template_id,
             enabled=True,
-            inputs_schema=_schema_declaring_every_input(resolved_inputs),
+            inputs_schema=_schema_declaring_every_input(resolved_inputs, secret_keys or set()),
             inputs=resolved_inputs,
             hog="return event",
             filters={
@@ -106,10 +123,16 @@ class AlertDestinationTestCase(APIBaseTest):
         alert_id: str,
         inputs: dict[str, Any] | None = None,
         team: Team | None = None,
+        secret_keys: set[str] | None = None,
     ) -> list[HogFunction]:
         return [
             self._make_hog_function(
-                template_id=template_id, alert_id=alert_id, event_id=event_id, inputs=inputs, team=team
+                template_id=template_id,
+                alert_id=alert_id,
+                event_id=event_id,
+                inputs=inputs,
+                team=team,
+                secret_keys=secret_keys,
             )
             for event_id in ALLOWED_EVENT_IDS
         ]
@@ -137,6 +160,7 @@ def _config_for(destination_type: DestinationType, event_id: str) -> AlertDestin
             primary_action_url="https://example.com/alert",
             primary_action_label="View alert",
             webhook_body={"event": event_id},
+            incident_action=IncidentAction.TRIGGER if destination_type == DestinationType.PAGERDUTY else None,
         ),
         alert_id="alert-1",
         alert_name="Signups",
@@ -150,7 +174,7 @@ def _group_key_of(config: AlertDestinationConfig) -> AlertDestinationGroupKey:
 
 
 class TestAlertDestinationGroupKey:
-    @pytest.mark.parametrize("destination_type", list(DestinationType))
+    @pytest.mark.parametrize("destination_type", HOG_FUNCTION_DESTINATION_TYPES)
     def test_a_config_built_for_any_destination_type_is_readable(self, destination_type: DestinationType) -> None:
         assert _group_key_of(_config_for(destination_type, "$logs_alert_firing")).is_config_readable
 
@@ -164,7 +188,7 @@ class TestAlertDestinationGroupKey:
 
     def test_template_ids_and_destination_types_name_each_other_one_to_one(self) -> None:
         assert set(SPEC_BY_TEMPLATE_ID) == {spec.template_id for spec in DESTINATION_SPECS.values()}
-        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(DestinationType)
+        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(HOG_FUNCTION_DESTINATION_TYPES)
 
 
 class TestGroupAlertDestinationRows:
@@ -283,6 +307,19 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
         self._make_group(template_id="template-microsoft-teams", alert_id="alert-1", inputs=webhook_url)
 
         self._raise_if_exists(configs=[("template-discord", webhook_url)])
+
+    def test_compares_against_a_secret_input_stored_in_the_encrypted_column(self) -> None:
+        stored = self._make_group(
+            template_id="template-pagerduty",
+            alert_id="alert-1",
+            inputs=pagerduty_inputs("a" * 32),
+            secret_keys={"routing_key"},
+        )
+        assert "routing_key" not in (stored[0].inputs or {})
+
+        self._raise_if_exists(configs=[("template-pagerduty", pagerduty_inputs("b" * 32))])
+        with self.assertRaisesRegex(AlertDestinationValidationError, "already configured for this alert"):
+            self._raise_if_exists(configs=[("template-pagerduty", pagerduty_inputs("a" * 32))])
 
 
 class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
@@ -775,6 +812,18 @@ class TestRedactUrlsInName:
                 "every_url_in_the_name_is_redacted",
                 "a https://one.example.com/s, b https://two.example.com/s",
                 "a one.example.com, b two.example.com",
+            ),
+            # An apostrophe and a double quote are legal in a URL query, and stopping at one used
+            # to leave the rest of the credential in the name.
+            (
+                "a_quote_inside_the_url_does_not_end_it",
+                "Errors https://hooks.example.com/hook?token='s3cr3t fires",
+                "Errors hooks.example.com fires",
+            ),
+            (
+                "a_url_written_inside_quotes_keeps_them",
+                'named "https://example.com/p/s3cr3t" here',
+                'named "example.com" here',
             ),
         ]
     )

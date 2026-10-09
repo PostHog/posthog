@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints JFrog restricts to admin users (or access tokens scoped to the relevant domain).
-_ADMIN_ENDPOINTS = {"builds", "storage_summary"}
+_ADMIN_ENDPOINTS = {"builds", "build_artifacts", "build_dependencies", "build_promotions", "storage_summary"}
+_XRAY_ENDPOINTS = {"xray_violations"}
+_XRAY_UNAVAILABLE = "Requires JFrog Xray and a token with Xray Read permission"
 
 
 @SourceRegistry.register
@@ -56,7 +56,7 @@ class JfrogArtifactorySource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JFROG_ARTIFACTORY,
+            name=ExternalDataSourceType.JFROGARTIFACTORY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="JFrog (Artifactory / JFrog Platform)",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -65,7 +65,7 @@ class JfrogArtifactorySource(
 
 Enter your platform URL (e.g. `https://mycompany.jfrog.io`, or your own domain for self-hosted installs) and an access token. Generate a token from your JFrog user profile (**Edit Profile → Generate an Identity Token**) or, as an admin, under **Administration → User Management → Access Tokens**.
 
-The `artifacts` and `repositories` tables work with any authenticated token that can read your repositories. The `builds` and `storage_summary` tables require an admin user (or a token scoped to those APIs); deselect them if your token can't access them.""",
+The `artifacts`, `artifact_statistics`, and `repositories` tables work with any authenticated token that can read your repositories. The `builds`, `build_artifacts`, `build_dependencies`, `build_promotions`, and `storage_summary` tables require an admin user (or a token scoped to those APIs). The `xray_violations` table requires JFrog Xray. Deselect any table your token can't access.""",
             iconPath="/static/services/jfrog_artifactory.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jfrog-artifactory",
             fields=cast(
@@ -104,7 +104,7 @@ The `artifacts` and `repositories` tables work with any authenticated token that
             # Retrying can never fix a credential/permission problem, so fail the sync. The host is
             # per-tenant, so match on the stable status text only.
             "401 Client Error: Unauthorized for url": "Your JFrog access token is invalid, expired, or has been revoked. Generate a new access token, then reconnect.",
-            "403 Client Error: Forbidden for url": "Your JFrog access token is missing the permissions needed to sync this data. The builds and storage_summary tables require an admin token — deselect them or use a token with the required access.",
+            "403 Client Error: Forbidden for url": "Your JFrog access token is missing the permissions needed to sync this data. The build and storage_summary tables require an admin token, and xray_violations requires JFrog Xray. Deselect them or use a token with the required access.",
         }
 
     def get_schemas(
@@ -117,8 +117,12 @@ The `artifacts` and `repositories` tables work with any authenticated token that
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
-            if endpoint == "builds":
+            if endpoint in ("builds", "build_artifacts", "build_dependencies", "build_promotions"):
                 return "Requires an admin user or a token scoped to the builds domain"
+            if endpoint == "artifact_statistics":
+                return "Download counts for artifacts that have been downloaded at least once"
+            if endpoint in _XRAY_ENDPOINTS:
+                return _XRAY_UNAVAILABLE
             if endpoint == "storage_summary":
                 return "Point-in-time snapshot of per-repository storage usage. Requires an admin token"
             return None
@@ -168,6 +172,9 @@ The `artifacts` and `repositories` tables work with any authenticated token that
             return True, None
         if status_code == 401:
             return False, "Invalid JFrog access token"
+        if schema_name in _XRAY_ENDPOINTS and status_code in (403, 404):
+            # Xray answers 404 when it isn't installed or hides unauthorized resources.
+            return False, f"Your JFrog instance can't serve the {schema_name} table. {_XRAY_UNAVAILABLE}"
         if status_code == 403:
             # At source-create a 403 means the token is genuine but not fully scoped — accept it and
             # surface per-table scope via get_endpoint_permissions instead of blocking the source.
@@ -196,8 +203,12 @@ The `artifacts` and `repositories` tables work with any authenticated token that
                 continue
             # Only a definite denial is a missing scope; throttles, 5xx, and network blips must not
             # mark the table as unreachable.
-            if ok or status_code not in (401, 403):
+            if endpoint in _XRAY_ENDPOINTS and status_code == 404:
+                permissions[endpoint] = _XRAY_UNAVAILABLE
+            elif ok or status_code not in (401, 403):
                 permissions[endpoint] = None
+            elif endpoint in _XRAY_ENDPOINTS:
+                permissions[endpoint] = _XRAY_UNAVAILABLE
             elif endpoint in _ADMIN_ENDPOINTS:
                 permissions[endpoint] = "Requires an admin user or a token scoped to this API"
             else:

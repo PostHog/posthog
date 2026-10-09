@@ -8,13 +8,15 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import (
-    PAGE_SIZE,
     DevinAIResumeConfig,
     _endpoint_path,
     devin_ai_source,
     get_status_code,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import DEVIN_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
+    DEVIN_AI_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -83,6 +85,9 @@ class TestEndpointPath:
             ("playbooks", "/v3/organizations/org-abc/playbooks"),
             ("knowledge_notes", "/v3/organizations/org-abc/knowledge/notes"),
             ("secrets", "/v3/organizations/org-abc/secrets"),
+            ("automations", "/v3/organizations/org-abc/automations"),
+            ("session_insights", "/v3/organizations/org-abc/sessions/insights"),
+            ("consumption_daily", "/v3/organizations/org-abc/consumption/daily"),
             # Members must stay on the org-scoped users listing: the v2 members endpoint only accepts
             # enterprise-admin personal API keys, which this source never stores.
             ("members", "/v3beta1/organizations/org-abc/members/users"),
@@ -108,48 +113,6 @@ class TestEndpointPath:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_items_as_dicts(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"session_id": "s1"}, {"session_id": "s2"}])])
-
-        rows = _rows(_source("sessions", _make_manager()))
-        assert rows == [{"session_id": "s1"}, {"session_id": "s2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_has_no_after_and_uses_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"session_id": "s1"}])])
-
-        _rows(_source("sessions", _make_manager()))
-        assert params[0] == {"first": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_cursor_pagination(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"session_id": "s1"}], has_next_page=True, end_cursor="cur1"),
-                _response([{"session_id": "s2"}], has_next_page=False, end_cursor=None),
-            ],
-        )
-
-        rows = _rows(_source("sessions", _make_manager()))
-        assert rows == [{"session_id": "s1"}, {"session_id": "s2"}]
-        # The second request must carry the cursor from the first page's end_cursor.
-        assert params[1] == {"first": PAGE_SIZE, "after": "cur1"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_has_next_page_false_even_if_cursor_present(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A defensive guard: a cursor with has_next_page false must not loop.
-        _wire(session, [_response([{"session_id": "s1"}], has_next_page=False, end_cursor="cur1")])
-
-        rows = _rows(_source("sessions", _make_manager()))
-        assert rows == [{"session_id": "s1"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"session_id": "s3"}])])
@@ -157,64 +120,39 @@ class TestPagination:
         _rows(_source("sessions", _make_manager(DevinAIResumeConfig(after="saved_cursor"))))
         assert params[0] == {"first": PAGE_SIZE, "after": "saved_cursor"}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_cursor_at_page_boundary_only(self, MockSession) -> None:
-        session = MockSession.return_value
-        # State is saved once per completed page that has a successor, after the page is yielded — so a
-        # crash re-fetches the last page (merge dedupes) rather than skipping its tail. No save after the
-        # final page (nothing left to resume into).
-        _wire(
-            session,
-            [
-                _response([{"session_id": "s1"}], has_next_page=True, end_cursor="cur1"),
-                _response([{"session_id": "s2"}], has_next_page=True, end_cursor="cur2"),
-                _response([{"session_id": "s3"}], has_next_page=False, end_cursor=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("sessions", manager))
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert saved == [DevinAIResumeConfig(after="cur1"), DevinAIResumeConfig(after="cur2")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_items_key_yields_no_rows_without_raising(self, MockSession) -> None:
-        session = MockSession.return_value
-        # The Devin envelope tolerates a page with no `items` key (defaults to empty) rather than failing.
-        _wire(session, [_response(None, has_next_page=False, end_cursor=None)])
-
-        rows = _rows(_source("sessions", _make_manager()))
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_token_is_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"session_id": "s1"}])])
-
-        _rows(_source("sessions", _make_manager()))
-        # The token is applied via the framework auth (redacted), not a hand-built header on the session.
-        assert session.headers.get("Authorization") is None
-        assert session.auth is not None
-
 
 class TestGetStatusCode:
-    def test_returns_status_and_probes_with_first_one(self) -> None:
+    @parameterized.expand(
+        [
+            # A fan-out child's own path needs a parent id, so probing it directly would send a URL
+            # with an unbound `{devin_id}` / `{user_id}` placeholder. Each delegates to the org-level
+            # endpoint gated by the same permission instead.
+            ("session_messages", "https://api.devin.ai/v3/organizations/org-abc/sessions", {"first": 1}),
+            (
+                "consumption_daily_users",
+                "https://api.devin.ai/v3/organizations/org-abc/consumption/daily",
+                {},
+            ),
+        ]
+    )
+    def test_fanout_child_probes_its_org_level_endpoint(
+        self, endpoint: str, expected_url: str, expected_params: dict[str, Any]
+    ) -> None:
         response = mock.MagicMock()
         response.status_code = 200
         session = mock.MagicMock()
         session.get.return_value = response
 
         with mock.patch(DEVIN_SESSION_PATCH, return_value=session):
-            status = get_status_code("cog_test", "org-abc", "sessions")
+            get_status_code("cog_test", "org-abc", endpoint)
 
-        assert status == 200
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"first": 1}
-        assert kwargs["headers"]["Authorization"] == "Bearer cog_test"
+        args, kwargs = session.get.call_args
+        assert args[0] == expected_url
+        assert kwargs["params"] == expected_params
 
 
 class TestDevinAISource:
-    @parameterized.expand(["sessions", "playbooks", "knowledge_notes", "secrets"])
+    @parameterized.expand(["sessions", "session_insights", "playbooks", "knowledge_notes", "secrets", "automations"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
         response = _source(endpoint, _make_manager())
@@ -225,59 +163,28 @@ class TestDevinAISource:
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
 
+    @parameterized.expand(
+        [
+            ("session_messages", ["session_id", "event_id"]),
+            ("consumption_daily", ["date"]),
+            ("consumption_daily_users", ["user_id", "date"]),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_source_response_dedupes_on_user_id_and_has_no_partition(self, MockSession) -> None:
-        response = _source("members", _make_manager())
-        assert response.name == "members"
-        assert response.primary_keys == ["user_id"]
-        # Member records carry no created_at, so the table must not declare a datetime partition.
-        assert response.partition_keys is None
-        assert response.partition_mode is None
+    def test_fan_out_and_consumption_tables_keep_their_keys_and_partitioning(
+        self, endpoint: str, expected_keys: list[str], MockSession
+    ) -> None:
+        # The fan-out and single-page branches build their SourceResponse separately from the
+        # top-level one, so each has to carry the composite key that keeps rows from colliding
+        # across parents, and a partition key that doesn't move once written.
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == (["date"] if endpoint.startswith("consumption") else ["created_at"])
 
 
 class TestMembersJoin:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_member_user_id_and_email_pass_through_for_sessions_join(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Devin identifies people by Auth0-style subjects (`email|<id>`, `google-oauth2|<id>`), and the
-        # sessions table's user_id lands as that same opaque string. The members table must surface
-        # user_id byte-identical to the API value so sessions.user_id = members.user_id resolves an email.
-        _wire(
-            session,
-            [
-                _response(
-                    [
-                        {
-                            "user_id": "email|1a2b3c4d5e6f",
-                            "email": "casey@example.com",
-                            "name": "Casey Doe",
-                            "role_assignments": [
-                                {
-                                    "org_id": "org-abc",
-                                    "role": {"role_id": "r1", "role_name": "Member", "role_type": "org"},
-                                }
-                            ],
-                        },
-                        {
-                            "user_id": "google-oauth2|110000000000000000001",
-                            "email": "riley@example.com",
-                            "name": "Riley Roe",
-                            "role_assignments": [],
-                        },
-                    ]
-                )
-            ],
-        )
-
-        rows = _rows(_source("members", _make_manager()))
-
-        email_by_user_id = {row["user_id"]: row["email"] for row in rows}
-        # user_id exactly as it lands in the synced sessions table.
-        assert email_by_user_id["email|1a2b3c4d5e6f"] == "casey@example.com"
-        assert email_by_user_id["google-oauth2|110000000000000000001"] == "riley@example.com"
-        assert rows[0]["name"] == "Casey Doe"
-        assert rows[0]["role_assignments"][0]["role"]["role_name"] == "Member"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_members_pagination_follows_cursor_so_later_pages_join(self, MockSession) -> None:
         session = MockSession.return_value

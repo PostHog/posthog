@@ -14,6 +14,7 @@ from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import IntegrityError
 
 import jwt
 import requests
@@ -23,6 +24,9 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
+from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -109,6 +113,7 @@ class IdJagClaims(TypedDict, total=False):
     scope: str
     resource: str
     jti: str
+    tenant: str
     iat: int
     nbf: int
     exp: int
@@ -119,6 +124,7 @@ class _VerifiedIdJag:
     claims: IdJagClaims
     provider_name: str
     identity_provider_config: IdentityProviderConfig
+    issuer: str
 
 
 @frozen
@@ -156,8 +162,15 @@ def _get_allowed_audiences() -> list[str]:
 def get_allowed_resources() -> list[str]:
     """Accepted ID-JAG `resource` values — the resource identifier the client discovered.
     Always includes SITE_URL; Cloud adds extra resource servers via ID_JAG_ALLOWED_RESOURCES.
-    Also used by the resource server (posthog.auth) to validate the minted token's `aud`."""
-    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES)
+    Also used by the resource server (posthog.auth) to validate the minted token's `aud`.
+
+    Billing is left out of this list on purpose. PostHog mints billing-audience tokens only on
+    the server (ee.billing.access_token), so the token endpoint has no way to hand one to a
+    client."""
+    billing_audience = (getattr(settings, "BILLING_SERVICE_URL", "") or "").rstrip("/")
+    return [
+        resource for resource in _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES) if resource != billing_audience
+    ]
 
 
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
@@ -249,7 +262,7 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
+def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: str) -> _VerifiedIdJag:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
@@ -314,11 +327,11 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
             jwt.decode(
                 assertion,
                 signing_key.key,
-                algorithms=["RS256", "RS384", "RS512"],
+                algorithms=ASYMMETRIC_SIGNING_ALGORITHMS,
                 audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
-                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
+                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "jti"],
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_nbf": True,
@@ -370,23 +383,32 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     if not client_id:
         raise InvalidGrantError("ID-JAG is missing the client_id claim")
 
+    # Checked before the jti is consumed, so another client holding a captured ID-JAG cannot burn it.
+    if client_id != authenticated_client_id:
+        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
+
     # validate allowed clients if set in config
     if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
+    expires_at = claims.get("exp")
+    issued_at = claims.get("iat")
+    # PyJWT validates timestamps after int() coercion but returns the original claim values,
+    # so a numeric-string exp or iat would make the arithmetic below raise a TypeError.
+    if not isinstance(expires_at, (int, float)) or not isinstance(issued_at, (int, float)):
+        raise InvalidGrantError("ID-JAG exp and iat must be numeric")
+    # The cap bounds how long a captured ID-JAG stays usable, and how long its jti stays in the cache.
+    if expires_at - issued_at > settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS:
+        raise InvalidGrantError(f"ID-JAG lifetime exceeds {settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS} seconds")
+
     # prevent replayed tokens from being used again
-    jti = claims.get("jti")
-    if jti:
-        cache_key = f"id_jag:jti:{expected_issuer}:{jti}"
-        exp = int(claims.get("exp") or 0)
-        now = int(datetime.now(tz=UTC).timestamp())
-        ttl = max(1, exp - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
-        # `cache.add` is SETNX semantics: returns True only if the key was
-        # newly created. A False return means we've already seen this jti.
-        if not cache.add(cache_key, "1", ttl):
-            raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
-    else:
-        logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
+    cache_key = f"id_jag:jti:{expected_issuer}:{claims['jti']}"
+    now = int(datetime.now(tz=UTC).timestamp())
+    ttl = max(1, int(expires_at) - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
+    # `cache.add` is SETNX semantics: returns True only if the key was
+    # newly created. A False return means we've already seen this jti.
+    if not cache.add(cache_key, "1", ttl):
+        raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
 
     # Some IdPs let a user set an arbitrary `email` with `email_verified: false`
     if claims.get("email") is not None and claims.get("email_verified") is False:
@@ -398,24 +420,75 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    verified_email = claims.get("email") or claims.get("sub") or ""
-
-    # Membership must match the configuration's organization because the access token is scoped to it.
-    is_member = User.objects.filter(
-        is_active=True,
-        email__iexact=verified_email,
-        organization_membership__organization_id=idp_config.organization_id,
-    ).exists()
-    if not is_member:
-        raise InvalidGrantError(
-            "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
-        )
-
     return _VerifiedIdJag(
         claims=claims,
         provider_name=provider_name,
         identity_provider_config=idp_config,
+        issuer=expected_issuer,
     )
+
+
+def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
+    """The active org member this ID-JAG speaks for.
+
+    The IdP subject is the stable key. Email only matches a member the first time a subject
+    is seen, and that match is stored, so a later change of email at either end keeps the
+    same account. A member already bound to a different subject is refused: the IdP has
+    given their email address to someone else.
+    """
+    idp_config = verified_id_jag.identity_provider_config
+    claims = verified_id_jag.claims
+    issuer = verified_id_jag.issuer
+    tenant = str(claims.get("tenant") or "")
+    subject = str(claims["sub"])
+    if len(tenant) > IDENTITY_FIELD_MAX_LENGTH or len(subject) > IDENTITY_FIELD_MAX_LENGTH:
+        raise InvalidGrantError(f"ID-JAG sub and tenant must be at most {IDENTITY_FIELD_MAX_LENGTH} characters")
+    # Membership must match the configuration's organization because the access token is scoped to it.
+    members = User.objects.filter(is_active=True, organization_membership__organization_id=idp_config.organization_id)
+    not_a_member = InvalidGrantError(
+        "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
+    )
+
+    def linked_member(user_id: int) -> User:
+        linked_user = members.filter(pk=user_id).first()
+        if linked_user is None:
+            raise not_a_member
+        return linked_user
+
+    linked_user_id = (
+        IdJagIdentity.objects.filter(identity_provider_config=idp_config, issuer=issuer, tenant=tenant, subject=subject)
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if linked_user_id is not None:
+        return linked_member(linked_user_id)
+
+    verified_email = claims.get("email") or subject
+    user = EmailLookupHandler.users_matching_email(verified_email, members).first()
+    if user is None:
+        raise not_a_member
+
+    try:
+        identity, _ = IdJagIdentity.objects.get_or_create(
+            identity_provider_config=idp_config,
+            issuer=issuer,
+            tenant=tenant,
+            subject=subject,
+            defaults={"user": user},
+        )
+    except IntegrityError:
+        # get_or_create recovers from a concurrent link of this subject, so the clash is on the member.
+        logger.info(
+            "id_jag_token_rejected",
+            reason="member is already linked to a different IdP subject",
+            identity_provider_config_id=str(idp_config.id),
+            stage="subject_link",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+    if identity.user_id != user.pk:
+        # A concurrent first exchange linked this subject to another member, and the subject decides.
+        return linked_member(identity.user_id)
+    return user
 
 
 def _construct_access_token_payload(
@@ -423,7 +496,7 @@ def _construct_access_token_payload(
     provider_name: str,
     granted_scopes: list[str],
     organization_id: Any,
-    verified_email: str,
+    user: User,
 ) -> dict[str, Any]:
     """
     Constructs the payload for the JWT access token which will be issued to the ID-JAG caller.
@@ -437,7 +510,8 @@ def _construct_access_token_payload(
     payload: dict[str, Any] = {
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
-        "email": verified_email,
+        "email": user.email,
+        "user_uuid": str(user.uuid),
         "aud": claims.get("resource"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
@@ -476,6 +550,12 @@ def _construct_access_token(payload: dict[str, Any]) -> str:
     )
 
 
+def sign_access_token(payload: dict[str, Any]) -> str:
+    """Sign an `at+jwt` access token with the OIDC key. Shared by the ID-JAG token endpoint and
+    the billing token PostHog mints server-side, so both verify against the same JWKS."""
+    return _construct_access_token(payload)
+
+
 def _parse_scope_list(value: str | list[str] | None) -> list[str]:
     if value is None:
         return []
@@ -485,22 +565,20 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 
 def issue_access_token(
-    assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
+    assertion: str, requested_scope: str | list[str] | None, authenticated_client_id: str
 ) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler.
+    handler. `authenticated_client_id` must come from verified client
+    authentication, never from an unchecked request field.
     """
 
-    verified_id_jag = _verify_and_extract_id_jag_token(assertion)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client_id)
 
     organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
-
-    if request_client_id and request_client_id != verified_id_jag.claims.get("client_id"):
-        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
     id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
@@ -509,13 +587,13 @@ def issue_access_token(
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    verified_email = verified_id_jag.claims.get("email") or verified_id_jag.claims.get("sub") or ""
+    user = _resolve_user(verified_id_jag)
     payload = _construct_access_token_payload(
         verified_id_jag.claims,
         verified_id_jag.provider_name,
         granted,
         organization.pk,
-        cast(str, verified_email),
+        user,
     )
     token = _construct_access_token(payload)
     return IssuedAccessToken(

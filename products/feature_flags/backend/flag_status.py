@@ -7,6 +7,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from .facade.config import ConfigFormatError
 from .models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -67,25 +68,79 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
-def filter_stale_flags(queryset: QuerySet) -> QuerySet:
+# `jsonb_array_elements` and `jsonb_array_length` raise on a value that is not an array, and the
+# error aborts the whole statement instead of skipping the row. A detection batch covers 250 teams,
+# so one legacy flag storing `groups` as a scalar would take the query down for every team in it.
+# These read a non-array as an empty array. `CASE` is the only construct that guarantees the type
+# test runs before the array function; the planner is free to reorder the arms of `AND` and `OR`.
+# Both predicates below interpolate these, so they are f-strings and every literal `{}` in their
+# SQL is written `{{}}`.
+def jsonb_array_or_empty(expr: str) -> str:
+    return f"CASE WHEN jsonb_typeof({expr}) = 'array' THEN {expr} ELSE '[]'::jsonb END"
+
+
+_GROUPS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'groups'")
+_VARIANTS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'multivariate'->'variants'")
+# A release condition carries no targeting when `properties` is `[]`, absent, or JSON null, which
+# is how `is_group_fully_rolled_out` and `is_boolean_flag_fully_rolled_out` read it. Postgres `->`
+# returns SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so each
+# needs its own test. The editor and the filters serializer write `[]`, so only unedited legacy
+# rows hold the other two.
+_ELEM_HAS_NO_TARGETING = (
+    "("
+    "(elem->'properties')::text = '[]'::text "
+    "OR elem->'properties' IS NULL "
+    "OR jsonb_typeof(elem->'properties') = 'null'"
+    ")"
+)
+# Every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out` needs a release condition at
+# an explicit 100% with no targeting, so both predicates below test for one. Keep it in one place,
+# because a change to how the two read that shape has to reach the stale filter and the rollout
+# prefilter together or they classify the same flag differently.
+_HAS_UNTARGETED_FULL_ROLLOUT_GROUP = f"""
+    EXISTS (
+        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
+        WHERE elem->>'rollout_percentage' = '100'
+        AND {_ELEM_HAS_NO_TARGETING}
+    )
+"""
+
+
+def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
 
     Set-based counterpart to `FeatureFlagStatusChecker.get_status`, which answers the same
     question for one flag and also produces the human-readable reason. The two are meant to
-    classify the same flags, so change them together.
+    classify the same flags, so change them together. `STALE_ACTIVE_PARAM_DESCRIPTION` states
+    these branches in prose for the published API schemas, so change it with them too.
 
-    They do not agree yet, on two shapes. First, the checker calls a flag with no release
-    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
-    to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
-    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
-    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
-    absent key, so no branch matches. The editor and the filters serializer now write
-    `properties: []`, so only unedited legacy rows hold the second shape.
+    They do not agree on three shapes. First, the checker calls a flag with no release conditions
+    fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker
+    and not stale here, because the config branch below matches an empty `filters` only as `NULL`
+    or `{}`. Matching the model default would make every unconfigured flag in a project stale.
+
+    Second, a multivariate flag is stale here as soon as a variant sits at 100% under an
+    untargeted 100% condition, or that condition carries a variant override, while the checker
+    requires every reachable path to serve the same variant. A flag that serves two variants is
+    therefore stale to the SQL and not to the checker.
+
+    Third, the SQL does not read aggregation. In a flag of either type that mixes person and
+    group aggregation, it counts a group-aggregated condition at 100% with no property filters,
+    which the checker does not, because the matcher skips that condition for a request without
+    the group key.
+
+    The SQL stays as it is on purpose: it backs the public `active=STALE` filter, and reading
+    declaration order, cumulative variant slices and aggregation in raw SQL would cost more than
+    the filter is worth.
+
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
+
+    Pass `stale_threshold` to hold one detection run to one cutoff, so the caller can compare
+    its other queries against the same instant. Without it the function reads the clock itself,
+    which is what the `active=STALE` filter wants.
 
     The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
     branch when the two querysets are OR-combined below. Applied to the combined query, it
@@ -105,7 +160,8 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
     # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-    stale_threshold = stale_flag_threshold()
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
     config_based_queryset = queryset.filter(
@@ -114,47 +170,94 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
         created_at__lt=stale_threshold,
     ).extra(
         where=[
-            """
+            f"""
             (
                 (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
+                    {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                     AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                        OR posthog_featureflag.filters->'multivariate' = '{{}}'::jsonb
+                        OR jsonb_array_length({_VARIANTS_ARRAY}) = 0)
                 )
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                        SELECT 1 FROM jsonb_array_elements({_VARIANTS_ARRAY}) AS variant
                         WHERE variant->>'rollout_percentage' = '100'
                     )
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
+                    AND {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                 )
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
+                        AND {_ELEM_HAS_NO_TARGETING}
                         AND elem->'variant' IS NOT NULL
                         AND elem->>'variant' IS NOT NULL
                     )
-                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length({_VARIANTS_ARRAY}) > 0)
                 )
-                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
+                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{{}}'::jsonb)
             )
             """
         ]
     )
     return queryset.filter(usage_based_stale) | config_based_queryset
+
+
+def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
+    """
+    Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
+
+    Rollout completeness is not staleness. `filter_stale_flags` keeps that job and nothing
+    user-visible reads this.
+
+    The predicate reads configuration only. Which of these flags is a cleanup candidate is the
+    caller's policy, so flag age, call recency and `active` all stay with the caller.
+
+    This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
+    with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
+    needs, boolean and multivariate alike. A multivariate flag also needs every reachable path to
+    serve the same variant, which this does not test, so the caller must confirm each row with
+    `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
+
+    A group that omits the `properties` key, or stores it as JSON null, counts as having no
+    targeting. See `_ELEM_HAS_NO_TARGETING`.
+
+    A legacy row storing `groups` as something other than an array reads as an empty array and
+    drops out, rather than aborting the batch. See `_GROUPS_ARRAY`.
+
+    Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
+    although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
+    matching it would report every flag in a project that nobody has configured.
+
+    See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
+    `.filter()` chained onto the result ANDs cleanly and keeps the raw text at the top level.
+    """
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+    return queryset.extra(where=[_HAS_UNTARGETED_FULL_ROLLOUT_GROUP])
+
+
+# Describes the `active` param for every published schema that accepts it: the list endpoint's
+# OpenAPI parameter and the bulk-delete filter serializer. It states in prose what
+# `filter_stale_flags` matches, so it has to change with that SQL.
+STALE_ACTIVE_PARAM_DESCRIPTION = (
+    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
+    "returns enabled flags only, so a disabled flag is never STALE. An enabled flag "
+    "matches when its last recorded `$feature_flag_called` event is more than "
+    f"{STALE_FLAG_THRESHOLD_DAYS} days old. With no recorded event, it matches when it is "
+    f"at least {STALE_FLAG_THRESHOLD_DAYS} days old and either stores `filters` as `{{}}` "
+    "or serves one result to everyone through a release condition at 100% with no "
+    "property filters. A flag with no recorded event and an empty `groups` list does not "
+    "match, even when its `status` reads STALE. The reverse also happens: a multivariate flag "
+    "matches when a variant is at 100% under a release condition at 100% with no property "
+    "filters, or when that condition names a variant. Its `status` can still read ACTIVE, "
+    "because an earlier variant in the list or an earlier targeted condition can serve a "
+    "different result. In a flag of either type that mixes person and group aggregation, the "
+    "filter also counts a group-aggregated condition at 100% with no property filters, which "
+    "`status` does not. An SDK that sends no "
+    "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
+)
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
@@ -171,6 +274,34 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
     # Handle both string "true"/"false" (any casing) and boolean True/False
     is_active = str(value).lower() == "true"
     return queryset.filter(active=is_active)
+
+
+def _sole_reachable_variant(variants: list[dict]) -> str | None:
+    """The only variant the distribution can serve, or None when a user can land on more than one.
+
+    Variants take cumulative slices of the hash space in declaration order, so the first variant
+    with a non-zero rollout takes the low hashes. Only that variant exists when it takes the whole
+    space. A list such as `[40, 100]` is overallocated: the 100 does not make the flag constant,
+    because the 40 still owns the low hashes.
+    """
+    for variant in variants:
+        percentage = variant.get("rollout_percentage") or 0
+        if percentage <= 0:
+            continue
+        return variant.get("key") if percentage >= 100 else None
+    return None
+
+
+def _condition_aggregation(flag_level_index: int | None, group: dict) -> int | None:
+    """The group type index a condition aggregates on, or None for person aggregation.
+
+    An absent key falls back to the flag-level value and an explicit null means person
+    aggregation, the same as `effective_aggregation` in
+    `rust/feature-flags/src/flags/flag_property_group.rs`.
+    """
+    if "aggregation_group_type_index" in group:
+        return group.get("aggregation_group_type_index")
+    return flag_level_index
 
 
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
@@ -315,7 +446,7 @@ class FeatureFlagStatusChecker:
             if summary.is_multivariate:
                 # summary already established full rollout; this only fetches the winning variant key.
                 # Both calls read the same in-memory flag, so they cannot disagree.
-                _, variant = self.is_multivariate_flag_fully_rolled_out(flag)
+                variant = self.sole_served_variant(flag)
             return ROLLOUT_FULLY_ROLLED_OUT, variant
         # Effectively at 0%: every release condition is at 0 (max across groups is 0).
         if summary.max_rollout_percentage == 0:
@@ -323,73 +454,103 @@ class FeatureFlagStatusChecker:
         return ROLLOUT_PARTIAL, None
 
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
-        multivariate = (flag.filters or {}).get("multivariate", None)
-        # An empty/missing variant list is treated as boolean, matching the STALE SQL filter
-        # (which routes `jsonb_array_length(variants) = 0` into the boolean branch).
-        has_variants = bool(multivariate and multivariate.get("variants"))
-        if has_variants:
-            is_multivariate_flag_fully_rolled_out, fully_rolled_out_variant_name = (
-                self.is_multivariate_flag_fully_rolled_out(flag)
-            )
-            if is_multivariate_flag_fully_rolled_out:
-                return True, f'This flag will always use the variant "{fully_rolled_out_variant_name}"'
-        elif self.is_boolean_flag_fully_rolled_out(flag):
-            return True, 'This boolean flag will always evaluate to "true"'
+        # The model accessors raise on a document in another config format. The checker cannot
+        # read such a flag, so it never calls it fully rolled out. A raw read would answer as a
+        # flag with no conditions and call it rolled out instead.
+        try:
+            # An empty/missing variant list is treated as boolean, matching the STALE SQL filter
+            # (which routes `jsonb_array_length(variants) = 0` into the boolean branch). The
+            # accessors cannot read `filters` of None, which the boolean branch handles itself.
+            has_variants = flag.filters is not None and bool(flag.variants)
+            if has_variants:
+                served_variant = self.sole_served_variant(flag)
+                if served_variant is not None:
+                    return True, f'This flag will always use the variant "{served_variant}"'
+            elif self.is_boolean_flag_fully_rolled_out(flag):
+                return True, 'This boolean flag will always evaluate to "true"'
+        except ConfigFormatError:
+            return False, ""
 
         return False, ""
 
-    def is_multivariate_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, str]:
-        # If flag is multivariant and one variant is rolled out to 100%,
-        # and there is a release condition set to 100%, it is fully rolled out.
-        #
-        # Alternatively, if there is a release condition set to 100% and it has a
-        # variant override, the flag is fully rolled out.
-        fully_rolled_out_variant_key: str | None = None
-        some_release_condition_fully_rolled_out = False
-        fully_rolled_out_release_condition_variant_override: str | None = None
+    def sole_served_variant(self, flag: FeatureFlag) -> str | None:
+        """The one variant that every reachable path serves, or None when the paths disagree.
 
-        multivariate = (flag.filters or {}).get("multivariate") or {}
-        variants = multivariate.get("variants", [])
-        for variant in variants:
-            if variant.get("rollout_percentage") == 100:
-                fully_rolled_out_variant_key = variant.get("key")
-                break
+        The matcher reads the release conditions in declaration order and stops at the first one
+        that matches, so a condition declared before the blanket one decides the result for the
+        users it matches. A condition carrying a `variant` override serves that variant, and any
+        other condition serves whatever the variant distribution gives. The flag is fully rolled
+        out to one variant only when every one of those paths lands on the same variant. The walk
+        ends at the first condition that decides for everyone, see `first_deciding_condition`.
 
-        for release_condition in (flag.filters or {}).get("groups", []):
-            if self.is_group_fully_rolled_out(release_condition):
-                some_release_condition_fully_rolled_out = True
-                fully_rolled_out_release_condition_variant_override = (
-                    fully_rolled_out_release_condition_variant_override or release_condition.get("variant", None)
-                )
+        A boolean flag carries no variants and returns None, so a caller must not read None as
+        "the flag is not constant". `is_flag_fully_rolled_out` sends boolean flags to
+        `is_boolean_flag_fully_rolled_out` instead.
+        """
+        decider = self.first_deciding_condition(flag)
+        if decider is None:
+            return None
 
-        fully_rolled_out_variant = (
-            fully_rolled_out_release_condition_variant_override or fully_rolled_out_variant_key or ""
-        )
-        return some_release_condition_fully_rolled_out and (
-            fully_rolled_out_release_condition_variant_override is not None or fully_rolled_out_variant_key is not None
-        ), fully_rolled_out_variant
+        variants = flag.variants
+        groups = flag.conditions
+        distributed = _sole_reachable_variant(variants)
+        variant_keys = {variant.get("key") for variant in variants}
+        results = set()
+        for group in groups[: decider + 1]:
+            # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
+            percentage = group.get("rollout_percentage")
+            if percentage is not None and percentage <= 0:
+                continue
+            # The matcher ignores an override naming a variant the flag does not configure, and the
+            # distribution decides instead.
+            override = group.get("variant")
+            results.add(override if override in variant_keys else distributed)
+        # `None` is in the set when a path falls through to a distribution that is not itself constant.
+        if len(results) != 1:
+            return None
+        (served,) = results
+        return served
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # A `properties` key stored as JSON null means no targeting, the same as an absent key.
+        # The matcher's field is `Option<Vec<PropertyFilter>>` and the filters serializer
+        # normalizes null to `[]`, so only legacy rows still hold the null.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
+
+    def first_deciding_condition(self, flag: FeatureFlag) -> int | None:
+        """Index of the first untargeted 100% condition that settles the result for every request.
+
+        The matcher skips a group-aggregated condition when the request carries no key for that
+        group. A flag whose conditions all aggregate on one target addresses only the requests
+        that carry it, so its condition decides for that whole audience. A flag that mixes person
+        and group aggregation addresses requests without the key too, and only a person-level
+        condition reaches those.
+        """
+        groups = flag.conditions
+        flag_level_index = flag.aggregation_group_type_index
+        mixed = len({_condition_aggregation(flag_level_index, group) for group in groups}) > 1
+        return next(
+            (
+                index
+                for index, group in enumerate(groups)
+                if self.is_group_fully_rolled_out(group)
+                and (not mixed or _condition_aggregation(flag_level_index, group) is None)
+            ),
+            None,
+        )
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
         # Treat missing filters, `{}`, and `{"groups": []}` as "no release conditions"
         # and therefore fully rolled out. Not a supported state, but legacy data hits
-        # all three shapes (especially `{"groups": []}` post-backfill).
-        release_conditions = (flag.filters or {}).get("groups", [])
-        if not release_conditions:
+        # all three shapes (especially `{"groups": []}` post-backfill). The accessors cannot
+        # read the first, so it is tested before them.
+        if flag.filters is None or not flag.conditions:
             logger.debug(f"Boolean flag {flag.id} has no release conditions, so it is rolled out to 100%")
             return True
 
-        # If flag is boolean flag and rolled release conditions have rolled out to 100%, it is fully rolled out.
-        # The fully rolled out release condition must have no properties set.
-        for release_condition in release_conditions:
-            rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
-            if rollout_percentage == 100 and len(properties) == 0:
-                logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
-                return True
-
+        if self.first_deciding_condition(flag) is not None:
+            logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
+            return True
         return False

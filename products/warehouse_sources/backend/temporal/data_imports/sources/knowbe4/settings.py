@@ -21,7 +21,7 @@ DEFAULT_REGION = "us"
 PAGE_SIZE = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class KnowBe4EndpointConfig:
     name: str
     path: str
@@ -37,6 +37,9 @@ class KnowBe4EndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
     page_size: int = PAGE_SIZE
+    # False for endpoints that return one object or a capped, unpaginated array. Sending page
+    # params to those would repeat the same rows on every page and never reach an empty page.
+    paginated: bool = True
 
 
 KNOWBE4_ENDPOINTS: dict[str, KnowBe4EndpointConfig] = {
@@ -109,6 +112,52 @@ KNOWBE4_ENDPOINTS: dict[str, KnowBe4EndpointConfig] = {
             "include_store_purchase_id": "true",
             "include_employee_number": "true",
         },
+    ),
+    "account": KnowBe4EndpointConfig(
+        name="account",
+        path="/v1/account",
+        # A single object per token. The account has no id field, and `name` falls back to the
+        # account's domain when no organization name is set.
+        primary_key="name",
+        paginated=False,
+    ),
+    "account_risk_score_history": KnowBe4EndpointConfig(
+        name="account_risk_score_history",
+        path="/v1/account/risk_score_history",
+        primary_key="date",
+        # Without `full=true` only the last six months are returned.
+        extra_params={"full": "true"},
+    ),
+    "group_risk_score_history": KnowBe4EndpointConfig(
+        name="group_risk_score_history",
+        path="/v1/groups/{group_id}/risk_score_history",
+        primary_key=["group_id", "date"],
+        extra_params={"full": "true"},
+        fanout=DependentEndpointConfig(
+            parent_name="groups",
+            resolve_param="group_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "group_id"},
+        ),
+    ),
+    "user_risk_score_history": KnowBe4EndpointConfig(
+        name="user_risk_score_history",
+        path="/v1/users/{user_id}/risk_score_history",
+        primary_key=["user_id", "date"],
+        extra_params={"full": "true"},
+        # KnowBe4 documents this endpoint as excluded from pagination, returning up to 1000
+        # records in one response.
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+            # The child takes no page-size param, so the parent's one is passed here instead.
+            parent_params={"per_page": PAGE_SIZE},
+        ),
     ),
 }
 

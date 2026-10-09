@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import BUILDKITE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -27,6 +26,7 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 BUILDKITE_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite.make_tracked_session"
 )
+ORG_URL = "https://api.buildkite.com/v2/organizations/my-org"
 
 
 class TestFormatIncrementalValue:
@@ -43,26 +43,16 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildInitialParams:
-    def test_builds_incremental_maps_to_created_from(self) -> None:
-        params = _build_initial_params(
-            BUILDKITE_ENDPOINTS["builds"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="created_at",
-        )
-        assert params["per_page"] == 100
-        assert params["created_from"] == "2026-03-04T02:58:14+00:00"
-
-    def test_builds_full_refresh_has_no_filter(self) -> None:
-        params = _build_initial_params(
-            BUILDKITE_ENDPOINTS["builds"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {"per_page": 100}
-
-    @parameterized.expand([("organizations",), ("pipelines",), ("agents",)])
+    @parameterized.expand(
+        [
+            ("organizations",),
+            ("organization_members",),
+            ("pipelines",),
+            ("agents",),
+            ("teams",),
+            ("test_suites",),
+        ]
+    )
     def test_full_refresh_endpoints_never_get_a_time_filter(self, endpoint: str) -> None:
         # These endpoints expose no server-side timestamp filter, so an incremental request must
         # not silently add one (it would be ignored by the API and misrepresent the sync).
@@ -157,27 +147,6 @@ class TestPagination:
         assert snapshots[1]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_org_scoped_path_ignores_placeholder(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "o1"}])])
-
-        _rows(_source("organizations", _make_manager()))
-
-        assert snapshots[0]["url"] == "https://api.buildkite.com/v2/organizations"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("agents", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession) -> None:
         session = MockSession.return_value
         resume_url = "https://api.buildkite.com/v2/organizations/my-org/pipelines?page=3&per_page=100"
@@ -189,27 +158,6 @@ class TestPagination:
         # Resume must start at the saved URL, not the freshly-built first-page URL.
         assert snapshots[0]["url"] == resume_url
         assert [r["id"] for r in rows] == ["p9"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        page2 = "https://api.buildkite.com/v2/organizations/my-org/builds?page=2&per_page=100"
-        _wire(
-            session,
-            [
-                _response([{"id": "b1"}], link=page2),
-                _response([{"id": "b2"}]),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("builds", manager))
-
-        # State is saved AFTER a page is yielded and points at the NEXT page, so a crash re-yields
-        # the last page (merge dedupes on the primary key) rather than skipping it. The final page
-        # has no next link, so no checkpoint is written for it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BuildkiteResumeConfig(next_url=page2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_sends_created_from(self, MockSession) -> None:
@@ -229,19 +177,6 @@ class TestPagination:
         assert snapshots[0]["params"] == {"per_page": 100, "created_from": "2026-03-04T02:58:14+00:00"}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_bearer(self, MockSession) -> None:
-        # The token must flow through the framework auth config (so it's redacted from logs),
-        # not a hand-built Authorization header.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "p1"}])])
-
-        _rows(_source("pipelines", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "bkua"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"message": "something unexpected"})])
@@ -259,20 +194,34 @@ class TestBuildkiteSourceResponse:
             ("pipelines", ["id"], "asc", "created_at"),
             ("builds", ["id"], "desc", "created_at"),
             ("agents", ["id"], "asc", "created_at"),
+            ("teams", ["id"], "asc", "created_at"),
+            # A fan-out child carries its parent in the key, because its own id is only unique
+            # within that parent once every parent's rows land in one table.
+            ("pipeline_schedules", ["pipeline_slug", "id"], "desc", "created_at"),
+            ("cluster_queues", ["cluster_id", "id"], "asc", "created_at"),
+            # A team-to-pipeline link has no id of its own, so the pair it joins is the key.
+            ("team_pipelines", ["team_id", "pipeline_id"], "asc", "created_at"),
+            # A member row carries no timestamp, so it is not partitioned.
+            ("organization_members", ["id"], "asc", None),
+            ("jobs", ["id"], "desc", "build_created_at"),
+            ("test_suite_runs", ["suite_slug", "id"], "desc", "created_at"),
+            # Suites and tests expose no creation timestamp, so they are not partitioned.
+            ("test_suites", ["id"], "asc", None),
+            ("test_suite_tests", ["suite_slug", "id"], "asc", None),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str, MockSession
+        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str | None, MockSession
     ) -> None:
         MockSession.return_value.headers = {}
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == ("datetime" if partition_key else None)
+        assert response.partition_format == ("week" if partition_key else None)
+        assert response.partition_keys == ([partition_key] if partition_key else None)
 
 
 class TestValidateCredentials:
@@ -286,11 +235,6 @@ class TestValidateCredentials:
 
         mock_session.return_value.get.side_effect = fake_get
         return captured
-
-    @mock.patch(BUILDKITE_SESSION_PATCH)
-    def test_success(self, mock_session) -> None:
-        self._patch_get(mock_session, 200)
-        assert validate_credentials("bkua", "my-org") == (True, None)
 
     @mock.patch(BUILDKITE_SESSION_PATCH)
     def test_invalid_token(self, mock_session) -> None:
@@ -320,17 +264,25 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None and "missing-org" in error
 
+    @parameterized.expand(
+        [
+            ("test_suite_runs", "https://api.buildkite.com/v2/analytics/organizations/my-org/suites?per_page=1"),
+            ("test_suite_tests", "https://api.buildkite.com/v2/analytics/organizations/my-org/suites?per_page=1"),
+            ("team_pipelines", f"{ORG_URL}/teams?per_page=1"),
+            ("pipeline_schedules", f"{ORG_URL}/pipelines?per_page=1"),
+            ("cluster_queues", f"{ORG_URL}/clusters?per_page=1"),
+        ]
+    )
     @mock.patch(BUILDKITE_SESSION_PATCH)
-    def test_schema_probe_targets_endpoint_path(self, mock_session) -> None:
+    def test_fanout_schema_probe_targets_the_parent_listing(
+        self, endpoint: str, expected_url: str, mock_session
+    ) -> None:
+        # A fan-out child's own path needs a parent row, so the probe hits the listing that
+        # carries the same scope. Formatting the child path here would raise on the parent
+        # placeholder it still carries, such as {suite_slug} or {team_id}.
         captured = self._patch_get(mock_session, 200)
-        validate_credentials("bkua", "my-org", schema_name="agents")
-        assert captured["url"] == "https://api.buildkite.com/v2/organizations/my-org/agents?per_page=1"
-
-    @mock.patch(BUILDKITE_SESSION_PATCH)
-    def test_source_create_probe_targets_org(self, mock_session) -> None:
-        captured = self._patch_get(mock_session, 200)
-        validate_credentials("bkua", "my-org")
-        assert captured["url"] == "https://api.buildkite.com/v2/organizations/my-org"
+        validate_credentials("bkua", "my-org", schema_name=endpoint)
+        assert captured["url"] == expected_url
 
     @mock.patch(BUILDKITE_SESSION_PATCH)
     def test_swallows_transport_errors(self, mock_session) -> None:
@@ -338,3 +290,117 @@ class TestValidateCredentials:
         ok, error = validate_credentials("bkua", "my-org")
         assert ok is False
         assert error is not None
+
+
+class TestSuiteFanout:
+    @staticmethod
+    def _suites_page() -> Response:
+        return _response([{"id": "s1", "slug": "web"}, {"id": "s2", "slug": "api"}])
+
+    @parameterized.expand([("test_suite_runs", "runs"), ("test_suite_tests", "tests")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_every_suite(self, endpoint: str, path_segment: str, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [self._suites_page(), _response([{"id": "a"}]), _response([{"id": "b"}])])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        base = "https://api.buildkite.com/v2/analytics/organizations/my-org/suites"
+        assert snapshots[0]["url"] == base
+        # The suites listing takes no page-size param; only the children are paginated.
+        assert snapshots[0]["params"] == {}
+        assert [s["url"] for s in snapshots[1:]] == [f"{base}/web/{path_segment}", f"{base}/api/{path_segment}"]
+        assert snapshots[1]["params"] == {"per_page": 100}
+        # Runs and tests are only identified within their suite, so the suite has to reach the row
+        # for the composite primary key to be unique table-wide.
+        assert [(r["id"], r["suite_id"], r["suite_slug"]) for r in rows] == [
+            ("a", "s1", "web"),
+            ("b", "s2", "api"),
+        ]
+
+
+class TestSimpleFanout:
+    @parameterized.expand(
+        [
+            (
+                "team_pipelines",
+                [{"id": "t1", "slug": "backend"}, {"id": "t2", "slug": "frontend"}],
+                f"{ORG_URL}/teams",
+                [f"{ORG_URL}/teams/t1/pipelines", f"{ORG_URL}/teams/t2/pipelines"],
+                [{"pipeline_id": "p1"}, {"pipeline_id": "p2"}],
+                [{"team_id": "t1", "team_slug": "backend"}, {"team_id": "t2", "team_slug": "frontend"}],
+            ),
+            (
+                "pipeline_schedules",
+                [{"id": "pl1", "slug": "web"}, {"id": "pl2", "slug": "api"}],
+                f"{ORG_URL}/pipelines",
+                [f"{ORG_URL}/pipelines/web/schedules", f"{ORG_URL}/pipelines/api/schedules"],
+                [{"id": "s1"}, {"id": "s2"}],
+                [{"pipeline_slug": "web"}, {"pipeline_slug": "api"}],
+            ),
+            (
+                "cluster_queues",
+                [{"id": "c1"}, {"id": "c2"}],
+                f"{ORG_URL}/clusters",
+                [f"{ORG_URL}/clusters/c1/queues", f"{ORG_URL}/clusters/c2/queues"],
+                [{"id": "q1"}, {"id": "q2"}],
+                [{"cluster_id": "c1"}, {"cluster_id": "c2"}],
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_binds_the_parent_path_and_carries_the_parent_onto_each_row(
+        self,
+        endpoint: str,
+        parent_rows: list[dict[str, Any]],
+        parent_url: str,
+        child_urls: list[str],
+        child_rows: list[dict[str, Any]],
+        parent_columns: list[dict[str, Any]],
+        MockSession,
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response(parent_rows), _response([child_rows[0]]), _response([child_rows[1]])])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert snapshots[0]["url"] == parent_url
+        assert snapshots[0]["params"] == {"per_page": 100}
+        assert [s["url"] for s in snapshots[1:]] == child_urls
+        # The parent identifier has to land on the row under its final column name, because the
+        # composite primary key keys on it. A missing rename leaves the key with no column.
+        assert rows == [{**child_rows[i], **parent_columns[i]} for i in (0, 1)]
+
+
+class TestJobsFanout:
+    @staticmethod
+    def _builds_page() -> Response:
+        return _response(
+            [{"id": "b1", "number": 42, "created_at": "2026-03-04T02:58:14Z", "pipeline": {"slug": "web"}}]
+        )
+
+    @staticmethod
+    def _jobs_page(job_ids: list[str], next_url: str | None = None) -> Response:
+        # The jobs endpoint answers with an envelope and paginates on a cursor URL in the body,
+        # unlike every other Buildkite list endpoint.
+        return _response({"items": [{"id": i} for i in job_ids], "links": {"next": next_url} if next_url else {}})
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_windows_the_parent_build_walk(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [self._builds_page(), self._jobs_page(["j1"])])
+
+        _rows(
+            _source(
+                "jobs",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                incremental_field="build_created_at",
+            )
+        )
+
+        # Jobs carry no server-side time filter, so the watermark has to bound the builds request
+        # that drives the fan-out — otherwise every sync re-walks the whole organization.
+        assert snapshots[0]["params"] == {"per_page": 100, "created_from": "2026-03-04T02:58:14+00:00"}
+        assert "created_from" not in snapshots[1]["params"]

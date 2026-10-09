@@ -448,6 +448,123 @@ export interface CanvasBuildActionApi {
     build_id: string
 }
 
+export interface CanvasCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+}
+
+export interface CanvasCommentsResponseApi {
+    /** Root comments on the canvas, newest first. */
+    comments: CanvasCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface CanvasCommentAnchorApi {
+    /** Anchor kind: text or region. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface CanvasCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Display name of the comment author.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or region anchor. */
+    anchor: CanvasCommentAnchorApi | null
+    /**
+     * Canvas version that was live when the comment was written.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface CanvasCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: CanvasCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
 /**
  * Tool arguments, validated against the tool's input schema.
  */
@@ -786,34 +903,57 @@ export interface CanvasDraftApi {
     build_id: string | null
 }
 
-export interface PaginatedCanvasDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CanvasDraftApi[]
-}
+/**
+ * * `write` - Write
+ * * `delete` - Delete
+ * * `rename` - Rename
+ * * `str_replace` - Str Replace
+ */
+export type CanvasSourceEditOpEnumApi = (typeof CanvasSourceEditOpEnumApi)[keyof typeof CanvasSourceEditOpEnumApi]
+
+export const CanvasSourceEditOpEnumApi = {
+    Write: 'write',
+    Delete: 'delete',
+    Rename: 'rename',
+    StrReplace: 'str_replace',
+} as const
 
 /**
- * One per-file edit: set a file's content, or delete it.
+ * One file edit: replace text in a file, write a whole file, delete it, or rename it.
  */
 export interface CanvasSourceEditOperationApi {
-    /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+    /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.
+     *
+     * * `write` - Write
+     * * `delete` - Delete
+     * * `rename` - Rename
+     * * `str_replace` - Str Replace */
+    op?: CanvasSourceEditOpEnumApi
+    /** Project-relative path of the file to edit (e.g. "src/canvas.tsx"). */
     path: string
     /**
-     * The file's complete new content. Null (or omitted) deletes the file.
+     * For 'write': the file's complete new content.
      * @nullable
      */
     content?: string | null
+    /** For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted. */
+    old_string?: string
+    /** For 'str_replace': the text that replaces old_string. An empty string deletes old_string. */
+    new_string?: string
+    /** For 'str_replace': replace every exact match of old_string instead of requiring exactly one. */
+    replace_all?: boolean
+    /** For 'rename': the file's new project-relative path. */
+    new_path?: string
 }
 
 /**
  * Payload for publishing per-file edits against the canvas's current source.
  */
 export interface CanvasSourceEditApi {
-    /** Edits applied in order to the canvas's current source project. */
-    operations: CanvasSourceEditOperationApi[]
+    /** Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities. */
+    operations?: CanvasSourceEditOperationApi[]
+    /** The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities. */
+    capabilities?: CanvasCapabilitiesApi
     /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
     /**
@@ -861,6 +1001,23 @@ export interface CanvasSummaryApi {
 }
 
 /**
+ * The build a publish queued, as it stood when the response was sent.
+ */
+export interface CanvasPublishedBuildApi {
+    /** The build's id. */
+    id: string
+    /** 'ready': the build finished. The canvas is live with this version when canvas.published_build_id equals this id; then you do not need canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi
+    /** Structured diagnostics recorded by the build (errors explain a failed status). */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
  * Result of a successful source-project publish.
  */
 export interface CanvasSourcePublishResponseApi {
@@ -870,6 +1027,8 @@ export interface CanvasSourcePublishResponseApi {
     current_version_id: string
     /** Advisory (warning-severity) diagnostics recorded for the published project. */
     diagnostics: CanvasDiagnosticApi[]
+    /** The queued build. The server waits a few seconds for it, so it is often already terminal. */
+    build: CanvasPublishedBuildApi
 }
 
 /**
@@ -1434,8 +1593,8 @@ export interface CanvasStateEntryApi {
      * @maxLength 200
      */
     key: string
-    /** The stored JSON value. */
-    value: unknown
+    /** The stored JSON value. Omitted from a key inventory. */
+    value?: unknown
     /** When the entry was last written. */
     updated_at: string
 }
@@ -1446,6 +1605,13 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /**
+     * Next entry offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further entries remain for this selection. */
+    complete: boolean
 }
 
 /**
@@ -1464,6 +1630,31 @@ export interface CanvasStateSetApi {
     key: string
     /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
     value: unknown
+}
+
+export interface CanvasStateValueResponseApi {
+    /** Scope of this value.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /** Key of this value. */
+    key: string
+    /** A chunk of JSON text. Join all chunks in order, then parse the complete JSON. */
+    value_json: string
+    /** Content revision. Pass it on subsequent reads; a changed value returns 409. */
+    revision: string
+    /** Character offset of this chunk. */
+    offset: number
+    /** Character length of the complete JSON text. */
+    total_length: number
+    /**
+     * Next character offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
+    complete: boolean
 }
 
 /**
@@ -1548,6 +1739,11 @@ export interface CanvasViewResponseApi {
     layout?: CanvasLayoutApi | null
     /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
     component_lifecycles?: CanvasComponentLifecycleApi[]
+    /**
+     * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+     * @nullable
+     */
+    readonly sandbox_document_url: string | null
 }
 
 /**
@@ -1654,6 +1850,10 @@ export type CanvasesListParams = {
      */
     offset?: number
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string
@@ -1667,6 +1867,13 @@ export const CanvasesListKind = {
     Grid: 'grid',
 } as const
 
+export type CanvasesListOrdering = (typeof CanvasesListOrdering)[keyof typeof CanvasesListOrdering]
+
+export const CanvasesListOrdering = {
+    CreatedAt: '-created_at',
+    UpdatedAt: '-updated_at',
+} as const
+
 export type CanvasesBuildsRetrieveParams = {
     /**
      * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
@@ -1678,15 +1885,47 @@ export type CanvasesBuildsRetrieveParams = {
     version_id?: string
 }
 
-export type CanvasesDraftsRetrieveParams = {
+export type CanvasesCommentsListParams = {
     /**
-     * Number of results to return per page.
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number
+}
+
+export type CanvasesCommentsRetrieveParams = {
     /**
-     * The initial index from which to return the results.
+     * Comment id whose truncated body should continue. Use with content_offset.
      */
-    offset?: number
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type CanvasesLayoutRetrieveParams = {
@@ -1709,7 +1948,37 @@ export type CanvasesSourceRetrieveParams = {
 
 export type CanvasesStateRetrieveParams = {
     /**
-     * Only return entries in this scope.
+     * Only read this exact key.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key?: string
+    /**
+     * Only read entries whose key starts with this prefix.
+     * @maxLength 200
+     */
+    key_prefix?: string
+    /**
+     * True returns a key inventory without stored values.
+     */
+    keys_only?: boolean
+    /**
+     * Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Only read this scope.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
      */
     scope?: CanvasesStateRetrieveScope
 }
@@ -1717,8 +1986,50 @@ export type CanvasesStateRetrieveParams = {
 export type CanvasesStateRetrieveScope = (typeof CanvasesStateRetrieveScope)[keyof typeof CanvasesStateRetrieveScope]
 
 export const CanvasesStateRetrieveScope = {
-    Shared: 'shared',
     User: 'user',
+    Shared: 'shared',
+} as const
+
+export type CanvasesStateValueRetrieveParams = {
+    /**
+     * Exact key to read.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string
+    /**
+     * Maximum JSON characters in this response.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Revision from the first chunk. Required when offset is greater than zero.
+     * @minLength 1
+     * @maxLength 64
+     */
+    revision?: string
+    /**
+     * Scope of the value to read.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
+     */
+    scope: CanvasesStateValueRetrieveScope
+}
+
+export type CanvasesStateValueRetrieveScope =
+    (typeof CanvasesStateValueRetrieveScope)[keyof typeof CanvasesStateValueRetrieveScope]
+
+export const CanvasesStateValueRetrieveScope = {
+    User: 'user',
+    Shared: 'shared',
 } as const
 
 export type CanvasesVersionsRetrieveParams = {

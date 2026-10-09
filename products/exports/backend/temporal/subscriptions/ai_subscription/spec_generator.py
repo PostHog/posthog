@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
 
-from django.db.models import F, Q
+from django.db.models import BigIntegerField, F, Q
+from django.db.models.functions import Coalesce
 
 import structlog
 from pydantic import ValidationError
@@ -77,6 +78,7 @@ MAX_PINNED_EVENTS = 25
 # Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+_ESCAPED_NEWLINE_LINE_RE = re.compile(r"(?:\\n|\\r\\n)+")
 
 # Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
 # window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
@@ -291,6 +293,9 @@ def sanitize_prompt(raw: str | None) -> str:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
     cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH, preserve_newlines=True)
+    cleaned = "\n".join(
+        "" if _ESCAPED_NEWLINE_LINE_RE.fullmatch(line) else line for line in cleaned.split("\n")
+    ).strip()
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 
@@ -490,13 +495,16 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
+    # One indexed (project, event) query. Without it the planner gets no event-property schema and guesses
     # property names — the top cause of InternalHogQLError.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
     rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        EventProperty.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
         # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,

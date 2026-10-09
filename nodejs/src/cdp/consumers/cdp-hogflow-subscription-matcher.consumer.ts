@@ -1,9 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
-import { z } from 'zod'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import {
+    StepResume,
+    WorkflowStepResumeSchema,
+    counterStepResume,
+    processStepResumes,
+} from '~/cdp/services/hogflows/step-resume.service'
 import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
@@ -184,20 +189,6 @@ type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 // Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
 export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
 
-const WorkflowStepResumeSchema = z.object({
-    origin_key: z.string().min(1),
-    status: z.enum(['completed', 'failed', 'cancelled']),
-    result: z.record(z.string(), z.unknown()).optional().nullable(),
-})
-
-type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
-
-const counterStepResume = new Counter({
-    name: 'cdp_hogflow_step_resume',
-    help: 'Workflow step resumes by outcome.',
-    labelNames: ['outcome'],
-})
-
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
 // or a workflow conversion goal.
 export class CdpHogflowSubscriptionMatcherConsumer<
@@ -217,6 +208,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // merged-away person's distinct_ids onto the survivor here; we consume it to re-key parked waits onto
     // the survivor's id so the survivor's person/event updates can wake them.
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
+    // realtime_only_events_json carries the $feature_flag_called events that ingestion stops writing to
+    // clickhouse_events_json for a FLAG_EVALUATIONS_ONLY organization.
+    private realtimeOnlyEventsKafkaConsumer?: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
@@ -244,7 +238,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
                 topic: KAFKA_CDP_INTERNAL_EVENTS,
             },
-            startAtLatest
+            {
+                ...startAtLatest,
+                ...(config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST
+                    ? { 'metadata.broker.list': config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST }
+                    : {}),
+            }
         )
         this.personDistinctIdKafkaConsumer = createKafkaConsumer(
             {
@@ -253,6 +252,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             },
             startAtLatest
         )
+        if (config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC) {
+            this.realtimeOnlyEventsKafkaConsumer = createKafkaConsumer(
+                {
+                    groupId: 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer',
+                    topic: config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC,
+                },
+                startAtLatest
+            )
+        }
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
         // string means it would silently consume the event stream and wake nothing. Fail
@@ -864,63 +872,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
     public async processStepResumes(resumes: StepResume[]): Promise<void> {
-        if (resumes.length === 0) {
-            return
-        }
-        const byJob = new Map<string, StepResume[]>()
-        for (const resume of resumes) {
-            const pending = byJob.get(resume.jobId) ?? []
-            pending.push(resume)
-            byJob.set(resume.jobId, pending)
-        }
-        const client = await this.cyclotronPool.connect()
-        try {
-            await client.query('BEGIN')
-            const rows = await client.query(
-                `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
-                [[...byJob.keys()]]
-            )
-            const updates: { id: string; state: Buffer }[] = []
-            for (const row of rows.rows) {
-                const jobResumes = byJob.get(row.id)!
-                byJob.delete(row.id)
-                // A job that is not parked yet cannot take the wake: the worker owns `state` while it
-                // runs, so its flush would drop the write. That step falls back to its own deadline.
-                if (row.status !== 'available') {
-                    counterStepResume.labels({ outcome: `job_${row.status}` }).inc()
-                    continue
-                }
-                // One batch can carry a stale wake from an earlier visit next to the current one.
-                const state = row.state
-                    ? jobResumes.reduce<Buffer | null>(
-                          (applied, resume) => applied ?? applyStepResumeToState(row.state, resume),
-                          null
-                      )
-                    : null
-                if (!state) {
-                    counterStepResume.labels({ outcome: 'stale_key' }).inc()
-                    continue
-                }
-                updates.push({ id: row.id, state })
-            }
-            counterStepResume.labels({ outcome: 'job_missing' }).inc(byJob.size)
-            if (updates.length > 0) {
-                const updated = await client.query(
-                    `UPDATE cyclotron_jobs cj
-                     SET scheduled = NOW(), state = u.state
-                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
-                     WHERE cj.id = u.id AND cj.status = 'available'`,
-                    [updates.map((update) => update.id), updates.map((update) => update.state)]
-                )
-                counterStepResume.labels({ outcome: 'delivered' }).inc(updated.rowCount ?? 0)
-            }
-            await client.query('COMMIT')
-        } catch (err) {
-            await client.query('ROLLBACK').catch(() => {})
-            throw err
-        } finally {
-            client.release()
-        }
+        await processStepResumes(this.cyclotronPool, resumes)
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
@@ -1214,14 +1166,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         this.watcherTeamsRefreshTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
-        // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
+        // (with `status = 'available'` guards) is idempotent, so replay is safe. All the streams
         // funnel into the same input-agnostic wakeMatchingWorkflows via processBatch.
         await Promise.all([
-            this.kafkaConsumer.connect(async (messages) => {
-                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
-                })
-            }),
+            this.kafkaConsumer.connect(this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleEachBatch')),
             this.personKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
                     return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
@@ -1248,7 +1196,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     })
                 )
             }),
+            this.realtimeOnlyEventsKafkaConsumer?.connect(
+                this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleRealtimeOnlyEventsBatch')
+            ),
         ])
+    }
+
+    private eventsBatchHandler(
+        instrumentKey: string
+    ): (messages: Message[]) => Promise<{ backgroundTask: Promise<void> }> {
+        return async (messages) =>
+            await instrumentFn(instrumentKey, async () => ({
+                backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events'),
+            }))
     }
 
     public override async stop(): Promise<void> {
@@ -1261,6 +1221,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.disconnect(),
             this.internalEventsKafkaConsumer.disconnect(),
             this.personDistinctIdKafkaConsumer.disconnect(),
+            this.realtimeOnlyEventsKafkaConsumer?.disconnect(),
         ])
         await this.cyclotronPool.end()
         await super.stop()
@@ -1274,6 +1235,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.isHealthy(),
             this.internalEventsKafkaConsumer.isHealthy(),
             this.personDistinctIdKafkaConsumer.isHealthy(),
+            ...(this.realtimeOnlyEventsKafkaConsumer ? [this.realtimeOnlyEventsKafkaConsumer.isHealthy()] : []),
         ]
         return results.find((r) => r.status !== 'ok') ?? results[0]
     }
@@ -1477,43 +1439,18 @@ function rewriteStatePersonId(
             personIdRepointed: true,
             personIdRepointVersion: newVersion,
         }
-        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
-        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
-        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
-        if (parsed.state.currentAction && !fillingNullAnchor) {
-            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        // Mark the wake so the wait handler knows the matcher woke this job rather than a polling
+        // re-check. currentAction is always a wait_until_condition here (re-key scope). The two causes
+        // stay separate flags: counterHogflowRekeyWake judges whether waking on a merge is wasted churn,
+        // so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction) {
+            parsed.state.currentAction = fillingNullAnchor
+                ? { ...parsed.state.currentAction, anchorWake: true }
+                : { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
-        return null
-    }
-}
-
-// Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
-// key: the step already advanced, or the wake belongs to an earlier visit of the same step.
-function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
-    try {
-        const parsed = parseJSON(stateBuffer.toString('utf-8'))
-        const currentAction = parsed.state?.currentAction
-        if (currentAction?.id !== resume.actionId || currentAction.awaitingResume?.key !== resume.origin_key) {
-            return null
-        }
-        parsed.state = {
-            ...parsed.state,
-            currentAction: {
-                ...currentAction,
-                resumeResult: {
-                    key: resume.origin_key,
-                    status: resume.status,
-                    result: resume.result ?? undefined,
-                },
-            },
-        }
-        return Buffer.from(JSON.stringify(parsed))
-    } catch (err) {
-        logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
         return null
     }
 }

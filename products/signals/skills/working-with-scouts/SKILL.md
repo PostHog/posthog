@@ -1,16 +1,14 @@
 ---
 name: working-with-scouts
 description: >
-  How to get real jobs done with PostHog Signals scouts — the scheduled agents that watch a
-  project and write reports into the Signals inbox — and how to steer and customize the fleet
-  over time. Use when a user wants to delegate a watching job ("have a scout keep an eye on X",
-  "tell me if Y spikes"), wants a recurring judged metric from a scout ("score X on a
-  schedule", "measure quality of Y"), wants to know which scout covers a surface, asks how to
-  act on what scouts report, complains the fleet is noisy or quiet, or wants the fleet to get
-  smarter over time (feedback loops, calibration, promoting one-off steers into policy). The
-  operating manual for the human–scout working relationship; routes to `authoring-scouts` for
-  write mechanics, `exploring-scouts` for run observability, and `inbox-exploration` for report
-  triage. Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  Work with PostHog Signals scouts: scheduled agents that monitor a project and write
+  reports into the Signals inbox. Use to assign monitoring work, schedule quality scoring,
+  find which scout covers a surface, act on reports, reduce noise, investigate missing
+  findings, or improve the fleet through feedback and calibration. Also covers follow-up
+  checks that verify whether a reported problem stays fixed. Use `authoring-scouts` for
+  edits, `exploring-scouts` for run observability, and `inbox-exploration` for report triage.
+  Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  "tell me if Y spikes", "score X on a schedule", "measure quality of Y",
   "what do I do with this scout report", "calibrate/review my scout fleet".
 metadata:
   owner_team: signals
@@ -43,7 +41,7 @@ One access rule covers everything here: scout rows live on the project's **canon
 - **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
-  Also check `emit_eligibility` on `posthog:scout-project-profile-get`: when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
+  Also check `summary.emit_eligibility` on `posthog:scout-project-profile-get` (pass `summary_only=true` when you only need the gate). When `can_emit` is false, scout writes cannot reach the inbox. Show its `remediation` before promising coverage. `blocking_reason` identifies the gate: `ai_processing_not_approved` or `source_disabled` applies to every scout on the team. `scout_emit_disabled` applies to one scout's dry-run setting. That scout continues its investigation without emitting findings or reports. Outside a run, the tool returns the team-wide answer; pass `run_id` to check one scout's write eligibility.
   (For read callers the profile is a cached snapshot built by scout runs, so a 404 means no fresh profile exists — not ineligibility; fall back to checking the `signals_scout` source config via `posthog:inbox-source-configs-list` and treat eligibility as unknown rather than blocking on the profile.)
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
@@ -69,14 +67,14 @@ An untended inbox doesn't just decay; it switches the fleet off.
 
 When you want something watched, pick the cheapest path that gets it watched — most jobs don't need a new scout:
 
-| Situation                                                                                                    | Do this                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A canonical scout already covers the surface                                                                 | Nothing to build: confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                                                                                                                                                                                                                            |
-| The surface is covered but you want a temporary or specific focus                                            | Leave a **note** (optionally with `expires_at`): "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                                                                                                                                                                                                                                    |
-| A covered scout keeps missing (or over-reporting) something structural                                       | **Adapt** it: a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements.                                                                                                                                                                                                       |
-| No scout covers it (a custom event, a niche funnel, an external system)                                      | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create`). In the inbox's scouts tab, the "Suggested for this project" strip proposes scouts from the project's own data, and "Suggest a scout" opens a chat that drafts one. A custom suggestion lands on the same create call; a canonical suggestion is an existing PostHog scout that is switched off, so accepting it enables that config rather than creating a new scout. |
-| You want a recurring **metric**, not reports: a subjective quality/classification score no query can compute | **Author a measurement scout** on the structured-output channel: it judges a sample every run and records schema-validated `$scout_structured_output` events you chart in insights (and a workflow can act on), filing a report only on a material shift. See the recurring measurement / LLM-judge pattern in `authoring-scouts`.                                                                                                               |
-| You want an answer _now_, once                                                                               | Don't use a scout at all: just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                                                                                                                                                                                                                                  |
+| Situation                                                                                                    | Do this                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A canonical scout already covers the surface                                                                 | Nothing to build: confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                                                                                                                                                                                                                                                           |
+| The surface is covered but you want a temporary or specific focus                                            | Leave a **note** (optionally with `expires_at`): "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                                                                                                                                                                                                                                                                   |
+| A covered scout keeps missing (or over-reporting) something structural                                       | **Adapt** it: a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements.                                                                                                                                                                                                                                      |
+| No scout covers it (a custom event, a niche funnel, an external system)                                      | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create`). In the inbox's scouts tab, the "Suggested for this project" strip proposes scouts from the project's own data, and "Suggest a scout" opens a chat that drafts one. A custom suggestion lands on the same create call; a canonical suggestion is an existing PostHog scout that is switched off, so accepting it enables that config rather than creating a new scout.                                |
+| You want a recurring **metric**, not reports: a subjective quality/classification score no query can compute | **Author a measurement scout** on the structured-output channel: it judges a sample every run and records schema-validated `$scout_structured_output` events you chart in insights (and a workflow can act on), filing a report only on a material shift. See the recurring measurement / LLM-judge pattern in `authoring-scouts`, and `signals-scout-mcp-tool-calls` for a shipped scout that already records one (its `references/metrics-dashboard.md` is the chart recipe). |
+| You want an answer _now_, once                                                                               | Don't use a scout at all: just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                                                                                                                                                                                                                                                                 |
 
 [`references/delegation-recipes.md`](references/delegation-recipes.md) has worked recipes for the common asks — watching a freshly shipped event, a time-boxed funnel watch, a daily digest, an external status page, quieting a noisy fleet, and more.
 
@@ -101,9 +99,54 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
   A reviewer correction is the strongest routing evidence the fleet gets: it reaches the scouts that filed or edited the report and the scouts whose `reviewer:` memory names a removed login (capped at twenty targets per correction, so on a very busy report a few can miss it), so fixing a misrouted report in place teaches the fleet who owns the surface.
   The forwarded note carries GitHub logins and is written only when the corrector holds skill-editor access on the canonical project, so a correction made without that access, or one that only adds or removes a `user_uuid` reviewer with no linked GitHub account, stays on the report and is not forwarded.
   The discussion and rating paths demand the full notes-write authorization (skill-editor access plus the `signal_scout:write` / `llm_skill:write` key scopes), so a note typed by someone without it is not forwarded: a discussion question still lives on the report's thread, but a rating note survives only in the analytics event, so if it must reach the scout, have someone authorized leave it as a scout note.
+- **Resolving a report is not the end of it — a check measures whether the fix held.** A **check** is a follow-up measurement a scout (or the report pipeline) attaches to a report: one expectation, and a time to test it. Resolving the report starts its clock, and after a soak window — 24 hours by default, longer for a fix that reaches users slowly, like a mobile release or a cached client bundle — it re-measures, and the verdict lands on the report. So "did that actually work?" becomes a stored fact instead of something somebody has to remember to go and re-derive.
+  Three things this changes in how you work:
+  - **Read a resolved report's checks before you call it done.** `posthog:inbox-report-checks-list` shows each check's `status` and `last_outcome`. A check still open means a verdict is coming, so there is no need to re-measure by hand. Reading the rows is `exploring-scouts`' job.
+  - **A failed check means the fix did not hold**, and the relapse is filed as a fresh report linked back to the resolved one rather than reopening it — a resolved report has left the inbox, so nothing there would be read. Treat that new report as the live item.
+  - **Resolve honestly, and resolve on the merge.** A check dated from a premature resolve measures the window before the fix shipped and can fail a fix that worked.
+    Checks are written only by scout runs and by the pipeline; there is no create surface for a person, so if a resolved report should be re-measured and carries no check, the lever is the scout — a note asking it to attach one, or a skill edit via `authoring-scouts`.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
   A reviewer is a PostHog user: a scout routes by `user_uuid` (any org member, no GitHub account needed) or by `github_login` (matched against the member's linked GitHub identity), and `is_suggested_reviewer` flips for the viewer on either match.
   If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a fleet-wide routing note (`posthog:scout-notes-create` with no `skill_name`, "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area. A `pipeline:report-research` note steers only the reports the pipeline builds from clustered signals; a scout that authors reports directly sets `suggested_reviewers` itself and never reads that audience.
+
+## Auditing what a scout changed
+
+A scout that holds `write_scopes` (granted via `authoring-scouts`) changes real objects in the project, and each change lands in the project's **activity log** like any other edit.
+The row names the scout's **acting user**, the person whose identity the run mints its token as, and carries the server-derived `scout:<skill_name>` client tag.
+The tag identifies the scout but not the run or the scopes it held.
+Auditing one run still requires its time window and a cross-check against its close-out.
+
+To reconstruct one run's changes:
+
+1. **Read the run** (`posthog:scout-runs-retrieve`) for `started_at`, `completed_at`, `metadata.write_scopes` (present only when the run actually held a grant), and the close-out `summary`. The run prompt asks a granted scout to name every object it changed.
+2. **Check history availability.** Follow the reader guidance supplied by MCP when activity history is available. If a reader is unavailable or access is denied, record that limitation and stop using that reader for the run; do not retry its discovery or probe endpoints to bypass the restriction. Other advertised, authorized readers, including per-object history, remain usable. Skip only checks that have no available reader.
+3. **Confirm attribution.** The run window can include the acting user's other writes. History that cannot distinguish those writes does not establish which changes the scout made.
+4. **Cross-check against the close-out.** A row the summary does not mention, or a change the summary claims with no row behind it, is the thing to look at.
+
+Which `scopes` value each granted scope writes under:
+
+| Granted write scope     | Activity `scopes` value                       |
+| ----------------------- | --------------------------------------------- |
+| `dashboard:write`       | `Dashboard`                                   |
+| `insight:write`         | `Insight`                                     |
+| `annotation:write`      | `Annotation`                                  |
+| `alert:write`           | `AlertConfiguration`                          |
+| `warehouse_view:write`  | `DataWarehouseSavedQuery`, `DataQualityCheck` |
+| `warehouse_table:write` | `DataQualityCheck`                            |
+| `llm_skill:write`       | `PersonalAPIKey`                              |
+
+Pass `Notebook` as well, whatever the grant says: notebooks are the floor write every scout holds, so any scout can leave rows under that scope.
+Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
+The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
+
+Four caveats change what the answer means:
+
+- **The window is not an attribution.** Without a scout tag, the window can include the acting user's other writes. Even with a tag, overlapping runs of the same scout can share it. Compare actors, items, and timestamps with the close-out.
+- **History access is optional.** Permissions, the Cloud Audit Logs entitlement, and the plan's retention window can make history unavailable. Missing history does not establish that a run made no changes. Defer conclusions that depend on it and continue independent checks; a confirmed access restriction is not a missing-tool defect.
+- **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
+  It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.
+  Keep `Notebook` in the filter for a dry-run window.
+- **A refused write is not logged, because it never happened.** The grant is an upper bound and the acting user's own permissions still apply, so a close-out that reports a refused write will have no matching row. That is the expected pairing, not a discrepancy.
 
 ## The steering ladder
 
@@ -119,7 +162,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
    Address `skill_name: "pipeline:report-research"` to steer how the pipeline researches, judges, and routes the reports it builds from clustered signals. Scout-authored reports never pass through that stage, so a routing rule for them goes in a fleet-wide note (no `skill_name`) or a per-scout note.
 4. **Tune the config** (`posthog:scout-config-update`).
-   Right for: _when, whether, and where_ it runs, not _what it looks at_; slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`), deliver its reports to a Slack channel or DM as well as the inbox (`output_destinations.slack`), or pin the model it runs on (`model`).
+   Right for: _when and whether_ it runs, and _what it can reach_, but not _what it investigates_; slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), give a code scout a checkout (`repositories=["organization/repository"]`, read-only), exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`), deliver its reports to a Slack channel or DM as well as the inbox (`output_destinations.slack`), or pin the model it runs on (`model`).
 5. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
    For a **custom scout** this is the strongest steer there is: the skill body is yours, edit it freely — it's where recurring notes and repeated dismissal reasons should end up.
@@ -178,3 +221,5 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "The scouts are too noisy / too quiet"                 | Calibration pass above; then the steering ladder against the specific offender                            |
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
+| "What did this scout change?"                          | "Auditing what a scout changed" above: the run window and available history                               |
+| "Did that fix actually hold?"                          | `posthog:inbox-report-checks-list` on the resolved report; mechanics in `authoring-scouts`                |

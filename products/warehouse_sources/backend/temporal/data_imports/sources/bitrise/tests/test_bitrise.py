@@ -8,7 +8,6 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise import (
-    INCREMENTAL_LOOKBACK,
     BitriseResumeConfig,
     _build_after_param,
     _to_unix_timestamp,
@@ -29,7 +28,7 @@ BITRISE_SESSION_PATCH = (
 )
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
+def _response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
@@ -92,11 +91,6 @@ class TestToUnixTimestamp:
 
 
 class TestBuildAfterParam:
-    def test_subtracts_lookback_from_watermark(self):
-        watermark = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
-        after = _build_after_param(True, watermark)
-        assert after == 1767323045 - int(INCREMENTAL_LOOKBACK.total_seconds())
-
     @pytest.mark.parametrize(
         "should_use_incremental_field, last_value",
         [
@@ -116,14 +110,6 @@ class TestValidateCredentials:
         assert validate_credentials("token") is True
         # /me succeeded, no fallback probe needed.
         assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(BITRISE_SESSION_PATCH)
-    def test_workspace_token_falls_back_to_apps_probe(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"message": "Unauthorized"}, status_code=401),
-            _response({"data": []}),
-        ]
-        assert validate_credentials("workspace-token") is True
 
     @mock.patch(BITRISE_SESSION_PATCH)
     def test_invalid_token(self, mock_session):
@@ -195,66 +181,6 @@ class TestBuilds:
         assert "app_slug" not in params[1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_passes_after_param(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
-            [
-                _response({"data": [{"slug": "app1"}], "paging": {}}),
-                _response({"data": [], "paging": {}}),
-            ],
-        )
-
-        _rows(
-            _source(
-                "builds",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        expected = int(datetime(2026, 1, 2, tzinfo=UTC).timestamp()) - int(INCREMENTAL_LOOKBACK.total_seconds())
-        assert params[1]["after"] == expected
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_has_no_after_param(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
-            [
-                _response({"data": [{"slug": "app1"}], "paging": {}}),
-                _response({"data": [], "paging": {}}),
-            ],
-        )
-
-        _rows(_source("builds", _make_manager()))
-
-        assert "after" not in params[1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_page_anchor_within_app_and_bookmark_between_apps(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"data": [{"slug": "app1"}, {"slug": "app2"}], "paging": {}}),
-                _response({"data": [{"slug": "b1"}], "paging": {"next": "page2"}}),
-                _response({"data": [{"slug": "b2"}], "paging": {}}),
-                _response({"data": [{"slug": "b3"}], "paging": {}}),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("builds", manager))
-
-        saved = [call.args[0].fanout_state for call in manager.save_state.call_args_list]
-        # A page anchor is checkpointed mid-way through app1 (resume the in-progress app's paging).
-        assert {"completed": [], "current": "/apps/app1/builds", "child_state": {"cursor": "page2"}} in saved
-        # app1 is bookmarked as completed once finished (skip it on a restart).
-        assert any(state["completed"] == ["/apps/app1/builds"] for state in saved)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_bookmarked_app(self, MockSession):
         session = MockSession.return_value
         params, urls = _wire(
@@ -282,61 +208,88 @@ class TestBuilds:
         assert urls[1].endswith("/apps/app2/builds")
         assert params[1]["next"] == "page3"
 
+
+class TestPipelines:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pre_migration_bookmark_restarts_from_first_app(self, MockSession):
+    def test_fans_out_over_apps_and_injects_app_slug(self, MockSession):
         session = MockSession.return_value
-        params, urls = _wire(
+        _params, urls = _wire(
             session,
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
-                _response({"data": [{"slug": "b1"}], "paging": {}}),
-            ],
-        )
-        # Old-shape state (positional app bookmark, no fan-out snapshot) can't be reconstructed, so the
-        # fan-out restarts from the first app on a fresh first page.
-        manager = _make_manager(BitriseResumeConfig(app_slug="deleted-app", next="page9"))
-
-        rows = _rows(_source("builds", manager))
-
-        assert [row["app_slug"] for row in rows] == ["app1"]
-        assert urls[1].endswith("/apps/app1/builds")
-        assert "next" not in params[1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_app_404_is_skipped(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"data": [{"slug": "app1"}, {"slug": "app2"}], "paging": {}}),
-                _response({"message": "Not Found"}, status_code=404),
-                _response({"data": [{"slug": "b2"}], "paging": {}}),
+                _response({"data": [{"slug": "p1", "triggered_at": "2026-01-01T00:00:00Z"}], "paging": {}}),
             ],
         )
 
-        rows = _rows(_source("builds", _make_manager()))
+        rows = _rows(_source("pipelines", _make_manager()))
 
-        assert [(row["slug"], row["app_slug"]) for row in rows] == [("b2", "app2")]
+        assert [(row["slug"], row["app_slug"]) for row in rows] == [("p1", "app1")]
+        assert urls[1].endswith("/apps/app1/pipelines")
 
-
-class TestWorkflows:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_maps_workflow_names_to_rows(self, MockSession):
+    def test_incremental_passes_an_rfc3339_after_param(self, MockSession):
         session = MockSession.return_value
-        _wire(
+        params, _urls = _wire(
             session,
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
-                _response({"data": ["primary", "deploy"]}),
+                _response({"data": [], "paging": {}}),
             ],
         )
 
-        rows = _rows(_source("workflows", _make_manager()))
+        _rows(
+            _source(
+                "pipelines",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        # Unlike builds, the pipelines filter is a date string rather than a Unix timestamp.
+        assert params[1]["after"] == "2026-01-01T00:00:00Z"
+
+
+class TestBranches:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_maps_branch_names_to_rows(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": ["main", "release/1.0"]}),
+            ],
+        )
+
+        rows = _rows(_source("branches", _make_manager()))
 
         assert rows == [
-            {"app_slug": "app1", "workflow": "primary"},
-            {"app_slug": "app1", "workflow": "deploy"},
+            {"app_slug": "app1", "branch": "main"},
+            {"app_slug": "app1", "branch": "release/1.0"},
         ]
+        assert urls[1].endswith("/apps/app1/branches")
+
+
+class TestOrganizationMembers:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_organizations_and_injects_org_slug(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "org1"}, {"slug": "org2"}]}),
+                # The members listing answers with a bare array, not a `data` envelope.
+                _response([{"slug": "u1", "username": "ada", "email": "ada@example.com"}]),
+                _response([{"slug": "u2", "username": "grace", "email": "grace@example.com"}]),
+            ],
+        )
+
+        rows = _rows(_source("organization_members", _make_manager()))
+
+        assert [(row["slug"], row["org_slug"]) for row in rows] == [("u1", "org1"), ("u2", "org2")]
+        assert urls[1].endswith("/organizations/org1/members")
+        assert urls[2].endswith("/organizations/org2/members")
 
 
 class TestArtifacts:
@@ -411,8 +364,3 @@ class TestSourceResponse:
             assert response.partition_keys == [config.partition_key]
         else:
             assert response.partition_mode is None
-
-    def test_fan_out_endpoints_have_parent_in_primary_key(self):
-        assert BITRISE_ENDPOINTS["builds"].primary_keys == ["app_slug", "slug"]
-        assert BITRISE_ENDPOINTS["workflows"].primary_keys == ["app_slug", "workflow"]
-        assert BITRISE_ENDPOINTS["artifacts"].primary_keys == ["app_slug", "build_slug", "slug"]

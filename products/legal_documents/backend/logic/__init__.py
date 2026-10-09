@@ -12,6 +12,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
@@ -71,7 +72,7 @@ def template_id_matches_document(document: LegalDocument, template_id: str) -> b
     """
     expected = _pandadoc_template_id_for(document.document_type)
     # If the env var isn't configured we skip the check rather than block every
-    # webhook — verify_webhook_signature already proves provenance.
+    # webhook, because the HMAC check on the raw body already proves provenance.
     return not expected or expected == template_id
 
 
@@ -160,12 +161,6 @@ def create_document(
     )
 
 
-def mark_document_signed(document: LegalDocument) -> LegalDocument:
-    document.status = LegalDocument.Status.SIGNED
-    document.save(update_fields=["status", "updated_at"])
-    return document
-
-
 def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     """
     Conditional UPDATE that re-asserts the row was still `submitted_for_signature`
@@ -174,6 +169,9 @@ def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     concurrent `document.completed` webhook may have already signed the row.
     Losing that race must skip the caller's side effects (BAA opt-out email)
     rather than re-fire them, so the caller only proceeds when this returns True.
+
+    The inbound webhook takes the same route: PandaDoc sends no delivery id, so
+    ingress cannot dedup and two deliveries reach the handler as equals.
     """
     updated = LegalDocument.objects.filter(id=document.id, status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE).update(
         status=LegalDocument.Status.SIGNED, updated_at=timezone.now()
@@ -187,7 +185,18 @@ def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
     return document
 
 
-# PandaDoc status string for a fully-signed envelope. Mirrors the webhook layer.
+def schedule_pdf_archive(document: LegalDocument, delay_seconds: int = 0) -> None:
+    # Local import breaks the logic ⇄ tasks import cycle (tasks import the facade,
+    # which imports this module).
+    from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
+
+    document_id = str(document.id)
+    transaction.on_commit(
+        lambda: archive_signed_legal_document_pdf.apply_async(args=[document_id], countdown=delay_seconds)
+    )
+
+
+# PandaDoc status string for a fully-signed envelope.
 PANDADOC_COMPLETED_STATUS = "document.completed"
 
 # PandaDoc status string for an envelope stuck before its signing email ever went

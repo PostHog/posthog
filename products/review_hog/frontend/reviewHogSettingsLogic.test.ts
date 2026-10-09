@@ -63,7 +63,6 @@ describe('reviewHogSettingsLogic', () => {
                     200,
                     {
                         review_inbox_prs: false,
-                        review_labeled_prs: true,
                         resolve_comments: true,
                         urgency_threshold: 'should_fix',
                     },
@@ -104,6 +103,46 @@ describe('reviewHogSettingsLogic', () => {
         // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
         // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
+    })
+
+    it('following the project default writes the project value, so the server drops the own value', async () => {
+        const patches: Record<string, unknown>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/settings/': () => [
+                    200,
+                    {
+                        urgency_threshold: 'must_fix',
+                        sources: { urgency_threshold: 'user' },
+                        project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [
+                        200,
+                        {
+                            urgency_threshold: 'should_fix',
+                            sources: { urgency_threshold: 'project' },
+                            project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.followProjectDefault('urgency_threshold')).toDispatchActions([
+            'updateSettings',
+            'updateSettingsSuccess',
+        ])
+
+        expect(patches).toEqual([{ urgency_threshold: 'should_fix' }])
+        expect(logic.values.settings?.sources.urgency_threshold).toBe('project')
     })
 
     it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
@@ -186,6 +225,32 @@ describe('reviewHogSettingsLogic', () => {
         expect(requestBody).toMatchObject({ run_mode: 'resolve_only' })
     })
 
+    it('a flash run sends its mode and arms the review watch like a review', async () => {
+        // Flash creates a report row like any review, so the watch must arm; dropping run_mode
+        // would silently run the full pipeline (and resolve comments) under the flash button.
+        let requestBody: Record<string, unknown> | null = null
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [202, { workflow_id: 'wf-flash-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash))
+            .toDispatchActions(['submitTriggerReview', 'startTriggeredReviewWatch', 'submitTriggerReviewFinished'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '' })
+        expect(requestBody).toMatchObject({ run_mode: 'flash' })
+    })
+
     it.each([
         ['already_reviewed', 200, ''],
         ['joined_running_review', 202, 'wf-running'],
@@ -203,7 +268,6 @@ describe('reviewHogSettingsLogic', () => {
         ])
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
-        // Arming the watch here would poll for two minutes waiting for a run that never starts.
         await expectLogic(logic, () => logic.actions.submitTriggerReview())
             .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
             .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
@@ -380,6 +444,21 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
         router.actions.push(urls.codeReview(), {})
         expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('opens the tab from ?tab= and mirrors tab changes back to the URL', async () => {
+        logic.mount()
+        router.actions.push(urls.codeReview(), { tab: 'settings' })
+        expect(logic.values.activeTab).toBe('settings')
+
+        // Activity is the default, so it keeps the URL clean; other params survive the write.
+        router.actions.push(urls.codeReview(), { tab: 'settings', reviews_scope: 'everyone' })
+        logic.actions.setActiveTab('activity')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        expect(router.values.searchParams.reviews_scope).toBe('everyone')
+
+        logic.actions.setActiveTab('settings')
+        expect(router.values.searchParams.tab).toBe('settings')
     })
 
     it('closes a deep-linked drawer when the review fails to load', async () => {

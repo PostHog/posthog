@@ -3,6 +3,7 @@
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     Author,
     BranchPRMatch,
     CICardSummary,
@@ -58,6 +59,7 @@ class PRLifecycleEventSerializer(DataclassSerializer):
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "kind": {
                 "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, "
                 "ci_finished, merged, or closed."
@@ -83,7 +85,7 @@ class PRLifecycleSerializer(DataclassSerializer):
         dataclass = PRLifecycle
         extra_kwargs = {
             "metric_quality": {
-                "help_text": "Always 'partial' — CI events only; reviews and comments are not yet available.",
+                "help_text": "Always 'partial': CI events only; reviews and comments are not yet available.",
             },
         }
 
@@ -102,7 +104,7 @@ class CIFailureLogsSerializer(DataclassSerializer):
                 "help_text": "Workflow runs attributed to the PR (across all its pushes) that were searched for logs.",
             },
             "logs_available": {
-                "help_text": "False when no failure logs were found — CI hasn't failed, the logs aged out of the "
+                "help_text": "False when no failure logs were found: CI hasn't failed, the logs aged out of the "
                 "short Logs retention, or a fork PR carries no run association to resolve.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
@@ -129,7 +131,8 @@ class RunCostSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id this cost is for."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
             "estimated_cost_usd": {
@@ -164,7 +167,7 @@ class PRCostSummarySerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text="Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when "
-        "no generation matched — independent of the CI cost figures, so it can be present even when "
+        "no generation matched: independent of the CI cost figures, so it can be present even when "
         "jobs_available is false. The UI hides the row when null.",
     )
 
@@ -172,7 +175,7 @@ class PRCostSummarySerializer(DataclassSerializer):
         dataclass = PRCostSummary
         extra_kwargs = {
             "jobs_available": {
-                "help_text": "False when the job-level source (github_workflow_jobs) isn't synced — every "
+                "help_text": "False when the job-level source (github_workflow_jobs) isn't synced: every "
                 "figure is then zero/null and the cost cards should be hidden.",
             },
             "billable_minutes": {
@@ -186,10 +189,10 @@ class PRCostSummarySerializer(DataclassSerializer):
             },
             "costed_jobs": {"help_text": "Jobs counted in the estimate (billable Linux runner, finished)."},
             "unsettled_jobs": {
-                "help_text": "Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate.",
+                "help_text": "Billable Linux jobs still queued/running (no elapsed): excluded from the estimate.",
             },
             "excluded_jobs": {
-                "help_text": "Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate.",
+                "help_text": "Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners: outside the estimate.",
             },
         }
 
@@ -202,6 +205,11 @@ class CIStatusRollupSerializer(DataclassSerializer):
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
             "failing": {"help_text": "Latest runs that ended in failure, timeout, startup failure, or staleness."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "inconclusive": {
+                "help_text": "Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, "
+                "neutral, or action required. Together with the three counts above this covers every run, so "
+                "a PR whose CI was entirely cancelled is not readable as passing."
+            },
             "failing_workflows": {
                 "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
                 "leaving a bare count."
@@ -280,14 +288,31 @@ class PullRequestListItemSerializer(DataclassSerializer):
 
 
 class PullRequestListSerializer(DataclassSerializer):
-    items = PullRequestListItemSerializer(many=True, help_text="Pull requests, newest first, capped at `limit`.")
+    items = PullRequestListItemSerializer(
+        many=True, help_text="This page of pull requests, newest first, capped at `limit`."
+    )
 
     class Meta:
         dataclass = PullRequestList
         extra_kwargs = {
             "truncated": {
-                "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
-                "and the aggregate counts in ci_cards can exceed it.",
+                "help_text": "True when more pull requests match after this page; call again with `offset` "
+                "increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`.",
+            },
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class AttentionPullRequestListSerializer(DataclassSerializer):
+    items = PullRequestListItemSerializer(
+        many=True, help_text="Open pull requests needing attention, failing CI first, then newest, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = AttentionPullRequestList
+        extra_kwargs = {
+            "total": {
+                "help_text": "Number of open pull requests needing attention, including the ones past the cap.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }
@@ -298,7 +323,7 @@ class BranchPRMatchSerializer(DataclassSerializer):
         dataclass = BranchPRMatch
         extra_kwargs = {
             "repo": {"help_text": "Repository the pull request belongs to, as 'owner/name'."},
-            "number": {"help_text": "Pull request number within the repository — pair with `repo` to link to it."},
+            "number": {"help_text": "Pull request number within the repository: pair with `repo` to link to it."},
             "title": {
                 "help_text": "Pull request title, or null when the snapshot carries no title.",
                 "allow_null": True,

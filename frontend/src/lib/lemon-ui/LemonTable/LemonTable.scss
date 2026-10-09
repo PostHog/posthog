@@ -386,3 +386,71 @@ body:not(.storybook-test-runner) {
         }
     }
 }
+
+// One rounded corner of the table's border box, centered on `$origin`: the header background inside the
+// curve, the border on it, and the page background outside it. The page background matches SceneStickyBar,
+// which sits above a pinned header, and hides the rows that scroll behind the corner.
+@function lemon-table-corner($origin) {
+    @return radial-gradient(
+        circle at $origin,
+        var(--lemon-table-background-color) calc(var(--radius) - 1.5px),
+        var(--color-border-primary) calc(var(--radius) - 1px),
+        var(--color-border-primary) calc(var(--radius) - 0.5px),
+        var(--color-bg-primary) var(--radius)
+    );
+}
+
+// Sticky header: the header row pins to the scene's scroll container, from the same breakpoint as
+// SceneStickyBar. A sticky element pins to its nearest scroll container, so the table must not be one.
+// `overflow: clip` still clips (rounded corners, wide content) but does not make a scroll container.
+// LemonTable only adds the class while the table fits its container, so nothing needs to scroll horizontally.
+// Stickiness is disabled in snapshots due to flakiness, the same as sticky columns.
+body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
+    @container main-content (min-width: 42rem) {
+        overflow: clip;
+
+        // Let the header paint over the table's 1px border, so that the pinned header can draw its own
+        // top border and rounded corners. The table's top edge is scrolled away at that point.
+        overflow-clip-margin: 1px;
+
+        > .ScrollableShadows,
+        > .ScrollableShadows > .ScrollableShadows__inner {
+            overflow: clip !important; // Override the inline overflow style of the scroll viewport
+            overflow-clip-margin: 1px;
+        }
+
+        .LemonTable__content > table > thead {
+            position: sticky;
+
+            // The extra 1px leaves room for the header's top border, which ::before draws above the header.
+            top: calc(var(--lemon-table-sticky-header-top, 0px) + 1px);
+            z-index: 7; // Above sticky and pinned cells (6), below the scrollable shadows (8)
+
+            > tr > th {
+                background: var(--lemon-table-background-color);
+            }
+
+            // The table's top border and rounded corners scroll away when the header pins, so the header
+            // draws a copy of them. At rest the copy lies exactly over the table's own border,
+            // so it only shows once the header pins.
+            &::before {
+                position: absolute;
+                inset: -1px -1px auto;
+                z-index: 7; // Above sticky and pinned header cells (6)
+                height: var(--radius);
+                pointer-events: none;
+                content: '';
+                background:
+                    lemon-table-corner(100% 100%) left top / var(--radius) var(--radius) no-repeat,
+                    lemon-table-corner(0 100%) right top / var(--radius) var(--radius) no-repeat,
+                    linear-gradient(var(--color-border-primary), var(--color-border-primary)) top / 100% 1px no-repeat;
+            }
+        }
+
+        // Keep the loading overlay above the sticky header, so the header cannot be used while the table loads.
+        // The overlay comes after the table in the DOM, so at the same z-index it paints above the header.
+        &.LemonTable--loading .LemonTable__overlay {
+            z-index: 7;
+        }
+    }
+}

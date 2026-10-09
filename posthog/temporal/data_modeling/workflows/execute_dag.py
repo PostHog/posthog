@@ -7,6 +7,7 @@ from collections import defaultdict
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
@@ -18,6 +19,7 @@ from posthog.temporal.data_modeling.activities import (
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
+    check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
@@ -33,6 +35,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
+    _is_cancellation,
 )
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
@@ -41,7 +44,23 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
-NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
+TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
+TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=12)
+
+
+def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
+    """The fixed id of the Trino shadow run for the DAG run with this workflow id.
+
+    Tier schedule runs are `execute-dag-{dag_id}:{tier}-{timestamp}`, so each cadence tier gets
+    its own shadow id. Any other run shares one id per DAG. A fixed id lets Temporal refuse a
+    second shadow while the previous one is still running.
+    """
+    tier_prefix = f"execute-dag-{dag_id}:"
+    if workflow_id.startswith(tier_prefix):
+        tier = workflow_id[len(tier_prefix) :].split("-", 1)[0]
+        if tier:
+            return f"execute-dag-trino-{dag_id}:{tier}"
+    return f"execute-dag-trino-{dag_id}"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -59,6 +78,8 @@ class ExecuteDAGInputs:
         dag_id: the DAG to execute.
         node_ids: optional list of specific node IDs to materialize. If not provided,
             all materializable nodes in the DAG will be processed.
+        shadow: a Trino shadow of a ClickHouse run. Its failures stay in job rows and metrics,
+            so it runs no data quality checks and sends no failure notifications.
     """
 
     team_id: int
@@ -68,6 +89,7 @@ class ExecuteDAGInputs:
     dangerously_execute_raw_sql: bool = False
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
+    shadow: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -76,6 +98,13 @@ class ExecuteDAGInputs:
             "dag_id": self.dag_id,
             "node_ids": self.node_ids,
         }
+
+
+def _serving_engine(inputs: ExecuteDAGInputs) -> str:
+    engine = (
+        DataModelingJobEngine.MANAGED_WAREHOUSE if inputs.managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
+    )
+    return engine.value
 
 
 @dataclasses.dataclass(frozen=False)
@@ -91,6 +120,7 @@ class NodeResult:
     skip_reason: str | None = None
     quality_failed: bool = False
     quality_audited: bool = False
+    trino_materialized: bool | None = None
 
 
 @dataclasses.dataclass
@@ -218,6 +248,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
                 node_ids=inputs.node_ids,
+                engine=_serving_engine(inputs),
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
@@ -266,6 +297,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
+        if not inputs.managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_DAG_RUN_PATCH):
+            await self._maybe_start_trino_shadow(inputs)
+
         edge_lookup = _get_edge_lookup(dag_structure.edges)
         levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_nodes, edge_lookup)
 
@@ -284,12 +318,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
         managed_warehouse_only = inputs.managed_warehouse_only
-        serving_engine = (
-            DataModelingJobEngine.MANAGED_WAREHOUSE if managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
-        ).value
+        serving_engine = _serving_engine(inputs)
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
+        unavailable_trino_nodes: set[str] = set(dag_structure.suspended_nodes.get("managed_warehouse", []))
+        skipped_trino_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
         # all levels to be a friendlier neighbor to managed warehouse and ClickHouse infrastructure
@@ -372,15 +406,38 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
             async def _run_child(node_id: str) -> NodeResult:
                 async with semaphore:
+                    blocked_trino_upstreams = sorted(
+                        upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream]
+                    )
+                    child_inputs = MaterializeViewWorkflowInputs(
+                        team_id=inputs.team_id,
+                        dag_id=inputs.dag_id,
+                        node_id=node_id,
+                        managed_warehouse_only=managed_warehouse_only,
+                        dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        skip_trino=bool(blocked_trino_upstreams),
+                    )
+                    trino_skip = (
+                        SkippedDataModelingNode(
+                            node_id=node_id,
+                            failed_upstream_node_ids=blocked_trino_upstreams[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                            failed_upstream_total=len(blocked_trino_upstreams),
+                        )
+                        if blocked_trino_upstreams
+                        else None
+                    )
+                    if trino_skip is not None and managed_warehouse_only:
+                        skipped_trino_jobs.append(trino_skip)
+                        return NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            skipped=True,
+                            skip_reason="Upstream Trino materialization unavailable",
+                            trino_materialized=False,
+                        )
                     handle = await temporalio.workflow.start_child_workflow(
                         MaterializeViewWorkflow.run,
-                        MaterializeViewWorkflowInputs(
-                            team_id=inputs.team_id,
-                            dag_id=inputs.dag_id,
-                            node_id=node_id,
-                            managed_warehouse_only=managed_warehouse_only,
-                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
-                        ),
+                        child_inputs,
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                         retry_policy=temporalio.common.RetryPolicy(
@@ -389,6 +446,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     try:
                         result: MaterializeViewWorkflowResult = await handle
+                        if trino_skip is not None and result.trino_materialized is False:
+                            skipped_trino_jobs.append(trino_skip)
                         if result.quality_blocking_failures is not None and result.quality_blocking_failures > 0:
                             temporalio.workflow.logger.warning(
                                 f"Node {node_id} materialized but was not published: "
@@ -412,6 +471,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             rows_materialized=result.rows_materialized,
                             duration_seconds=result.duration_seconds,
                             quality_audited=result.quality_audited,
+                            trino_materialized=result.trino_materialized,
                         )
                     except temporalio.exceptions.ChildWorkflowError as e:
                         error_message = str(e.cause) if e.cause else str(e)
@@ -440,6 +500,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             level_results = await asyncio.gather(*[_run_child(node_id) for node_id in execute_nodes])
             for nr in level_results:
                 node_results.append(nr)
+                if nr.trino_materialized is True:
+                    unavailable_trino_nodes.discard(nr.node_id)
+                if nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None):
+                    unavailable_trino_nodes.add(nr.node_id)
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
@@ -453,6 +517,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=serving_engine,
                     skipped_nodes=skipped_jobs,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+
+        if skipped_trino_jobs:
+            await temporalio.workflow.execute_activity(
+                record_skipped_data_modeling_jobs_activity,
+                RecordSkippedDataModelingJobsInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=DataModelingJobEngine.MANAGED_WAREHOUSE.value,
+                    skipped_nodes=skipped_trino_jobs,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
@@ -486,15 +563,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             dag_status = "failed"
         else:
             dag_status = "partial_failure"
-        get_dag_finished_metric(dag_status).add(1)
-        get_dag_duration_metric().record(duration_seconds)
-        get_dag_node_count_metric("successful").record(successful_nodes)
-        get_dag_node_count_metric("failed").record(failed_nodes)
-        get_dag_node_count_metric("skipped").record(skipped_nodes)
+        engine = _serving_engine(inputs)
+        get_dag_finished_metric(dag_status, engine).add(1)
+        get_dag_duration_metric(engine).record(duration_seconds)
+        get_dag_node_count_metric("successful", engine).record(successful_nodes)
+        get_dag_node_count_metric("failed", engine).record(failed_nodes)
+        get_dag_node_count_metric("skipped", engine).record(skipped_nodes)
 
-        await self._run_data_quality_checks(inputs, node_results)
+        if not inputs.shadow:
+            await self._run_data_quality_checks(inputs, node_results)
 
-        if failed_nodes:
+        if failed_nodes and not inputs.shadow:
             await temporalio.workflow.execute_activity(
                 notify_dag_materialization_failures_activity,
                 NotifyDAGMaterializationFailuresInputs(
@@ -517,6 +596,50 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             node_results=node_results,
         )
 
+    async def _maybe_start_trino_shadow(self, inputs: ExecuteDAGInputs) -> None:
+        """Start a managed_warehouse_only run of the same nodes when the org shadows into Trino.
+
+        ABANDON and never awaited, so the Trino runtime can neither delay nor fail this run. When
+        the previous shadow of this tier is still running, this one is skipped rather than
+        restarting it, so a slow Trino never builds a backlog.
+        """
+        try:
+            eligible = await temporalio.workflow.execute_activity(
+                check_team_managed_warehouse_shadow_eligibility_activity,
+                inputs.team_id,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+            if not eligible:
+                return
+            await temporalio.workflow.start_child_workflow(
+                ExecuteDAGWorkflow.run,
+                ExecuteDAGInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    node_ids=inputs.node_ids,
+                    managed_warehouse_only=True,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    shadow=True,
+                ),
+                id=trino_shadow_workflow_id(temporalio.workflow.info().workflow_id, inputs.dag_id),
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                # Later shadows of this tier are skipped while one runs, so a hung run must end.
+                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            temporalio.workflow.logger.info(
+                "Previous Trino shadow run is still running, skipping", extra=inputs.properties_to_log
+            )
+        except Exception as e:
+            if _is_cancellation(e):
+                raise
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the Trino shadow run", extra={"error": str(e), **inputs.properties_to_log}
+            )
+
     async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
         """Fire the check suite for the nodes this run refreshed but did not audit per-node.
 
@@ -528,17 +651,11 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        # Filtering can empty the list and skip the commands below, so an old history that recorded
-        # them has to keep taking the old path. A rolling deploy reaches this: an old worker can
-        # record those commands against a new child's quality_audited result.
-        if temporalio.workflow.patched(NODE_AUDIT_PATCH):
-            checkable_node_ids = [
-                result.node_id
-                for result in node_results
-                if result.success and not result.skipped and not result.quality_audited
-            ]
-        else:
-            checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
+        checkable_node_ids = [
+            result.node_id
+            for result in node_results
+            if result.success and not result.skipped and not result.quality_audited
+        ]
         if not checkable_node_ids:
             return
 

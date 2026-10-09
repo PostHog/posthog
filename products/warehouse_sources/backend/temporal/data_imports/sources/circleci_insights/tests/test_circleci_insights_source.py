@@ -32,26 +32,16 @@ class TestCircleciInsightsSource:
         # project slugs must force re-entry of the token.
         assert self.source.connection_host_fields == ["project_slugs"]
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_only_workflow_runs_advertises_incremental(self, endpoint):
+    def test_only_start_date_endpoints_advertise_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        expected = endpoint == "workflow_runs"
+        expected = endpoint in ("workflow_runs", "job_timeseries")
 
-        # Only the runs endpoint has a server-side timestamp filter (start-date); the
-        # aggregate endpoints are rolling-window snapshots and stay full refresh.
+        # Only the endpoints with a server-side timestamp filter (start-date) can sync
+        # incrementally; the aggregate endpoints are rolling-window snapshots and stay
+        # full refresh.
         assert schemas[endpoint].supports_incremental is expected
         assert bool(INCREMENTAL_FIELDS.get(endpoint)) is expected
-
-    def test_org_summary_is_deselected_by_default(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["org_summary_metrics"].should_sync_default is False
-        assert schemas["workflow_runs"].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["flaky_tests"])

@@ -21,6 +21,9 @@ from posthog.temporal.ai.slack_app.types import (
     SlackAppMessageReactionInput,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppModelRouterInput,
+    SlackAppProjectRoute,
+    SlackAppProjectRouteInput,
     SlackRepoSelectionOutcome,
 )
 
@@ -50,8 +53,17 @@ class _Recorder:
         self.created: list[tuple[str, str | None]] = []
         # ts -> model override the classifier returns; missing means no override.
         self.model_overrides: dict[str, SlackAppModelOverride] = {}
+        # event text -> what the model router returns; missing means it passes the override through.
+        self.routed_overrides: dict[str, SlackAppModelOverride] = {}
+        self.router_inputs: list[SlackAppModelRouterInput] = []
         # ts -> model override the create-task call actually received.
         self.created_with_override: dict[str, SlackAppModelOverride | None] = {}
+        # event text -> project route the classifier returns; missing means no route.
+        self.project_routes: dict[str, SlackAppProjectRoute] = {}
+        # ts -> integration id each activity was given, so a project the message routed
+        # itself to can be shown to reach the whole run rather than only its tail.
+        self.cascade_integration_ids: dict[str, int] = {}
+        self.created_integration_ids: dict[str, int] = {}
         # ts per hourglass reaction (message queued behind another), in execution order.
         self.queued_marked: list[str] = []
         # ts per hourglass->eyes reaction swap, in execution order.
@@ -140,6 +152,7 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage] | None = None,
         mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
+        rec.cascade_integration_ids[inputs.event["ts"]] = inputs.integration_id
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
         return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
@@ -194,6 +207,15 @@ def _fake_activities(rec: _Recorder) -> list:
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
         return rec.model_overrides.get(input.event_text)
 
+    @activity.defn(name="classify_slack_app_project_route_activity")
+    async def classify_project_route(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+        return rec.project_routes.get(input.event_text)
+
+    @activity.defn(name="classify_slack_app_model_router_activity")
+    async def route_model(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
+        rec.router_inputs.append(input)
+        return rec.routed_overrides.get(input.event_text, input.model_override)
+
     @activity.defn(name="create_posthog_code_task_for_repo_activity")
     async def create_task(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -210,6 +232,7 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> None:
         ts = inputs.event["ts"]
         rec.created_with_override[ts] = model_override
+        rec.created_integration_ids[ts] = inputs.integration_id
         reached = rec.create_reached.get(ts)
         if reached:
             reached.set()
@@ -248,6 +271,8 @@ def _fake_activities(rec: _Recorder) -> list:
         post_picker,
         block_github,
         classify_model_override,
+        classify_project_route,
+        route_model,
         create_task,
         picker_timeout,
         internal_error,
@@ -341,12 +366,12 @@ async def test_queued_messages_process_serially_in_arrival_order():
 
 @pytest.mark.asyncio
 async def test_model_override_reaches_task_creation():
-    """A mention that names a model steers only its own task; the next one in the
-    same thread goes back to the resolved preferences."""
     rec = _Recorder()
     plain, steered = _message("1.1"), _message("1.2", text="use fable for this one")
     override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    routed = SlackAppModelOverride(model="gpt-6-sol", reasoning_effort="low")
     rec.model_overrides["use fable for this one"] = override
+    rec.routed_overrides["fix the bug"] = routed
     rec.create_reached["1.1"] = asyncio.Event()
     rec.create_gates["1.1"] = asyncio.Event()
 
@@ -357,7 +382,36 @@ async def test_model_override_reaches_task_creation():
         rec.create_gates["1.1"].set()
         await asyncio.wait_for(handle.result(), timeout=30)
 
-    assert rec.created_with_override == {"1.1": None, "1.2": override}
+    assert rec.created_with_override == {"1.1": routed, "1.2": override}
+    assert [(i.model_override, i.repository) for i in rec.router_inputs] == [
+        (None, "org/auto-repo"),
+        (override, "org/auto-repo"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_project_route_reaches_the_repo_cascade_and_task_creation():
+    """A mention that names a project moves the whole run to it, not just the task.
+
+    The cascade is the assertion that matters: it reads the team's connected
+    repositories, so a rebind placed after it would pick a repo from the project the
+    mention left.
+    """
+    rec = _Recorder()
+    plain, routed = _message("1.1"), _message("1.2", text="how many signups on staging yesterday")
+    rec.project_routes["how many signups on staging yesterday"] = SlackAppProjectRoute(integration_id=77)
+    rec.create_reached["1.1"] = asyncio.Event()
+    rec.create_gates["1.1"] = asyncio.Event()
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", plain)
+        await asyncio.wait_for(rec.create_reached["1.1"].wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, routed)
+        rec.create_gates["1.1"].set()
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.cascade_integration_ids == {"1.1": 1, "1.2": 77}
+    assert rec.created_integration_ids == {"1.1": 1, "1.2": 77}
 
 
 @pytest.mark.asyncio
@@ -377,6 +431,7 @@ async def test_model_override_reaches_a_followup_without_creating_a_task():
 
     assert rec.forwarded_with_override == {"1.1": override}
     assert rec.created == []
+    assert rec.router_inputs == []
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,8 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, MutationWaiter
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
+from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, Query, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -17,8 +18,7 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, placement_for, sweep_clusters
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.deletion_targets import SQUASH_TARGETS, TargetPlacement, resolve_placements, sweep_clusters
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -27,7 +27,7 @@ def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
 
     The rewrite joins the snapshot dictionary, so the dictionary has to exist on each of them.
     """
-    return sweep_clusters(cluster, EVENTS_TARGETS)
+    return sweep_clusters(cluster, SQUASH_TARGETS)
 
 
 @dataclass
@@ -98,6 +98,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         # A host that cannot see the snapshot table reads the staged object instead, which is a
         # query rather than a table name.
         source = "QUERY %(query)s" if query else "TABLE %(table)s"
+        creds = get_clickhouse_creds(ClickHouseUser.DAGSTER_DICT_READER)
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -116,8 +117,8 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
                 "query": query,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
+                "user": creds.user,
+                "password": creds.password,
             },
         )
 
@@ -131,25 +132,10 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         [[checksum]] = results
         return checksum
 
-    @property
-    def update_table(self):
-        return EVENTS_DATA_TABLE()
-
-    @property
-    def update_commands(self):
+    def update_commands(self, partition_clause: str = "") -> set[str]:
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
         }
-
-    @property
-    def events_json_update_mutation_runner(self) -> AlterTableMutationRunner:
-        """The same person_id squash applied to the native-JSON events table — both tables must be
-        rewritten or person_id diverges between them while they coexist."""
-        return AlterTableMutationRunner(
-            table=EVENTS_JSON_DATA_TABLE,
-            commands=self.update_commands,
-            parameters={"name": self.qualified_name},
-        )
 
     @property
     def overrides_table(self):
@@ -289,15 +275,59 @@ def run_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    dictionary.update_mutation_runner.run_on_shards(cluster)
+    """Rewrite person_id on every squash target, each on the cluster whose shards carry it.
 
-    # sharded_events_json may be stored on another cluster, whose shards only its own handle
-    # enumerates. Skipping it would leave those rows on a person_id this run just squashed away,
-    # and the overrides that record the correct one are deleted immediately after.
-    placement = placement_for(cluster, EVENTS_JSON)
-    if placement is not None:
-        dictionary.events_json_update_mutation_runner.run_on_shards(placement.cluster)
+    A target's storage table can sit on a cluster whose shards only its own handle enumerates, so
+    the dispatch follows the resolved placement rather than the handle in hand. Skipping one would
+    leave its rows on a person_id this run squashed away, and the overrides that record the correct
+    one are deleted in the very next op.
+    """
+    enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
+    patch_part_placements: list[TargetPlacement] = []
+    for placement in resolve_placements(cluster, SQUASH_TARGETS):
+        if placement.target.uses_patch_parts:
+            patch_part_placements.append(placement)
+            continue
+        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
+
+    # A lightweight update whose WHERE cannot be pruned holds a block number open in every partition
+    # until it finishes, and writes each chunk as one patch part per partition it touches. One
+    # statement per partition keeps both to a single partition, so the other partitions keep merging.
+    # The patch part is written before enqueue_on_shards returns, so these run in series.
+    for placement in patch_part_placements:
+        for partition_id, shards in sorted(_shards_by_partition(placement).items()):
+            runner = dictionary.update_mutation_runner_for(placement.target.data_table, partition_id=partition_id)
+            runner.patch_parts = True
+            runner.enqueue_on_shards(placement.cluster, shards)
+
+    # Every mutation is already in flight, so these waits overlap and cost the longest rather than
+    # their sum. The capacity wait inside enqueue_on_shards is still per table and serial.
+    for handle, shard_mutations in enqueued:
+        wait_for_mutations_on_shards(handle, shard_mutations)
     return dictionary
+
+
+def _shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
+    """Every data partition of the target's table, mapped to the shards that hold it.
+
+    Every replica is read because a partition that one replica has not fetched yet still holds rows
+    that the squash must rewrite.
+    """
+    query = Query(
+        """
+        SELECT DISTINCT partition_id
+        FROM system.parts
+        WHERE database = %(database)s AND table = %(table)s AND active AND NOT startsWith(partition_id, 'patch-')
+        """,
+        {"database": settings.CLICKHOUSE_DATABASE, "table": placement.target.data_table},
+    )
+    shards_by_partition: dict[str, set[int]] = {}
+    for host, rows in placement.cluster.map_all_hosts(query).result().items():
+        assert host.shard_num is not None
+        for (partition_id,) in rows:
+            shards_by_partition.setdefault(partition_id, set()).add(host.shard_num)
+    return shards_by_partition
 
 
 @dagster.op

@@ -1,23 +1,42 @@
 import uuid
+from dataclasses import replace
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
-
-from django.test import override_settings
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ChunkSetArtefact,
+    DroppedFindingArtefact,
+    PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_ARMS_BY_TIER, ReviewTier
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
+    FLASH_LENSES,
+    REVIEW_ARMS_BY_TIER,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    SINGLE_AGENT_FLASH_ARM,
+    SINGLE_AGENT_PASS_NUMBER,
+    ReviewTier,
+)
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DroppedIssue,
+    Issue,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+)
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -29,6 +48,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_review_arm,
     load_run_issues,
     load_run_validations,
+    load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
@@ -37,12 +57,19 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
     persist_verdict,
     persist_verdicts,
+    replace_deduplicated_findings,
+    replace_dropped_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
+from products.tasks.backend.facade.run_config import ReasoningEffort
+
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 _ContentT = TypeVar("_ContentT")
 
@@ -141,7 +168,7 @@ class TestUpsertReviewReport(BaseTest):
         # path would flip a report's reviewer between turns and feed a cheap turn's findings into a
         # stronger turn's "already covered" injection; a downgrade would hand a person a cheap review.
         signal_report_id = str(uuid.uuid4())
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        with patch(_INTERNAL_FLAG, return_value=True):
             report_id = upsert_review_report(
                 team_id=self.team.id,
                 repository="o/r",
@@ -235,7 +262,7 @@ class TestUpsertReviewReport(BaseTest):
         # The tier is recorded for every team (so the label stays truthful and the tiers can be
         # compared on their traffic), but only the dogfood teams run the cheaper arm; a gate that
         # leaks the arm would cut review strength for teams nobody enrolled.
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id + 1]):
+        with patch(_INTERNAL_FLAG, return_value=False):
             report_id = upsert_review_report(
                 team_id=self.team.id,
                 repository="o/r",
@@ -514,10 +541,24 @@ class TestPersistResults(BaseTest):
         )
         assert rows.count() == 1
 
-    def test_load_run_issues_round_trips_persisted_findings_by_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("same_context", True),
+            ("changed_claim", False),
+            ("ordinal_collision", False),
+            ("changed_reviewer", False),
+            ("changed_validator", False),
+            ("changed_effort", False),
+            ("changed_mode", False),
+            ("changed_head", False),
+            ("empty", False),
+        ]
+    )
+    def test_load_run_issues_round_trips_persisted_findings_by_id(self, change: str, reuses_verdict: bool) -> None:
         # Validate + body-build reload issues from the finding rows by id (only ids cross Temporal
         # payloads): a drift between _to_finding/_from_finding, or a broken id reconstruction from
-        # issue_key, would silently feed validation wrong or missing issues.
+        # issue_key, would silently feed validation wrong or missing issues. A dropped
+        # reported_priority would make a stored P0 indistinguishable from a P1.
         a = _issue(
             "1-2-1",
             file="x.py",
@@ -526,6 +567,7 @@ class TestPersistResults(BaseTest):
             issue="problem A",
             suggestion="fix A",
             is_directly_related_to_changes=True,
+            reported_priority="P0",
         )
         b = _issue(
             "1000-2-1",
@@ -538,12 +580,60 @@ class TestPersistResults(BaseTest):
             source_perspective="review-hog-blind-spots-general",
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        persisted = persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1)
+        head_sha = "sha-1"
+        review_mode = REVIEW_MODE_FLASH
+        review_arm = FLASH_ARM
+        validation_arm = FLASH_ARM
+
+        def replace_snapshot(issues: list[Issue]) -> list[str]:
+            return replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=issues,
+                run_index=1,
+                head_sha=head_sha,
+                review_mode=review_mode,
+                review_arm=review_arm,
+                validation_arm=validation_arm,
+            )
+
+        persisted = replace_snapshot([a, b])
         assert persisted == ["1-2-1", "1000-2-1"]
 
         assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=persisted) == [a, b]
         # The id filter scopes to the requested subset (a chunk's slice of the survivors).
         assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=["1000-2-1"]) == [b]
+        persist_verdicts(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[a, b],
+            run_index=1,
+            validations={issue.id: IssueValidation(is_valid=True, argumentation="real") for issue in (a, b)},
+        )
+
+        current = [a]
+        if change == "changed_claim":
+            current = [a.model_copy(update={"issue": "A different claim at the same anchor"})]
+        elif change == "ordinal_collision":
+            current = [a.model_copy(update={"file": "another.py"})]
+        elif change == "changed_reviewer":
+            review_arm = DEFAULT_REVIEW_ARM
+        elif change == "changed_validator":
+            validation_arm = DEFAULT_VALIDATION_ARM
+        elif change == "changed_effort":
+            validation_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.HIGH)
+        elif change == "changed_mode":
+            review_mode = REVIEW_MODE_FULL
+        elif change == "changed_head":
+            head_sha = "sha-2"
+        elif change == "empty":
+            current = []
+
+        assert replace_snapshot(current) == [issue.id for issue in current]
+        assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=persisted) == current
+        validations = load_run_validations(team_id=self.team.id, report_id=report_id, run_index=1, issues=[a, b])
+        assert set(validations) == ({a.id} if reuses_verdict else set())
+        assert len(load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)) == int(reuses_verdict)
 
 
 class TestLoadValidFindings(BaseTest):
@@ -612,8 +702,34 @@ class TestLoadValidFindings(BaseTest):
             validation=IssueValidation(is_valid=True, argumentation="real"),
             run_index=1,
         )
+        finalize_review_report(
+            team_id=self.team.id, report_id=report_id, body_markdown="stored review", run_index=1, head_sha="sha-1"
+        )
+        prior_rows = list(
+            ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report_id).values_list("id", "content")
+        )
+        with self.assertRaisesMessage(ValueError, "Cannot replace findings from a completed review turn"):
+            replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[],
+                run_index=1,
+                head_sha="sha-1",
+                review_mode=REVIEW_MODE_FLASH,
+                review_arm=FLASH_ARM,
+                validation_arm=FLASH_ARM,
+            )
         new = _issue("1-1-1", file="b.py", title="run-2 finding", issue="real")
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[new], run_index=2)
+        replace_deduplicated_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[new],
+            run_index=2,
+            head_sha="sha-2",
+            review_mode=REVIEW_MODE_FULL,
+            review_arm=DEFAULT_REVIEW_ARM,
+            validation_arm=DEFAULT_VALIDATION_ARM,
+        )
         persist_verdict(
             team_id=self.team.id,
             report_id=report_id,
@@ -628,6 +744,72 @@ class TestLoadValidFindings(BaseTest):
         assert [f.title for f, _ in load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)] == [
             "run-1 finding"
         ]
+        assert (
+            list(
+                ReviewReportArtefact.objects.for_team(self.team.id)
+                .filter(report_id=report_id, id__in=[row_id for row_id, _ in prior_rows])
+                .values_list("id", "content")
+            )
+            == prior_rows
+        )
+
+
+class TestReplaceDroppedFindings(BaseTest):
+    def test_a_retry_replaces_the_record_and_no_findings_reader_sees_it(self) -> None:
+        # A retried turn keeps its index, so a record that only appends counts every attempt's drops
+        # again. A dropped finding that a findings reader picks up would post, or keep a later turn
+        # from raising the same problem.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        kept = _issue("2000-1-1", title="kept", source_perspective="flash-single-agent")
+        cut = _issue("2002-1-1", file="b.py", title="cut", priority=IssuePriority.CONSIDER)
+        repeat = _issue("2001-2-1", title="repeat", reported_priority="P1", source_perspective="flash-lens-perf")
+
+        def record_turn(dropped: list[DroppedIssue]) -> None:
+            replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[kept],
+                run_index=1,
+                head_sha="sha-1",
+                review_mode=REVIEW_MODE_FLASH,
+                review_arm=FLASH_ARM,
+                validation_arm=None,
+            )
+            replace_dropped_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                head_sha="sha-1",
+                dropped=dropped,
+                cap=6,
+                lens_part_count=2,
+            )
+
+        record_turn([DroppedIssue(issue=cut, disposition="cap", rank=7)])
+        record_turn([DroppedIssue(issue=repeat, disposition="dedup_anchor", duplicate_of=kept)])
+
+        rows = ReviewReportArtefact.objects.for_team(self.team.id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+        )
+        [dropped] = [_content_as(DroppedFindingArtefact, row.type, row.content) for row in rows]
+        assert (
+            dropped.finding.title,
+            dropped.finding.reported_priority,
+            dropped.pass_number,
+            dropped.chunk_id,
+            dropped.disposition,
+            dropped.duplicate_of,
+            (dropped.cap, dropped.lens_part_count),
+        ) == ("repeat", "P1", 2001, 2, "dedup_anchor", "r1:a.py:10:flash-single-agent:2000-1-1", (6, 2))
+        finalize_review_report(
+            team_id=self.team.id, report_id=report_id, body_markdown="b", run_index=1, head_sha="sha-1"
+        )
+        assert [f.title for f, _ in load_turn_findings(team_id=self.team.id, report_id=report_id, run_index=1)] == [
+            "kept"
+        ]
+        assert [
+            f.title for f in load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=2)
+        ] == ["kept"]
 
 
 class TestLoadRunValidations(BaseTest):
@@ -780,16 +962,124 @@ class TestWorkingState(BaseTest):
 
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
-    def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_arm(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
         }
-        persist_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
-        loaded = load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        ReviewReportArtefact.add_working_state(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            content=PerspectiveResultArtefact(
+                head_sha="sha-aaa", pass_number=1, chunk_id=1, review=results[(1, 1)], review_model=FLASH_ARM.model
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert (
+            load_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=FLASH_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
+            )
+            == {}
+        )
+        persist_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_arm=FLASH_ARM
+        )
+        stronger_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+        assert (
+            load_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=stronger_arm,
+                review_design=REVIEW_DESIGN_PIPELINE,
+            )
+            == {}
+        )
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            results={(1, 1): IssuesReview(issues=[_issue("1-1-xhigh")])},
+            review_arm=stronger_arm,
+        )
+        loaded = load_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            review_arm=FLASH_ARM,
+            review_design=REVIEW_DESIGN_PIPELINE,
+        )
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
-        assert load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
+        assert (
+            load_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-bbb",
+                review_arm=FLASH_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
+            )
+            == {}
+        )
+        # A flash turn and a full turn can share a commit: the full turn must not resume the flash
+        # turn's rows (it would skip its own reviewer entirely), and the reverse holds too.
+        assert (
+            load_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=DEFAULT_REVIEW_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
+            )
+            == {}
+        )
+        stronger_results = load_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            review_arm=stronger_arm,
+            review_design=REVIEW_DESIGN_PIPELINE,
+        )
+        assert set(stronger_results) == {(1, 1)}
+        assert stronger_results[(1, 1)].issues[0].id == "1-1-xhigh"
+
+    def test_perspective_results_of_one_arm_stay_apart_by_design(self) -> None:
+        # A Full turn and a single-agent Flash turn at one head can run on the same arm. Without the
+        # design filter, each turn's dedup would combine the other turn's findings.
+        lens_pass = FLASH_LENSES["contracts-security"].pass_number
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            results={
+                (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
+                (SINGLE_AGENT_PASS_NUMBER, 1): IssuesReview(issues=[_issue("2000-1-1")]),
+                (lens_pass, 2): IssuesReview(issues=[_issue("2002-2-1")]),
+            },
+            review_arm=SINGLE_AGENT_FLASH_ARM,
+        )
+
+        loaded = {
+            design: set(
+                load_perspective_results(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    head_sha="sha-aaa",
+                    review_arm=SINGLE_AGENT_FLASH_ARM,
+                    review_design=design,
+                )
+            )
+            for design in (REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT)
+        }
+
+        assert loaded == {
+            REVIEW_DESIGN_PIPELINE: {(1, 1)},
+            REVIEW_DESIGN_SINGLE_AGENT: {(SINGLE_AGENT_PASS_NUMBER, 1), (lens_pass, 2)},
+        }
 
 
 class TestPersistCommitSnapshot(BaseTest):
@@ -944,6 +1234,46 @@ class TestPRSnapshot(BaseTest):
         assert [c.path for c in loaded.pr_comments] == ["a.py"]
         # A different head returns nothing — resume reuses only the current turn's inputs.
         assert load_pr_snapshot(team_id=self.team.id, report_id=report_id, head_sha="other") is None
+
+    def test_flash_lens_parts_ignore_a_later_pipeline_snapshot_at_the_same_head(self) -> None:
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        source = PRFile(filename="src/a.py", status="modified", additions=500, deletions=0)
+        test = PRFile(filename="src/tests/test_a.py", status="modified", additions=500, deletions=0)
+        for review_design, pr_files in [
+            (REVIEW_DESIGN_SINGLE_AGENT, [source, test]),
+            (REVIEW_DESIGN_PIPELINE, [source]),
+        ]:
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="sha1",
+                pr_metadata=_pr_metadata(head_sha="sha1"),
+                pr_comments=[],
+                pr_files=pr_files,
+                review_design=review_design,
+            )
+        flash_input = SandboxStageInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            report_id=report_id,
+            head_sha="sha1",
+            repository="o/r",
+            branch="feat",
+            run_index=1,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+
+        prompt = _prepare_single_agent_prompt(flash_input, chunk_id=2, for_lens=True)
+
+        assert "src/tests/test_a.py" in prompt
+        pipeline = load_pr_snapshot(
+            team_id=self.team.id, report_id=report_id, head_sha="sha1", review_design=REVIEW_DESIGN_PIPELINE
+        )
+        assert pipeline is not None
+        assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
 
 
 class TestPersistVerdict(BaseTest):

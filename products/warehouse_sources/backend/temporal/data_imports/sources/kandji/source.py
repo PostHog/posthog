@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -112,14 +110,14 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KANDJI,
+            name=ExternalDataSourceType.KANDJI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kandji (Iru Endpoint Management)",
             caption=(
                 "Connect Kandji with a tenant-level **API token**, created in Kandji under "
                 "**Settings → Access**. Your API URL is shown there too — enter its **subdomain** and pick "
                 "the matching **region** (US or EU). The token needs read access to the devices, blueprints, "
-                "and device-detail endpoints for the tables you want to sync."
+                "device-detail, library, and users endpoints for the tables you want to sync."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/kandji",
             iconPath="/static/services/kandji.png",

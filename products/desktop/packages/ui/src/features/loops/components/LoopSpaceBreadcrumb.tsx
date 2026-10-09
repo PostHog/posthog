@@ -21,7 +21,7 @@ export function LoopSpaceBreadcrumb({
   spaceName,
   leafLabel,
 }: {
-  /** Desktop folder id of the attached space (`context_target.folder_id`). */
+  /** Desktop folder id of the attached space (`context_target.channel_id`). */
   folderId: string;
   /** Name stamped on the loop, used until the live space list resolves. */
   spaceName: string;

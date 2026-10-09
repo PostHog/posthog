@@ -21,7 +21,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
     IconAction,
-    IconBracketsChart,
+    IconSQL,
     IconInsightCalendarHeatmap,
     IconInsightFunnels,
     IconInsightLifecycle,
@@ -234,7 +234,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataVisualizationNode]: {
         name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
+        inMenu: false,
+    },
+    [NodeKind.BIVisualizationNode]: {
+        name: 'Business intelligence',
+        description: 'Explore data with a visual worksheet.',
+        icon: IconGraph,
         inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
@@ -258,25 +264,25 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'SQL',
         description: 'Direct SQL query.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
         name: 'SQL Autocomplete',
         description: 'Autocomplete for the SQL query editor.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: false,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.WebOverviewQuery]: {
@@ -435,6 +441,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureNode]: {
+        name: 'Experiment Exposure',
+        description: 'Retention metric start resolved to the experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,
@@ -508,6 +520,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.MetricsHistogramQuery]: {
+        name: 'Metrics heatmap',
+        description: 'Chart a histogram metric as a latency-over-time heatmap',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.TraceSpansQuery]: {
         name: 'Trace Spans',
         icon: IconLive,
@@ -560,6 +578,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsRetentionQuery]: {
         name: 'Marketing Analytics Retention',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsSearchQuery]: {
+        name: 'Marketing analytics search performance',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -625,6 +648,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPModelBreakdownQuery]: {
         name: 'MCP model breakdown',
         description: 'MCP tool-call activity grouped by captured model.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPProtocolVersionBreakdownQuery]: {
+        name: 'MCP protocol version breakdown',
+        description: 'MCP tool-call activity grouped by negotiated protocol revision.',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -725,7 +754,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
@@ -742,6 +771,8 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         inMenu: false,
         flag: FEATURE_FLAGS.HOG,
     },
+    // The new insight menu adds its own Metrics card, because the card needs two flags.
+    [InsightType.METRICS]: { ...QUERY_TYPES_METADATA[NodeKind.MetricsQuery], inMenu: false },
     [InsightType.WEB_ANALYTICS]: {
         name: 'Web Analytics',
         description: 'Web analytics insights from your website data.',

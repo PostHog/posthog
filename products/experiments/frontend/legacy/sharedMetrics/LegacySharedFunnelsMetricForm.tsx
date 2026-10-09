@@ -7,10 +7,10 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
+import { getHogQLValue } from 'scenes/insights/filters/aggregationTarget'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'

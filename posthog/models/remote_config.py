@@ -213,8 +213,9 @@ class RemoteConfig(UUIDTModel):
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
-        from products.messaging.backend.remote_config import build_push_config
+        from products.messaging.backend.facade.api import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
+        from products.web_analytics.backend.remote_config import build_heatmaps_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -250,7 +251,7 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = build_error_tracking_config(team)
 
         # MARK: Push notifications
-        config["push"] = build_push_config(team)
+        config["push"] = build_push_config(team.id)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -281,7 +282,7 @@ class RemoteConfig(UUIDTModel):
                 config["quotaLimited"] = ["recordings"]
                 config["sessionRecording"] = False
 
-        config["heatmaps"] = True if team.heatmaps_opt_in else False
+        config["heatmaps"] = build_heatmaps_config(team) if team.heatmaps_opt_in else False
 
         # MARK: Conversations
         if team.conversations_enabled:
@@ -356,7 +357,7 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.cdp.site_functions import get_transpiled_function
+        from posthog.cdp.site_functions import exposed_secret_input_keys, get_transpiled_function
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -381,10 +382,12 @@ class RemoteConfig(UUIDTModel):
                     deleted=False,
                     type__in=("site_destination", "site_app"),
                 )
-                .only("id", "team_id", "inputs", "hog", "filters", "mappings")
+                .only("id", "team_id", "inputs", "inputs_schema", "hog", "filters", "mappings")
             )
 
             for site_function in site_functions:
+                if exposed_secret_input_keys(site_function):
+                    continue
                 try:
                     source = get_transpiled_function(site_function)
                     # NOTE: It is an object as we can later add other properties such as a consent ID
@@ -597,15 +600,33 @@ def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
+@receiver(post_save, sender="posthog.TeamHeatmapConfig")
+def heatmap_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.Organization")
+def organization_subscription_saved(sender, instance, created, **kwargs):
+    if created or not getattr(instance, "_has_active_subscription_changed", False):
+        return
+    team_ids = list(Team.objects.filter(organization_id=instance.pk, heatmaps_opt_in=True).values_list("id", flat=True))
+
+    def rebuild_heatmaps_enabled_teams() -> None:
+        for team_id in team_ids:
+            _update_team_remote_config(team_id)
+
+    transaction.on_commit(rebuild_heatmaps_enabled_teams)
+
+
 @receiver(post_save, sender="posthog.Integration")
 @receiver(post_delete, sender="posthog.Integration")
 def push_integration_changed(sender, instance, **kwargs):
-    from products.messaging.backend.remote_config import PUSH_APP_ID_CONFIG_KEYS
+    from products.messaging.backend.facade.api import is_push_integration_kind
 
     # Integrations cover every kind we support, and most of them have nothing to do with the SDK
     # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
     # integration doesn't enqueue a rebuild for every team that has one.
-    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+    if not is_push_integration_kind(instance.kind):
         return
     # The app_ids live in config, and integration code saves errors and created_by on their own —
     # apns_integration alone does three saves per creation. Only config can change the payload.

@@ -103,7 +103,8 @@ class LoopCRUDAPITest(LoopsAPITestCase):
     @parameterized.expand(
         [
             ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
-            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("blank_codex_model_with_effort_the_default_supports", "codex", "", "xhigh", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "ultracode", status.HTTP_400_BAD_REQUEST),
             ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
             (
                 "pinned_glm_with_unsupported_effort",
@@ -1195,6 +1196,24 @@ class LoopRunsAPITest(LoopsAPITestCase):
                 break
 
         self.assertEqual(collected_ids, list(reversed(created_run_ids)))
+
+        failed_ids = created_run_ids[::2]
+        TaskRun.objects.filter(id__in=failed_ids).update(status=TaskRun.Status.FAILED, error_message="Read failed")
+        failures = []
+        cursor = None
+        for _ in range(len(failed_ids) + 1):
+            response = self.owner_client.get(
+                runs_url, {"status": "failed", "limit": "2", **({"cursor": cursor} if cursor else {})}
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            page = response.json()
+            failures.extend(page["results"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual([run["id"] for run in failures], list(reversed(failed_ids)))
+        self.assertTrue(all(run["error_message"] == "Read failed" for run in failures))
+        self.assertEqual(self.owner_client.get(runs_url, {"status": "unknown"}).status_code, 400)
 
     def test_runs_listing_is_invisible_for_personal_loop_of_another_member(self):
         loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]

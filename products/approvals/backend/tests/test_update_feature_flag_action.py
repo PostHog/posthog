@@ -18,9 +18,32 @@ from products.approvals.backend.actions.feature_flags import (
 )
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.services import ChangeRequestService
+from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
+
+GROUP_KEY_FILTER: dict[str, Any] = {
+    "key": "$group_key",
+    "type": "group",
+    "operator": "exact",
+    "value": ["acme"],
+    "group_type_index": 0,
+}
+PROVIDER_FILTER: dict[str, Any] = {
+    "key": "provider_id",
+    "type": "group",
+    "operator": "exact",
+    "value": ["provider-1"],
+    "group_type_index": 0,
+}
+
+
+def _condition_set(*properties: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    return {"properties": list(properties), "rollout_percentage": 100, **fields}
 
 
 def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[str, Any]:
@@ -107,6 +130,257 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         result = UpdateFeatureFlagAction.detect(request, view)
 
         assert result is False
+
+    @parameterized.expand(
+        [
+            (
+                "property_value_edited",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "value": ["acme-2"]})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "operator_edited",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "operator": "is_not"})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "property_added",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER, PROVIDER_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "property_removed",
+                [_condition_set(GROUP_KEY_FILTER, PROVIDER_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "negation_enabled",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "negation": True})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "property_type_changed",
+                [_condition_set(PROVIDER_FILTER)],
+                [_condition_set({**PROVIDER_FILTER, "type": "person"})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "group_type_index_changed",
+                [_condition_set(PROVIDER_FILTER)],
+                [_condition_set({**PROVIDER_FILTER, "group_type_index": 1})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "condition_set_removed",
+                [_condition_set(GROUP_KEY_FILTER), _condition_set(PROVIDER_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "condition_set_added",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER), _condition_set(PROVIDER_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "condition_sets_reordered",
+                [_condition_set(GROUP_KEY_FILTER), _condition_set(PROVIDER_FILTER)],
+                [_condition_set(PROVIDER_FILTER), _condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "match_by_group_type_changed",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER, aggregation_group_type_index=1)],
+                {},
+                {},
+                True,
+            ),
+            (
+                "match_by_device",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {"bucketing_identifier": "device_id"},
+                True,
+            ),
+            (
+                "variant_override_set",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER, variant="test")],
+                {},
+                {},
+                True,
+            ),
+            (
+                "early_exit_enabled",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {"early_exit": True},
+                {},
+                True,
+            ),
+            (
+                "feature_enrollment_enabled",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {"feature_enrollment": True},
+                {},
+                False,
+            ),
+            (
+                "properties_reordered",
+                [_condition_set(GROUP_KEY_FILTER, PROVIDER_FILTER)],
+                [_condition_set(PROVIDER_FILTER, GROUP_KEY_FILTER)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "display_only_keys_added",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "label": "Acme", "group_key_names": {"acme": "Acme"}})],
+                {},
+                {},
+                False,
+            ),
+            (
+                "null_operator_is_exact",
+                [_condition_set({**GROUP_KEY_FILTER, "operator": None})],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "operator_alias",
+                [_condition_set({**PROVIDER_FILTER, "operator": "min"})],
+                [_condition_set({**PROVIDER_FILTER, "operator": "gte"})],
+                {},
+                {},
+                False,
+            ),
+            (
+                "negation_false_is_absent",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "negation": False})],
+                {},
+                {},
+                False,
+            ),
+            (
+                "numeric_key_is_string",
+                [_condition_set({**PROVIDER_FILTER, "key": 123})],
+                [_condition_set({**PROVIDER_FILTER, "key": "123"})],
+                {},
+                {},
+                False,
+            ),
+            (
+                "set_inherits_flag_match_by",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER, aggregation_group_type_index=0)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "empty_variant_is_none",
+                [_condition_set(GROUP_KEY_FILTER, variant="")],
+                [_condition_set(GROUP_KEY_FILTER, variant=None)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "description_edited",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER, description="EU accounts")],
+                {},
+                {},
+                False,
+            ),
+            (
+                "boolean_value_replaces_number",
+                [_condition_set({**PROVIDER_FILTER, "value": 1})],
+                [_condition_set({**PROVIDER_FILTER, "value": True})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "whole_float_value_replaces_integer",
+                [_condition_set({**PROVIDER_FILTER, "value": [1.0]})],
+                [_condition_set({**PROVIDER_FILTER, "value": [1]})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "undeclared_property_key",
+                [_condition_set({**GROUP_KEY_FILTER, "operator_type": "string"})],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "malformed_stored_properties",
+                [{"properties": 5, "rollout_percentage": 100}],
+                [{"properties": 5, "rollout_percentage": 100}],
+                {},
+                {},
+                False,
+            ),
+            (
+                "null_bucketing_is_distinct_id",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {"bucketing_identifier": None},
+                False,
+            ),
+        ]
+    )
+    def test_detect_release_condition_changes(
+        self,
+        _name: str,
+        old_groups: list[dict[str, Any]],
+        new_groups: list[dict[str, Any]],
+        new_filters_extra: dict[str, Any],
+        new_flag_fields: dict[str, Any],
+        expected: bool,
+    ):
+        flag = self._create_flag({"aggregation_group_type_index": 0, "groups": old_groups})
+        new_filters = {"aggregation_group_type_index": 0, "groups": new_groups, **new_filters_extra}
+        request = self._mock_request("PATCH", {"filters": new_filters, **new_flag_fields})
+
+        assert UpdateFeatureFlagAction.detect(request, self._mock_view(flag)) is expected
 
 
 class TestDetectFromValidatedData(APIBaseTest):
@@ -259,21 +533,103 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
         assert any("groups" in path for path in intent["triggered_paths"])
 
 
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestRelatedFieldsInIntent(APIBaseTest):
+    def test_gated_update_stores_related_field_as_primary_keys_then_applies(self, _mock_enabled):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Flag analytics", created_by=self.user)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=False,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"active": True, "analytics_dashboards": [dashboard.id]},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == "approval_required"
+
+        change_request = ChangeRequest.objects.get(action_key="feature_flag.enable")
+        assert change_request.intent["full_request_data"]["analytics_dashboards"] == [dashboard.id]
+
+        assert FeatureFlag.objects.get(team=self.team, key="test-flag").active is False
+
+        # Apply replays the stored intent through the serializer, so the related field has to survive the round trip.
+        result = ChangeRequestService(change_request, self.user).approve()
+        assert result.status == "applied"
+
+        applied_flag = FeatureFlag.objects.get(team=self.team, key="test-flag")
+        assert applied_flag.active is True
+        assert list(applied_flag.analytics_dashboards.all()) == [dashboard]
+
+
 class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
-    def test_get_display_data_generates_human_readable_diff(self):
+    @parameterized.expand(
+        [
+            (
+                "rollout",
+                {"rollout_percentage": [{"path": "groups[0].rollout_percentage", "value": 50}]},
+                {"rollout_percentage": [{"path": "groups[0].rollout_percentage", "value": 80}]},
+                ["groups[0].rollout_percentage"],
+                "Update rollout percentage for feature flag 'test-flag': "
+                "rollout percentage at groups[0].rollout_percentage: 50% -> 80%",
+            ),
+            (
+                "release_conditions",
+                {
+                    "rollout_percentage": [],
+                    "release_conditions": [
+                        {"path": "bucketing_identifier", "value": "distinct_id"},
+                        {"path": "groups[0]", "value": {"properties": [GROUP_KEY_FILTER]}},
+                    ],
+                },
+                {
+                    "rollout_percentage": [],
+                    "release_conditions": [
+                        {"path": "bucketing_identifier", "value": "device_id"},
+                        {"path": "groups[0]", "value": {"properties": []}},
+                        {"path": "groups[1]", "value": {"properties": [PROVIDER_FILTER]}},
+                    ],
+                },
+                ["bucketing_identifier", "groups[0]", "groups[1]"],
+                "Update release conditions for feature flag 'test-flag': "
+                "match by; condition set 1; condition set 2 added",
+            ),
+        ]
+    )
+    def test_get_display_data_names_what_changed(
+        self,
+        _name: str,
+        current_state: dict[str, Any],
+        gated_changes: dict[str, Any],
+        triggered_paths: list[str],
+        expected_description: str,
+    ):
         intent_data = {
             "flag_key": "test-flag",
-            "current_state": {"rollout_percentage": [{"path": "groups[0]", "value": 50}]},
-            "gated_changes": {"rollout_percentage": [{"path": "groups[0]", "value": 80}]},
-            "triggered_paths": ["groups[0].rollout_percentage"],
+            "current_state": current_state,
+            "gated_changes": gated_changes,
+            "triggered_paths": triggered_paths,
         }
 
         display_data = UpdateFeatureFlagAction.get_display_data(intent_data)
 
-        assert "description" in display_data
-        assert "before" in display_data
-        assert "after" in display_data
-        assert "rollout percentage" in display_data["description"].lower()
+        assert display_data["description"] == expected_description
+        assert display_data["before"] == current_state
+        assert display_data["after"] == gated_changes
 
 
 class TestCheckStaleness(APIBaseTest):
@@ -345,6 +701,26 @@ class TestCheckStaleness(APIBaseTest):
         result = UpdateFeatureFlagAction.check_staleness(intent, {})
 
         assert result is True
+
+    @parameterized.expand(
+        [
+            ("adopted by an experiment", "unowned", True, True),
+            ("released by its experiment", "experiment", False, True),
+            ("owner unchanged", "unowned", False, False),
+            ("still owned by the same experiment", "experiment", True, False),
+            ("never classified", None, True, False),
+        ]
+    )
+    def test_staleness_by_owner(self, _name, recorded, owned_now, expected_stale):
+        flag = self._create_flag()
+        if owned_now:
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        intent = {"preconditions": {"version": flag.version}}
+        context = {"instance": flag, "recorded_owner_kind": recorded}
+
+        assert EnableFeatureFlagAction.check_staleness(intent, context) is expected_stale
+        assert UpdateFeatureFlagAction.check_staleness(intent, context) is expected_stale
 
     def test_base_action_check_staleness_always_returns_false(self):
         from products.approvals.backend.actions.base import BaseAction
@@ -450,7 +826,7 @@ class TestPolicyConditionEvaluation(APIBaseTest):
         policy_engine = PolicyEngine()
 
         intent = {
-            "current_state": {"rollout_percentage": [{"path": "groups[0]", "value": 30}]},
+            "current_state": {"rollout_percentage": [{"path": "groups[0]", "value": 10}]},
             "gated_changes": {"rollout_percentage": [{"path": "groups[0]", "value": after_value}]},
         }
 
@@ -575,6 +951,268 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
             data = response.json()
             assert data.get("code") == "policy_conflict"
             assert "conflicting_policies" in data
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestReleaseConditionGating(APIBaseTest):
+    EMAIL_FILTER: dict[str, Any] = {"key": "email", "type": "person", "operator": "exact", "value": ["a@example.com"]}
+
+    def _create_policies(self, policies: list[tuple[str, dict[str, Any]]]) -> None:
+        for action_key, conditions in policies:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                conditions=conditions,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+
+    def _change_request_keys(self) -> list[str]:
+        return sorted(ChangeRequest.objects.filter(team=self.team).values_list("action_key", flat=True))
+
+    @parameterized.expand(
+        [
+            ("no_conditions_gates_it", [("feature_flag.update", {})], False, 409, ["feature_flag.update"]),
+            (
+                "rollout_change_condition_ignores_it",
+                [("feature_flag.update", {"type": "any_change", "field": "rollout_percentage"})],
+                False,
+                200,
+                [],
+            ),
+            (
+                "rollout_threshold_condition_ignores_it",
+                [
+                    (
+                        "feature_flag.update",
+                        {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                    )
+                ],
+                False,
+                200,
+                [],
+            ),
+            (
+                "rollout_change_amount_condition_ignores_it",
+                [
+                    (
+                        "feature_flag.update",
+                        {"type": "change_amount", "field": "rollout_percentage", "operator": "<", "value": 10},
+                    )
+                ],
+                False,
+                200,
+                [],
+            ),
+            (
+                "enabling_under_a_rollout_only_policy_needs_the_enable_approval_only",
+                [
+                    ("feature_flag.enable", {}),
+                    ("feature_flag.update", {"type": "any_change", "field": "rollout_percentage"}),
+                ],
+                True,
+                409,
+                ["feature_flag.enable"],
+            ),
+            (
+                "enabling_in_the_same_save_conflicts",
+                [("feature_flag.enable", {}), ("feature_flag.update", {})],
+                True,
+                400,
+                [],
+            ),
+        ]
+    )
+    def test_targeting_only_edit(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        policies: list[tuple[str, dict[str, Any]]],
+        also_enable: bool,
+        expected_status: int,
+        expected_change_requests: list[str],
+    ):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="targeted-flag",
+            active=not also_enable,
+            filters={"groups": [{"properties": [self.EMAIL_FILTER], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        self._create_policies(policies)
+        edited_filter = {**self.EMAIL_FILTER, "value": ["b@example.com"]}
+        body: dict[str, Any] = {"filters": {"groups": [{"properties": [edited_filter], "rollout_percentage": 100}]}}
+        if also_enable:
+            body["active"] = True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert self._change_request_keys() == expected_change_requests
+        flag.refresh_from_db()
+        landed = flag.filters["groups"][0]["properties"][0]["value"] == ["b@example.com"]
+        assert landed is (expected_status == 200)
+
+    @parameterized.expand(
+        [
+            ("unchanged", False, 200, []),
+            ("enabled_with_unchanged_targeting", True, 409, ["feature_flag.enable"]),
+        ]
+    )
+    def test_saving_the_loaded_flag_back_does_not_gate_its_release_conditions(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        enable: bool,
+        expected_status: int,
+        expected_change_requests: list[str],
+    ):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Paying customers",
+            groups=[{"properties": [{"key": "plan", "value": "paid", "type": "person"}]}],
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="loaded-flag",
+            active=not enable,
+            # Shapes an older write leaves behind: no per-set match by, an operator alias, and no operator.
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": 100},
+                    {
+                        "properties": [
+                            {"key": "age", "type": "person", "operator": "min", "value": 18},
+                            {"key": "country", "type": "person", "value": ["US"]},
+                        ],
+                        "rollout_percentage": 30,
+                    },
+                ]
+            },
+            created_by=self.user,
+        )
+        self._create_policies([("feature_flag.enable", {}), ("feature_flag.update", {})])
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+        loaded = self.client.get(url).json()
+        if enable:
+            loaded["active"] = True
+
+        response = self.client.patch(url, loaded, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert self._change_request_keys() == expected_change_requests
+
+    def test_linking_a_standalone_flag_to_an_early_access_feature_is_not_gated(self, _mock_enabled: MagicMock):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="beta-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+        self._create_policies([("feature_flag.update", {})])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": "Beta", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert self._change_request_keys() == []
+
+    @parameterized.expand(
+        [
+            ("someone_else_changed_targeting", 1, "a", "a", "b", {}, (409, "conflict"), [], "b"),
+            ("caller_changed_targeting", 1, "a", "c", "a", {}, (409, "conflict"), [], "a"),
+            ("both_changed_targeting", 1, "a", "c", "b", {}, (409, "conflict"), [], "b"),
+            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", {}, (409, "conflict"), [], "a"),
+            ("stale_claim_while_changing_rollout", 1, "c", "c", "a", {"rollout": 60}, (409, "conflict"), [], "a"),
+            (
+                "current_caller_claims_the_edit_was_loaded",
+                2,
+                "c",
+                "c",
+                "a",
+                {},
+                (409, "approval_required"),
+                ["feature_flag.update"],
+                "a",
+            ),
+            ("stale_claim_while_enabling", 1, "c", "c", "a", {"active": True}, (400, "policy_conflict"), [], "a"),
+            ("stale_save_without_a_release_condition_change", 1, "a", "a", "a", {}, (200, None), [], "a"),
+        ]
+    )
+    def test_stale_editor_save_that_changes_release_conditions_is_refused(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        caller_version: int,
+        loaded: str,
+        submitted: str,
+        stored: str,
+        also: dict[str, Any],
+        expected_response: tuple[int, str | None],
+        expected_change_requests: list[str],
+        expected_stored: str,
+    ):
+        def filters(email: str, rollout: int = 100) -> dict[str, Any]:
+            prop = {**self.EMAIL_FILTER, "value": [f"{email}@example.com"]}
+            return {"groups": [{"properties": [prop], "rollout_percentage": rollout}]}
+
+        enabling = also.get("active") is True
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="stale-flag", filters=filters("a"), version=1, active=not enabling, created_by=self.user
+        )
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters(stored), version=2)
+        self._create_policies([("feature_flag.update", {}), *([("feature_flag.enable", {})] if enabling else [])])
+        body: dict[str, Any] = {
+            "name": "renamed",
+            "filters": filters(submitted, also.get("rollout", 100)),
+            "version": caller_version,
+            "original_flag": {"name": "", "filters": filters(loaded)},
+        }
+        if enabling:
+            body["active"] = True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        expected_status, expected_code = expected_response
+        assert response.status_code == expected_status, response.json()
+        assert response.json().get("code") == expected_code
+        assert self._change_request_keys() == expected_change_requests
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
+        assert flag.active is not enabling
+
+    @parameterized.expand(
+        [
+            ("description_edit_with_a_python_equal_value", 1, 1, "edited"),
+            ("python_equal_value_after_another_loaded_value", 2, 1, ""),
+        ]
+    )
+    def test_stale_editor_save_of_a_typed_value_is_refused(
+        self, _mock_enabled: MagicMock, _name: str, loaded: Any, submitted: Any, description: str
+    ):
+        def filters(value: Any, description: str = "") -> dict[str, Any]:
+            prop = {"key": "beta", "type": "person", "operator": "exact", "value": [value]}
+            return {"groups": [{"properties": [prop], "rollout_percentage": 100, "description": description}]}
+
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="typed-flag", filters=filters(True), version=2, created_by=self.user
+        )
+        self._create_policies([("feature_flag.update", {})])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": filters(submitted, description), "version": 1, "original_flag": {"filters": filters(loaded)}},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.json()
+        assert self._change_request_keys() == []
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == [True]
 
 
 class TestActionRegistrationAndIntegration(APIBaseTest):

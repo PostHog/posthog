@@ -1,32 +1,45 @@
 """Training examples at the grain the feature set asks for.
 
-The default grain is a scoring moment: one example = one report as one daily snapshot saw it.
-Its features are that snapshot's report-state columns (plus `age_hours`, the report's age at the
-snapshot), and its label is whether the head's outcome happened within the head's horizon: the
-label is 0 on the snapshot row and read from the snapshot `horizon_days` later. That is the serving
-situation — a report gets scored, then users see it — replayed over the daily snapshots, and it
-measured better than one row per report on the engagement heads (skill issue 13). Once the scoring
-sweep's append-only score log has accrued it becomes this table's source; the snapshots are the
-bootstrap.
+The default grain is the report's birth: one example = one report as the snapshot of the day it
+was created saw it. Its features are that snapshot's report-state columns (plus `age_hours`, the
+report's age at the snapshot), and its label is whether the head's outcome happened within the
+head's horizon, read from the snapshot `horizon_days` later. That is the moment serving scores a
+report, and the label is a per-report probability, which is what the inbox ordering asks of it.
+Once the scoring sweep's append-only score log has accrued it becomes this table's source; the
+snapshots are the bootstrap.
 
-Rows of one report are near-duplicates, so the holdout is cut BY REPORT (report_created_at),
-never by row. Label-only rows (EU reports, hard-deleted rows) carry no state and are skipped.
-A snapshot is assembled over the state spine (`assemble_snapshot`): a report with no label event
-gets LABEL_DEFAULTS, so never-engaged reports are negatives rather than absent.
+A report born on day D has no scoring moment before D, so an outcome already visible at D is a
+future positive for the moment being built, not a past one. Birth-day outcomes therefore do not
+censor the moment; its label still comes from the horizon snapshot.
 
-A wide set cannot afford that many rows, so a set may ask for the report grain instead (one
-example per report, at its first usable scoring moment of the window) and cap the rows one head
-keeps. Both knobs live on the `FeatureSet`, because the examples object is per set.
+These birth-day rows carry a hindsight the other rows do not. The state snapshot reads
+`signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours
+after day D ends, and only `priority` and `actionability` are cut at the snapshot. A birth-day
+outcome therefore happened before its own feature read, so both the holdout AUC and the newborn
+unseen grade read optimistically on these rows. What removes it is the scoring sweep's timestamped
+score log becoming this table's source, not censoring the positives again.
+
+The holdout is cut BY REPORT (report_created_at), never by row, so a grain that emits several rows
+of one report cannot straddle the cut. Label-only rows (EU reports, hard-deleted rows) carry no
+state and are skipped. A snapshot is assembled over the state spine (`assemble_snapshot`): a report
+with no label event gets LABEL_DEFAULTS, so never-engaged reports are negatives rather than absent.
+
+A set may ask for the scoring-moment grain instead (one row per report per snapshot, whose label is
+a hazard conditional on the report still being live) or the report grain (the first snapshot of the
+window where the report is a usable moment), and cap the rows one head keeps. Both knobs live on
+the `FeatureSet`, because the examples object is per set. The cap limits history, not rows inside a
+day: it keeps whole report-creation days, newest first, so the kept label rate is the population
+rate of those days and the scores stay calibrated.
 """
 
 import datetime
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import NO_EXTRAS, REPORT_GRAIN, Extras, FeatureSet
+from products.signals.backend.ranking.features import BIRTH_GRAIN, NO_EXTRAS, REPORT_GRAIN, Extras, FeatureSet
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.dataset.dag import label_provenance_ok
 from products.signals.dags.inbox_ranking.dataset.queries import LABEL_DEFAULTS
@@ -44,10 +57,6 @@ PROVENANCE_LABEL_COLUMNS = ("latest_status_event", "status_event_team_id")
 # A forward run stamps features_observed_at a few hours after the snapshot end. Anything read later
 # than this is a backfill that carries current Postgres state, not the state as of the snapshot.
 STATE_LAG_LIMIT = datetime.timedelta(days=2)
-
-# Fixed, so a re-run of a partition keeps the same rows under a row budget and two candidates of the
-# same day are fit on one example set.
-EXAMPLE_SAMPLE_SEED = 0
 
 
 def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
@@ -126,6 +135,57 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
     return Snapshot(date=date, state=state, labels=aligned)
 
 
+@frozen
+class ConsentExclusion:
+    """What `drop_without_training_consent` removed, as counts only."""
+
+    reports: int
+    teams: int
+
+
+def drop_without_training_consent(
+    snapshots: Mapping[datetime.date, Snapshot], team_ids: frozenset[int]
+) -> tuple[dict[datetime.date, Snapshot], ConsentExclusion]:
+    """`snapshots` without the reports of teams outside `team_ids`, read at training time.
+
+    The dataset dag stops collecting those reports, but the window reaches back over partitions
+    written before an organization opted out. Filtering here makes an opt-out reach the next
+    training run. A state row with no readable team fails closed. Label-only rows have no state and
+    are kept: `example_moments` never makes one a moment, and a report deleted before a later
+    snapshot needs its label row there.
+    """
+    kept: dict[datetime.date, Snapshot] = {}
+    reports: set[object] = set()
+    teams: set[int] = set()
+    for date, snapshot in snapshots.items():
+        state = snapshot.state
+        team = state["report_team_id"] if "report_team_id" in state else pd.Series(float("nan"), index=state.index)
+        excluded = state["signal_count"].notna() & ~team.isin(team_ids)
+        dropped = state.index[excluded.to_numpy()]
+        reports.update(dropped)
+        teams.update(int(team_id) for team_id in team[excluded].dropna())
+        kept[date] = Snapshot(
+            date=date,
+            state=state.drop(dropped),
+            labels=snapshot.labels.drop(snapshot.labels.index.intersection(dropped)),
+        )
+    return kept, ConsentExclusion(reports=len(reports), teams=len(teams))
+
+
+def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
+    """True for rows of the reports created on snapshot day `date`.
+
+    Creation day stands in for the report's first scoring moment. The two differ when a report
+    stays `potential` past midnight, because the state spine admits a report only once it promotes
+    or is born visible, so the report's first moment is its promotion day. Such a report is still
+    censored on that day, and the newborn pool never grades it. Closing that gap needs
+    `first_visible_at` carried in the state schema, which no partition has today.
+    """
+    start, end = snapshot_bounds(date.isoformat())
+    created = pd.to_datetime(state["report_created_at"], utc=True)
+    return (created >= start) & (created < end)
+
+
 def point_in_time_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
     """True for rows whose Postgres state was read close enough to the snapshot day to stand for
     the state as of that day. Rows without the stamp are kept."""
@@ -153,9 +213,60 @@ def build_examples(
     The moments are chosen first and the features built second, so a set under a row budget builds
     1536 columns for the rows it keeps rather than for every row it then throws away.
     """
+    return build_head_examples(snapshots, head, feature_set, extras).examples
+
+
+@frozen
+class HeadExamples:
+    """One head's examples and the report-creation window they cover."""
+
+    examples: pd.DataFrame
+    # The earliest report-creation day kept, or None when the head has no example.
+    window_start: datetime.date | None
+    # True when the row budget dropped at least one older day.
+    cap_bound: bool
+    # Snapshot pairs dropped because one side lacks a label column the head reads. A high count
+    # with few positives means the labels partitions predate the current schema.
+    pairs_skipped_missing_label_columns: int
+
+    def window(self) -> dict[str, object]:
+        return {
+            "example_window_start": self.window_start.isoformat() if self.window_start else None,
+            "example_cap_bound": self.cap_bound,
+        }
+
+
+def build_head_examples(
+    snapshots: Mapping[datetime.date, Snapshot],
+    head: Head,
+    feature_set: FeatureSet,
+    extras: Extras = NO_EXTRAS,
+) -> HeadExamples:
+    """`build_examples` with the window the row budget left, which the candidate records per head."""
     moments = example_moments(snapshots, head, feature_set, extras)
     kept = cap_examples(moments, feature_set.max_examples_per_head)
-    return _with_features(kept, snapshots, feature_set, extras)
+    days = _creation_days(kept).dropna()
+    return HeadExamples(
+        examples=_with_features(kept, snapshots, feature_set, extras),
+        window_start=days.min().date() if len(days) else None,
+        cap_bound=len(kept) < len(moments),
+        pairs_skipped_missing_label_columns=pairs_missing_label_columns(snapshots, head),
+    )
+
+
+def _label_columns_readable(now: Snapshot, later: Snapshot, head: Head) -> bool:
+    return all(column in now.labels and column in later.labels for column in head.label_columns)
+
+
+def pairs_missing_label_columns(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> int:
+    """The (snapshot, `horizon_days`-later snapshot) pairs `example_moments` skips for a missing
+    label column."""
+    return sum(
+        1
+        for date, now in snapshots.items()
+        if (later := snapshots.get(date + datetime.timedelta(days=head.horizon_days))) is not None
+        and not _label_columns_readable(now, later, head)
+    )
 
 
 def example_moments(
@@ -165,8 +276,9 @@ def example_moments(
     extras: Extras,
 ) -> pd.DataFrame:
     """The (report, snapshot) moments that are examples for `head`, with their labels and no
-    features. One row per moment at the scoring-moment grain; at the report grain, only the first
-    snapshot of the window where a report is a usable moment."""
+    features. One row per report at the birth grain, on the snapshot of the day it was created; one
+    row per moment at the scoring-moment grain; at the report grain, the first snapshot of the
+    window where a report is a usable moment."""
     frames: list[pd.DataFrame] = []
     covered: set[object] = set()
     for date in sorted(snapshots):
@@ -178,7 +290,7 @@ def example_moments(
         # only in the later snapshot (a column that entered the schema mid-window) would pass the
         # "not yet observed at now" guard below and mint an outcome from before `now` as a future
         # positive. Skip the pair when the head's label cannot be read from both snapshots.
-        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+        if not _label_columns_readable(now, later, head):
             continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:
@@ -188,7 +300,11 @@ def example_moments(
         # The cohort reads the later snapshot on purpose. The sweep scores a report before users see
         # it, so the impression that puts a report in the cohort usually lands after `now`. A cohort
         # read at `now` would drop those pre-impression scoring moments, which are the serving case.
-        keep = head.cohort(labels_later) & ~head.label(labels_now) & state["signal_count"].notna()
+        # An outcome already observed at `now` belongs to an earlier moment, so it censors this
+        # one. A report born on this day has no earlier moment to own it.
+        born_today = birth_day_mask(state, date)
+        censored = head.label(labels_now) & ~born_today
+        keep = head.cohort(labels_later) & ~censored & state["signal_count"].notna()
         keep &= point_in_time_mask(state, date)
         if head.status_labels:
             keep &= _flag_or_true(labels_now, "label_provenance_ok") & _flag_or_true(
@@ -198,12 +314,15 @@ def example_moments(
         # snapshot, cannot build the vector this moment had, so the report is not a moment here. At
         # the report grain the report then takes its example on the first snapshot where it can.
         keep &= feature_set.buildable(state, extras, as_of=snapshot_end)
-        if feature_set.example_grain == REPORT_GRAIN:
+        if feature_set.example_grain == BIRTH_GRAIN:
+            keep &= born_today
+        elif feature_set.example_grain == REPORT_GRAIN:
             keep &= ~state.index.isin(covered)
         if not keep.any():
             continue
         kept_ids = state.index[keep.to_numpy()]
-        covered.update(kept_ids)
+        if feature_set.example_grain == REPORT_GRAIN:
+            covered.update(kept_ids)
         frames.append(
             pd.DataFrame(
                 {
@@ -220,22 +339,55 @@ def example_moments(
     return pd.concat(frames, ignore_index=True)
 
 
+def birth_day_positives(examples: pd.DataFrame) -> int:
+    """How many of `examples`' positives sit on their report's birth day: the size of what the
+    birth-day rule keeps. Read off the moment columns, so a wide set does not copy its feature
+    columns to count them."""
+    if examples.empty:
+        return 0
+    moments = examples[["report_created_at", "snapshot_date", "label"]]
+    return sum(
+        int((birth_day_mask(group, date) & (group["label"] == 1)).sum())
+        for date, group in moments.groupby("snapshot_date", sort=False)
+    )
+
+
+def reports_missing_birth_snapshot(snapshots: Mapping[datetime.date, Snapshot], dates: Sequence[datetime.date]) -> int:
+    """How many reports born on a day of `dates` can be no example at the birth grain, because the
+    snapshot of that day is missing from `snapshots`.
+
+    A report born before the window is not counted: it has no birth-day snapshot by construction,
+    and the birth grain drops it deliberately rather than through a gap. The same snapshot bounds
+    define the birth day here and in the example filter.
+    """
+    if not snapshots:
+        return 0
+    created = pd.concat([snapshot.state["report_created_at"] for snapshot in snapshots.values()])
+    reports = created.dropna().loc[lambda rows: ~rows.index.duplicated()].to_frame()
+    return sum(int(birth_day_mask(reports, date).sum()) for date in set(dates).difference(snapshots))
+
+
+def _creation_days(moments: pd.DataFrame) -> pd.Series:
+    return pd.to_datetime(moments["report_created_at"], utc=True).dt.floor("D")
+
+
 def cap_examples(moments: pd.DataFrame, limit: int | None) -> pd.DataFrame:
-    """`moments` within `limit` rows, keeping every positive and a seeded sample of the negatives.
+    """`moments` cut to the newest whole report-creation days that fit within `limit` rows.
 
     A row budget is how a wide set stays inside one partition's object and the training job's
-    runtime. Positives are the scarce side of every head here and AUC is rank-based, so spending
-    the budget on them costs the base rate the scores are calibrated to rather than the ranking read
-    the family exists for. Positives are kept whole even past the budget: a head with that many
-    positives is not the case the budget is for.
+    runtime. The budget limits history: it keeps whole days, newest first, and never samples rows
+    inside a day. A sample that keeps every positive raises the base rate the booster fits, so its
+    scores overstate every probability. Whole days keep the population rate, keep the holdout a clean
+    time split, and keep the population the sweep scores. The newest day is kept even when it alone
+    exceeds `limit`, so a head never trains on nothing.
     """
     if limit is None or len(moments) <= limit:
         return moments
-    positives = moments[moments["label"] == 1]
-    negatives = moments[moments["label"] != 1]
-    room = max(limit - len(positives), 0)
-    sampled = negatives.sample(n=min(room, len(negatives)), random_state=EXAMPLE_SAMPLE_SEED)
-    return pd.concat([positives, sampled]).sort_index().reset_index(drop=True)
+    days = _creation_days(moments)
+    per_day = days.value_counts().sort_index(ascending=False)
+    within = per_day.index[per_day.cumsum().to_numpy() <= limit]
+    cutoff = within.min() if len(within) else per_day.index[0]
+    return moments[days >= cutoff].reset_index(drop=True)
 
 
 def _with_features(

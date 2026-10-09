@@ -7,7 +7,8 @@ import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as errorPng from '@posthog/brand/hoggies/png/error'
+import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
@@ -20,6 +21,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -28,9 +30,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,15 +43,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
+import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
+import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
-    FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
     SidePanelTab,
@@ -56,15 +56,16 @@ import {
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { getRetryCooldown } from '../sharedUtils'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogDoctor = pngHoggie(doctorPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogError = pngHoggie(errorPng)
+const HedgehogReaper = pngHoggie(reaperPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
@@ -212,10 +213,12 @@ const RetryButton = ({
     onRetry,
     query,
     loading = false,
+    disabledReason,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
     loading?: boolean
+    disabledReason?: string
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -241,6 +244,7 @@ const RetryButton = ({
             size="small"
             type="primary"
             loading={loading}
+            disabledReason={disabledReason}
             onClick={() => onRetry()}
             sideAction={sideAction}
         >
@@ -609,10 +613,14 @@ export function InsightValidationError({
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
-    const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    // Everything that reaches this panel is a validation status, so the kind stays invalid_query
+    // unless the code says otherwise: a memory failure is not a broken query definition.
+    const errorKind = getInsightErrorKind(400, validationErrorCode)
+    const isMemoryLimitError = errorKind === 'memory_limit'
     const displayDetail = getInsightValidationDetail(detail)
     const showQueryDebuggerInstruction =
         query &&
+        !isMemoryLimitError &&
         displayDetail !== 'Check the query for errors, then run it again.' &&
         placement !== DashboardPlacement.Export
     const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
@@ -633,12 +641,10 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
         >
-            <InsightErrorHoggie kind="invalid_query" />
+            <InsightErrorHoggie kind={errorKind} />
 
             <h2 data-attr="insight-loading-too-long" className="text-xl leading-tight font-bold mb-0 text-danger">
-                We couldn't run this query
-                {/* Note that this phrasing above signals the issue is not intermittent, */}
-                {/* but rather that it's something with the definition of the query itself */}
+                {getInsightErrorTitle(errorKind, null)}
             </h2>
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
@@ -720,8 +726,8 @@ type InsightErrorKind =
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
-    memory_limit: HedgehogMagnifyingGlass,
-    invalid_query: HedgehogMagnifyingGlass,
+    memory_limit: HedgehogReaper,
+    invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
     server: HedgehogDoctor,
@@ -733,7 +739,11 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
+    // The code is the surer signal: a tile failure carries it even when the status was rebuilt.
+    if (code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+        return 'memory_limit'
+    }
     if (status === 429) {
         return 'rate_limit'
     }
@@ -817,6 +827,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
+    retryAfterTimestamp?: number | null
     retryLoading?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
     excludeDetail?: boolean
@@ -832,6 +843,7 @@ export function InsightErrorState({
     query,
     queryId,
     retryAfter,
+    retryAfterTimestamp,
     retryLoading = false,
     placement,
     excludeDetail = false,
@@ -840,15 +852,28 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
+    const [, setTick] = useState(0)
     const errorKind = getInsightErrorKind(titleStatus)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    // InsightCard passes the later of its own and its embedded query's deadlines, so a non-503 card error can carry one.
+    const capacityRetryAt = canRetry ? retryAfterTimestamp : null
+    const {
+        secondsLeft: retrySecondsLeft,
+        disabledReason: retryDisabledReason,
+        remediation: capacityRemediation,
+    } = getRetryCooldown(capacityRetryAt)
+    useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
     const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
-    const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
+    // A 429 card error can carry the 503 deadline of its embedded query. That deadline still guards the retry button,
+    // but the copy keeps the 429 wait because it can outlast the 503 deadline.
+    const remediation =
+        (errorKind === 'rate_limit' ? null : capacityRemediation) ??
+        getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -901,7 +926,12 @@ export function InsightErrorState({
 
             {!supportOnly && (
                 <div className="mt-4">
-                    {remediation && <p className="max-w-120">{renderDetailWithLinks(remediation)}</p>}
+                    {remediation && (
+                        <p className="max-w-120">
+                            {/* A sole string child keeps the countdown updating after page translation replaces its text node. */}
+                            {capacityRetryAt ? remediation : renderDetailWithLinks(remediation)}
+                        </p>
+                    )}
                     {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
@@ -913,7 +943,16 @@ export function InsightErrorState({
             {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
                     {onRetry && canRetry ? (
-                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
+                        <RetryButton
+                            onRetry={() => {
+                                if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+                                    onRetry()
+                                }
+                            }}
+                            query={query}
+                            loading={retryLoading}
+                            disabledReason={retryDisabledReason}
+                        />
                     ) : (
                         <QueryDebuggerButton query={query} />
                     )}
@@ -931,20 +970,18 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { insightProps } = useValues(insightLogic)
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+    const { reportInsightFilterAdded } = useActions(eventUsageLogic)
 
-    const filters = series ? seriesToActionsAndEvents(series) : {}
-    const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({
-            series: actionsAndEventsToSeries(
-                payload as any,
-                true,
-                MathAvailability.None,
-                NodeKind.FunnelsDataWarehouseNode
-            ),
-        } as Partial<FunnelsQuery>)
+    const addFunnelStep = (): void => {
+        const defaultStep: EventsNode = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsNode,
+            event: getDefaultEventName(),
+            name: getDefaultEventLabel(),
+        })
+        const nextSeries = [...(series ?? []), defaultStep]
+        updateQuerySource({ series: nextSeries })
+        reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
     }
-
-    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
         <div
@@ -968,7 +1005,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={addFilter}
+                        onClick={addFunnelStep}
                         data-attr="add-action-event-button-empty-state"
                         icon={<IconPlusSmall />}
                     >

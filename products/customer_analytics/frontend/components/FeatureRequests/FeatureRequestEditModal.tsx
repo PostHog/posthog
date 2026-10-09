@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import {
     LemonBanner,
     LemonButton,
     LemonInput,
     LemonInputSelect,
-    LemonLabel,
     LemonModal,
     LemonSelect,
     LemonTextArea,
 } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { FeatureRequestStatusEnumApi, FeatureRequestPriorityEnumApi } from '../../generated/api.schemas'
 import { FEATURE_REQUEST_PRIORITY_OPTIONS, FEATURE_REQUEST_STATUS_OPTIONS } from './featureRequestOptions'
@@ -18,33 +20,17 @@ import { featureRequestsLogic } from './featureRequestsLogic'
 export function FeatureRequestEditModal(): JSX.Element {
     const {
         editRequestOpen,
-        editTitle,
-        editDescription,
-        editAccountIds,
-        editProductAreaIds,
-        editStatus,
-        editPriority,
+        activeRequest,
         accountOptions,
         editProductAreaOptions,
         accountsLoading,
         productAreasLoading,
         editError,
         editIsStale,
-        savingRequestChanges,
-        editDisabledReason,
+        isFeatureRequestEditFormSubmitting,
     } = useValues(featureRequestsLogic)
-    const {
-        closeEditRequest,
-        setEditTitle,
-        setEditDescription,
-        setEditAccountIds,
-        setAccountSearch,
-        setEditProductAreaIds,
-        setEditStatus,
-        setEditPriority,
-        saveRequestChanges,
-        reloadLatestForEdit,
-    } = useActions(featureRequestsLogic)
+    const { closeEditRequest, setAccountSearch, submitFeatureRequestEditForm, reloadLatestForEdit } =
+        useActions(featureRequestsLogic)
 
     return (
         <LemonModal
@@ -59,9 +45,8 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={saveRequestChanges}
-                        loading={savingRequestChanges}
-                        disabledReason={editDisabledReason}
+                        onClick={submitFeatureRequestEditForm}
+                        loading={isFeatureRequestEditFormSubmitting}
                         data-attr="save-feature-request-changes"
                     >
                         Save changes
@@ -69,7 +54,7 @@ export function FeatureRequestEditModal(): JSX.Element {
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
+            <Form logic={featureRequestsLogic} formKey="featureRequestEditForm" className="flex flex-col gap-4">
                 {editError && (
                     <LemonBanner
                         type="error"
@@ -81,58 +66,49 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </LemonBanner>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Status</LemonLabel>
-                        <LemonSelect<FeatureRequestStatusEnumApi>
-                            value={editStatus}
-                            onChange={setEditStatus}
-                            options={FEATURE_REQUEST_STATUS_OPTIONS}
-                            fullWidth
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Priority</LemonLabel>
-                        <LemonSelect<FeatureRequestPriorityEnumApi | 'none'>
-                            value={editPriority ?? 'none'}
-                            onChange={(value) => setEditPriority(value === 'none' ? null : value)}
-                            options={[{ value: 'none', label: 'No priority' }, ...FEATURE_REQUEST_PRIORITY_OPTIONS]}
-                            fullWidth
-                        />
-                    </div>
+                    <LemonField
+                        name="requestStatus"
+                        label="Status"
+                        help={activeRequest?.github_link ? 'Changing the status pauses GitHub sync.' : undefined}
+                    >
+                        <LemonSelect<FeatureRequestStatusEnumApi> options={FEATURE_REQUEST_STATUS_OPTIONS} fullWidth />
+                    </LemonField>
+                    <LemonField name="requestPriority" label="Priority">
+                        {({ value, onChange }) => (
+                            <LemonSelect<FeatureRequestPriorityEnumApi | 'none'>
+                                value={value ?? 'none'}
+                                onChange={(priority) => onChange(priority === 'none' ? null : priority)}
+                                options={[{ value: 'none', label: 'No priority' }, ...FEATURE_REQUEST_PRIORITY_OPTIONS]}
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
                 </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Title</LemonLabel>
-                    <LemonInput value={editTitle} onChange={setEditTitle} maxLength={400} fullWidth />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Description (optional)</LemonLabel>
-                    <LemonTextArea value={editDescription} onChange={setEditDescription} minRows={5} />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Accounts</LemonLabel>
+                <LemonField name="title" label="Title">
+                    <LemonInput maxLength={400} fullWidth />
+                </LemonField>
+                <LemonField name="description" label="Description" showOptional>
+                    <LemonTextArea minRows={5} />
+                </LemonField>
+                <LemonField name="accountIds" label="Accounts">
                     <LemonInputSelect
                         mode="multiple"
-                        value={editAccountIds}
-                        onChange={setEditAccountIds}
                         onInputChange={setAccountSearch}
                         options={accountOptions}
                         placeholder="Search for accounts"
                         loading={accountsLoading}
                         fullWidth
                     />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Product areas</LemonLabel>
+                </LemonField>
+                <LemonField name="productAreaIds" label="Product areas">
                     <LemonInputSelect
                         mode="multiple"
-                        value={editProductAreaIds}
-                        onChange={setEditProductAreaIds}
                         options={editProductAreaOptions}
                         placeholder="Select one or more product areas"
                         loading={productAreasLoading}
                     />
-                </div>
-            </div>
+                </LemonField>
+            </Form>
         </LemonModal>
     )
 }

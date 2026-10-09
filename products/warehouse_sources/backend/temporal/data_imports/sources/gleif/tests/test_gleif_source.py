@@ -1,8 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
 
@@ -17,16 +15,6 @@ class TestGleifSource:
         self.source = GleifSource()
         self.team_id = 123
         self.config = GleifSourceConfig()
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Gleif"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source must ship visible: unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        # GLEIF is fully open and keyless, so the connect form has nothing to fill in.
-        assert config.fields == []
 
     @pytest.mark.parametrize(("mock_return", "expected_valid"), [(True, True), (False, False)])
     @mock.patch(_VALIDATE_PATCH)

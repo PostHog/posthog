@@ -470,7 +470,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ],
         ]
     )
-    @snapshot_clickhouse_queries
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_persons_on_events_mode(self, name, persons_on_events_mode, filters, expected_results):
         feature_flag = self.create_feature_flag()

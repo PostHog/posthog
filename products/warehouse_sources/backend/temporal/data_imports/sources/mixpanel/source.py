@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -60,7 +58,7 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MIXPANEL,
+            name=ExternalDataSourceType.MIXPANEL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mixpanel",
             caption="""Connect your Mixpanel project to pull events, user profiles, cohorts and annotations into the PostHog Data warehouse.
@@ -73,7 +71,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
 """,
             iconPath="/static/services/mixpanel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mixpanel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -175,8 +173,8 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
             # Mixpanel returns 402 when the project's plan does not include the data export API or the
             # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
             "402 Client Error: Payment Required": (
-                "Mixpanel requires a paid plan that includes the data export API. Check your Mixpanel "
-                "plan and billing status, then try again."
+                "Your Mixpanel plan does not include data export, or its billing is overdue. Upgrade your "
+                "Mixpanel plan or settle its billing, then resync."
             ),
         }
 

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportServiceSnowflake } from '~/types'
 
 import {
     BatchExportConfigFormLogicProps,
@@ -71,6 +71,12 @@ const AWS_S3_GZIP_BATCH_EXPORT = fixture('test-aws-s3-gzip-id', 'AWS S3 gzip Exp
     config: { ...AWS_S3_CONFIG, compression: 'gzip' },
 })
 
+const AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT = fixture('test-aws-s3-legacy-ext-id', 'AWS S3 legacy extension Export', {
+    type: 'AwsS3',
+    integration: 31,
+    config: { ...AWS_S3_CONFIG, legacy_parquet_extension: true },
+})
+
 const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatible Export', {
     type: 'S3Compatible',
     integration: 32,
@@ -84,6 +90,7 @@ const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatib
         use_virtual_style_addressing: false,
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
     },
 })
 
@@ -135,42 +142,43 @@ const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
     },
 })
 
-const SNOWFLAKE_PASSWORD_BATCH_EXPORT = fixture('fixture-snowflake-password', 'Snowflake Password Export', {
+const SNOWFLAKE_BATCH_EXPORT = fixture('fixture-snowflake', 'Snowflake Export', {
     type: 'Snowflake',
+    integration: 51,
     config: {
-        account: 'sf-account',
         database: 'sf-db',
         warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'password',
-        password: 'sf-pass',
-        private_key: null,
-        private_key_passphrase: null,
         schema: 'public',
         table_name: 'events',
-        role: null,
+        role: 'sf-role',
         exclude_events: [],
         include_events: [],
     },
 })
 
-const SNOWFLAKE_KEYPAIR_BATCH_EXPORT = fixture('fixture-snowflake-keypair', 'Snowflake Keypair Export', {
+// A migrated export: credentials moved to the integration, but the account and authentication
+// values they came with are still in the stored config. The stale keys are deliberate.
+const SNOWFLAKE_STALE_CONFIG = {
+    database: 'sf-db',
+    warehouse: 'sf-wh',
+    schema: 'public',
+    table_name: 'events',
+    role: null,
+    exclude_events: [],
+    include_events: [],
+    account: 'sf-account',
+    user: 'sf-user',
+    authentication_type: 'password',
+    password: 'sf-pass',
+    private_key: null,
+    private_key_passphrase: null,
+    // `satisfies` keeps the real fields checked; the index signature admits the stale keys.
+} satisfies BatchExportServiceSnowflake['config'] & Record<string, unknown>
+
+const SNOWFLAKE_STALE_BATCH_EXPORT = fixture('fixture-snowflake-stale', 'Snowflake Stale Export', {
     type: 'Snowflake',
-    config: {
-        account: 'sf-account',
-        database: 'sf-db',
-        warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'keypair',
-        password: null,
-        private_key: 'priv-key',
-        private_key_passphrase: 'priv-pass',
-        schema: 'public',
-        table_name: 'events',
-        role: null,
-        exclude_events: [],
-        include_events: [],
-    },
+    integration: 51,
+    config: SNOWFLAKE_STALE_CONFIG,
 })
 
 // Note: `authorization_mode` is intentionally absent from these Redshift fixtures' config —
@@ -304,6 +312,7 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
         compression: 'zstd',
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
         exclude_events: [],
         include_events: [],
     },
@@ -372,16 +381,25 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
     }
 )
 
+const HOGQL_BATCH_EXPORT: BatchExportConfiguration = {
+    ...fixture('test-hogql-id', 'HogQL Export', { type: 'AwsS3', integration: 31, config: AWS_S3_CONFIG }),
+    model: 'hogql',
+    hogql_query: 'SELECT event FROM events WHERE timestamp >= {data_interval_start}',
+    hogql_modifiers: { convertToProjectTimezone: false },
+}
+
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
+    HOGQL_BATCH_EXPORT,
     AWS_S3_GZIP_BATCH_EXPORT,
+    AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
     BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
-    SNOWFLAKE_PASSWORD_BATCH_EXPORT,
-    SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
+    SNOWFLAKE_BATCH_EXPORT,
+    SNOWFLAKE_STALE_BATCH_EXPORT,
     REDSHIFT_INSERT_BATCH_EXPORT,
     REDSHIFT_NO_MODE_BATCH_EXPORT,
     REDSHIFT_COPY_IAM_BATCH_EXPORT,
@@ -394,6 +412,8 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
 
 const SAVE_FAILS_ID = 'test-save-fails-id'
 const SAVE_FAILS_DETAIL = 'Prefix is not valid'
+const HOGQL_SAVE_FAILS_ID = 'test-hogql-save-fails-id'
+const HOGQL_SAVE_FAILS_DETAIL = 'Invalid HogQL query: Unable to resolve field: not_a_column'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -439,6 +459,21 @@ describe('batchExportConfigFormLogic', () => {
         }
         patchMocks[`/api/environments/:team_id/batch_exports/${SAVE_FAILS_ID}/`] = async () =>
             [400, { detail: SAVE_FAILS_DETAIL }] as unknown as [number, BatchExportConfiguration]
+        // A HogQL export whose PATCH fails on the query, the way the API reports an invalid query.
+        getMocks[`/api/environments/:team_id/batch_exports/${HOGQL_SAVE_FAILS_ID}`] = {
+            ...HOGQL_BATCH_EXPORT,
+            id: HOGQL_SAVE_FAILS_ID,
+        }
+        patchMocks[`/api/environments/:team_id/batch_exports/${HOGQL_SAVE_FAILS_ID}/`] = async () =>
+            [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'invalid_input',
+                    detail: HOGQL_SAVE_FAILS_DETAIL,
+                    attr: 'hogql_query',
+                },
+            ] as unknown as [number, BatchExportConfiguration]
         useMocks({
             get: {
                 ...getMocks,
@@ -872,11 +907,37 @@ describe('batchExportConfigFormLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
             })
-                .toDispatchActions(['submitConfiguration', 'submitConfigurationSuccess'])
+                .toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
                 .toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith(SAVE_FAILS_DETAIL)
             expect(logic.values.configurationChanged).toBe(true)
+            expect(logic.values.configurationManualErrors).toEqual({})
+        })
+
+        // The toast can be far from the query editor, so the API's field error also shows under the field. kea-forms
+        // treats it as a form error, so an edit must clear it, or the next save never reaches the API. A model change
+        // hides the query field, so it must clear the error too.
+        it.each([
+            ['the query changes', 'hogql_query', 'SELECT event FROM events'],
+            ['the model changes', 'model', 'events'],
+        ])('shows a field error from the API under its field until %s', async (_, field, value) => {
+            await initLogic({ service: null, id: HOGQL_SAVE_FAILS_ID })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(HOGQL_SAVE_FAILS_DETAIL)
+            // configurationErrors is what the field renders, so it must hold the error, not only configurationAllErrors
+            expect(logic.values.configurationErrors.hogql_query).toEqual(HOGQL_SAVE_FAILS_DETAIL)
+
+            logic.actions.setConfigurationValue(field, value)
+
+            expect(logic.values.configurationErrors.hogql_query).toBeUndefined()
+            expect(logic.values.configurationHasErrors).toBe(false)
         })
     })
 
@@ -1291,11 +1352,11 @@ describe('batchExportConfigFormLogic', () => {
     describe('round-trip: load and save preserves destination config', () => {
         it.each([
             { name: 'AwsS3', fixture: AWS_S3_BATCH_EXPORT },
+            { name: 'AwsS3 (HogQL model)', fixture: HOGQL_BATCH_EXPORT },
             { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
-            { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
-            { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },
+            { name: 'Snowflake', fixture: SNOWFLAKE_BATCH_EXPORT },
             { name: 'Redshift (INSERT)', fixture: REDSHIFT_INSERT_BATCH_EXPORT },
             { name: 'Redshift (COPY + IAM)', fixture: REDSHIFT_COPY_IAM_BATCH_EXPORT },
             { name: 'Redshift (COPY + Credentials)', fixture: REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT },
@@ -1316,15 +1377,21 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
+            // Only the 'hogql' model edits the query and its modifiers, so other models must not send them
+            expect(body.hogql_query).toEqual(fixture.hogql_query)
+            expect(body.hogql_modifiers).toEqual(fixture.hogql_modifiers)
         })
-    })
 
-    describe('strips stale/legacy config fields not in the destination allowlist', () => {
-        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
-        // Editing such an export must not re-send them, or the backend rejects the PATCH with
-        // "Configuration has unknown field/s".
-        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
-            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+        it.each([
+            { model: 'events', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: true },
+            { model: 'persons', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: false },
+            { model: 'sessions', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: false },
+            { model: 'hogql', fixture: HOGQL_BATCH_EXPORT, sendsFilters: false },
+        ])('sends event filters only for the events model ($model)', async ({ model, fixture, sendsFilters }) => {
+            const filters = [{ key: '$browser', operator: 'exact', type: 'event', value: ['Firefox'] }]
+            await initLogic({ service: null, id: fixture.id })
+            logic.actions.setConfigurationValue('model', model)
+            logic.actions.setConfigurationValue('filters', filters)
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
@@ -1332,15 +1399,111 @@ describe('batchExportConfigFormLogic', () => {
                 .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
                 .toFinishAllListeners()
 
-            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
-            expect(body).not.toBeUndefined()
-            expect(body.destination.config).toEqual({
-                dataset_id: 'test_dataset',
-                table_id: 'events',
-                use_json_type: false,
-                exclude_events: [],
-                include_events: [],
+            if (sendsFilters) {
+                expect(patchBodiesById[fixture.id].filters).toEqual(filters)
+            } else {
+                expect(patchBodiesById[fixture.id]).not.toHaveProperty('filters')
+            }
+        })
+    })
+
+    // The model select and the sections below it follow `selectedModel`, while a save sends `configuration.model`.
+    // If a reset moved only one of them, the form would show the query editor and save an events export.
+    it('resets the selected model with the form', async () => {
+        await initLogic({ service: 'AwsS3', id: null })
+        logic.actions.setConfigurationValue('model', 'hogql')
+        expect(logic.values.selectedModel).toEqual('hogql')
+
+        logic.actions.resetConfiguration(getDefaultConfiguration('AwsS3'))
+
+        expect(logic.values.selectedModel).toEqual('events')
+    })
+
+    describe('HogQL query validation', () => {
+        it.each([
+            ['accepts a single statement', 'SELECT event FROM events', undefined],
+            ['accepts a trailing semicolon', 'SELECT event FROM events;', undefined],
+            [
+                'rejects more than one statement',
+                'SELECT event FROM events; SELECT 1',
+                'A batch export runs a single query. Remove the extra statements separated by semicolons.',
+            ],
+            ['requires a query', '', 'This field is required'],
+        ])('%s', async (_, hogqlQuery, expectedError) => {
+            await initLogic({ service: null, id: HOGQL_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValue('hogql_query', hogqlQuery)
+
+            expect(logic.values.configurationValidationErrors.hogql_query).toEqual(expectedError)
+        })
+    })
+
+    describe('Parquet extension opt-in', () => {
+        it('sends the switched-off value so new files drop the codec suffix', async () => {
+            await initLogic({ service: null, id: AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                legacy_parquet_extension: false,
             })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.legacy_parquet_extension).toBe(false)
+        })
+    })
+
+    describe('strips stale/legacy config fields not in the destination allowlist', () => {
+        // Pre-Integration configs can still hold credential fields that now live on the integration.
+        // Editing such an export must not re-send them, or the backend rejects the PATCH with
+        // "Configuration has unknown field/s".
+        it.each([
+            {
+                name: 'BigQuery drops json_config_file and inline credentials',
+                fixture: BIGQUERY_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'BigQuery',
+                    integration: 7,
+                    config: {
+                        dataset_id: 'test_dataset',
+                        table_id: 'events',
+                        use_json_type: false,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+            {
+                name: 'Snowflake drops the account and credentials left behind by the migration',
+                fixture: SNOWFLAKE_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'Snowflake',
+                    integration: 51,
+                    config: {
+                        database: 'sf-db',
+                        warehouse: 'sf-wh',
+                        schema: 'public',
+                        table_name: 'events',
+                        role: null,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+        ])('$name', async ({ fixture, expectedDestination }) => {
+            await initLogic({ service: null, id: fixture.id })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[fixture.id]
+            expect(body).not.toBeUndefined()
+            expect(body.destination).toEqual(expectedDestination)
         })
     })
 })

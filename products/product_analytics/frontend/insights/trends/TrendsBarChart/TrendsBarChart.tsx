@@ -27,7 +27,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { getStackBreakdownValues } from '~/queries/utils'
+import { getStackBreakdownValues, hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -35,6 +35,7 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -116,11 +117,18 @@ export function TrendsBarChart({
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
+        isSingleSeriesDefinition,
+        compareFilter,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -128,6 +136,14 @@ export function TrendsBarChart({
     // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
     // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
     const applyMultipleYAxes = !!showMultipleYAxes && isGrouped
+    // Only a breakdown stack splits one bar into parts of a whole. A percent stack always sums to
+    // 100%, and a compare stack would add two periods together.
+    const showTooltipTotal =
+        hasBreakdownFilter(breakdownFilter) &&
+        !isAggregated &&
+        !isGrouped &&
+        !isPercentStackView &&
+        !compareFilter?.compare
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
@@ -152,8 +168,16 @@ export function TrendsBarChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const { series, labels, displayLabels } = useMemo(() => {
@@ -211,6 +235,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
+    const hideAxes = context?.hideAxes
     const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
@@ -222,6 +247,7 @@ export function TrendsBarChart({
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
@@ -241,6 +267,7 @@ export function TrendsBarChart({
             interval,
             timezone,
             currentPeriodResult?.days,
+            hideAxes,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -275,6 +302,8 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
@@ -290,6 +319,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,
@@ -383,6 +413,7 @@ export function TrendsBarChart({
                 onRowClick,
                 showHeader: isAggregated ? (false as const) : undefined,
                 sortedByValue: false,
+                showTotal: showTooltipTotal,
             }
             return <InsightSeriesTooltip {...sharedProps} />
         },
@@ -400,6 +431,7 @@ export function TrendsBarChart({
             canHandleClick,
             clickDeps,
             isAggregated,
+            showTooltipTotal,
         ]
     )
 

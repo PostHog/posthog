@@ -55,12 +55,14 @@ describe('logs utils', () => {
     })
 
     describe('getDistinctIdWithKey', () => {
-        it('prefers a configured key over a convention, and attributes over resource_attributes', () => {
+        it.each(['user.id', 'attributes.personId'])('prefers configured key %s over a convention', (configuredKey) => {
             expect(
-                getDistinctIdWithKey({ distinct_id: 'convention', 'user.id': 'configured' }, undefined, ['user.id'])
-            ).toEqual({ key: 'user.id', value: 'configured', source: 'attribute' })
-            expect(getDistinctIdWithKey({}, { 'user.id': 'configured' }, ['user.id'])).toEqual({
-                key: 'user.id',
+                getDistinctIdWithKey({ distinct_id: 'convention', [configuredKey]: 'configured' }, undefined, [
+                    configuredKey,
+                ])
+            ).toEqual({ key: configuredKey, value: 'configured', source: 'attribute' })
+            expect(getDistinctIdWithKey({}, { [configuredKey]: 'configured' }, [configuredKey])).toEqual({
+                key: configuredKey,
                 value: 'configured',
                 source: 'resource_attribute',
             })
@@ -134,6 +136,16 @@ describe('logs utils', () => {
 
     describe('configured session ID keys', () => {
         it.each([
+            [
+                'flattened JSON attribute is matched literally',
+                ['attributes.sessionId'],
+                {
+                    attributes: '{"sessionId":"01901234-5678-7000-8000-000000000001"}',
+                    'attributes.sessionId': '01901234-5678-7000-8000-000000000001',
+                },
+                undefined,
+                '01901234-5678-7000-8000-000000000001',
+            ],
             [
                 'configured key wins over a built-in convention key',
                 ['my.custom.key'],
@@ -220,6 +232,21 @@ describe('logs utils', () => {
 
         it('leaves the range alone without a timestamp', () => {
             expect(buildLogsSessionScope('sess-1')).toEqual({ sessionId: 'sess-1', initialFilters: undefined })
+        })
+
+        it('narrows the range to a caller-supplied window', () => {
+            expect(buildLogsSessionScope('sess-1', '2026-03-24T12:00:00.000Z', 5).initialFilters).toEqual({
+                dateRange: { date_from: '2026-03-24T11:55:00.000Z', date_to: '2026-03-24T12:05:00.000Z' },
+            })
+        })
+
+        it('keeps the window when there is no session to scope to', () => {
+            expect(buildLogsSessionScope(undefined, '2026-03-24T12:00:00.000Z', 5)).toEqual({
+                sessionId: undefined,
+                initialFilters: {
+                    dateRange: { date_from: '2026-03-24T11:55:00.000Z', date_to: '2026-03-24T12:05:00.000Z' },
+                },
+            })
         })
     })
 

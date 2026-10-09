@@ -134,7 +134,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
@@ -235,6 +234,17 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked (existing behavior).
             tracking_enabled: z.boolean().optional(),
+            // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
+            utm_tags_enabled: z.boolean().optional(),
+            // Liquid templates that replace the default tag values. An empty value keeps the default.
+            utm_params: z
+                .object({
+                    utm_source: z.string().optional(),
+                    utm_medium: z.string().optional(),
+                    utm_campaign: z.string().optional(),
+                    utm_content: z.string().optional(),
+                })
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -294,6 +304,14 @@ const HogFlowEdgeSchema = z.object({
     index: z.number().optional(),
 })
 
+// Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
+const HogFlowTriggerMaskingSchema = z.object({
+    ttl: z.number().nullable(),
+    hash: z.string(),
+    bytecode: z.array(z.union([z.string(), z.number()])),
+    threshold: z.number().nullable(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -301,19 +319,11 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
-    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
-    trigger_masking: z
-        .object({
-            ttl: z.number().nullable(),
-            hash: z.string(),
-            bytecode: z.array(z.union([z.string(), z.number()])),
-            threshold: z.number().nullable(),
-        })
-        .optional()
-        .nullable(),
+    trigger_masking: HogFlowTriggerMaskingSchema.optional().nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
+            window: z.string().nullable().optional(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
             events: z

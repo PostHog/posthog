@@ -79,9 +79,13 @@ class TestSanitizePrompt:
             ("First section\n\nSecond section", "First section\n\nSecond section"),
             ("First section\r\n\r\nSecond section", "First section\n\nSecond section"),
             ("First section\u2028Second section", "First section\nSecond section"),
+            ("First section\n\\n\n\\n\nSecond section", "First section\n\n\nSecond section"),
+            ("First section\n\\r\\n\nSecond section", "First section\n\nSecond section"),
+            ("First section\n\\n\\r\\n\\n\nSecond section", "First section\n\nSecond section"),
+            ("Revenue: \\nTotal", "Revenue: \\nTotal"),
         ],
     )
-    def test_preserves_prompt_line_breaks(self, raw: str, expected: str) -> None:
+    def test_normalizes_prompt_line_breaks(self, raw: str, expected: str) -> None:
         assert sanitize_prompt(raw) == expected
 
     def test_preserves_line_breaks_while_stripping_prompt_framing_and_html_tags(self) -> None:
@@ -371,12 +375,25 @@ class TestEventPropertyNames(APIBaseTest):
     def test_empty_for_no_events(self) -> None:
         assert _event_property_names(self.team, [], per_event_limit=15) == {}
 
-    def test_excludes_other_teams_properties(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        EventProperty.objects.create(team=other_team, event="export created", property="leaked")
+    @parameterized.expand(
+        [
+            ("other_project", False, ["mine"]),
+            ("sibling_environment", True, ["from_other", "mine"]),
+        ]
+    )
+    def test_reads_properties_across_the_project_only(
+        self, _name: str, same_project: bool, expected: list[str]
+    ) -> None:
+        if same_project:
+            other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="other")
+        else:
+            other_team = Team.objects.create(organization=self.organization, name="other")
+        EventProperty.objects.create(
+            team=other_team, project=other_team.project, event="export created", property="from_other"
+        )
         EventProperty.objects.create(team=self.team, event="export created", property="mine")
 
-        assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
+        assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": expected}
 
 
 class TestAIWindowConfigProperties:

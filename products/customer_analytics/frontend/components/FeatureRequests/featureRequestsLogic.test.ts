@@ -42,6 +42,7 @@ const createdRequest: FeatureRequestApi = {
     archived_by: null,
     version: 1,
     can_update: true,
+    github_link: null,
     account: { id: 'account-1', name: 'Acme' },
     account_links: [
         {
@@ -98,29 +99,31 @@ describe('featureRequestsLogic', () => {
     it('keeps the request fields after a failed save so the editor can retry', async () => {
         jest.spyOn(generatedApi, 'featureRequestsCreate').mockRejectedValueOnce(new Error('save failed'))
         logic.actions.openCreateRequest()
-        logic.actions.setTitle(createdRequest.title)
-        logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
-        logic.actions.setProductAreaIds(['area-1'])
+        const formValues = {
+            title: createdRequest.title,
+            description: createdRequest.description,
+            accountId: createdRequest.account_links[0].account.id,
+            productAreaIds: ['area-1'],
+        }
+        logic.actions.setFeatureRequestFormValues(formValues)
 
-        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestForm()).toFinishAllListeners()
 
-        expect(logic.values.title).toBe(createdRequest.title)
-        expect(logic.values.description).toBe(createdRequest.description)
-        expect(logic.values.accountId).toBe(createdRequest.account_links[0].account.id)
-        expect(logic.values.productAreaIds).toEqual(['area-1'])
+        expect(logic.values.featureRequestForm).toEqual(formValues)
         expect(logic.values.createRequestOpen).toBe(true)
-        expect(logic.values.submittingRequest).toBe(false)
+        expect(logic.values.isFeatureRequestFormSubmitting).toBe(false)
     })
 
     it('allows a request without a description', async () => {
         const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
         logic.actions.openCreateRequest()
-        logic.actions.setTitle(createdRequest.title)
-        logic.actions.setAccountId(createdRequest.account.id)
-        logic.actions.setProductAreaIds(['area-1'])
+        logic.actions.setFeatureRequestFormValues({
+            title: createdRequest.title,
+            accountId: createdRequest.account.id,
+            productAreaIds: ['area-1'],
+        })
 
-        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestForm()).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledWith(
             String(MOCK_DEFAULT_TEAM.id),
@@ -131,13 +134,15 @@ describe('featureRequestsLogic', () => {
     it('creates initial evidence from a source and request date', async () => {
         const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
         logic.actions.openCreateRequest()
-        logic.actions.setTitle(createdRequest.title)
-        logic.actions.setAccountId(createdRequest.account.id)
-        logic.actions.setProductAreaIds(['area-1'])
+        logic.actions.setFeatureRequestFormValues({
+            title: createdRequest.title,
+            accountId: createdRequest.account.id,
+            productAreaIds: ['area-1'],
+        })
         logic.actions.setEvidenceSource('meeting')
         logic.actions.setEvidenceRequestedOn('2026-01-01')
 
-        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestForm()).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             title: createdRequest.title,
@@ -161,7 +166,7 @@ describe('featureRequestsLogic', () => {
     it('keeps selected account options while search results reload', () => {
         const filterAccount = { ...account, id: 'account-2', name: 'Globex', external_id: 'cust_globex_001' }
         logic.actions.loadAccountsSuccess([account, filterAccount])
-        logic.actions.setAccountId(account.id)
+        logic.actions.setFeatureRequestFormValue('accountId', account.id)
         logic.actions.setAccountFilter([filterAccount.id])
         logic.actions.loadAccountsSuccess([])
 
@@ -382,19 +387,19 @@ describe('featureRequestsLogic', () => {
         jest.spyOn(generatedApi, 'featureRequestsRetrieve').mockResolvedValue({ ...createdRequest, version: 2 })
         logic.actions.setActiveRequestId(createdRequest.id)
         logic.actions.openEditRequest(createdRequest)
-        logic.actions.setEditTitle('Unsaved title')
+        logic.actions.setFeatureRequestEditFormValue('title', 'Unsaved title')
 
-        await expectLogic(logic, () => logic.actions.saveRequestChanges()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestEditForm()).toFinishAllListeners()
 
         expect(logic.values.editRequestOpen).toBe(true)
-        expect(logic.values.editTitle).toBe('Unsaved title')
+        expect(logic.values.featureRequestEditForm.title).toBe('Unsaved title')
         expect(logic.values.editExpectedVersion).toBe(1)
         expect(logic.values.editError).toContain('changed since')
         expect(logic.values.editIsStale).toBe(true)
 
         await expectLogic(logic, () => logic.actions.reloadLatestForEdit()).toFinishAllListeners()
 
-        expect(logic.values.editTitle).toBe('Unsaved title')
+        expect(logic.values.featureRequestEditForm.title).toBe('Unsaved title')
         expect(logic.values.editExpectedVersion).toBe(2)
         expect(logic.values.editError).toBeNull()
         expect(logic.values.editIsStale).toBe(false)
@@ -648,24 +653,63 @@ describe('featureRequestsLogic', () => {
         expect(router.values.searchParams.evidence_account).toBeUndefined()
     })
 
-    it('ignores a second submit while the first request is in flight', async () => {
+    it('shows field errors instead of saving when required fields are missing', async () => {
+        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        const updateSpy = jest.spyOn(generatedApi, 'featureRequestsUpdate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest()
+        expect(logic.values.featureRequestFormErrors).toEqual({})
+
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestForm()).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(logic.values.featureRequestFormErrors).toEqual({
+            title: 'Enter a title',
+            accountId: 'Select an account',
+            productAreaIds: 'Select at least one product area',
+        })
+
+        logic.actions.setFeatureRequestFormValue('title', createdRequest.title)
+        expect(logic.values.featureRequestFormErrors.title).toBeUndefined()
+
+        logic.actions.closeCreateRequest()
+        expect(logic.values.featureRequestFormErrors).toEqual({})
+        expect(logic.values.featureRequestForm.title).toBe('')
+
+        logic.actions.openEditRequest(createdRequest)
+        logic.actions.setFeatureRequestEditFormValue('productAreaIds', [])
+
+        await expectLogic(logic, () => logic.actions.submitFeatureRequestEditForm()).toFinishAllListeners()
+
+        expect(updateSpy).not.toHaveBeenCalled()
+        expect(logic.values.editError).toBeNull()
+        expect(logic.values.featureRequestEditFormErrors).toEqual({
+            title: undefined,
+            accountIds: undefined,
+            productAreaIds: 'Select at least one product area',
+        })
+    })
+
+    it('keeps the form submitting until the request finishes', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {
             resolveCreate = resolve
         })
-        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockReturnValue(createPromise)
+        jest.spyOn(generatedApi, 'featureRequestsCreate').mockReturnValue(createPromise)
         logic.actions.openCreateRequest()
-        logic.actions.setTitle(createdRequest.title)
-        logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
-        logic.actions.setProductAreaIds(['area-1'])
+        logic.actions.setFeatureRequestFormValues({
+            title: createdRequest.title,
+            description: createdRequest.description,
+            accountId: createdRequest.account_links[0].account.id,
+            productAreaIds: ['area-1'],
+        })
 
-        logic.actions.submitRequest()
-        logic.actions.submitRequest()
+        logic.actions.submitFeatureRequestForm()
+        expect(logic.values.isFeatureRequestFormSubmitting).toBe(true)
+
         resolveCreate(createdRequest)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(createSpy).toHaveBeenCalledTimes(1)
-        expect(logic.values.submittingRequest).toBe(false)
+        expect(logic.values.isFeatureRequestFormSubmitting).toBe(false)
+        expect(logic.values.createRequestOpen).toBe(false)
     })
 })

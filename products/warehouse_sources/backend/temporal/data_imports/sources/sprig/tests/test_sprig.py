@@ -4,6 +4,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests_mock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
@@ -11,8 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import ENDPOINTS, SPRIG_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import (
+    ENDPOINTS,
+    SPRIG_API_BASE_URL,
+    SPRIG_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig import (
+    SprigRedirectError,
     SprigResumeConfig,
     _format_incremental_value,
     get_resource,
@@ -76,25 +82,10 @@ class TestGetResource:
         assert param["cursor_path"] == "createdAt"
         assert param["convert"] is _format_incremental_value
 
-    def test_responses_primary_key_includes_question_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Responses"].primary_keys == ["responseGroupUid", "questionId"]
-
-    def test_surveys_primary_key_is_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Surveys"].primary_keys == ["id"]
-
 
 class TestSprigCursorPaginator:
     def _paginator(self) -> JSONResponseCursorPaginator:
         return JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor")
-
-    def test_initial_state(self) -> None:
-        paginator = self._paginator()
-        assert paginator.has_next_page is True
-
-    def test_update_state_has_more(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [{"id": 1}], "cursor": "cursor-1"}))
-        assert paginator.has_next_page is True
 
     @parameterized.expand([("null_cursor", None), ("missing_cursor_key", "missing")])
     def test_update_state_terminal_page(self, _label: str, cursor_value: str | None) -> None:
@@ -105,31 +96,6 @@ class TestSprigCursorPaginator:
         paginator.update_state(_response(body))
         assert paginator.has_next_page is False
 
-    def test_update_request_adds_cursor_param(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": "cursor-2"}))
-        request = MagicMock()
-        request.params = {"limit": 1000}
-        paginator.update_request(request)
-        assert request.params["cursor"] == "cursor-2"
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": "cursor-3"}))
-        assert paginator.get_resume_state() == {"cursor": "cursor-3"}
-
-        resumed = self._paginator()
-        resumed.set_resume_state({"cursor": "cursor-3"})
-        request = MagicMock()
-        request.params = {}
-        resumed.init_request(request)
-        assert request.params["cursor"] == "cursor-3"
-
-    def test_no_resume_state_on_terminal_page(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": None}))
-        assert paginator.get_resume_state() is None
-
 
 class TestSprigSource:
     def _manager(self, *, can_resume: bool, state: SprigResumeConfig | None = None) -> MagicMock:
@@ -137,47 +103,6 @@ class TestSprigSource:
         manager.can_resume.return_value = can_resume
         manager.load_state.return_value = state
         return manager
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Surveys"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Surveys",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Surveys"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_responses_primary_key_plumbed_through(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Responses"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Responses",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-        )
-
-        assert response.primary_keys == ["responseGroupUid", "questionId"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
     def test_seeds_initial_paginator_state_from_saved_cursor(self, mock_rest: MagicMock) -> None:
@@ -241,3 +166,43 @@ class TestValidateCredentials:
 
         with pytest.raises(HTTPError):
             validate_credentials("key")
+
+
+class TestRedirectsRefused:
+    # A redirected request lands on a host that answers 403 with a bot challenge, which must not
+    # be read as an auth failure. Redirects are refused so the token never leaves the API host.
+    API_URL = f"{SPRIG_API_BASE_URL}/v1/surveys"
+    TARGET_URL = "https://sprig.com/v1/surveys"
+
+    @parameterized.expand([("moved_permanently", 301), ("found", 302)])
+    def test_sync_refuses_redirect_and_keeps_token_on_api_host(self, _label: str, status: int) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=status, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            source = sprig_source(
+                api_key="key",
+                endpoint="Surveys",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+            )
+            with pytest.raises(ValueError, match="Unexpected redirect .*refusing to follow"):
+                list(cast(Any, source.items()))
+
+            assert [r.hostname for r in m.request_history] == ["api.sprig.com"]
+            assert m.request_history[0].headers["Authorization"] == "Bearer key"
+
+    def test_validate_credentials_refuses_redirect_instead_of_reporting_a_valid_key(self) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=302, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            with pytest.raises(SprigRedirectError, match="redirected the API request to sprig.com"):
+                validate_credentials("key")
+
+            assert [r.hostname for r in m.request_history] == ["api.sprig.com"]

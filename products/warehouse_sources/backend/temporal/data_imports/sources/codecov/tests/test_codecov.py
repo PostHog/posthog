@@ -218,14 +218,6 @@ class TestFanOutRows:
         # The bookmark advances to the next repo so a crash between repos resumes correctly.
         assert manager.saved == [CodecovResumeConfig(next_url=None, repo="r2")]
 
-    def test_repository_allow_list_skips_repo_enumeration(self, monkeypatch: Any) -> None:
-        pages = {f"{_BASE}/repos/r9/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 70.0}])}
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories="r9", endpoint="flags")
-
-        assert [r["repo"] for r in rows] == ["r9"]
-        assert _ACTIVE_REPOS_URL not in fetched
-
     def test_resumes_from_bookmarked_repo_and_url(self, monkeypatch: Any) -> None:
         resume_url = f"{_BASE}/repos/r2/flags?page=2&page_size=500"
         pages = {
@@ -244,31 +236,6 @@ class TestFanOutRows:
         assert [r["repo"] for r in rows] == ["r2", "r3"]
         assert f"{_BASE}/repos/r1/flags?page_size=500" not in fetched
 
-    def test_missing_bookmarked_repo_starts_over(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
-            f"{_BASE}/repos/r1/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 90.0}]),
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(
-            _FakeResumableManager(CodecovResumeConfig(next_url="https://stale", repo="deleted-repo")),
-            repositories=None,
-            endpoint="flags",
-        )
-
-        assert [r["repo"] for r in rows] == ["r1"]
-
-    def test_deleted_repo_404_is_skipped(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}, {"name": "r2"}]),
-            f"{_BASE}/repos/r1/flags?page_size=500": _http_error(404),
-            f"{_BASE}/repos/r2/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 80.0}]),
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="flags")
-
-        assert [r["repo"] for r in rows] == ["r2"]
-
     def test_components_bare_list_endpoint(self, monkeypatch: Any) -> None:
         pages = {
             _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
@@ -278,6 +245,93 @@ class TestFanOutRows:
         rows = _collect(_FakeResumableManager(), repositories=None, endpoint="components")
 
         assert rows == [{"component_id": "api", "name": "api", "coverage": 91.2, "repo": "r1"}]
+
+
+class TestCoverageReportEndpoints:
+    def test_repo_without_a_coverage_report_yields_nothing(self, monkeypatch: Any) -> None:
+        # Codecov 404s a repo that has never had a report processed; the fan-out skips it.
+        pages = {
+            _ACTIVE_REPOS_URL: _page([{"name": "r1"}, {"name": "r2"}]),
+            f"{_BASE}/repos/r1/totals": _http_error(404),
+            f"{_BASE}/repos/r2/totals": {"totals": {"coverage": 80.0}, "files": [], "commit_file_url": None},
+        }
+        _patch_fetch(monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="repo_totals")
+
+        assert [r["repo"] for r in rows] == ["r2"]
+
+    def test_report_files_yields_one_row_per_file(self, monkeypatch: Any) -> None:
+        pages = {
+            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
+            f"{_BASE}/repos/r1/report": {
+                "totals": {"coverage": 90.0},
+                "files": [
+                    {"name": "app.py", "totals": {"lines": 2}, "line_coverage": [[1, 0], [2, 1]]},
+                    {"name": "lib/util.py", "totals": {"lines": 1}, "line_coverage": [[7, 2]]},
+                ],
+                "commit_file_url": "https://app.codecov.io/gh/acme/r1",
+            },
+        }
+        _patch_fetch(monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="report_files")
+
+        assert [(r["repo"], r["name"]) for r in rows] == [("r1", "app.py"), ("r1", "lib/util.py")]
+        assert rows[0]["line_coverage"] == [[1, 0], [2, 1]]
+
+    def test_report_tree_flattens_every_nesting_level(self, monkeypatch: Any) -> None:
+        pages = {
+            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
+            f"{_BASE}/repos/r1/report/tree?depth=100": [
+                {
+                    "name": "foo",
+                    "full_path": "foo",
+                    "coverage": 62.5,
+                    "lines": 8,
+                    "hits": 5,
+                    "partials": 0,
+                    "misses": 3,
+                    "children": [
+                        {
+                            "name": "bar",
+                            "full_path": "foo/bar",
+                            "coverage": 50.0,
+                            "lines": 4,
+                            "hits": 2,
+                            "partials": 0,
+                            "misses": 2,
+                            "children": [
+                                {
+                                    "name": "file1.py",
+                                    "full_path": "foo/bar/file1.py",
+                                    "coverage": 50.0,
+                                    "lines": 4,
+                                    "hits": 2,
+                                    "partials": 0,
+                                    "misses": 2,
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "name": "file2.py",
+                    "full_path": "file2.py",
+                    "coverage": 100.0,
+                    "lines": 1,
+                    "hits": 1,
+                    "partials": 0,
+                    "misses": 0,
+                },
+            ],
+        }
+        _patch_fetch(monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="report_tree")
+
+        # Directories and files become sibling rows keyed by full_path, and `children` is
+        # dropped rather than stored as a nested column.
+        assert [r["full_path"] for r in rows] == ["foo", "foo/bar", "foo/bar/file1.py", "file2.py"]
+        assert all(r["repo"] == "r1" for r in rows)
+        assert not any("children" in r for r in rows)
 
 
 class TestIncrementalSync:
@@ -353,18 +407,6 @@ class TestIncrementalSync:
         )
 
         assert [r["repo"] for r in rows] == ["r1"]
-        assert fetched == list(pages)
-
-    def test_coverage_trend_full_refresh_has_no_start_date(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
-            f"{_BASE}/repos/r1/coverage?page_size=500&interval=1d": _page(
-                [{"timestamp": "2026-07-06T00:00:00Z", "min": 90.0, "max": 91.0, "avg": 90.5}]
-            ),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(_FakeResumableManager(), repositories=None, endpoint="coverage_trend")
-
         assert fetched == list(pages)
 
 

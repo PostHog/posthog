@@ -3,20 +3,18 @@ from typing import TYPE_CHECKING, Optional, cast
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
+from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
-
-from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -34,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    REDSHIFT_READ_TIMEOUT_ERROR,
     RedshiftImplementation,
     get_connection_metadata as get_connection_metadata_redshift,
 )
@@ -55,10 +54,21 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "allowed through its firewall."
 )
 
+# Shared with the Postgres source, which speaks the same libpq wordings: a DNS failure and a
+# connection the network refused or dropped both used to end on a message with no next step.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
-    "could not translate host name": "Could not connect to the host",
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
@@ -84,7 +94,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REDSHIFT,
+            name=ExternalDataSourceType.REDSHIFT,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["aws redshift", "amazon redshift", "sql"],
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
@@ -164,10 +174,21 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     def get_retryable_errors(self) -> set[str]:
         # The bounded lookup in front of every connect raises these when the resolver stalls or
         # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
-        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
+        #
+        # `REDSHIFT_READ_TIMEOUT_ERROR` is the client-side limit on the wait for one batch of rows.
+        # The cluster was reachable and then sent nothing, so a later attempt can succeed.
+        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR, REDSHIFT_READ_TIMEOUT_ERROR}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
-        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
+        return {
+            HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            REDSHIFT_READ_TIMEOUT_ERROR: (
+                "Your Redshift cluster stopped sending rows in the middle of the sync, and it did so again "
+                "on every retry. Check that the cluster is not paused or resizing and that it has capacity "
+                "for the read. This sync is still enabled and will run again on its next schedule."
+            ),
+        }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

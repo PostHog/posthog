@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -16,19 +16,23 @@ import { cn } from 'lib/utils/css-classes'
 
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
+import { buildAiEventSpans, isAiEventSpan } from '../../aiEventSpans'
+import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
 import type { TraceIdentity } from '../../traceIdentity'
 import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
-import type { Span } from '../../types'
+import type { Span, SpanInspectorTab } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { MissingParentSpanNotice } from './MissingParentSpanNotice'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { TraceAiEventsCapNotice } from './TraceAiEventsCapNotice'
+import { traceAiEventsLogic } from './traceAiEventsLogic'
+import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
-
-type InspectorTab = 'attributes' | 'query' | 'logs' | 'metrics' | 'raw'
 
 // Below this the inspector's content (the attribute KVP tables) stops being readable; clamp so a
 // drag can't crush it. The max is a flex `max-w` so a too-wide drag can't starve the waterfall.
@@ -42,6 +46,15 @@ export interface TraceDrawerProps {
     spans: Span[]
     /** The person and session the trace belongs to, resolved by tracingViewerLogic. */
     identity: TraceIdentity
+    /** The trace's session for the Errors tab, or null when its spans resolve to no one session. */
+    sessionId: string | null
+    /** Show the Errors tab, which lists the issues connected to the trace. */
+    showErrorsTab: boolean
+    /** Which inspector tab is open. Held in tracingViewerLogic so a caller can open one directly. */
+    inspectorTab: SpanInspectorTab
+    /** The scope the Errors tab opens on, when the caller named one. */
+    errorsScope: ErrorScope | null
+    onSelectInspectorTab: (tab: SpanInspectorTab) => void
     loading: boolean
     /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
     hasMoreSpans?: boolean
@@ -61,8 +74,13 @@ export function TraceDrawer({
     isOpen,
     traceId,
     ts,
-    spans,
+    spans: realSpans,
     identity,
+    sessionId,
+    showErrorsTab,
+    inspectorTab,
+    errorsScope,
+    onSelectInspectorTab,
     loading,
     hasMoreSpans = false,
     loadingMoreSpans = false,
@@ -71,6 +89,12 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
+    const { aiEvents, hasMoreAiEvents, aiEventsLimit } = useValues(traceAiEventsLogic({ traceId }))
+    // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
+    const spans = useMemo(() => {
+        const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
+        return aiEventSpans.length > 0 ? [...realSpans, ...aiEventSpans] : realSpans
+    }, [realSpans, aiEvents])
     // Waterfall|inspector split. Persisted so a user's preferred split sticks across traces;
     // desiredSize is null until the first drag, leaving the responsive default (w-2/5) in place.
     // One props object feeds both the value-read and the <Resizer>, so the logicKey can't desync.
@@ -83,7 +107,6 @@ export function TraceDrawer({
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const [inspectorTab, setInspectorTab] = useState<InspectorTab>('attributes')
 
     // Metrics correlate to a trace via exemplars, so the tab only exists where the metrics
     // product does: its own flag, plus the metrics feature and view access.
@@ -96,6 +119,14 @@ export function TraceDrawer({
     const selectedSpan = useMemo(
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
+    )
+    // The waterfall's "<parent span missing>" row selects an id that only appears as a parent id.
+    const missingParentSpanId = useMemo(
+        () =>
+            selectedSpanId && !selectedSpan && spans.some((span) => span.parent_span_id === selectedSpanId)
+                ? selectedSpanId
+                : null,
+        [spans, selectedSpanId, selectedSpan]
     )
     // Shared with the waterfall so a service is the same color in the bars and the summary header.
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
@@ -111,12 +142,14 @@ export function TraceDrawer({
 
     // Only DB spans carry a query; the Query tab appears only when one is present.
     const queryText = inspectedSpan ? getQueryText(inspectedSpan) : null
-    // The Query and Metrics tabs are conditional, so if the active tab disappears (a span without
-    // a query, or the metrics gates turning off), fall back to Attributes — otherwise activeKey
-    // would point at a tab LemonTabs has dropped and the inspector body would render blank.
-    // (Preference is preserved: a DB span re-shows Query.)
-    const activeInspectorTab: InspectorTab =
-        (inspectorTab === 'query' && !queryText) || (inspectorTab === 'metrics' && !showMetricsTab)
+    // The Query, Errors and Metrics tabs are conditional, so if the active tab disappears (a span
+    // without a query, or one of the gates turning off), fall back to Attributes. Otherwise
+    // activeKey would point at a tab LemonTabs has dropped and the inspector body would render
+    // blank. Preference is preserved: a DB span re-shows Query.
+    const activeInspectorTab: SpanInspectorTab =
+        (inspectorTab === 'query' && !queryText) ||
+        (inspectorTab === 'metrics' && !showMetricsTab) ||
+        (inspectorTab === 'errors' && !showErrorsTab)
             ? 'attributes'
             : inspectorTab
 
@@ -152,6 +185,7 @@ export function TraceDrawer({
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
                 <div className="flex-1 min-w-0">
+                    <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} limit={aiEventsLimit} />
                     {/* Keyed by trace so a new trace resets selection + scroll state. */}
                     <TraceWaterfallView
                         key={traceId ?? ''}
@@ -176,12 +210,14 @@ export function TraceDrawer({
                     data-attr="tracing-span-inspector"
                 >
                     <Resizer {...inspectorResizerProps} />
-                    {inspectedSpan ? (
+                    {missingParentSpanId ? (
+                        <MissingParentSpanNotice traceId={traceId ?? ''} parentSpanId={missingParentSpanId} />
+                    ) : inspectedSpan ? (
                         <>
                             <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
                             <LemonTabs
                                 activeKey={activeInspectorTab}
-                                onChange={setInspectorTab}
+                                onChange={onSelectInspectorTab}
                                 data-attr="tracing-inspector-tabs"
                                 tabs={[
                                     {
@@ -216,6 +252,29 @@ export function TraceDrawer({
                                         // it) so we don't churn its logics or lose scroll.
                                         content: <SpanLogsTab key={inspectedSpan.trace_id} span={inspectedSpan} />,
                                     },
+                                    // Conditional on its own flag. The tab is session-scoped, so it
+                                    // stays available on a trace that resolved no session and
+                                    // explains there what is missing.
+                                    showErrorsTab
+                                        ? {
+                                              key: 'errors',
+                                              label: 'Errors',
+                                              content: (
+                                                  <TraceErrorsTab
+                                                      key={inspectedSpan.span_id}
+                                                      traceId={inspectedSpan.trace_id}
+                                                      // A synthetic AI row has no OTel span id, so it scopes to the trace.
+                                                      spanId={
+                                                          isAiEventSpan(inspectedSpan) ? null : inspectedSpan.span_id
+                                                      }
+                                                      timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
+                                                      sessionId={sessionId}
+                                                      initialScope={errorsScope}
+                                                      resolving={loading}
+                                                  />
+                                              ),
+                                          }
+                                        : null,
                                     // Conditional: needs the metrics product (flag + access) and its own flag.
                                     showMetricsTab
                                         ? {

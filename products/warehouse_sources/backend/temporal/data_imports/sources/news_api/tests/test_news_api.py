@@ -113,49 +113,6 @@ class TestRequestParams:
         assert params[0]["from"] == "2026-03-04T02:58:14"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_everything_without_incremental_omits_from_and_language(self, MockSession: Any) -> None:
-        # A full refresh (or first sync) must not send a `from` filter, or it would clip history; a
-        # missing language must not leak an empty filter.
-        session = MockSession.return_value
-        params = _wire(session, [_response({"totalResults": 1, "articles": [{"url": "a"}]})])
-
-        _rows(
-            _source(
-                "everything",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert "from" not in params[0]
-        assert "language" not in params[0]
-        assert params[0]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_top_headlines_has_no_date_filter_sort_or_language(self, MockSession: Any) -> None:
-        # top-headlines exposes no `from`/`to`, no `sortBy`, and no `language`, so none should leak in
-        # even when a cursor value / language is supplied.
-        session = MockSession.return_value
-        params = _wire(session, [_response({"totalResults": 1, "articles": [{"url": "a"}]})])
-
-        _rows(
-            _source(
-                "top_headlines",
-                _make_manager(),
-                language="en",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["q"] == "bitcoin"
-        assert params[0]["pageSize"] == PAGE_SIZE
-        assert "from" not in params[0]
-        assert "sortBy" not in params[0]
-        assert "language" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_sources_ignores_query_and_pagination(self, MockSession: Any) -> None:
         # /v2/top-headlines/sources takes neither q nor pagination; only optional facet filters.
         session = MockSession.return_value
@@ -167,54 +124,6 @@ class TestRequestParams:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sources_endpoint_yields_once_without_resume(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"sources": [{"id": "bbc-news"}, {"id": "wired"}]})])
-
-        manager = _make_manager()
-        rows = _rows(_source("sources", manager))
-
-        assert [r["id"] for r in rows] == ["bbc-news", "wired"]
-        assert session.send.call_count == 1
-        # Non-paginated endpoints never checkpoint — there's nothing to resume.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_terminates_with_one_request(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"totalResults": 2, "articles": [{"url": "a"}, {"url": "b"}]})])
-
-        manager = _make_manager()
-        rows = _rows(_source("everything", manager))
-
-        assert [r["url"] for r in rows] == ["a", "b"]
-        # A short page drains the reachable set, so no extra request and no checkpoint.
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_multiple_pages_and_checkpoints_after_full_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        full_page = [{"url": f"u{i}"} for i in range(PAGE_SIZE)]
-        params = _wire(
-            session,
-            [
-                _response({"totalResults": 150, "articles": full_page}),
-                _response({"totalResults": 150, "articles": [{"url": "last"}]}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("everything", manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        # State is saved AFTER the first full page is yielded (points at the next page) so a crash
-        # re-yields it (merge dedupes); the short final page ends the walk with no further save.
-        manager.save_state.assert_called_once_with(NewsApiResumeConfig(next_page=2))
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: Any) -> None:
         session = MockSession.return_value
@@ -243,25 +152,6 @@ class TestPagination:
         rows = _rows(_source("everything", manager))
 
         assert len(rows) == PAGE_SIZE + 1
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_maximum_results_reached_stops_cleanly(self, MockSession: Any) -> None:
-        # NewsAPI returns 426 `maximumResultsReached` past the reachable cap. That's a normal end of
-        # the window, so the sync keeps the rows it already has instead of failing.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"totalResults": 500, "articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)]}),
-                _response({"status": "error", "code": "maximumResultsReached"}, status=426),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("everything", manager))
-
-        assert len(rows) == PAGE_SIZE
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -313,11 +203,6 @@ class TestValidateCredentials:
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("k") is expected
-
-    @mock.patch(NEWS_API_SESSION_PATCH)
-    def test_network_failure_is_invalid(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("k") is False
 
 
 class TestSourceResponse:

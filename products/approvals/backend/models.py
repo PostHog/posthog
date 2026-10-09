@@ -43,6 +43,11 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     policy_snapshot = models.JSONField()
 
+    # Which product owned the resource when this request was created. Re-derived at apply and
+    # refused on a mismatch, so an approval binds to the ownership the approvers reviewed.
+    # NULL means no classification was recorded, which an apply treats as nothing to check.
+    owner_kind = models.CharField(max_length=64, null=True, blank=True)
+
     validation_status = models.CharField(
         max_length=16,
         choices=ValidationStatus,
@@ -88,6 +93,9 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         """Get the matching approval policy for this change request."""
         from products.approvals.backend.policies import PolicyEngine
 
+        action_class = self.get_action_class()
+        if action_class is not None:
+            return PolicyEngine().get_policy_for_action(action_class, self.team, self.organization)
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
     def can_be_canceled_by(self, user_id: int) -> bool:

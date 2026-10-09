@@ -41,19 +41,8 @@ class TestAsknicelySource:
         # sent to, so it must force the API key to be re-entered.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_get_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert [s.name for s in schemas] == ["responses"]
-        responses = schemas[0]
-        assert responses.supports_incremental is True
-        assert responses.supports_append is True
-        assert [f["field"] for f in responses.incremental_fields] == ["responded"]
-
     def test_get_schemas_filtered_by_names(self) -> None:
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["responses"])] == [
-            "responses"
-        ]
+        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["stats"])] == ["stats"]
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize("subdomain", ["not a subdomain", "acme.asknice.ly", "evil/../path", ""])

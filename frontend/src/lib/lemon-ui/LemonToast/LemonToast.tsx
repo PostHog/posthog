@@ -14,6 +14,7 @@ import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner'
+import { getHelp } from './getHelp'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (
@@ -39,11 +40,14 @@ interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     hideButton?: boolean
 }
 
+interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
+    /** A second action, shown after `button` on a row under the message. */
+    secondaryButton?: ToastButton
+}
+
 export const GET_HELP_BUTTON: ToastButton = {
     label: 'Get help',
-    action: () => {
-        window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast', '_blank')
-    },
+    action: getHelp,
 }
 
 // Fallback for when submitting a support ticket in-app fails: let the user reach us
@@ -61,6 +65,7 @@ export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
     button?: ToastButton
+    secondaryButton?: ToastButton
     id?: number | string
 }
 
@@ -123,8 +128,21 @@ function ToastCopyButton({ getMessageText }: { getMessageText: () => string }): 
     )
 }
 
-export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
+export function ToastContent({ type, message, button, secondaryButton, id }: ToastContentProps): JSX.Element {
     const messageRef = useRef<HTMLSpanElement>(null)
+
+    if (secondaryButton) {
+        // Two actions leave the message no room on one line, so they go on a row under it.
+        return (
+            <div className="flex flex-col gap-2" data-attr={`${type}-toast`}>
+                <span>{message}</span>
+                <div className="flex gap-2 [&_button]:!mx-0">
+                    {button && <ToastActionButton button={button} toastId={id} />}
+                    <ToastActionButton button={secondaryButton} toastId={id} />
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
@@ -228,26 +246,39 @@ export const lemonToast = {
         })
         return id
     },
-    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+    success(message: string | JSX.Element, { button, secondaryButton, ...toastOptions }: SuccessToastOptions = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
         const id = options.toastId!
         queueMicrotask(() => {
             if (cancelledIds.delete(id)) {
                 return
             }
-            toast.success(<ToastContent type="success" message={message} button={button} id={id} />, {
-                icon: successIcon(),
-                ...options,
-            })
+            toast.success(
+                <ToastContent
+                    type="success"
+                    message={message}
+                    button={button}
+                    secondaryButton={secondaryButton}
+                    id={id}
+                />,
+                {
+                    icon: successIcon(),
+                    ...options,
+                }
+            )
         })
         return id
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        posthog.capture('toast warning', {
-            message: String(message),
-            button: button?.label,
-            toastId: toastOptions.toastId,
-        })
+        // The toolbar bundle initializes a named instance, so the default instance imported here stays
+        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
+        if (posthog.__loaded) {
+            posthog.capture('toast warning', {
+                message: String(message),
+                button: button?.label,
+                toastId: toastOptions.toastId,
+            })
+        }
         const options = ensureToastId(toastOptions, 'warning', message)
         const id = options.toastId!
         queueMicrotask(() => {
@@ -262,9 +293,9 @@ export const lemonToast = {
         return id
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
+        // The toolbar bundle initializes a named instance, so the default instance imported here stays
+        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
+        if (posthog.__loaded) {
             posthog.capture('toast error', {
                 message: String(message),
                 button: button?.label,

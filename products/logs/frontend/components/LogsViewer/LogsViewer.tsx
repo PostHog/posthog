@@ -18,6 +18,7 @@ import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filte
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 
@@ -48,6 +49,8 @@ export interface LogsViewerProps {
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
+    // Same, for the volume chart. Panels embedded in a short pane start without it.
+    defaultSparklineCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -59,10 +62,14 @@ export function LogsViewer({
     personId,
     sessionId,
     defaultFacetRailCollapsed,
+    defaultSparklineCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
+            <BindLogic
+                logic={logsViewerConfigLogic}
+                props={{ id, defaultFacetRailCollapsed, defaultSparklineCollapsed }}
+            >
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -127,15 +134,17 @@ function LogsViewerContent({
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
+        logsError,
         parsedLogs,
         newLogUuids,
         sparklineData,
         sparklineLoading,
+        sparklineError,
         sparklineIncompleteBarIndices,
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage, fetchLogs, fetchSparkline } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -309,6 +318,8 @@ function LogsViewerContent({
             <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
+                sparklineError={sparklineError}
+                onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
                 collapsed={sparklineCollapsed}
@@ -341,20 +352,28 @@ function LogsViewerContent({
                 />
             )}
 
-            <VirtualizedLogsList
-                dataSource={parsedLogs}
-                newLogUuids={newLogUuids}
-                loading={logsLoading}
-                wrapBody={wrapBody}
-                prettifyJson={prettifyJson}
-                tzLabelFormat={tzLabelFormat}
-                showPinnedWithOpacity
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                onLoadMore={fetchNextLogsPage}
-                onExpandTimeRange={() => zoomDateRange(2)}
-                orderBy={orderBy}
-                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
-            />
+            <div className="relative flex flex-col flex-1 min-h-0">
+                <VirtualizedLogsList
+                    dataSource={parsedLogs}
+                    newLogUuids={newLogUuids}
+                    loading={logsLoading}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    showPinnedWithOpacity
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    onLoadMore={fetchNextLogsPage}
+                    onExpandTimeRange={() => zoomDateRange(2)}
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
+                />
+                <QueryFailedOverlay
+                    error={logsError}
+                    title="Couldn't load logs"
+                    onRetry={() => fetchLogs()}
+                    className="rounded border bg-bg-light"
+                />
+            </div>
         </>
     )
 

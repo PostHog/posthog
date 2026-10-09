@@ -70,7 +70,7 @@ async def eval_unknown_events_confirmation(ctx: EvalContext) -> None:
         scorers=[
             # Agent must look up the named experiment first.
             RequiredToolCall(
-                required={"experiment-list", "experiment-get-all"},
+                required={"experiment-list"},
                 name="resolved_experiment_by_name",
             ),
             # No successful experiment-update is allowed in this scenario:

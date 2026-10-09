@@ -808,6 +808,8 @@ export class RerunPaginatorService {
                 ...invocation.state!,
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
+                // Absence must override the new-run default so legacy replays keep their original task keys.
+                customerTaskIdempotencyVersion: persistedState.customerTaskIdempotencyVersion,
                 variables: persistedState.variables ?? {},
                 // Restore where the flow had progressed to. The executor resumes
                 // from `currentAction` (via ensureCurrentAction); without it the

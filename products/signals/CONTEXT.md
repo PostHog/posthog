@@ -33,6 +33,7 @@ _Avoid_: security-weakening request, security risk
 
 **Block**:
 A signal the safety filter dropped, with the threat type and explanation the filter gave.
+Its text is kept for 30 days as a `safety_filter_block` span in the LLM analytics store, linked from the block event by trace id, so the safety-filter judge can read it.
 _Avoid_: rejection, flag, drop
 
 **False positive**:

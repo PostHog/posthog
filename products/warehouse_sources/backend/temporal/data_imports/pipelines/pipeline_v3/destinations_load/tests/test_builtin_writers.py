@@ -17,12 +17,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     register_builtin_destination_writers,
 )
 
-# Azure Blob and S3 validate their config eagerly at construction time (a missing container or
-# bucket would otherwise write to a nonsense name hundreds of MiB into a batch), so those two
-# need enough config to pass that check. Every other builtin writer accepts an empty config here.
+# Some writers validate their config eagerly at construction time, because a name they cannot
+# build would otherwise surface hundreds of MiB into a batch, or reach a shared client that
+# interpolates it into a statement unescaped. Those need enough config to pass that check.
+# Every other builtin writer accepts an empty config here.
 _MINIMAL_CONFIG: dict[str, dict] = {
     str(ExternalDataDestination.Type.AZURE_BLOB): {"container_name": "container"},
     str(ExternalDataDestination.Type.S3): {"bucket": "bucket", "region": "us-east-1"},
+    str(ExternalDataDestination.Type.BIGQUERY): {"project": "project", "dataset": "dataset"},
+    str(ExternalDataDestination.Type.SNOWFLAKE): {
+        "database": "database",
+        "schema": "schema",
+        "warehouse": "warehouse",
+    },
 }
 
 

@@ -1,32 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Conversations
 feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
-    conversations-tickets-ai-feedback-create:
-        operation: conversations_tickets_ai_feedback_create
-        enabled: false
-    conversations-tickets-bulk-update-status-create:
-        operation: conversations_tickets_bulk_update_status_create
-        enabled: false
-    conversations-tickets-bulk-update-tags-create:
-        operation: conversations_tickets_bulk_update_tags_create
-        enabled: false
-    conversations-tickets-compose-create:
-        operation: conversations_tickets_compose_create
-        enabled: false
-    conversations-tickets-destroy:
-        operation: conversations_tickets_destroy
-        enabled: false
-    conversations-tickets-full-update:
-        operation: conversations_tickets_update
-        enabled: false
     conversations-tickets-list:
         operation: conversations_tickets_list
         enabled: true
@@ -60,9 +40,6 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
-    conversations-tickets-messages-full-email-retrieve:
-        operation: conversations_tickets_messages_full_email_retrieve
-        enabled: false
     conversations-tickets-messages-retrieve:
         operation: conversations_tickets_messages_list
         enabled: true
@@ -75,10 +52,32 @@ tools:
         title: Read support ticket messages
         description: >
             Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50,
-            max 200 per page) — use the limit and offset query params to page through long threads, and read count/next
-            from the response envelope. Includes all messages from the customer, team members, and AI, as well as
-            private internal notes. Each message contains author_type, author_name, content, and an is_private flag
-            indicating internal notes.
+            max 200 per page): use the limit and offset query params to page through long threads, and read count/next
+            from the response envelope. The thread includes messages that were never sent to the customer, so read each
+            message's message_type before you say what the team has sent to the customer. customer_message is written by
+            the customer. sent_reply is a reply sent to the customer by a teammate, a workflow, or the AI. A sent_reply
+            does not confirm delivery, because delivery can fail, so say the reply was sent, not that the customer
+            received it. internal_note is a note for the team only. ai_draft is a reply or question the AI wrote for a
+            teammate to review: it can read like a finished reply, but it was never sent, and a teammate may have sent
+            their own version later as a separate sent_reply. internal_note and ai_draft messages both have is_private
+            set to true. Never describe an internal_note or an ai_draft as sent to the customer.
+    conversations-tickets-notes-create:
+        operation: conversations_tickets_notes_create
+        enabled: false
+        disabled_reason: Enable in a follow-up after the notes route deploys, so clients never call a missing route
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add private note to support ticket
+        description: >
+            Add a private note to a support ticket. The note is visible to your team only and is never sent to the
+            customer; this tool has no privacy option. Use it to leave findings where the support engineer works. To
+            reply to the customer, use conversations-tickets-reply-create instead. To change a note later, use
+            conversations-tickets-notes-partial-update. An identical note posted again within a short window returns the
+            original note instead of adding a second one. Returns the note as it appears in the thread.
     conversations-tickets-notes-destroy:
         operation: conversations_tickets_notes_destroy
         enabled: true
@@ -169,9 +168,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-    conversations-tickets-unread-count-retrieve:
-        operation: conversations_tickets_unread_count_retrieve
-        enabled: false
     conversations-tickets-update:
         operation: conversations_tickets_partial_update
         enabled: true
@@ -215,9 +211,6 @@ tools:
                 - filters
                 - is_favorited
                 - created_at
-    conversations-views-destroy:
-        operation: conversations_views_destroy
-        enabled: false
     conversations-views-list:
         operation: conversations_views_list
         enabled: true
@@ -293,9 +286,3 @@ tools:
                 - filters
                 - is_favorited
                 - created_at
-    conversations-zendesk-imports-create:
-        operation: conversations_zendesk_imports_create
-        enabled: false
-    conversations-zendesk-imports-status-retrieve:
-        operation: conversations_zendesk_imports_status_retrieve
-        enabled: false

@@ -12,6 +12,7 @@ from posthog.utils import str_to_bool
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.oidc.MultitenantOIDCAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
@@ -77,6 +78,8 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+# Lifetime of the access token PostHog mints for the public billing API (ee/billing/access_token.py).
+BILLING_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("BILLING_ACCESS_TOKEN_TTL_SECONDS", 15 * 60, type_cast=int)
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
@@ -93,6 +96,7 @@ TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = get_from_env("OPENAI_MODEL", "gpt-4.1-mini")
 
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
 LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")

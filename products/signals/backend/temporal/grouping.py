@@ -31,15 +31,20 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.receivers import _is_safety_suppressed
+from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.refusal_review import generate_queries_or_preserve_refusal
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -174,6 +179,7 @@ class GenerateSearchQueriesInput:
     # Optional with a default so workflows mid-flight across a deploy (whose activity input was
     # serialized before this field existed) still deserialize; missing => gateway key owner's team.
     team_id: int | None = None
+    signal: EmitSignalInputs | None = None
 
 
 async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str]:
@@ -204,9 +210,10 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
     )
 
 
-@dataclass
+@frozen
 class GenerateSearchQueriesOutput:
     queries: list[str]
+    quarantined: bool = False
 
 
 @temporalio.activity.defn
@@ -215,7 +222,13 @@ class GenerateSearchQueriesOutput:
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
-        queries = await generate_search_queries(input)
+        queries: list[str] | None
+        if input.signal is None:
+            queries = await generate_search_queries(input)
+        else:
+            queries = await generate_queries_or_preserve_refusal(input.signal, lambda: generate_search_queries(input))
+            if queries is None:
+                return GenerateSearchQueriesOutput(queries=[], quarantined=True)
         logger.debug(
             f"Generated {len(queries)} search queries",
             source_product=input.source_product,
@@ -492,6 +505,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         validate=validate,
         temperature=0.2,
         stage="match",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -503,6 +517,16 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(input)
+        if isinstance(result, ExistingReportMatch) and input.team_id is not None:
+            report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
+            if report is not None and report.status != SignalReport.Status.DELETED:
+                current = await database_sync_to_async(signal_target_report, thread_sensitive=False)(report)
+                if current.id != report.id:
+                    result.report_id = str(current.id)
+                    unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+                        str(current.id), input.team_id
+                    )
+                    result.report_title = "" if unsafe else current.title
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
             f"Match result: matched={isinstance(result, ExistingReportMatch)}",
@@ -603,6 +627,7 @@ async def verify_match_specificity(
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
         stage="specificity",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -692,6 +717,38 @@ class AssignAndEmitDbResult:
     report_signals_researched: int = 0
 
 
+def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
+    """Point a report born from a failed follow-up check at the report that check was written on.
+
+    A `metric_threshold` check that fails on a resolved report emits a `signals_check` signal, and
+    this is the report that signal landed on. Without the edge the fresh report carries neither the
+    verdict nor the report whose fix the check was measuring, so research starts from nothing.
+
+    Distinct from the `recurrence_of` row the resolved-report fork writes: that one says the issue
+    came back, this one says a measurement of the fix breached. A report can hold both.
+
+    Best-effort. The signal is already assigned, and losing the edge must not fail the assignment.
+    """
+    if source_product != SignalSourceProduct.SIGNALS_CHECK:
+        return
+    origin_id = extra.get("report_id")
+    if not origin_id or str(origin_id) == report_id:
+        return
+    reason = (extra.get("explanation") or "")[:MAX_REPORT_LINK_REASON_LENGTH] or None
+    try:
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason),
+            attribution=ArtefactAttribution.system(),
+            write_path=ReportLinkWritePath.PIPELINE,
+        )
+    except Exception:
+        logger.exception(
+            "signals.report_check.follow_up_link_failed", report_id=report_id, team_id=team_id, origin_id=origin_id
+        )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -752,28 +809,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         promotion_suppressed=False,
                         next_research_bucket=None,
                     )
+                # A report dismissed as fixed claims the issue is gone, exactly as a resolved report
+                # does, so this signal contradicts it and must not be absorbed. The other dismissal
+                # codes state a preference about the report, and a sink is the right answer for
+                # them (see recurrence.py).
+                report = signal_target_report(report, lock=True)
+                dismissed_as_fixed_at = (
+                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
-                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
-                # link is discoverable from either side. The research agent is later handed that
+                # `recurrence_of` report link. The research agent is later handed that
                 # resolved report as context (see report.py).
-                if report.status == SignalReport.Status.RESOLVED:
-                    resolved_report = report
+                if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
+                    parent_report = report
+                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
                         total_weight=input.weight,
                         signal_count=1,
-                        title=resolved_report.title,
-                        summary=resolved_report.summary,
+                        title=parent_report.title if inherit_content else "",
+                        summary=parent_report.summary if inherit_content else "",
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
                         report_id=str(report.id),
-                        content=RelatedTo(report_id=str(resolved_report.id)),
+                        content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent_report.id)),
                         attribution=ArtefactAttribution.system(),
+                        write_path=ReportLinkWritePath.PIPELINE,
                     )
                 else:
                     report.total_weight += input.weight
@@ -798,7 +864,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
 
             # Promotion rules by status:
-            # - SUPPRESSED: never promoted.
+            # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
+            #   either (a recurrence spawns a fresh report above).
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
@@ -842,6 +909,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     promoted = True
 
             report_id = str(report.id)
+            _link_check_follow_up(
+                team_id=input.team_id,
+                report_id=report_id,
+                source_product=input.source_product,
+                extra=input.extra,
+            )
 
             metadata = {
                 "source_product": input.source_product,
@@ -1108,6 +1181,7 @@ async def _process_signal_batch(
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
     dropped = 0
+    isolate_refusals = workflow.patched("signals-query-refusal-review-v1")
 
     # === PARALLEL PHASE (steps 1-4) ===
 
@@ -1125,6 +1199,20 @@ async def _process_signal_batch(
 
         # Step 1b: Embed all signals + generate search queries in parallel
         # (query gen needs type examples but NOT the signal embeddings)
+        query_inputs = batch
+        query_result_indices = list(range(len(batch)))
+        if isolate_refusals:
+            query_inputs = []
+            query_result_indices = []
+            payload_indices: dict[str, int] = {}
+            # Duplicate payloads must share a query activity so their refusal counts cannot race.
+            for signal in batch:
+                payload = json.dumps(asdict(signal), sort_keys=True)
+                if payload not in payload_indices:
+                    payload_indices[payload] = len(query_inputs)
+                    query_inputs.append(signal)
+                query_result_indices.append(payload_indices[payload])
+
         step1b_results = await asyncio.gather(
             *[
                 workflow.execute_activity(
@@ -1144,15 +1232,26 @@ async def _process_signal_batch(
                         source_product=s.source_product,
                         source_type=s.source_type,
                         signal_type_examples=type_examples_result.examples,
+                        signal=s if isolate_refusals else None,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
                 )
-                for s in batch
+                for s in query_inputs
             ],
         )
         signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
-        query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
+        query_outputs = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
+        query_gen_results = [query_outputs[i] for i in query_result_indices]
+
+        if isolate_refusals:
+            retained_indices = [i for i, result in enumerate(query_gen_results) if not result.quarantined]
+            dropped = len(batch) - len(retained_indices)
+            batch = [batch[i] for i in retained_indices]
+            signal_embeddings = [signal_embeddings[i] for i in retained_indices]
+            query_gen_results = [query_gen_results[i] for i in retained_indices]
+            if not batch:
+                return dropped, type_examples_result
 
         # Step 3: Embed all queries across all signals (flatten → parallel embed)
         all_queries_flat: list[tuple[int, str]] = []
@@ -1284,7 +1383,13 @@ async def _process_signal_batch(
 
             if isinstance(match_result, ExistingReportMatch):
                 report_ctx = report_contexts.get(match_result.report_id)
-                report_title = report_ctx.title if report_ctx else ""
+                report_title = (
+                    match_result.report_title
+                    if match_result.report_title is not None
+                    else report_ctx.title
+                    if report_ctx
+                    else ""
+                )
 
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,

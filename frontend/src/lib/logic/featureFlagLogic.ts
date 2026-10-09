@@ -14,10 +14,11 @@ export type FeatureFlagsSet = {
  * Whether `posthog-js`-resolved flag values actually reach `featureFlagLogic.featureFlags` (see
  * `spyOnFeatureFlags` below). On self-hosted, non-debug instances they're discarded in favor of
  * the server-configured `PERSISTED_FEATURE_FLAGS` baseline, so anything that enrolls a user into
- * a flag client-side (e.g. early access feature enrollment) has no visible effect there.
+ * a flag client-side (e.g. early access feature enrollment) has no visible effect there. A
+ * self-capturing instance is the exception: its flags come from its own project, not PostHog's.
  */
 export function areClientFeatureFlagsHonored(preflight: Pick<PreflightStatus, 'cloud' | 'is_debug'> | null): boolean {
-    return !!preflight?.cloud || !!preflight?.is_debug
+    return !!preflight?.cloud || !!preflight?.is_debug || !!window.JS_POSTHOG_SELF_CAPTURE
 }
 
 export const FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON =
@@ -142,5 +143,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     afterMount(({ actions }) => {
         posthog.onFeatureFlags(actions.setFeatureFlags)
+        if (posthog.config?.advanced_disable_flags) {
+            // posthog-js never calls back when flags are off, and the app holds its first render
+            // until this arrives. A page with no project key has no flags to wait for.
+            actions.setFeatureFlags([], {})
+        }
     }),
 ])

@@ -1,6 +1,6 @@
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -172,6 +172,7 @@ def build_endpoint_schemas(
     descriptions: Mapping[str, str] | None = None,
     should_sync_default: Mapping[str, bool] | None = None,
     supports_webhooks: Collection[str] = (),
+    default_incremental_lookback_seconds: Mapping[str, int] | None = None,
 ) -> list[SourceSchema]:
     """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
 
@@ -182,11 +183,14 @@ def build_endpoint_schemas(
     - ``append_only``: endpoints that support append but not incremental merge.
     - ``merge_only``: endpoints that support incremental merge but not append.
     - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+    - ``default_incremental_lookback_seconds``: per-endpoint default overlap re-read window, for
+      endpoints whose recent rows get restated upstream (see ``SourceSchema``'s field doc).
 
     ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
     """
     descriptions = descriptions or {}
     should_sync_default = should_sync_default or {}
+    default_incremental_lookback_seconds = default_incremental_lookback_seconds or {}
     schemas = []
     for name in endpoints:
         fields = incremental_fields.get(name) or []
@@ -202,6 +206,7 @@ def build_endpoint_schemas(
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
+                default_incremental_lookback_seconds=default_incremental_lookback_seconds.get(name),
             )
         )
 
@@ -210,3 +215,28 @@ def build_endpoint_schemas(
         schemas = [s for s in schemas if s.name in names_set]
 
     return schemas
+
+
+_ResourceSchema = TypeVar("_ResourceSchema")
+
+# Marks a resource the running worker has no schema definition for. Matched by
+# `import_data_sync` to classify the failure as retryable.
+UNKNOWN_RESOURCE_PREFIX = "This table is not available on this worker yet:"
+
+
+class UnknownResourceError(Exception):
+    """The worker's resource catalog holds no schema for the table being synced."""
+
+
+def schema_for_resource(schemas: Mapping[str, _ResourceSchema], resource_name: str) -> _ResourceSchema:
+    """Look up a resource's schema definition, with a clear error when the worker doesn't know it.
+
+    The web pods and the data-import workers deploy separately, so for up to about an hour after a
+    new resource ships the schema picker offers a table the worker cannot resolve yet. A bare
+    ``KeyError`` there reports as a bug and shows the customer a raw Python error; this named error
+    is classified retryable instead, so the sync recovers once the rollout finishes.
+    """
+    try:
+        return schemas[resource_name]
+    except KeyError:
+        raise UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} {resource_name}") from None

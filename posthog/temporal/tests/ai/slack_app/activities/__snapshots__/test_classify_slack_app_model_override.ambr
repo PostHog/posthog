@@ -22,6 +22,7 @@
   
   Answer with nulls when a model or effort is merely part of the subject matter — this is the common mistake, so check for it:
     - "add claude-fable-5 to our model picker" (a code change that names a model).
+    - "move the summary agents over to sonnet" (a code change that switches something else onto a model, not this task).
     - "why is gpt-5 slower than opus in our evals?" (a question about models).
     - "the opus rollout broke the dashboard" (a topic).
     - "reasoning about this is hard" (the word, not a setting).

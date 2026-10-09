@@ -17,6 +17,7 @@
 //! this same interface.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use metrics::{counter, gauge};
 
@@ -87,6 +88,9 @@ pub struct Dispatch {
     /// Fresh assignment or a retry of deferred work; the key-order sentinel
     /// notes the send under this kind.
     pub kind: SendKind,
+    /// The run's epoch, for stamping its completions. `None` from the
+    /// pin-stash scheduler, whose caller stamps from the flush ticket.
+    pub assignment_epoch: Option<u64>,
 }
 
 /// One resolved send arriving at the seam.
@@ -116,17 +120,6 @@ pub enum SettlementOutcome {
         batch_id: String,
         runs: Vec<KeyRun>,
     },
-}
-
-/// The retry deadline that fired. Each scheduler paces retries its own way
-/// and answers only its own arm; the other arm is a no-op.
-pub enum Deadline<'a> {
-    /// The flush deadline for one batch's deferred work — the pin-stash
-    /// pacing, fired oldest batch first.
-    Batch(&'a str),
-    /// The parked-retry deadline: retry every parked key — the key-table
-    /// pacing.
-    ParkedRetry,
 }
 
 /// Groups deferred by one seam call, by reason. The caller emits the debug
@@ -173,6 +166,29 @@ impl SchedulerEffects {
     }
 }
 
+/// Which scheduler implementation the dispatcher runs. Selected by config;
+/// the switch back is the rollback.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SchedulerKind {
+    #[default]
+    PinStash,
+    KeyTable,
+}
+
+impl FromStr for SchedulerKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "pin_stash" | "pin-stash" | "pinstash" => Ok(SchedulerKind::PinStash),
+            "key_table" | "key-table" | "keytable" => Ok(SchedulerKind::KeyTable),
+            other => Err(format!(
+                "unknown scheduler '{other}' (expected 'pin_stash' or 'key_table')"
+            )),
+        }
+    }
+}
+
 /// The decision core: which runs may go to a worker now, and where.
 ///
 /// The caller owes the seam two things: it sends every dispatch an effects
@@ -181,12 +197,13 @@ impl SchedulerEffects {
 /// release path for an outstanding key, so a dropped dispatch or a lost
 /// settlement wedges that key permanently.
 pub trait Scheduler {
-    /// One poll's key runs arrived, in batch order. A key may repeat; its
-    /// runs merge in queue order.
+    /// One poll's key runs arrived, in batch order, collected under
+    /// `assignment_epoch`. A key may repeat; its runs merge in queue order.
     fn on_groups(
         &mut self,
         snapshot: &WorkerSnapshot,
         batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<KeyRun>,
     ) -> SchedulerEffects;
 
@@ -194,12 +211,9 @@ pub trait Scheduler {
     fn on_settled(&mut self, snapshot: &WorkerSnapshot, settlement: Settlement)
         -> SchedulerEffects;
 
-    /// A retry deadline fired.
-    fn on_deadline(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        deadline: Deadline<'_>,
-    ) -> SchedulerEffects;
+    /// The flush deadline for one batch's deferred work fired. Deadlines
+    /// fire oldest batch first.
+    fn on_deadline(&mut self, snapshot: &WorkerSnapshot, batch_id: &str) -> SchedulerEffects;
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how
@@ -306,6 +320,7 @@ impl Scheduler for PinStashScheduler {
         &mut self,
         snapshot: &WorkerSnapshot,
         batch_id: &str,
+        _assignment_epoch: u64,
         groups: Vec<KeyRun>,
     ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::with_dispatch_capacity(groups.len());
@@ -329,6 +344,7 @@ impl Scheduler for PinStashScheduler {
                         routing_key: group.routing_key,
                         messages: group.messages,
                         kind: SendKind::Fresh,
+                        assignment_epoch: None,
                     });
                 }
                 Some(_) => {
@@ -409,6 +425,7 @@ impl Scheduler for PinStashScheduler {
                 routing_key: group.routing_key,
                 messages: group.messages,
                 kind: SendKind::Fresh,
+                assignment_epoch: None,
             });
         }
 
@@ -479,16 +496,8 @@ impl Scheduler for PinStashScheduler {
     /// that the key's earlier in-flight has resolved, re-pinning it. Groups
     /// that can't route yet (no healthy worker) stay stashed for the next
     /// deadline. Cross-key order is preserved because the caller fires
-    /// deadlines oldest batch first. The parked-retry arm belongs to the
-    /// key-table scheduler and is a no-op here.
-    fn on_deadline(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        deadline: Deadline<'_>,
-    ) -> SchedulerEffects {
-        let Deadline::Batch(batch_id) = deadline else {
-            return SchedulerEffects::default();
-        };
+    /// deadlines oldest batch first.
+    fn on_deadline(&mut self, snapshot: &WorkerSnapshot, batch_id: &str) -> SchedulerEffects {
         let groups = self.stash.take_batch(batch_id);
         if groups.is_empty() {
             return SchedulerEffects::default();
@@ -551,6 +560,7 @@ impl Scheduler for PinStashScheduler {
                 routing_key: group.routing_key,
                 messages: group.messages,
                 kind: SendKind::Resend,
+                assignment_epoch: None,
             });
         }
 
@@ -648,7 +658,7 @@ mod tests {
 
     fn msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset: 0,
             timestamp: 0,
@@ -728,7 +738,7 @@ mod tests {
         let mut sched = scheduler();
         sched.register_batch("b1");
 
-        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 2)]);
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 2)]);
 
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].worker, wid(A));
@@ -742,13 +752,14 @@ mod tests {
     fn test_pinned_key_sticks_to_its_worker_despite_load() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
 
         // B is now available and far less loaded — the pin still wins.
         sched.register_batch("b2");
         let effects = sched.on_groups(
             &snapshot(&[A, B], &[], &[(A, 10_000)]),
             "b2",
+            0,
             vec![run("t:a", 1)],
         );
 
@@ -766,6 +777,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[A, B], &[], &[]),
             "b1",
+            0,
             vec![run("t:a", 3), run("t:b", 3)],
         );
 
@@ -781,6 +793,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[A, B], &[], &[]),
             "b1",
+            0,
             vec![run("t:small", 1), run("t:big", 5)],
         );
 
@@ -795,7 +808,7 @@ mod tests {
         let mut sched = scheduler();
         sched.register_batch("b1");
 
-        let effects = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 2)]);
+        let effects = sched.on_groups(&snapshot(&[], &[], &[]), "b1", 0, vec![run("t:a", 2)]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.unroutable, 1);
@@ -810,7 +823,7 @@ mod tests {
     fn test_pinned_key_defers_when_worker_draining() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
         let pinned = sched.pins.get("t:a").unwrap().worker.clone();
         let pinned_str = pinned.to_string();
 
@@ -819,6 +832,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[survivor], &[&pinned_str], &[]),
             "b2",
+            0,
             vec![run("t:a", 1)],
         );
 
@@ -831,12 +845,12 @@ mod tests {
     fn test_pinned_key_defers_when_worker_absent_from_snapshot() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
 
         // A is gone from the health map entirely (removed from the registry):
         // absent must count as dead, not as healthy.
         sched.register_batch("b2");
-        let effects = sched.on_groups(&snapshot(&[B], &[], &[]), "b2", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[B], &[], &[]), "b2", 0, vec![run("t:a", 1)]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.drain, 1);
@@ -846,14 +860,14 @@ mod tests {
     fn test_deferring_key_keeps_deferring_even_when_worker_recovers() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
         sched.register_batch("b2");
-        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", 0, vec![run("t:a", 1)]);
 
         // A is healthy again, but b2's deferred group hasn't flushed — newer
         // messages must queue behind it, and count as cascade, not drain.
         sched.register_batch("b3");
-        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b3", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b3", 0, vec![run("t:a", 1)]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
@@ -865,11 +879,11 @@ mod tests {
         let mut sched = scheduler();
         sched.register_batch("b1");
         // Unroutable: stashed with no pin.
-        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
 
         // A worker appears, but the stashed group must go first.
         sched.register_batch("b2");
-        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", 0, vec![run("t:a", 1)]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
@@ -881,7 +895,7 @@ mod tests {
     fn test_settlement_evicts_idle_pin() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
 
         let effects = sched.on_settled(&snapshot(&[A], &[], &[]), delivered(A, &["t:a"], false));
 
@@ -893,9 +907,9 @@ mod tests {
     fn test_settlement_keeps_pin_while_key_still_defers() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
         sched.register_batch("b2");
-        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", 0, vec![run("t:a", 1)]);
 
         // b1's send lands, dropping the ref-count to zero — but b2's deferred
         // group is still stashed, so the pin must survive for it.
@@ -909,13 +923,13 @@ mod tests {
     fn test_stale_settlement_does_not_touch_repointed_pin() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
         sched.register_batch("b2");
-        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", 0, vec![run("t:a", 1)]);
 
         // The deferred flush re-points the pin to B while b1's send is still
         // unresolved on A.
-        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), Deadline::Batch("b2"));
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b2");
         assert_eq!(effects.dispatches[0].worker, wid(B));
         let ref_count = sched.pins.get("t:a").unwrap().ref_count;
 
@@ -930,7 +944,7 @@ mod tests {
     fn test_failed_settlement_restashes_before_releasing_the_key() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", vec![run("t:a", 2)]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", 0, vec![run("t:a", 2)]);
 
         let effects = sched.on_settled(
             &snapshot(&[A, B], &[], &[]),
@@ -946,7 +960,7 @@ mod tests {
 
         // Newer messages queue behind the replay instead of overtaking it.
         sched.register_batch("b2");
-        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b2", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b2", 0, vec![run("t:a", 1)]);
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
     }
@@ -955,8 +969,8 @@ mod tests {
     fn test_failed_flush_keeps_key_deferring() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
-        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), Deadline::Batch("b1"));
+        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
+        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), "b1");
         assert_eq!(effects.dispatches.len(), 1);
 
         // The flushed send fails: the re-stash and the from_flush decrement
@@ -967,7 +981,7 @@ mod tests {
         );
 
         sched.register_batch("b2");
-        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", 0, vec![run("t:a", 1)]);
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
     }
@@ -978,7 +992,7 @@ mod tests {
     fn test_deadline_with_nothing_stashed_is_a_noop() {
         let mut sched = scheduler();
 
-        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), Deadline::Batch("b1"));
+        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), "b1");
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.total(), 0);
@@ -986,26 +1000,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parked_retry_deadline_is_a_noop_for_pin_stash() {
-        let mut sched = scheduler();
-        sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
-
-        // The parked-retry pacing belongs to the key-table scheduler; the
-        // pin-stash stash flushes only on its per-batch deadline.
-        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), Deadline::ParkedRetry);
-
-        assert!(effects.dispatches.is_empty());
-        assert_eq!(sched.stashed_messages(), 1);
-    }
-
-    #[test]
     fn test_deadline_keeps_group_stashed_when_no_worker_is_healthy() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
 
-        let effects = sched.on_deadline(&snapshot(&[], &[], &[]), Deadline::Batch("b1"));
+        let effects = sched.on_deadline(&snapshot(&[], &[], &[]), "b1");
 
         assert!(effects.dispatches.is_empty());
         assert!(sched.has_batch("b1"), "kept for a later deadline");
@@ -1016,12 +1016,12 @@ mod tests {
     fn test_flushed_key_keeps_deferring_until_the_flush_settles() {
         let mut sched = scheduler();
         sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
         sched.register_batch("b2");
-        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+        let _ = sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", 0, vec![run("t:a", 1)]);
         let _ = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(A, &["t:a"], false));
 
-        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), Deadline::Batch("b2"));
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b2");
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(
@@ -1033,7 +1033,7 @@ mod tests {
         // The flushed send is in flight but not ACKed — newer messages must
         // not honor the fresh pin and race it.
         sched.register_batch("b3");
-        let effects = sched.on_groups(&snapshot(&[B], &[A], &[]), "b3", vec![run("t:a", 1)]);
+        let effects = sched.on_groups(&snapshot(&[B], &[A], &[]), "b3", 0, vec![run("t:a", 1)]);
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
 
@@ -1041,7 +1041,7 @@ mod tests {
         // free to flush and the key's life cycle ends clean.
         let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(B, &["t:a"], true));
         assert!(effects.evicted_keys.is_empty(), "b3's group still stashed");
-        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), Deadline::Batch("b3"));
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b3");
         assert_eq!(effects.dispatches.len(), 1);
         let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(B, &["t:a"], true));
         assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);

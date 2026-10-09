@@ -22,6 +22,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
+    SharingAccessTokenAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.constants import AvailableFeature
@@ -37,8 +38,12 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     PostHogFeatureFlagPermission,
+    SharingTokenPermission,
+    extract_organization,
+    get_authenticator_client,
 )
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -164,7 +169,15 @@ class TestAccessControlPermission(BaseTest):
         # Should NOT have permission
         assert self.permission.has_permission(request, view) is False
 
-    def test_has_object_permission_with_specific_access(self):
+    def _as_target(self, notebook, target: str):
+        if target == "model":
+            return notebook
+        return ObjectAccessRef(
+            resource="notebook", id=str(notebook.id), team_id=self.team.id, created_by_id=notebook.created_by_id
+        )
+
+    @parameterized.expand([("model",), ("ref",)])
+    def test_has_object_permission_with_specific_access(self, target):
         """Test object-level permission when user has specific access to the object"""
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -181,9 +194,10 @@ class TestAccessControlPermission(BaseTest):
         view = self._create_real_view(action="retrieve", pk=str(self.notebook_1.id))
 
         # Should have object permission for notebook_1
-        assert self.permission.has_object_permission(request, view, self.notebook_1) is True
+        assert self.permission.has_object_permission(request, view, self._as_target(self.notebook_1, target)) is True
 
-    def test_has_object_permission_without_specific_access(self):
+    @parameterized.expand([("model",), ("ref",)])
+    def test_has_object_permission_without_specific_access(self, target):
         """Test object-level permission when user lacks specific access to the object"""
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -192,7 +206,7 @@ class TestAccessControlPermission(BaseTest):
         view = self._create_real_view(action="retrieve", pk=str(self.notebook_2.id))
 
         # Should NOT have object permission for notebook_2
-        assert self.permission.has_object_permission(request, view, self.notebook_2) is False
+        assert self.permission.has_object_permission(request, view, self._as_target(self.notebook_2, target)) is False
 
     def test_has_permission_for_create_action_with_none_resource_access(self):
         """Test that create actions are blocked when user has 'none' resource access"""
@@ -238,6 +252,18 @@ class TestAccessControlPermission(BaseTest):
 
         # Should have permission when authenticated via team secret token
         assert self.permission.has_permission(request, view) is True
+
+
+class TestExtractOrganizationForRef(BaseTest):
+    @parameterized.expand([("view_serves_the_ref_team", True), ("view_serves_another_team", False)])
+    def test_ref_resolves_its_own_organization(self, _name, same_team):
+        other_organization = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        ref_team = self.team if same_team else other_team
+        ref = ObjectAccessRef(resource="notebook", id="1", team_id=ref_team.id, created_by_id=None)
+        view = Mock(team_id=self.team.id, organization=self.organization)
+
+        assert extract_organization(ref, view) == ref_team.organization
 
 
 class TestTeamSecretTokenPermission(BaseTest):
@@ -1287,6 +1313,37 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
         self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
 
 
+SESSION_CALLER = {"credential_type": "session", "client_id": "posthog"}
+
+
+class TestAuthenticatorClient(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("session", None, SESSION_CALLER),
+            (
+                "personal key",
+                PersonalAPIKeyAuthentication(),
+                {"credential_type": "personal_api_key", "client_id": "personal_api_key"},
+            ),
+            (
+                "project secret key",
+                ProjectSecretAPIKeyAuthentication(),
+                {"credential_type": "project_secret_key", "client_id": "project_secret_key"},
+            ),
+        ]
+    )
+    def test_names_the_caller(self, _name, authenticator, expected):
+        self.assertEqual(get_authenticator_client(authenticator), expected)
+
+    def test_an_oauth_caller_is_its_registered_application(self):
+        authenticator = OAuthAccessTokenAuthentication()
+        authenticator.access_token = OAuthAccessToken(application=OAuthApplication(client_id="app_client_id"))
+
+        self.assertEqual(
+            get_authenticator_client(authenticator), {"credential_type": "oauth", "client_id": "app_client_id"}
+        )
+
+
 class TestPostHogFeatureFlagPermission(BaseTest):
     def setUp(self):
         super().setUp()
@@ -1326,8 +1383,8 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertEqual(
             kwargs["group_properties"],
             {
-                "organization": {"id": str(self.organization.id)},
-                "project": {"id": str(self.team.id)},
+                "organization": {**SESSION_CALLER, "id": str(self.organization.id)},
+                "project": {**SESSION_CALLER, "id": str(self.team.id)},
             },
         )
 
@@ -1345,14 +1402,38 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(self.permission.has_permission(request, view))
         kwargs = mock_ff.call_args[1]
         self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
-        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
+        self.assertEqual(
+            kwargs["group_properties"], {"organization": {**SESSION_CALLER, "id": str(self.organization.id)}}
+        )
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_denies_when_flag_disabled(self, mock_ff):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_credential_caller_is_named_apart_from_the_app(self, mock_ff):
+        request = self._create_mock_request()
+        request.successful_authenticator = PersonalAPIKeyAuthentication()
+        view = self._create_mock_view(flag="my-flag")
+
+        self.assertTrue(self.permission.has_permission(request, view))
+
+        caller = {"credential_type": "personal_api_key", "client_id": "personal_api_key"}
+        kwargs = mock_ff.call_args[1]
+        # Both channels: a flag aggregated by a group reads group properties and never a person's.
+        self.assertEqual(kwargs["person_properties"], caller)
+        self.assertEqual(kwargs["group_properties"]["organization"], {**caller, "id": str(self.organization.id)})
+
+    @parameterized.expand(
+        [
+            ("the flag is off", False),
+            # A flag key nothing has created, and a flag service that cannot answer, both come
+            # back as None. Neither is a yes, so neither opens the view.
+            ("the flag does not exist", None),
+        ]
+    )
+    def test_denies_unless_the_flag_says_yes(self, _, flag_value):
         request = self._create_mock_request()
         view = self._create_mock_view(flag="my-flag")
 
-        result = self.permission.has_permission(request, view)
+        with patch("posthoganalytics.feature_enabled", return_value=flag_value):
+            result = self.permission.has_permission(request, view)
 
         self.assertFalse(result)
         # DRF passes both onto the 403 body. The code lets a client tell a not-yet-ingested
@@ -1396,6 +1477,15 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         self.assertFalse(result)
         mock_ff.assert_called_once()
+
+
+class TestSharingTokenPermission(SimpleTestCase):
+    def test_denies_an_object_access_ref(self):
+        request = Mock()
+        request.successful_authenticator = Mock(spec=SharingAccessTokenAuthentication)
+        ref = ObjectAccessRef(resource="notebook", id="1", team_id=1, created_by_id=None)
+
+        assert SharingTokenPermission().has_object_permission(request, Mock(), ref) is False
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):

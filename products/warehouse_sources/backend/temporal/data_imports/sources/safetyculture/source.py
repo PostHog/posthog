@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,7 +46,7 @@ class SafetyCultureSource(ResumableSource[SafetyCultureSourceConfig, SafetyCultu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SAFETY_CULTURE,
+            name=ExternalDataSourceType.SAFETYCULTURE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SafetyCulture",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -107,7 +105,12 @@ You can generate an API token under **Account settings → Integrations → Mana
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name in SAFETYCULTURE_ENDPOINTS:
             # Per-schema check: the feed this schema syncs must actually be reachable.
-            status, message = check_access(config.api_token, SAFETYCULTURE_ENDPOINTS[schema_name].path)
+            endpoint = SAFETYCULTURE_ENDPOINTS[schema_name]
+            status, message = check_access(
+                config.api_token,
+                endpoint.path,
+                endpoint.structure_types[0] if endpoint.structure_types else None,
+            )
             if status == 200:
                 return True, None
             if status in (401, 403):

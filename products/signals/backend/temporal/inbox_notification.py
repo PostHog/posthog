@@ -20,16 +20,19 @@ import structlog
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.github_writeback import post_report_link_to_github_issues
+from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
-from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -111,6 +114,16 @@ def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
     SignalReport.objects.filter(id=report_id, team_id=team_id).update(inbox_notified_at=None)
 
 
+@retry(
+    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=2, max=10),
+    reraise=True,
+)
+def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
+    return fetch_signals_for_report_sync(team, report_id)
+
+
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Guard on status: a deferred wait can outlast the READY state (suppressed/deleted/re-promoted).
     report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
@@ -132,7 +145,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     # Re-derive source products at send time so a deferred notification reflects the current signals.
-    signals = fetch_signals_for_report_sync(team, report_id)
+    signals = _fetch_signals_for_notification(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
@@ -178,6 +191,23 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
 @scoped_temporal()
 async def send_report_inbox_notifications_activity(input: InboxNotificationInput) -> int:
     return await database_sync_to_async(_send_report_inbox_notifications, thread_sensitive=False)(
+        input.team_id, input.report_id
+    )
+
+
+def _send_report_github_comments(team_id: int, report_id: str) -> int:
+    if not SignalTeamConfig.objects.filter(team_id=team_id, github_issue_writeback_enabled=True).exists():
+        return 0
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return 0
+    return post_report_link_to_github_issues(team, report_id, _fetch_signals_for_notification(team, report_id))
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def send_report_github_comments_activity(input: InboxNotificationInput) -> int:
+    return await database_sync_to_async(_send_report_github_comments, thread_sensitive=False)(
         input.team_id, input.report_id
     )
 
@@ -256,6 +286,16 @@ class SignalReportInboxNotificationWorkflow:
             "inbox notification: dispatch complete",
             extra={**log_ctx, "messages_sent": sent, "pr_available": state.pr_available},
         )
+        if workflow.patched("signals-github-writeback-after-notification"):
+            try:
+                await workflow.execute_activity(
+                    send_report_github_comments_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except temporalio.exceptions.ActivityError:
+                workflow.logger.exception("inbox notification: GitHub write-back failed", extra=log_ctx)
         return sent
 
     async def _fetch_state(self, inputs: InboxNotificationInput) -> InboxNotificationState:

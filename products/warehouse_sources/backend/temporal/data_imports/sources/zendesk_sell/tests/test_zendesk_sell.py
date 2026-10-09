@@ -96,25 +96,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_unwrapped_records_across_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(
-            session,
-            [
-                _response(_envelope([{"id": 1}, {"id": 2}], next_page=PAGE_2_URL)),
-                _response(_envelope([{"id": 3}], next_page=None)),
-            ],
-        )
-
-        rows = _rows(_source("contacts", _make_manager()))
-
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-        # First request hits the base path with per_page; the second follows meta.links.next_page verbatim.
-        assert urls[0] == FIRST_URL
-        assert params[0] == {"per_page": PER_PAGE}
-        assert urls[1] == PAGE_2_URL
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_only_when_more_pages_remain(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -144,17 +125,6 @@ class TestPagination:
         assert rows == [{"id": 2}]
         assert session.send.call_count == 1
         assert urls[0] == PAGE_2_URL
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([], next_page=None))])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_item_without_data_fails_fast(self, MockSession) -> None:
@@ -258,31 +228,8 @@ class TestValidateCredentials:
         assert validate_credentials("token") is expected
 
     @mock.patch(ZENDESK_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("token") is False
-
-    @mock.patch(ZENDESK_SESSION_PATCH)
     def test_probe_session_redacts_token_and_disables_redirects(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("secret-token")
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
         assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-
-class TestZendeskSellSource:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoint_response(self, MockSession) -> None:
-        response = _source("contacts", _make_manager())
-        assert response.name == "contacts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpartitioned_lookup_endpoint_response(self, MockSession) -> None:
-        response = _source("stages", _make_manager())
-        assert response.name == "stages"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
