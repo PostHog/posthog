@@ -39,6 +39,7 @@ class SignalReportStatusFilter(admin.SimpleListFilter):
     title = "status"
     parameter_name = "status__exact"
 
+    # nosemgrep: tuple-return-prefer-dataclass -- Django requires (value, label) lookup pairs.
     def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
         return [
             (value, str(label))
