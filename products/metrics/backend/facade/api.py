@@ -398,15 +398,8 @@ def list_metric_picker_names(
     limit: int = 100,
     services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
-    """List current metric names for the viewer picker without sparklines or caching."""
-    rows = MetricNamesQueryRunner(
-        team=team,
-        search=search,
-        limit=limit,
-        services=services,
-        include_sparklines=False,
-    ).run()
-    return [{"name": row["name"], "metric_type": row["metric_type"]} for row in rows]
+    """List current metric names and types for the viewer picker, without sparklines or caching."""
+    return MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
