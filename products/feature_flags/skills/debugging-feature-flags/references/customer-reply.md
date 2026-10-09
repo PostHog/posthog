@@ -21,7 +21,7 @@ clear, no jargon.
   | `no_condition_match`                   | **none of your release conditions matched this user**                    |
   | `out_of_rollout_bound`                 | the user is **outside the rolled-out percentage**                        |
   | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group |
-  | `super_condition_value`                | the user's **early access feature** enrollment decided it                 |
+  | `super_condition_value`                | the user's **early access feature** enrollment decided it                |
   | `holdout_condition_value`              | the user is in the **holdout**                                           |
   | `missing_dependency`                   | this flag **depends on another flag** that isn't available               |
   | `disabled` / `flag_not_found`          | the flag is **turned off** in your project                               |
