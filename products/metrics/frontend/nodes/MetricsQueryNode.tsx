@@ -5,14 +5,17 @@ import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
+import { AnyResponseType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
+import { MetricsQueryEditor, MetricsQueryLanguagePicker } from '../components/MetricsQueryEditor'
+import { switchMetricsQueryLanguage } from '../components/metricsQueryLanguageSwitch'
 import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
 import { MetricsPanel } from '../panels/MetricsPanel'
+import { queryLanguage } from '../queryLanguages/convert'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
@@ -30,16 +33,29 @@ interface MetricsQueryNodeProps {
 
 /** Renders a `MetricsQuery` wherever the generic `Query` component is used —
  * saved insights, dashboard tiles, notebooks. */
+const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
+    builder: 'Pick a metric to see its time series.',
+    promql: 'Write a PromQL query and run it to see its time series.',
+    sql: 'Write a SQL query and run it to see its time series.',
+}
+
+const queryText = (query: MetricsQuery): string =>
+    (query.language === 'promql' ? query.promql : query.language === 'sql' ? query.sql : '') ?? ''
+
 export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
     const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
-    const [editorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
+    const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
+    // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
+    const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
+    const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
-    const results = props.query.clauses.length ? (
+    const hasQuery = language === 'builder' ? props.query.clauses.length > 0 : queryText(props.query).trim() !== ''
+    const results = hasQuery ? (
         <MetricsQueryResults {...props} />
     ) : (
         <div className="flex-1 flex items-center justify-center min-h-[200px] text-secondary text-sm">
-            Pick a metric to see its time series.
+            {EMPTY_QUERY_MESSAGE[language]}
         </div>
     )
 
@@ -47,14 +63,38 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
         return results
     }
 
+    const setQuery = props.setQuery
+    const onSwitchLanguage = languagesEnabled
+        ? (current: MetricsQuery, to: MetricsQueryLanguage): void =>
+              switchMetricsQueryLanguage(current, to, (converted) => {
+                  setQuery(converted)
+                  setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
+              })
+        : undefined
+
     return (
         <div className="flex flex-col gap-3 w-full">
-            {isBuilderCompatibleQuery(props.query) ? (
-                <MetricsQueryEditor editorKey={editorKey} query={props.query} setQuery={props.setQuery} />
+            {language !== 'builder' || isBuilderCompatibleQuery(props.query) ? (
+                <MetricsQueryEditor
+                    key={editorKey}
+                    editorKey={editorKey}
+                    query={props.query}
+                    setQuery={setQuery}
+                    onSwitchLanguage={onSwitchLanguage}
+                />
             ) : (
-                <LemonBanner type="info">
-                    This insight uses settings that the builder cannot show, so the builder is off for this insight.
-                </LemonBanner>
+                <div className="flex flex-col items-start gap-2">
+                    {onSwitchLanguage && (
+                        <MetricsQueryLanguagePicker
+                            value="builder"
+                            onChange={(to) => onSwitchLanguage(props.query, to)}
+                        />
+                    )}
+                    <LemonBanner type="info" className="w-full">
+                        This insight uses settings that the builder cannot show, so the builder is off for this insight.
+                        {onSwitchLanguage ? ' Switch to PromQL or SQL to edit it.' : ''}
+                    </LemonBanner>
+                </div>
             )}
             <div className="relative flex h-[360px] border rounded p-3">{results}</div>
         </div>
@@ -84,16 +124,25 @@ function MetricsQueryResults(props: MetricsQueryNodeProps): JSX.Element {
 
     useAttachedLogic(logic, props.attachTo)
 
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
     // A formula query returns only the formula result (metricName is null on it),
     // so the formula text itself is the honest name for an unlabelled series.
-    const fallbackName = props.query.formula ?? props.query.clauses[0]?.metricName ?? 'metric'
+    const fallbackName =
+        props.query.formula ??
+        props.query.clauses[0]?.metricName ??
+        (props.query.language === 'promql' && props.query.promql ? truncate(props.query.promql, 80) : 'metric')
 
     return (
         <div className="relative flex flex-col w-full h-full min-h-[200px]">
-            {hasPoints ? (
+            {responseError && !responseLoading ? (
+                <div className="flex-1 flex items-center p-4 min-w-0">
+                    <LemonBanner type="error" className="w-full">
+                        {responseError}
+                    </LemonBanner>
+                </div>
+            ) : hasPoints ? (
                 <MetricsPanel series={series} fallbackName={fallbackName} display={props.query.display} />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
