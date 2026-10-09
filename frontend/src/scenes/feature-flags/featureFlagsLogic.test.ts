@@ -138,7 +138,8 @@ describe('flagMatchesStatus', () => {
         [true, 'ACTIVE', 'false', false],
         [false, 'ACTIVE', 'false', true],
         [true, 'STALE', 'STALE', true],
-        [true, 'ACTIVE', 'STALE', false],
+        [true, 'ACTIVE', 'STALE', true],
+        [false, 'ACTIVE', 'STALE', false],
     ])('active=%p status=%p filter=%p → %p', (active, status, filter, expected) => {
         const flag = { ...NEW_FLAG, id: 1, key: 'test', active, status } as FeatureFlagType
         expect(flagMatchesStatus(flag, filter)).toBe(expected)

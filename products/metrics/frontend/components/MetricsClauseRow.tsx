@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -12,26 +12,10 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 import { MetricNameFilter } from './MetricNameFilter'
 import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
 import { MetricsGroupByButton } from './MetricsGroupByButton'
-import {
-    MAX_CLAUSES,
-    MetricAggregation,
-    MetricsViewerClause,
-    RECOMMENDED_AGGREGATION_BY_TYPE,
-    metricsViewerLogic,
-} from './metricsViewerLogic'
+import { MetricsOperations } from './MetricsOperations'
+import { MAX_CLAUSES, MetricsViewerClause, metricsViewerLogic } from './metricsViewerLogic'
 
-const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
-    { value: 'sum', label: 'Sum' },
-    { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Series count' },
-    { value: 'min', label: 'Min' },
-    { value: 'max', label: 'Max' },
-    { value: 'p95', label: 'p95' },
-    { value: 'rate', label: 'Rate (/s)' },
-    { value: 'increase', label: 'Increase' },
-]
-
-/** One query line of the viewer: alias, metric picker, aggregation, filters, and group-by.
+/** One query line of the viewer: alias, metric picker, filters, operations, and group-by.
  * Editing any control focuses the row — the samples panel, anomaly badge, and picker
  * scoping follow the focused (active) clause. */
 export function MetricsClauseRow({
@@ -53,6 +37,7 @@ export function MetricsClauseRow({
         setActiveClauseIndex,
         setMetricName,
         setAggregation,
+        setRangeFunction,
         setFilterGroup,
         setGroupByKeys,
         duplicateClause,
@@ -80,9 +65,6 @@ export function MetricsClauseRow({
             setter(value)
         }
 
-    const recommendedAggregation = clause.selectedMetricType
-        ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
-        : undefined
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
@@ -104,33 +86,14 @@ export function MetricsClauseRow({
                     </LemonButton>
                 </Tooltip>
             )}
-            <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
                 <MetricNameFilter
                     value={clause.metricName}
                     onChange={withSelect(setMetricName)}
                     disabled={!!disabledReason}
                     disabledReason={disabledReason}
                 />
-                {clause.selectedMetricType &&
-                    recommendedAggregation &&
-                    (clause.aggregation !== recommendedAggregation ? (
-                        <span className="text-xs text-secondary">
-                            {clause.selectedMetricType}: {recommendedAggregation} recommended
-                        </span>
-                    ) : (
-                        <LemonTag type="muted" size="small" className="self-start">
-                            {clause.selectedMetricType} · {recommendedAggregation}
-                        </LemonTag>
-                    ))}
             </div>
-            <LemonSelect
-                size="small"
-                value={clause.aggregation}
-                options={AGGREGATION_OPTIONS}
-                onChange={withSelect(setAggregation)}
-                data-attr="metrics-viewer-aggregation"
-                disabledReason={disabledReason}
-            />
             <UniversalFilters
                 // Keyed by the stable alias — an index key would rebind another row's
                 // filter logic when a row above it is removed.
@@ -146,11 +109,19 @@ export function MetricsClauseRow({
             >
                 <MetricsClauseFilterBar disabledReason={disabledReason} />
             </UniversalFilters>
-            <MetricsGroupByButton
-                groupByKeys={clause.groupByKeys}
-                onChange={withSelect(setGroupByKeys)}
+            <MetricsOperations
+                clause={clause}
+                onRangeFunctionChange={withSelect(setRangeFunction)}
+                onAggregationChange={withSelect(setAggregation)}
                 disabledReason={disabledReason}
             />
+            {clause.aggregation && (
+                <MetricsGroupByButton
+                    groupByKeys={clause.groupByKeys}
+                    onChange={withSelect(setGroupByKeys)}
+                    disabledReason={disabledReason}
+                />
+            )}
             <LemonMenu
                 items={[
                     {

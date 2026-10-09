@@ -435,12 +435,12 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
 
-    // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
+    // Deadline shared by all persons DB calls in one flag evaluation: the hash key override
     // check, write, and read, the group type mapping lookup, and the properties fetch.
     // statement_timeout cannot cancel a query on a database that has stopped answering.
-    // Only this timer bounds the request then. On expiry, the flags that need persons data
+    // Only this timer bounds those calls then. On expiry, the flags that need persons data
     // return an error and the other flags evaluate normally. The default leaves 2s of the
-    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    // 4.5s REQUEST_TIMEOUT_MS for the rest of a /flags request. 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
 

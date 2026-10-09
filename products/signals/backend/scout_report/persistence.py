@@ -1283,22 +1283,6 @@ def set_scout_report_repository(
     return True
 
 
-def _latest_status_artefact_content(
-    report_id: str, artefact_type: str, model: type[ActionabilityAssessment] | type[PriorityAssessment]
-) -> ActionabilityAssessment | PriorityAssessment | None:
-    row = (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-        .order_by("-created_at", "-id")
-        .first()
-    )
-    if row is None:
-        return None
-    try:
-        return model.model_validate_json(row.content)
-    except ValidationError:
-        return None
-
-
 def set_scout_report_decision(
     *,
     team_id: int,
@@ -1329,8 +1313,8 @@ def set_scout_report_decision(
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         # Compared under the lock: `edit_report` is non-idempotent, and a re-send must not log a
         # second note or re-run auto-start for a decision that did not move.
-        if actionability is not None and actionability != _latest_status_artefact_content(
-            report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+        if actionability is not None and actionability != SignalReportArtefact.latest_content(
+            team_id=team_id, report_id=report_id, model=ActionabilityAssessment
         ):
             SignalReportArtefact.append_status(
                 team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
@@ -1345,8 +1329,8 @@ def set_scout_report_decision(
                 attribution=attribution,
             )
             changed.append("actionability")
-        if priority is not None and priority != _latest_status_artefact_content(
-            report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+        if priority is not None and priority != SignalReportArtefact.latest_content(
+            team_id=team_id, report_id=report_id, model=PriorityAssessment
         ):
             SignalReportArtefact.append_status(
                 team_id=team_id, report_id=report_id, content=priority, attribution=attribution

@@ -312,6 +312,10 @@ from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
+from products.warehouse_suggestions.backend.facade.temporal import (
+    ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+)
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
@@ -359,8 +363,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS + WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES + WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,

@@ -84,7 +84,6 @@ describe('todaySessionSelectionLogic', () => {
 
     it.each([
         ['pin', () => logic.actions.pinSelected()],
-        ['file', () => logic.actions.fileSelectedTo('space-1')],
         ['archive', () => logic.actions.requestBulkArchive()],
     ])('keeps only the failed sessions selected and shows one toast when a bulk %s partly fails', async (_, run) => {
         failingId = 'task-b'

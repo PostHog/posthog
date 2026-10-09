@@ -10,14 +10,27 @@ from typing import Any, Final
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
-from posthog.slack.channels import MAX_SECTION_CHARS, clip_text, header_block, post_message, section_block
+from posthog.slack.channels import (
+    MAX_SECTION_CHARS,
+    SlackButton,
+    actions_block,
+    clip_text,
+    context_block,
+    header_block,
+    post_message,
+    section_block,
+    update_message,
+)
 from posthog.slack.formatting import escape_slack_mrkdwn
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
+from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail
 
 PROVIDER: Final = "slack"
+
+# Slack refuses a post whose context element is over 3000 characters.
+MAX_CONTEXT_CHARS: Final = 3000
 
 # Separates alert traffic from the API-driven calls on the shared Slack egress metrics.
 EGRESS_SOURCE: Final = "alerts"
@@ -41,10 +54,24 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
 
 
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = [header_block(message.headline)]
+    blocks: list[dict[str, Any]] = [header_block(message.title)]
     if message.details:
         blocks.append(section_block(_body(message.details)))
+    if message.context:
+        # Context names things a user chose, such as services, so it is escaped like a detail.
+        # Escaping can grow it fourfold, so the clip comes after it.
+        context = " | ".join(escape_slack_mrkdwn(line) for line in message.context)
+        blocks.append(context_block(clip_text(context, MAX_CONTEXT_CHARS)))
+    blocks.append(actions_block([SlackButton(text=link.label, url=link.url) for link in message.links]))
     return blocks
+
+
+def _with_state_line(blocks: list[dict[str, Any]], state_line: str) -> list[dict[str, Any]]:
+    """The opening blocks unchanged, with the state line above the buttons `blocks_for` ends with.
+
+    The state line is platform text, built from a state and a time, so it is not escaped.
+    """
+    return [*blocks[:-1], context_block(state_line), blocks[-1]]
 
 
 class SlackTransport:
@@ -67,14 +94,12 @@ class SlackTransport:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        blocks = blocks_for(message)
+        # The one place the alert's name reaches mrkdwn: the header renders plain text.
+        text = escape_slack_mrkdwn(message.title)
         try:
             response = post_message(
-                slack,
-                channel,
-                blocks_for(message),
-                # The one place the alert's name reaches mrkdwn: the header renders plain text.
-                escape_slack_mrkdwn(message.headline),
-                thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
+                slack, channel, blocks, text, thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None
             )
         except SlackApiError as error:
             # A refusal a person can fix, such as a channel the bot has left, rather than a
@@ -83,7 +108,29 @@ class SlackTransport:
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
-        return MessageHandle(external_ref={"channel": channel, "ts": timestamp})
+        # An opening message keeps what it posted, so an edit can restate it word for word.
+        root_content = {"blocks": blocks, "text": text} if in_reply_to is None else None
+        return MessageHandle(external_ref={"channel": channel, "ts": timestamp}, root_content=root_content)
+
+    def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
+        workspace_id = target.get("slack_workspace_id")
+        channel = root.external_ref.get("channel")
+        ts = root.external_ref.get("ts")
+        if workspace_id is None or not channel or not ts or not root.root_content:
+            raise DeliveryError("This Slack conversation has no opening message to edit.")
+        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        try:
+            update_message(
+                slack,
+                channel,
+                ts,
+                _with_state_line(root.root_content["blocks"], state_line),
+                # Screen readers read the fallback text rather than the blocks, so it carries the
+                # current state too.
+                f"{root.root_content['text']} ({state_line})",
+            )
+        except SlackApiError as error:
+            raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> Integration:
         # Scoped by team as well as by id. The destination names an integration, and nothing

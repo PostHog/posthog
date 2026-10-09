@@ -7,11 +7,12 @@ consumer reloads its inputs from the persisted artefact rows (`pr_snapshot`, fin
 unbounded payload hits Temporal's ~2 MiB cap. Stage progress is logged via `workflow.logger` so it
 streams in the worker log (the former stdout banners).
 
-The fan-out children dispatch per-unit sandbox activities (each retried) under a fresh
-`asyncio.Semaphore` and `gather(return_exceptions=True)`, so a minority of failed units degrade
-best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`) fails the run loudly instead of
-finalizing an empty review as success. Publishing is per-run: the final stage posts to GitHub only
-when `inputs.publish` is set (the cloud label trigger), and is skipped for eval / CLI runs.
+The fan-out children dispatch per-unit sandbox activities (each retried unless the agent reports a
+non-retryable failure) under a fresh `asyncio.Semaphore` and `gather(return_exceptions=True)`, so a
+minority of failed units degrade best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`) fails
+the run loudly instead of finalizing an empty review as success. Publishing is per-run: the final
+stage posts to GitHub only when `inputs.publish` is set (the cloud label trigger), and is skipped for
+eval / CLI runs.
 """
 
 import json
@@ -148,8 +149,17 @@ def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
     """
     if total and failed / total > FAN_OUT_FAILURE_FLOOR:
         raise ApplicationError(
-            f"{stage}: {failed}/{total} units failed (> {FAN_OUT_FAILURE_FLOOR:.0%}); failing the run"
+            f"{stage}: {failed}/{total} units failed (> {FAN_OUT_FAILURE_FLOOR:.0%}); failing the run",
+            non_retryable=True,
         )
+
+
+def _non_retryable_cause(exc: BaseException | None) -> ApplicationError | None:
+    while exc is not None:
+        if isinstance(exc, ApplicationError) and exc.non_retryable:
+            return exc
+        exc = exc.__cause__
+    return None
 
 
 @dataclass
@@ -397,15 +407,25 @@ class ReviewPRWorkflow:
     @temporalio.workflow.run
     async def run(self, inputs: ReviewPRWorkflowInputs) -> str:
         completed = False
+        non_retryable = False
         try:
             result = await self._run(inputs)
             completed = True
             return result
+        except Exception as e:
+            cause = _non_retryable_cause(e)
+            if cause is None:
+                raise
+            non_retryable = True
+            raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
             info = workflow.info()
             retry = info.retry_policy
             terminal = (
-                completed or retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
+                completed
+                or non_retryable
+                or retry is None
+                or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
             )
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")

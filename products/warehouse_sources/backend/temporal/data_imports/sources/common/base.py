@@ -439,6 +439,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
+
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
     ) -> list[str]:

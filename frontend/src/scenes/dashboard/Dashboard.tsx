@@ -10,12 +10,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -30,6 +31,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardModalLoading } from './DashboardModalLoading'
@@ -115,15 +117,18 @@ function DashboardScene({
         tiles,
         itemsLoading,
         dashboardLoading,
+        dashboardStreaming,
         layoutEditMode,
         dashboardFailedToLoad,
+        internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, retryDashboardLoad, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -198,15 +203,15 @@ function DashboardScene({
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
 
-            {dashboardFailedToLoad ? (
+            {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState
-                    title="There was an error loading this dashboard"
-                    onRetry={
-                        placement === DashboardPlacement.Export
-                            ? undefined
-                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    title={
+                        internetConnectionIssue
+                            ? "We couldn't connect to PostHog. Check your connection and try again."
+                            : 'There was an error loading this dashboard'
                     }
-                    retryLoading={dashboardLoading}
+                    onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}
+                    retryLoading={dashboardLoading || dashboardStreaming}
                     placement={placement}
                 />
             ) : !tiles || tiles.length === 0 ? (
@@ -217,7 +222,26 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
+                    {dashboardFailedToLoad && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={
+                                placement === DashboardPlacement.Export
+                                    ? undefined
+                                    : {
+                                          children: 'Try again',
+                                          onClick: retryDashboardLoad,
+                                          loading: dashboardLoading || dashboardStreaming,
+                                          'data-attr': 'dashboard-load-retry',
+                                      }
+                            }
+                        >
+                            This dashboard couldn't finish loading.
+                        </LemonBanner>
+                    )}
                     <DashboardRetentionBanner />
+                    <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">

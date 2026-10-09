@@ -22,12 +22,6 @@
 //!   caller reads only the target's `enabled`.
 //! - Flags are always read fresh from Postgres (never the hypercache) so the
 //!   `expected_version` optimistic-lock check is meaningful.
-//! - The matcher runs without the persons DB deadline (`PERSONS_DB_DEADLINE_MS`). When a
-//!   person's evaluation returns an error, Django leaves that person out of the cohort and
-//!   still reports the run as a success. A slow persons query must therefore finish rather
-//!   than time out. The group type mapping lookup is the exception. This endpoint shares
-//!   `GroupTypeCacheManager` with live `/flags`, so that lookup still fails with
-//!   `client_timeout` at the cache's 5s shared fetch cap.
 //!
 //! The paged scan walks `posthog_person.id` ascending across a live table, so the run sees
 //! a moving snapshot rather than a point-in-time one: persons inserted above the current
@@ -113,8 +107,8 @@ pub struct BatchFlagEvaluationResponse {
 const DEFAULT_LIMIT: i64 = 1_000;
 
 /// A page evaluates its persons one at a time under `BATCH_FLAG_EVAL_TIMEOUT_MS`. A retry of a
-/// person that timed out waits the persons pool timeouts a second time. The cap keeps a
-/// sustained stall from spending the page timeout on retries.
+/// person that timed out waits on the persons DB a second time. The cap keeps a sustained stall
+/// from spending the page timeout on retries.
 const MAX_PERSON_RETRIES_PER_PAGE: u32 = 20;
 
 #[derive(Debug)]
@@ -662,7 +656,10 @@ async fn handle_batch_flag_evaluation(
             // Read-only: experience-continuity overrides are consulted but never written.
             .with_skip_writes(true)
             .with_enabled_only_flag_keys(enabled_only_flag_keys.clone())
-            .with_timezone(team_timezone);
+            .with_timezone(team_timezone)
+            // The deadline starts when the matcher is built. Building the matcher in this
+            // closure gives the retry in `evaluate_with_one_retry` its own deadline.
+            .with_persons_db_deadline(state.config.persons_db_deadline());
 
             let flag_list = flag_list.clone();
             let target_key = target_key.clone();

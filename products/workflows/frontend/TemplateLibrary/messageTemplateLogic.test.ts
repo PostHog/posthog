@@ -79,21 +79,13 @@ describe('messageTemplateLogic', () => {
         })
 
         it.each([
-            {
-                missing: 'name',
-                prefill: { key: 'content.email.subject', value: 'Welcome' },
-                toast: 'Name is required',
-            },
-            {
-                missing: 'subject',
-                prefill: { key: 'name', value: 'Welcome email' },
-                toast: 'Subject is required',
-            },
-        ])('toasts when the $missing is missing', async ({ prefill, toast }) => {
+            { missing: 'name', key: 'name', toast: 'Name is required' },
+            { missing: 'subject', key: 'content.email.subject', toast: 'Subject is required' },
+        ])('toasts when the $missing is missing', async ({ key, toast }) => {
             logic = messageTemplateLogic({ id: 'new' })
             logic.mount()
 
-            logic.actions.setTemplateValue(prefill.key, prefill.value)
+            logic.actions.setTemplateValue(key, '')
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
             }).toDispatchActions(['submitTemplateFailure'])

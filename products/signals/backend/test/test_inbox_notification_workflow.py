@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
@@ -232,6 +233,28 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
     assert (first, second) == (1, 0)
     assert dispatch.call_count == 1
     assert writeback.call_count == 2
+    report.refresh_from_db()
+    assert report.inbox_notified_at is not None
+
+
+@pytest.mark.django_db
+def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            side_effect=[ClickHouseAtCapacity(), []],
+        ) as fetch,
+        patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1
+        ) as dispatch,
+    ):
+        assert _send_report_inbox_notifications(team.id, str(report.id)) == 1
+
+    assert fetch.call_count == 2
+    dispatch.assert_called_once()
     report.refresh_from_db()
     assert report.inbox_notified_at is not None
 

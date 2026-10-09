@@ -56,6 +56,7 @@ import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -462,6 +463,12 @@ export function InboxDetailFrame({
                                             >
                                                 {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
+                                        )}
+                                        {report.source_suggestion && (
+                                            <ReportSourceSuggestion
+                                                report={report}
+                                                suggestion={report.source_suggestion}
+                                            />
                                         )}
                                     </div>
                                 )}

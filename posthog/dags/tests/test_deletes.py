@@ -19,6 +19,7 @@ from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     _SURVIVOR_COUNT_ATTEMPTS,
     DELETES_RUN_CONFIG,
+    EU_OLD_EVENTS_CLEANUP_TEAM_IDS,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -32,6 +33,7 @@ from posthog.dags.deletes import (
     cleanup_old_events_by_partition,
     deletes_job,
     ensure_no_concurrent_deletes_run,
+    eu_monthly_old_events_cleanup_schedule,
     find_partitions_to_cleanup,
     manual_deletes_job,
     mark_deletions_verified,
@@ -814,6 +816,33 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
         older_unrequested_partition: len(older_unrequested_events),
         recent_partition: len(recent_events),
     }
+
+
+@pytest.mark.parametrize(
+    "scheduled_at, newest_partition",
+    [
+        (datetime(2026, 11, 1, tzinfo=UTC), 202510),
+        (datetime(2027, 1, 1, tzinfo=UTC), 202512),
+        (datetime(2027, 2, 1, tzinfo=UTC), 202601),
+    ],
+)
+def test_eu_monthly_old_events_cleanup_schedule_requests_every_month_through_cutoff(
+    scheduled_at: datetime, newest_partition: int
+):
+    with dagster.build_schedule_context(scheduled_execution_time=scheduled_at) as context:
+        run_request = eu_monthly_old_events_cleanup_schedule(context)
+
+    assert isinstance(run_request, dagster.RunRequest)
+    config = run_request.run_config["ops"]["find_partitions_to_cleanup"]["config"]
+    assert config["team_ids"] == list(EU_OLD_EVENTS_CLEANUP_TEAM_IDS)
+    assert config["min_age_months"] == 13
+    partitions = config["partitions"]
+    assert partitions[0] == 202001
+    assert partitions[-1] == newest_partition
+    assert all(
+        later == (earlier + 1 if earlier % 100 < 12 else earlier + 89)
+        for earlier, later in zip(partitions, partitions[1:])
+    )
 
 
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:

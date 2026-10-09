@@ -703,7 +703,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 !isDashboardFilterOverrideEmpty(tileFiltersOverride),
         ],
     }),
-    sharedListeners(({ actions, values }) => ({
+    sharedListeners(({ actions, values, cache }) => ({
         /**
          * The editor must show the insight in the URL and the tile the user opened—not a different saved insight.
          * After "Save as" from a dashboard, the tile still belongs to the original; if we kept the wrong editor
@@ -717,8 +717,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
 
             if (logicInsightId !== insightId || propsMismatch) {
-                const oldRef = values.insightLogicRef // free old logic after mounting new one
-                const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
                     const insightProps: InsightLogicProps = {
                         dashboardItemId: insightId,
@@ -735,15 +733,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     const logic2 = insightDataLogic.build(insightProps)
                     const unmount2 = logic2.mount()
                     actions.setInsightDataLogicRef(logic2, unmount2)
+
+                    // Mount the new owners before releasing the old ones to preserve shared insight state.
+                    cache.disposables.add(
+                        () => () => {
+                            unmount()
+                            unmount2()
+                        },
+                        'insightLogics',
+                        { pauseOnPageHidden: false }
+                    )
                 } else {
                     actions.setInsightLogicRef(null, null)
                     actions.setInsightDataLogicRef(null, null)
-                }
-                if (oldRef) {
-                    oldRef.unmount()
-                }
-                if (oldRef2) {
-                    oldRef2.unmount()
+                    cache.disposables.dispose('insightLogics')
                 }
             } else if (insightId) {
                 values.insightLogicRef?.logic.actions.loadInsight(

@@ -3,10 +3,12 @@ import { IconDecisionTree } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WorkflowsPathChoice } from '../setupGuide/WorkflowsPathChoice'
 import { urlForNewWorkflowComposer } from '../Workflows/newWorkflowLogic'
 import { WorkflowsPreview } from './WorkflowsPreview'
 import { workflowsSetupLogic } from './workflowsSetupLogic'
@@ -40,5 +42,16 @@ export const workflowsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/workflows',
         previewLabel: 'Your journeys, once running',
         Preview: WorkflowsPreview,
+        featureFlagOverrides: {
+            [FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]: {
+                text: {
+                    'needs-setup': {
+                        headline: 'What do you want to build first?',
+                        lead: 'Message your users with email, SMS and push, or automate work with Slack alerts, webhooks and AI tasks. You can do both later. This choice only picks where we start.',
+                    },
+                },
+                PrimaryAction: WorkflowsPathChoice,
+            },
+        },
     },
 }

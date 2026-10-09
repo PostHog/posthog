@@ -9,9 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AcceptWarehouseSuggestionApi,
     DismissWarehouseSuggestionApi,
     PaginatedWarehouseSuggestionListApi,
     WarehouseSuggestionApi,
+    WarehouseSuggestionStatusApi,
     WarehouseSuggestionsListParams,
 } from './api.schemas'
 
@@ -57,6 +59,24 @@ export const warehouseSuggestionsRetrieve = async (
     })
 }
 
+export const getWarehouseSuggestionsAcceptCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/${id}/accept/`
+}
+
+export const warehouseSuggestionsAcceptCreate = async (
+    projectId: string,
+    id: string,
+    acceptWarehouseSuggestionApi?: AcceptWarehouseSuggestionApi,
+    options?: RequestInit
+): Promise<WarehouseSuggestionApi> => {
+    return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsAcceptCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(acceptWarehouseSuggestionApi),
+    })
+}
+
 export const getWarehouseSuggestionsDismissCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_suggestions/${id}/dismiss/`
 }
@@ -87,5 +107,19 @@ export const warehouseSuggestionsResumeCreate = async (
     return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWarehouseSuggestionsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/status/`
+}
+
+export const warehouseSuggestionsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseSuggestionStatusApi> => {
+    return apiMutator<WarehouseSuggestionStatusApi>(getWarehouseSuggestionsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

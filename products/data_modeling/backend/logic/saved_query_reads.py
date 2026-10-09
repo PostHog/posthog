@@ -11,8 +11,8 @@ from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, Upstream
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
-from .node_frequency import declared_targets_by_saved_query
 from .saved_query_freshness import saved_query_materialized_at
+from .tier_run_report import MATERIALIZING_TYPES
 
 POSTHOG_TABLE_ORIGIN = "posthog"
 PROXY_SAVED_QUERY_ID_PROPERTY = "saved_query_id"
@@ -98,23 +98,29 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
 
 
 def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
-    """Every saved query in this team that still resolves, with its HogQL, materialization and DAG node interval."""
+    """Every saved query in this team that still resolves, with its HogQL and whether its DAG node materializes."""
     saved_queries = list(
         DataWarehouseSavedQuery.objects.filter(team_id=team_id)
         .exclude(deleted=True)
-        .only("id", "name", "query", "is_materialized", "is_test", "managed_viewset_id", "created_at")
+        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at")
         .order_by("created_at", "id")
     )
-    intervals = declared_targets_by_saved_query(team_id, [saved_query.id for saved_query in saved_queries])
+    materializing_ids = set(
+        Node.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=[saved_query.id for saved_query in saved_queries],
+            type__in=MATERIALIZING_TYPES,
+        ).values_list("saved_query_id", flat=True)
+    )
     return [
         SavedQueryDefinition(
             id=saved_query.id,
             name=saved_query.name,
             hogql=(saved_query.query or {}).get("query") or "",
-            is_materialized=bool(saved_query.is_materialized),
-            sync_frequency_interval=intervals.get(str(saved_query.id)),
+            materializes=saved_query.id in materializing_ids,
             is_test=saved_query.is_test,
             is_managed=saved_query.managed_viewset_id is not None,
+            origin=saved_query.origin,
             created_at=saved_query.created_at,
         )
         for saved_query in saved_queries
@@ -316,7 +322,11 @@ def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool
 def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[UpstreamTableRef]:
     """The tables this saved query reads from, directly or through other views in any DAG."""
     return frozenset(
-        UpstreamTableRef(name=name, warehouse_table_id=_warehouse_table_id(properties))
+        UpstreamTableRef(
+            name=name,
+            warehouse_table_id=_warehouse_table_id(properties),
+            is_posthog_table=properties.get("origin") == POSTHOG_TABLE_ORIGIN,
+        )
         for name, properties in _upstream_table_nodes(team_id, str(saved_query_id))
         if _proxied_saved_query_id(properties) is None
     )

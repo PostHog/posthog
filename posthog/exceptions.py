@@ -93,7 +93,7 @@ class ClickHouseAtCapacity(APIException):
     def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
         super().__init__(detail=detail, code=code)
         # Spread retries across requests while keeping a minimum recovery window.
-        self.wait = random.randint(30, 60)
+        self.wait = random.randint(5, 20)
 
 
 class QueryRanConcurrently(APIException):

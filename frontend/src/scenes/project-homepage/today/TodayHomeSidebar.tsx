@@ -96,7 +96,7 @@ export function TodayHomeSidebar(): JSX.Element {
                 data-attr="today-new-chat"
             >
                 <IconPlus />
-                New session
+                New chat
             </Button>
             <div className="TodayPane__scroll">
                 <div className="TodaySidebar__list">

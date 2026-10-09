@@ -1146,7 +1146,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     captureSaveOutcome('success')
-                    lemonToast.success('Source updated')
+                    const connectionWarning = sourcesDataLogic.values.lastUpdateConnectionWarning
+                    if (connectionWarning) {
+                        lemonToast.warning(connectionWarning)
+                    } else {
+                        lemonToast.success('Source updated')
+                    }
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
                         LemonDialog.open({

@@ -62,21 +62,25 @@ class TestDatabaseThreadStore(APIBaseTest):
         assert self.store.claim(key, "eval-1") is None
 
     def test_a_later_evaluation_replies_to_the_message_that_opened_the_thread(self) -> None:
+        root = MessageHandle(
+            external_ref={"channel": "C-ENG", "ts": "1"},
+            root_content={"blocks": [{"type": "header"}], "text": "API errors is firing"},
+        )
         key = self._key()
         opener = self.store.claim(key, "eval-1")
         assert opener is not None
-        self.store.delivered(opener, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+        self.store.delivered(opener, root)
 
         resolve = self.store.claim(key, "eval-2")
         assert resolve is not None
-        assert resolve.handle == MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"})
+        assert resolve.handle == root
 
         # A reply's own handle must not replace the root's, or the next message would reply to
         # a reply and the conversation would walk away from where it started.
         self.store.delivered(resolve, MessageHandle(external_ref={"channel": "C-ENG", "ts": "2"}))
         third = self.store.claim(key, "eval-3")
         assert third is not None
-        assert third.handle == MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"})
+        assert third.handle == root
 
     @parameterized.expand([("fresh", timedelta(seconds=1), True), ("stale", PENDING_CLAIM_TTL * 2, False)])
     def test_a_claim_blocks_another_send_until_it_goes_stale(

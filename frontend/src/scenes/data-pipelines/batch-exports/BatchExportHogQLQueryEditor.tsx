@@ -14,7 +14,7 @@ import {
 
 export function BatchExportHogQLQueryEditor(): JSX.Element {
     const { props: formLogicProps } = useMountedLogic(batchExportConfigFormLogic)
-    const { previewStart, previewEnd, projectTimezone, usesIntervalPlaceholders } = useValues(
+    const { previewStart, previewEnd, queryTimezone, usesIntervalPlaceholders } = useValues(
         batchExportHogQLQueryLogic(formLogicProps)
     )
 
@@ -42,7 +42,7 @@ export function BatchExportHogQLQueryEditor(): JSX.Element {
             <p className="text-xs text-secondary mb-0">
                 When you run the query here, the placeholders cover the last complete interval:{' '}
                 <span translate="no">{`'${previewStart}'`}</span> to <span translate="no">{`'${previewEnd}'`}</span>{' '}
-                <span translate="no">{`(${projectTimezone})`}</span>. Each export run fills them with its own interval.
+                <span translate="no">{`(${queryTimezone})`}</span>. Each export run fills them with its own interval.
             </p>
         </div>
     )

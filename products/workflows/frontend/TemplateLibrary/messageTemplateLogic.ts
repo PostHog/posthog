@@ -504,12 +504,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
-            lemonToast.success('Template saved')
+            lemonToast.success(props.id === 'new' ? 'Template created' : 'Template saved')
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
-            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+            if (props.id === 'new') {
+                router.actions.push(urls.workflows('library'))
+            } else if (template.id) {
+                router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+            }
             actions.replayDeferredExternalEdit()
         },
         loadMessageSuccess: async ({ message }) => {

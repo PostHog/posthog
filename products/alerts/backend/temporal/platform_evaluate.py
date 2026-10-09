@@ -24,12 +24,14 @@ with workflow.unsafe.imports_passed_through():
 
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
+        AlertDeliveryRequest,
         PlatformAlertOutcome,
+        SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceKind,
         SourceOutcomeInputs,
     )
-    from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
+    from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
 PLAN_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
@@ -77,7 +79,7 @@ def plan_platform_insight_batch_activity(inputs: InsightBatchPlanInputs) -> list
 
 @activity.defn
 @close_db_connections
-def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> PlatformAlertOutcome | None:
+def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
     """Sync, so the thread this blocks is a slot Temporal is accounting for."""
     from products.alerts.backend.platform_source_cycle import evaluate_insight_check  # noqa: PLC0415
 
@@ -95,8 +97,8 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Plat
 
 @workflow.defn(name="insight-alert-platform-evaluate")
 class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
-    """Evaluates one batch key and records what it decided. Starts no deliveries: the production
-    insight fleet is the only stack that notifies anyone."""
+    """Evaluates one batch key, records what it decided, and starts the deliveries its checks asked
+    for. Only the alerts the insight source allowlists ask for one."""
 
     inputs_cls = SourceEvaluationInputs
 
@@ -135,7 +137,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             # workflow would otherwise be recorded as a partial batch.
             if isinstance(result, BaseException) and not isinstance(result, ActivityError):
                 raise result
-        outcomes = tuple(outcome for outcome in settled if isinstance(outcome, PlatformAlertOutcome))
+        evaluations = [result for result in settled if isinstance(result, SourceBatchEvaluation)]
+        outcomes: tuple[PlatformAlertOutcome, ...] = tuple(o for e in evaluations for o in e.outcomes)
+        deliveries: tuple[AlertDeliveryRequest, ...] = tuple(d for e in evaluations for d in e.deliveries)
         if len(outcomes) < len(settled):
             workflow.logger.warning(
                 "%d of %d platform insight checks reached no outcome", len(settled) - len(outcomes), len(settled)
@@ -150,6 +154,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+        # Started only after the record, because a delivery reads the history row the record writes.
+        await start_deliveries(deliveries)
         return len(outcomes)
 
 

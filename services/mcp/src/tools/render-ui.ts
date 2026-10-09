@@ -116,7 +116,11 @@ export function createRenderUiTool(
                     tool_name: tool.name,
                     tool_input: toolInput,
                     app_key: appKey,
-                    _analytics: { distinctId, toolName: RENDER_UI_TOOL_NAME, ...(mcpClientName ? { mcpClientName } : {}) },
+                    _analytics: {
+                        distinctId,
+                        toolName: RENDER_UI_TOOL_NAME,
+                        ...(mcpClientName ? { mcpClientName } : {}),
+                    },
                 },
                 _meta: {
                     ui: { resourceUri: RENDER_UI_RESOURCE_URI },

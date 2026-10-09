@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F, QuerySet
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -17,9 +18,40 @@ from posthog.temporal.cleanup_property_definitions.types import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.event_definitions.backend.models import effective_project_id_expr, group_type_index_key_expr
 from products.event_definitions.backend.models.event_property import EventProperty
 
 LOGGER = get_write_only_logger()
+
+
+def _project_id_for_team(team_id: int) -> int:
+    project_id = Team.objects.filter(id=team_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        raise CleanupPropertyDefinitionsError(f"Team {team_id} not found")
+    return project_id
+
+
+def _project_definitions(project_id: int, property_type: int) -> QuerySet[PropertyDefinition]:
+    return PropertyDefinition.objects.alias(
+        effective_project_id=effective_project_id_expr(),
+        group_type_index_key=group_type_index_key_expr(),
+    ).filter(effective_project_id=project_id, type=property_type)
+
+
+def _definitions_matching(project_id: int, property_type: int, pattern: str) -> QuerySet[PropertyDefinition]:
+    # The order is the key of index_property_def_query_proj, so Postgres reads that index in order and stops at
+    # the slice limit. Without an order, Postgres plans a Seq Scan of the whole table for the largest projects.
+    return (
+        _project_definitions(project_id, property_type)
+        .filter(name__regex=pattern)
+        .order_by(
+            "effective_project_id",
+            "type",
+            "group_type_index_key",
+            F("query_usage_30_day").desc(nulls_last=True),
+            "name",
+        )
+    )
 
 
 @activity.defn(name="delete-property-definitions-from-postgres")
@@ -39,26 +71,21 @@ async def delete_property_definitions_from_postgres(
 
     @database_sync_to_async
     def delete_batch() -> dict:
-        if not Team.objects.filter(id=input.team_id).exists():
-            raise CleanupPropertyDefinitionsError(f"Team {input.team_id} not found")
+        project_id = _project_id_for_team(input.team_id)
 
         # Select a batch of matching property names to coordinate deletes across tables
         batch_names = list(
-            PropertyDefinition.objects.filter(
-                team_id=input.team_id,
-                type=input.property_type,
-                name__regex=input.pattern,
-            ).values_list("name", flat=True)[: input.batch_size]
+            _definitions_matching(project_id, input.property_type, input.pattern).values_list("name", flat=True)[
+                : input.batch_size
+            ]
         )
         if not batch_names:
             return {"property_definitions_deleted": 0, "event_properties_deleted": 0}
 
         with transaction.atomic():
-            property_definitions_deleted, _ = PropertyDefinition.objects.filter(
-                team_id=input.team_id,
-                type=input.property_type,
-                name__in=batch_names,
-            ).delete()
+            property_definitions_deleted, _ = (
+                _project_definitions(project_id, input.property_type).filter(name__in=batch_names).delete()
+            )
 
             event_properties_deleted, _ = EventProperty.objects.filter(
                 team_id=input.team_id,
@@ -127,14 +154,9 @@ async def preview_property_definitions(input: PreviewPropertyDefinitionsInput) -
 
     @database_sync_to_async
     def get_matching_definitions() -> dict:
-        if not Team.objects.filter(id=input.team_id).exists():
-            raise CleanupPropertyDefinitionsError(f"Team {input.team_id} not found")
+        project_id = _project_id_for_team(input.team_id)
 
-        queryset = PropertyDefinition.objects.filter(
-            team_id=input.team_id,
-            type=input.property_type,
-            name__regex=input.pattern,
-        )
+        queryset = _definitions_matching(project_id, input.property_type, input.pattern)
         total_count = queryset.count()
         names = list(queryset.values_list("name", flat=True)[: input.limit])
         return {"total_count": total_count, "names": names, "truncated": total_count > input.limit}

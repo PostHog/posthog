@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class AttributeScope(StrEnum):
     """Where a label lives on a `metrics1` row.
@@ -71,8 +73,12 @@ class MetricAggregation(StrEnum):
     arrays rather than the scalar `value`.
 
     QUANTILE and HISTOGRAM_QUANTILE require the clause's `quantile` field.
+
+    NONE combines nothing: the clause returns one series per physical series,
+    capped at 100 series.
     """
 
+    NONE = "none"
     SUM = "sum"
     AVG = "avg"
     COUNT = "count"
@@ -84,9 +90,25 @@ class MetricAggregation(StrEnum):
     HISTOGRAM_QUANTILE = "histogram_quantile"
 
     @property
+    def is_raw(self) -> bool:
+        return self is MetricAggregation.NONE
+
+    @property
     def needs_quantile(self) -> bool:
         return self in (MetricAggregation.QUANTILE, MetricAggregation.HISTOGRAM_QUANTILE)
 
     @property
     def is_counter_function(self) -> bool:
         return self in (MetricAggregation.RATE, MetricAggregation.INCREASE)
+
+
+class MetricRangeFunction(LabeledStrEnum):
+    """A per-series transform that runs before the cross-series aggregation.
+
+    Both read the change in a counter across each bucket (cumulative counters
+    get reset-corrected; deltas are summed). RATE divides by the bucket length
+    in seconds.
+    """
+
+    RATE = "rate", "rate"
+    INCREASE = "increase", "increase"

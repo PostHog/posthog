@@ -22,7 +22,6 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import model_store, scorer
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
-    REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     FeatureSet,
@@ -51,7 +50,6 @@ from products.signals.backend.report_embedding_reader import (
     latest_report_vectors,
 )
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
-from products.signals.dags.inbox_ranking.training.unseen import UnseenModel, score_pool
 
 PREFIX = "inbox_ranking_test"
 VERSION = "2026-09-01"
@@ -322,51 +320,6 @@ class _ScorerTestMixin(_StoreTestMixin):
 
 
 class TestScorer(_ScorerTestMixin, SimpleTestCase):
-    def test_a_served_score_equals_the_dags_unseen_score_for_the_same_model_and_vector(self) -> None:
-        served = self._served()
-        self.store.publish_manifest([served])
-        vector = _vector(1)
-
-        (outcome,), _, _ = self._score(
-            ["r1"],
-            {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": ReportVector(embedding=vector, inserted_at=LANDED)}},
-            persist=False,
-        )
-
-        pool = pd.DataFrame(
-            {
-                "report_created_at": [pd.Timestamp(LANDED)],
-                "report_age_hours": [3.0],
-                "signal_count": [2],
-            },
-            index=pd.Index(["r1"], name="report_id"),
-        )
-        extras = {
-            REPORT_EMBEDDINGS_EXTRA: pd.DataFrame(
-                {"embedding_small": [list(vector)], "embedding_inserted_at": [LANDED]},
-                index=pd.Index(["r1"], name="report_id"),
-            )
-        }
-        booster = self.store.objects[f"{served.prefix}/open.ubj"]
-        dag_scores = score_pool(
-            pool,
-            pd.DataFrame({"open_count": [0], "impression_unit_count": [1]}, index=pool.index),
-            [
-                UnseenModel(
-                    model_name=served.model_name,
-                    model_version=served.model_version,
-                    model_role="champion",
-                    feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
-                    boosters={"open": booster},
-                )
-            ],
-            snapshot_date=LANDED.date(),
-            extras=extras,
-        )
-
-        assert outcome.score is not None
-        assert outcome.score.results[served.key].scores["open"] == float(dag_scores["score"].iloc[0])
-
     def test_a_missing_served_vector_is_no_score(self) -> None:
         self.store.publish_manifest([self._served()])
 

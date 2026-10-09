@@ -93,6 +93,11 @@ export function GatewayServerScene({
         Boolean(connection && disconnectingInstallationIds.has(connection.installation_id))
     const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
     const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
+    const reconnectDisabledReason = !server.is_team_enabled
+        ? 'This server is turned off for the team.'
+        : server.is_revoked_for_you
+          ? 'Ask an admin to restore your access first.'
+          : undefined
     const confirmRemoval = (): void => {
         if (!connection && removalAction !== 'delete_for_everyone') {
             return
@@ -129,6 +134,22 @@ export function GatewayServerScene({
             </LemonButton>
 
             {serversLoadFailed && <GatewayServersLoadError serverDetail onRetry={loadServers} />}
+
+            {connection && needsReconnect && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Reconnect your account',
+                        type: 'primary',
+                        disabledReason: reconnectDisabledReason,
+                        onClick: () => reconnectServer(connection.installation_id),
+                        'data-attr': 'mcp-server-reconnect',
+                    }}
+                >
+                    <div className="font-semibold">Reconnect required</div>
+                    <div>{server.name} tools are not available to you or your agents until you reconnect.</div>
+                </LemonBanner>
+            )}
 
             <div className="flex items-start gap-3">
                 <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={56} />
@@ -184,17 +205,11 @@ export function GatewayServerScene({
                                     }
                                 />
                             </div>
-                            {canReconnect && (
+                            {canReconnect && !needsReconnect && (
                                 <LemonButton
                                     type="primary"
                                     size="small"
-                                    disabledReason={
-                                        !server.is_team_enabled
-                                            ? 'This server is turned off for the team.'
-                                            : server.is_revoked_for_you
-                                              ? 'Ask an admin to restore your access first.'
-                                              : undefined
-                                    }
+                                    disabledReason={reconnectDisabledReason}
                                     onClick={() => reconnectServer(connection.installation_id)}
                                     data-attr="mcp-server-reconnect"
                                 >

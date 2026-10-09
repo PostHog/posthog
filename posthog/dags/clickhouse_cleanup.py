@@ -413,7 +413,7 @@ class RevivedDistinctIdsTable(SnapshotTable):
     """Snapshotted distinct ids that no longer qualify for deletion.
 
     A mapping can come back the same way a person can: ingestion re-captures a tombstoned
-    distinct id, or reset_deleted_person_distinct_ids republishes it at a higher version. The
+    distinct id, or a `person_divergence repair` republishes it at a higher version. The
     snapshot froze the reason each key qualified, so without this the delete would strip every
     version of a key that is live again, including the new row.
     """

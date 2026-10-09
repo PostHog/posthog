@@ -17,6 +17,7 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BIEditor } from './BIEditor'
+import { biEditorLogic } from './biEditorLogic'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -29,6 +30,7 @@ export const scene: SceneExport = {
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { chartTypesOpen } = useValues(biEditorLogic({ tabId }))
     const logic = biSceneLogic({ tabId })
     const {
         name,
@@ -170,6 +172,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 context={{
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
+                                    chartTypeSelectorClassName: chartTypesOpen ? '@3xl/bi-editor:hidden' : undefined,
                                 }}
                             />
                         ) : (

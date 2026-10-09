@@ -4,14 +4,18 @@ import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 import {
     BarChart as BarValueChart,
+    buildYTickFormatter,
     ciRanges,
     DefaultTooltip,
+    PieChart,
+    ProportionBar,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
     type TooltipContext,
 } from '@posthog/quill-charts'
 
+import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
@@ -33,11 +37,12 @@ import {
     defaultChartType,
     displayForChartType,
     isBarFamily,
+    pieViewFromTrendsFilter,
     resolveChartView,
     supportsPercentStack,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
+import { buildProportionBarSeries, formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
 
 const TITLE = 'Trends'
 
@@ -103,6 +108,21 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         )
     }
 
+    if (displayType === 'ActionsProportionBar') {
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full justify-center p-4">
+                    <ProportionBar
+                        series={buildProportionBarSeries(results, colorAt)}
+                        theme={theme}
+                        valueFormatter={buildYTickFormatter(trendsFilterToYFormatterConfig(query?.trendsFilter, false))}
+                    />
+                </div>
+            </div>
+        )
+    }
+
     // ActionsBarValue is aggregated totals per series (no days[]) — a horizontal bar, not a time series.
     if (displayType === 'ActionsBarValue') {
         const items = results.map((item, i) => ({
@@ -120,6 +140,29 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                         labels={items.map((item) => item.label)}
                         theme={theme}
                         config={barConfig}
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    if (displayType === 'ActionsPie' || displayType === 'ActionsDonut') {
+        const slices = results.map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: colorAt(i),
+        }))
+        const pieView = pieViewFromTrendsFilter(query?.trendsFilter, displayType === 'ActionsDonut')
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full h-[400px]">
+                    <PieChart
+                        series={slices}
+                        theme={theme}
+                        config={pieView.config}
+                        valueFormatter={buildYTickFormatter(pieView.valueFormat)}
                     />
                 </div>
             </div>

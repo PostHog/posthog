@@ -33,11 +33,17 @@ import {
     shortName,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL,
+    slackPermalink,
 } from './weekly-report-common.mjs'
 
+// Off, each team's slice stays in the digest thread, labeled with the channel it would go to.
+const TEAM_CHANNEL_POSTS = process.env.FLAKY_REPORT_TEAM_CHANNELS === 'true'
+const FEEDBACK_CHANNEL = '<#C09G8QA6740>' // #team-devex
+// The name a team uses under `notifications:` in owners.yaml to redirect or silence this report.
+const OWNERS_PRODUCER = 'flaky_report'
+
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
-// The synced runs table name carries the warehouse source prefix, which differs per project.
-const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
+const DEPOT_ORG = 'ntsdt08fpt'
 
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 10
@@ -151,9 +157,19 @@ function selectorVariants(selector) {
     return variants.length > 0 ? variants : [selector]
 }
 
+// A Depot CI run has no page on GitHub, so each engine links to its own job page.
+function failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) {
+    if (engine === 'depot_ci') {
+        return workflowId && nativeJobId
+            ? `https://depot.dev/orgs/${DEPOT_ORG}/workflows/${workflowId}?job=${nativeJobId}`
+            : null
+    }
+    return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
+}
+
 // The two most recent failing (run, job) pairs, from the product's ci_failures view. That view
-// holds fewer runs than the endpoint counts, so it supplies links and never a number. A run on
-// another CI engine has no page on GitHub, so only the runs GitHub synced get a link.
+// holds fewer runs than the endpoint counts, so it supplies links and never a number. The job
+// history join keeps only the runs a warehouse source synced, and supplies each engine's own ids.
 async function enrich(items, runHogql = hogql) {
     const bySelector = new Map()
     for (const item of items) {
@@ -170,19 +186,29 @@ async function enrich(items, runHogql = hogql) {
     try {
         const result = await runHogql(
             `SELECT f.test_id AS test_id,
-                arraySlice(arraySort(x -> -x.1, groupUniqArray((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
+                arraySlice(arraySort(x -> -x.1, groupUniqArray((
+                    toUnixTimestamp(f.timestamp), f.ci_engine, f.run_id, f.job_id,
+                    h.native_workflow_run_id, h.native_job_id
+                ))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
+            INNER JOIN (
+                SELECT ci_engine, run_id, job_name, run_attempt, native_workflow_run_id, native_job_id
+                FROM engineering_analytics_ci_job_history
+                WHERE created_at_raw >= {jobsFloor}
+            ) h ON h.ci_engine = f.ci_engine AND h.run_id = f.run_id
+                AND h.job_name = f.job_name AND h.run_attempt = f.run_attempt
             WHERE f.timestamp >= now() - INTERVAL ${REPORT_WINDOW_DAYS} DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
-                AND (f.ci_engine = 'github_actions' OR f.ci_engine IS NULL)
-                AND f.run_id IN (
-                    SELECT id FROM ${RUNS_TABLE}
-                    WHERE created_at >= toString(toDate(now() - INTERVAL 30 DAY))
-                )
             GROUP BY f.test_id
             LIMIT ${selectors.length}`,
-            { repository: GITHUB_REPOSITORY, selectors }
+            {
+                repository: GITHUB_REPOSITORY,
+                selectors,
+                // The job history view has no scan floor of its own. A re-run's job rows can
+                // predate the window, so the floor sits a week before it.
+                jobsFloor: new Date(Date.now() - 2 * REPORT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10),
+            }
         )
         rows = result.results || []
     } catch (err) {
@@ -198,12 +224,15 @@ async function enrich(items, runHogql = hogql) {
         }
         const seen = new Set()
         const evidence = []
-        for (const [, runId, jobId] of [...recent].sort((a, b) => b[0] - a[0])) {
-            if (seen.has(runId)) {
+        for (const [, engine, runId, jobId, workflowId, nativeJobId] of [...recent].sort((a, b) => b[0] - a[0])) {
+            // The two engines number their runs independently, so a bare integer can name one in each.
+            const runKey = `${engine}:${runId}`
+            const url = failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId })
+            if (seen.has(runKey) || !url) {
                 continue
             }
-            seen.add(runId)
-            evidence.push({ runId, jobId })
+            seen.add(runKey)
+            evidence.push({ url })
             if (evidence.length === 2) {
                 break
             }
@@ -271,6 +300,7 @@ async function fetchTrunkQuarantined(runner, fetchQuarantine = fetchTrunkQuarant
             quarantinedAt: test.quarantined_at,
             overdue: Boolean(test.overdue),
             fixBy: trunkFixBy(test.quarantined_at, debt.ttl_days),
+            url: test.trunk_url || null,
         }
         for (const variant of selectorVariants(test.nodeid)) {
             byVariant.set(variant, entry)
@@ -406,7 +436,12 @@ async function buildRunnerReports(
             )
             const queue = collapseClusters(ranked.slice(0, CANDIDATE_POOL), masksCi)
             const extrasFor = await getEnrichment(runner, queue)
-            return { runner, candidates: rankByReportedCounts(queue).slice(0, TOP_N), extrasFor }
+            return {
+                runner,
+                candidates: rankByReportedCounts(queue).slice(0, TOP_N),
+                extrasFor,
+                trunkResolved: Boolean(trunkFor),
+            }
         })
     )
 }
@@ -421,15 +456,13 @@ function tableRows(items, ownerFor, extrasFor, statusFor = quarantineStatusFor) 
         const testCell = repoPath
             ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        const logLinks = evidence.map(({ runId, jobId }, index) => ({
-            url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
-            text: String(index + 1),
-        }))
+        const logLinks = evidence.map(({ url }, index) => ({ url, text: String(index + 1) }))
+        const status = statusFor(item) || '-'
         return [
             testCell,
             cell(RUNNER_LABELS[item.runner] || item.runner),
-            cell(owner.replace(/^team-/, '')),
-            cell(statusFor(item) || '-'),
+            cell(teamLabel(owner)),
+            item.trunk?.url ? linkedCell([{ url: item.trunk.url, text: status }]) : cell(status),
             cell(countCell(item, item.failed_pr_count)),
             cell(countCell(item, item.failed_run_count)),
             cell(countCell(item, item.same_commit_recovery_run_count)),
@@ -438,10 +471,8 @@ function tableRows(items, ownerFor, extrasFor, statusFor = quarantineStatusFor) 
     })
 }
 
-// Shadow mode for per-team routing: the per-team slices carry the same rows as the
-// channel digest, but posted as thread replies under it, labeled with the channel
-// they would go to. Validates attribution and volume per team before any team
-// channel receives a message. Takes [{owner, slack, row}] and groups by owner.
+// The per-team slices carry the same rows as the channel digest. Takes [{owner, slack, row}]
+// and groups by owner.
 function buildTeamDigests(entries) {
     const byOwner = new Map()
     for (const { owner, slack, row } of entries) {
@@ -477,7 +508,7 @@ function flakyTable(rows) {
                 cell('quarantine'),
                 cell('PRs'),
                 cell('failed runs'),
-                cell('recovered runs'),
+                cell('passed on retry'),
                 cell('logs'),
             ],
             ...rows,
@@ -485,54 +516,122 @@ function flakyTable(rows) {
     }
 }
 
-const COLUMN_LEGEND = {
-    type: 'context',
-    elements: [
-        {
-            type: 'mrkdwn',
-            text: [
-                '*Failed runs* counts each CI run where the test failed, including runs that a quarantine kept green.',
-                '*Recovered runs* counts each run where the same commit failed and passed the test.',
-                '*Quarantine* shows the Trunk repair deadline (fix by), a missed deadline (overdue since), or the quarantine start date (since). Yes means quarantined with no date available. Quarantine continues until removed. Flagged means Trunk lists the test but CI failures are not masked. A fraction counts masked cluster members.',
-                'A count with a + covers several tests in one file and is a minimum.',
-                'Tests with only expected failures (xfail), including file quarantines, are omitted.',
-            ].join(' '),
-        },
-    ],
+const teamLabel = (owner) => owner.replace(/^team-/, '')
+
+function titledTable(title, rows) {
+    return [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows)]
 }
 
-function buildShadowBlocks({ owner, channel, rows }) {
-    return [
-        {
-            type: 'section',
-            text: {
-                type: 'mrkdwn',
-                text: `*${owner.replace(/^team-/, '')}* _(shadow: would post to ${channel})_`,
-            },
-        },
-        flakyTable(rows),
-        COLUMN_LEGEND,
-    ]
+function reportTitle(now, scope) {
+    return `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(${scope})_`
+}
+
+// A slice kept in the digest thread. `reason` says why it is not in the team's channel.
+function buildThreadSliceBlocks({ owner, channel, rows }, reason) {
+    return titledTable(`*${teamLabel(owner)}* _(${reason} ${channel})_`, rows)
 }
 
 function buildBlocks(now, rows) {
-    const dateLabel = now.toISOString().slice(0, 10)
-    const blocks = [
-        {
-            type: 'section',
-            text: {
-                type: 'mrkdwn',
-                text: `*Weekly flaky tests - ${dateLabel}* _(CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner)_`,
-            },
-        },
-        flakyTable(rows),
-        COLUMN_LEGEND,
-    ]
+    const blocks = titledTable(
+        reportTitle(now, `CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner`),
+        rows
+    )
     const editBlock = editWorkflowBlock()
-    if (editBlock) {
-        blocks.push(editBlock)
+    return editBlock ? [...blocks, editBlock] : blocks
+}
+
+function buildTeamBlocks(now, { owner, rows }, digestUrl) {
+    const footer = [
+        ...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []),
+        `Wrong owner, wrong numbers, general feedback? Tell ${FEEDBACK_CHANNEL}!`,
+    ]
+    return [
+        ...titledTable(reportTitle(now, `owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days`), rows),
+        { type: 'context', elements: [{ type: 'mrkdwn', text: footer.join(' · ') }] },
+    ]
+}
+
+function buildTeamIndexBlocks(posted) {
+    return [
+        {
+            type: 'table',
+            column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'left' }],
+            rows: [
+                [cell('team'), cell('tests'), cell('post')],
+                ...posted.map(({ owner, channel, rows, url }) => [
+                    cell(teamLabel(owner)),
+                    cell(String(rows.length)),
+                    url ? linkedCell([{ url, text: channel }]) : cell(channel),
+                ]),
+            ],
+        },
+    ]
+}
+
+const SLACK = {
+    post: postToSlack,
+    permalink: slackPermalink,
+    // chat.postMessage allows about one message per second per channel.
+    pause: () => new Promise((resolve) => setTimeout(resolve, 1100)),
+}
+
+async function postToTeamChannel(team, { now, digestUrl, slack }) {
+    try {
+        const post = await slack.post(buildTeamBlocks(now, team, digestUrl), 'Weekly flaky test report', {
+            channel: team.channel,
+        })
+        return { ...team, url: await slack.permalink(post).catch(() => null) }
+    } catch (err) {
+        console.warn(`team digest for ${team.owner} failed: ${err.message}`)
+        return null
     }
-    return blocks
+}
+
+// Sends each team its slice, then indexes those posts in the digest thread. A slice that cannot
+// go to its channel stays in the thread, so no team's rows are lost. `withheld` names a reason to
+// keep every slice in the thread.
+async function deliverTeamDigests(teamDigests, { now, digest, withheld = null, slack = SLACK }) {
+    const digestUrl = withheld ? null : await slack.permalink(digest).catch(() => null)
+    const posted = []
+    for (const [index, team] of teamDigests.entries()) {
+        if (index > 0) {
+            await slack.pause()
+        }
+        const sent = withheld ? null : await postToTeamChannel(team, { now, digestUrl, slack })
+        if (sent) {
+            posted.push(sent)
+            continue
+        }
+        // A failed slice must not sink the slices behind it; the digest itself already landed.
+        try {
+            await slack.post(
+                buildThreadSliceBlocks(team, withheld || 'not delivered to'),
+                `Flaky tests owned by ${team.owner}`,
+                { threadTs: digest.ts }
+            )
+        } catch (err) {
+            console.warn(`thread slice for ${team.owner} failed: ${err.message}`)
+        }
+    }
+    if (posted.length > 0) {
+        // The team posts already landed. A failed run would invite a re-dispatch that repeats them.
+        try {
+            await slack.post(buildTeamIndexBlocks(posted), 'Team posts for the weekly flaky test report', {
+                threadTs: digest.ts,
+            })
+        } catch (err) {
+            console.warn(`team post index failed: ${err.message}`)
+        }
+    }
+    return posted
+}
+
+// A report built without Trunk state keeps unproven failures, which a team channel must not receive.
+function teamPostsWithheld(runnerReports, enabled = TEAM_CHANNEL_POSTS) {
+    if (!enabled) {
+        return 'shadow: would post to'
+    }
+    return runnerReports.every(({ trunkResolved }) => trunkResolved) ? null : 'Trunk state unavailable, not sent to'
 }
 
 async function main() {
@@ -549,7 +648,7 @@ async function main() {
         console.info('No qualifying flaky tests this week — nothing to post.')
         return
     }
-    const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
+    const ownerFor = resolveOwners(reportCandidates, toRepoPaths, OWNERS_PRODUCER)
     // Rendered once; the channel table and the per-team slices share the same rows.
     const entries = runnerReports.flatMap(({ candidates, extrasFor }) => {
         const reportRows = tableRows(candidates, ownerFor, extrasFor)
@@ -560,31 +659,27 @@ async function main() {
         entries.map(({ row }) => row)
     )
     const teamDigests = buildTeamDigests(entries)
+    const withheld = teamPostsWithheld(runnerReports)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
-        console.info(JSON.stringify(teamDigests.map(buildShadowBlocks), null, 2))
+        console.info(
+            JSON.stringify(
+                teamDigests.map((team) =>
+                    withheld ? buildThreadSliceBlocks(team, withheld) : buildTeamBlocks(now, team, null)
+                ),
+                null,
+                2
+            )
+        )
         return
     }
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    const digestTs = await postToSlack(blocks, 'Weekly flaky test report')
+    const digest = await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
-    let postedSlices = 0
-    for (const [index, digest] of teamDigests.entries()) {
-        if (index > 0) {
-            // chat.postMessage allows about one message per second per channel.
-            await new Promise((resolve) => setTimeout(resolve, 1100))
-        }
-        // A failed slice must not sink the slices behind it; the digest itself already landed.
-        try {
-            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, { threadTs: digestTs })
-            postedSlices += 1
-        } catch (err) {
-            console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
-        }
-    }
-    console.info(`Posted ${postedSlices}/${teamDigests.length} shadow team digest(s) in thread.`)
+    const posted = await deliverTeamDigests(teamDigests, { now, digest, withheld })
+    console.info(`Posted ${posted.length}/${teamDigests.length} team digest(s) to team channels.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -596,8 +691,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
-    buildShadowBlocks,
     buildTeamDigests,
+    buildThreadSliceBlocks,
+    deliverTeamDigests,
+    teamPostsWithheld,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,

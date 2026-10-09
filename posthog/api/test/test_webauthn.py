@@ -14,6 +14,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from webauthn.helpers import bytes_to_base64url
 
 from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet, user_uuid_to_handle
+from posthog.auth import WebauthnBackend
 from posthog.models import Organization, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
@@ -255,6 +256,12 @@ class TestWebAuthnLogin(APIBaseTest):
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
+
+    def test_backend_does_not_restore_session_for_inactive_user(self):
+        # A queryset update skips the pre_save signal that revokes sessions on deactivation.
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        self.assertIsNone(WebauthnBackend().get_user(self.user.pk))
 
     @patch(
         "posthog.api.webauthn.refuse_blocked_account",

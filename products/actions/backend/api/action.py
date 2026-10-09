@@ -36,6 +36,7 @@ from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -46,6 +47,7 @@ from products.actions.backend.models.selector_match_change import ActionSelector
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -297,6 +299,15 @@ class ActionSerializer(
                 raise serializers.ValidationError(
                     {"steps": f"This filter uses the table '{denied_table}', which you don't have access to."},
                     code="permission_denied",
+                )
+            hidden_event = added_hidden_event(
+                (step.get("event") for step in attrs["steps"]),
+                instance.get_step_events() if instance else [],
+            )
+            if hidden_event and hides_flag_calls_from_query_builders(self.context["get_team"]().organization_id):
+                raise serializers.ValidationError(
+                    {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                    code="hidden_event",
                 )
 
         return attrs

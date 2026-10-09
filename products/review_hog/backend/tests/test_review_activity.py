@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
@@ -43,6 +44,7 @@ from products.review_hog.backend.temporal.activities import (
     split_chunks_activity,
 )
 from products.review_hog.backend.temporal.heartbeat import REPORT_HEARTBEAT_INTERVAL, ReviewActivityHeartbeater
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -306,6 +308,38 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     # The sandbox workflow id is branded with the review's workflow id + step, lowercased — dropping
     # the kwarg silently reverts Temporal to anonymous task-processing-<uuid> ids.
     assert kwargs["workflow_id_prefix"] == f"{env.info.workflow_id}:issues-review-p1-c3".lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "category,expected_type",
+    [
+        ("upstream_request_rejected", ApplicationError),
+        ("agent_error", AgentTurnFailed),
+        ("upstream_provider_failure", AgentTurnFailed),
+        (None, AgentTurnFailed),
+    ],
+)
+async def test_review_chunk_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
+    category: str | None, expected_type: type[Exception]
+) -> None:
+    failure = AgentTurnFailed("agent failed", category=category, agent_message="agent failed")
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}._prepare_review_prompt", MagicMock(return_value="review-prompt")),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}.persist_perspective_results"),
+        patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
+    ):
+        with pytest.raises(expected_type) as excinfo:
+            await ActivityEnvironment().run(review_chunk_activity, _review_input())
+
+    if isinstance(excinfo.value, ApplicationError):
+        assert excinfo.value.non_retryable is True
+        assert excinfo.value.type == category
+        assert excinfo.value.__cause__ is failure
+    else:
+        assert excinfo.value is failure
 
 
 @pytest.mark.asyncio

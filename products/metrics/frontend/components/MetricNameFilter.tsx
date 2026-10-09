@@ -7,12 +7,12 @@ import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 
-const ROW_HEIGHT = 44
+const ROW_HEIGHT = 32
 const MAX_DROPDOWN_HEIGHT = 320
 const DROPDOWN_WIDTH = 320
 
 interface OptionRowData {
-    items: { name: string; metric_type: string }[]
+    items: { name: string }[]
     selected: string
     onPick: (name: string) => void
 }
@@ -39,10 +39,7 @@ function MetricOptionRow({
                 onClick={() => onPick(item.name)}
                 data-attr={`metrics-name-option-${item.name}`}
             >
-                <div className="min-w-0 flex flex-col items-start gap-0.5 py-0.5">
-                    <span className="truncate">{item.name}</span>
-                    {item.metric_type && <span className="text-xs text-muted">{item.metric_type}</span>}
-                </div>
+                <span className="truncate">{item.name}</span>
             </LemonButton>
         </div>
     )
@@ -91,8 +88,14 @@ function MetricNameFilterInner({
     disabled?: boolean
     disabledReason?: string | null
 }): JSX.Element {
-    const { items, itemsLoading, search } = useValues(metricNamePickerLogic)
+    const { items: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
     const { setSearch } = useActions(metricNamePickerLogic)
+
+    // The list holds one entry per name and type, and the type is not shown.
+    const items = useMemo(
+        () => pickerItems.filter((item, index) => pickerItems.findIndex((other) => other.name === item.name) === index),
+        [pickerItems]
+    )
 
     const onPick = useCallback(
         (name: string) => {
@@ -110,9 +113,7 @@ function MetricNameFilterInner({
         return Math.min(height, MAX_DROPDOWN_HEIGHT)
     }, [items.length])
 
-    const selectedType = useMemo(() => items.find((item) => item.name === value)?.metric_type, [items, value])
-
-    const triggerLabel = !value ? placeholder : selectedType ? `${value} (${selectedType})` : value
+    const triggerLabel = value || placeholder
 
     return (
         <LemonDropdown

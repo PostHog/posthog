@@ -22,7 +22,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property[new_events_schema]
@@ -30,7 +31,7 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
-    (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))) AS `properties___$current_url`,
+    (SELECT if(notEquals(toJSONString(events.properties.^`$current_url`), '{}'), toJSONString(events.properties.^`$current_url`), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))) AS `properties___$current_url`,
             events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
@@ -48,7 +49,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_without_join[new_events_schema]
@@ -58,7 +60,7 @@
   WHERE and(equals(session_replay_events.team_id, 99999), globalIn(session_replay_events.session_id,
                                                                      (SELECT events.properties.`$session_id` AS `$session_id`
                                                                       FROM events_json AS events
-                                                                      WHERE and(equals(events.team_id, 99999), ifNull(like(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))), '%example.com%'), 0)))))
+                                                                      WHERE and(equals(events.team_id, 99999), ifNull(like(if(notEquals(toJSONString(events.properties.^`$current_url`), '{}'), toJSONString(events.properties.^`$current_url`), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))), '%example.com%'), 0)))))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -72,7 +74,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property[new_events_schema]
@@ -81,7 +84,7 @@
          any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
   JOIN
-    (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))) AS `properties___$current_url`,
+    (SELECT if(notEquals(toJSONString(events.properties.^`$current_url`), '{}'), toJSONString(events.properties.^`$current_url`), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))) AS `properties___$current_url`,
             events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
@@ -100,7 +103,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person[new_events_schema]
@@ -108,7 +112,7 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
-    (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^person_property)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^person_property)), if(isNull(nullIf(toString(events.person_properties.person_property), '')), NULL, if(and(in(ascii(toString(events.person_properties.person_property)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.person_property)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.person_property), '[]'), '{}'), toString(events.person_properties.person_property)))) AS poe___properties___person_property,
+    (SELECT if(notEquals(toJSONString(events.person_properties.^person_property), '{}'), toJSONString(events.person_properties.^person_property), if(isNull(nullIf(toString(events.person_properties.person_property), '')), NULL, if(and(in(ascii(toString(events.person_properties.person_property)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.person_property)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.person_property), '[]'), '{}'), toString(events.person_properties.person_property)))) AS poe___properties___person_property,
             events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
@@ -126,6 +130,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

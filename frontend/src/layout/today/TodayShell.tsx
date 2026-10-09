@@ -16,6 +16,7 @@ import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayNewChatButton } from './TodayNewChatButton'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
@@ -37,7 +38,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 
 const PANE_LABELS = {
     home: 'Today',
-    spaces: 'Spaces',
+    spaces: 'Chats',
     views: 'Views',
     products: 'Products',
 }
@@ -118,6 +119,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         {PANE_LABELS[activePane]}
                     </h2>
                 }
+                actions={activePane === 'spaces' ? <TodayNewChatButton /> : undefined}
             />
             {paneContent}
         </div>
@@ -144,9 +146,10 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         {...(sidebarVisible ? {} : { inert: '' })}
                     >
                         <div className="flex min-h-14 shrink-0 items-end gap-1 px-4 pt-3">
-                            <Heading render={<h1 />} size="2xl" className="m-0 truncate leading-10">
+                            <Heading render={<h1 />} size="2xl" className="m-0 flex-1 truncate leading-10">
                                 {PANE_LABELS[activePane]}
                             </Heading>
+                            {activePane === 'spaces' && <TodayNewChatButton />}
                         </div>
                         <div className="TodayShell__pane">{paneContent}</div>
                         <TodaySidebarFooter />

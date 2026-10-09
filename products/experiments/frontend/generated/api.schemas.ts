@@ -2094,6 +2094,56 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
+export type ExperimentApiBreakdownAttributionTypeApi =
+    (typeof ExperimentApiBreakdownAttributionTypeApi)[keyof typeof ExperimentApiBreakdownAttributionTypeApi]
+
+export const ExperimentApiBreakdownAttributionTypeApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    Step: 'step',
+} as const
+
+export type ExperimentApiPropertyBreakdownTypeApi =
+    (typeof ExperimentApiPropertyBreakdownTypeApi)[keyof typeof ExperimentApiPropertyBreakdownTypeApi]
+
+export const ExperimentApiPropertyBreakdownTypeApi = {
+    Event: 'event',
+    Person: 'person',
+    Session: 'session',
+} as const
+
+export interface ExperimentApiPropertyBreakdownApi {
+    /** Property name to break down by. */
+    property: string
+    /** Where the property lives. Defaults to 'event'. */
+    type?: ExperimentApiPropertyBreakdownTypeApi | null
+}
+
+export type GroupTypeIndexApi = (typeof GroupTypeIndexApi)[keyof typeof GroupTypeIndexApi]
+
+export const GroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export interface ExperimentApiGroupBreakdownApi {
+    /** Which group type the property belongs to. */
+    group_type_index: GroupTypeIndexApi
+    /** Property name to break down by. */
+    property: string
+    type?: 'group'
+}
+
+export interface ExperimentApiBreakdownFilterApi {
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: number | null
+    /** Properties to break the metric results down by. */
+    breakdowns?: (ExperimentApiPropertyBreakdownApi | ExperimentApiGroupBreakdownApi)[] | null
+}
+
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
 export const Kind1Api = {
@@ -2156,6 +2206,12 @@ export interface ExperimentApiRetentionStartApi {
 }
 
 export interface ExperimentApiMetricApi {
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels. */
+    breakdownAttributionType?: ExperimentApiBreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilterApi | null
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
     /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */

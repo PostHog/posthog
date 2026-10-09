@@ -17,7 +17,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events[new_events_schema]
@@ -38,7 +39,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown[new_events_schema.1]
@@ -59,7 +61,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -85,7 +87,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown[new_events_schema]
@@ -106,7 +109,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -132,7 +135,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated[new_events_schema.1]
@@ -149,7 +153,7 @@
                breakdown_value AS breakdown_value
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -173,7 +177,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated[new_events_schema]
@@ -190,7 +195,7 @@
                breakdown_value AS breakdown_value
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -214,7 +219,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort[new_events_schema.1]
@@ -261,7 +267,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort[new_events_schema.2]
@@ -318,7 +325,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort[new_events_schema.3]
@@ -375,7 +383,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort[new_events_schema]
@@ -422,7 +431,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql[new_events_schema.1]
@@ -443,7 +453,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -469,7 +479,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql[new_events_schema]
@@ -490,7 +501,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -516,7 +527,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql_with_as_alias[new_events_schema.1]
@@ -537,7 +549,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -563,7 +575,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql_with_as_alias[new_events_schema]
@@ -584,7 +597,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -610,7 +623,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series[new_events_schema.1]
@@ -631,7 +645,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session end'))
            GROUP BY day_start,
@@ -657,7 +671,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series[new_events_schema]
@@ -678,7 +693,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^location)), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -704,7 +719,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_formula_with_hogql_math_no_matching_events[new_events_schema.1]
@@ -725,7 +741,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_formula_with_hogql_math_no_matching_events[new_events_schema]
@@ -746,7 +763,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions[new_events_schema.1]
@@ -785,7 +803,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions[new_events_schema]
@@ -817,7 +836,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative[new_events_schema.1]
@@ -849,7 +869,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative[new_events_schema]
@@ -881,7 +902,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative[new_events_schema.1]
@@ -913,7 +935,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative[new_events_schema]
@@ -945,7 +968,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation[new_events_schema.1]
@@ -977,7 +1001,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation[new_events_schema]
@@ -1021,7 +1046,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter[new_events_schema.1]
@@ -1053,7 +1079,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter[new_events_schema]
@@ -1091,7 +1118,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x[new_events_schema.1]
@@ -1129,7 +1157,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x[new_events_schema]
@@ -1167,6 +1196,7 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---

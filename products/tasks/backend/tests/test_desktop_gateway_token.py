@@ -674,7 +674,7 @@ class TestDesktopLimitTier(APIBaseTest):
             ("power", {"tier": "power"}, "power"),
             ("json string", '{"tier": "power"}', "power"),
             ("unknown tier", {"tier": "unlimited"}, "standard"),
-            ("standard is not an override", {"tier": "standard"}, "standard"),
+            ("standard", {"tier": "standard"}, "standard"),
             ("not json", "{oops", "standard"),
             ("no payload", None, "standard"),
         ]
@@ -687,6 +687,11 @@ class TestDesktopLimitTier(APIBaseTest):
 
     def test_override_beats_unsynced_billing(self) -> None:
         assert self._tier(payload={"tier": "exempt"}, synced=False)[0] == "exempt"
+
+    @parameterized.expand([("unsynced", False, True), ("untrusted", True, False)])
+    def test_a_standard_override_lifts_a_provisional_org(self, _name, synced, trusted) -> None:
+        assert self._tier(trusted=trusted, synced=synced)[0] == "provisional"
+        assert self._tier(payload={"tier": "standard"}, trusted=trusted, synced=synced)[0] == "standard"
 
     def test_a_flag_outage_keeps_the_default(self) -> None:
         self.organization.usage = None

@@ -30,6 +30,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -682,7 +683,13 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
         <div className="space-y-3">
             <SystemMessageDisplay promptId={promptId} />
             {prompt.messages.map((message, index) => (
-                <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
+                <MessageDisplay
+                    key={`${promptId}-${index}`}
+                    promptId={promptId}
+                    index={index}
+                    message={message}
+                    messageCount={prompt.messages.length}
+                />
             ))}
         </div>
     )
@@ -1029,14 +1036,17 @@ function MessageDisplay({
     promptId,
     message,
     index,
+    messageCount,
 }: {
     promptId: string
     message: Message
     index: number
+    messageCount: number
 }): JSX.Element {
     const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
     const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
-    const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { updateMessage, deleteMessage, moveMessage, setEditModal, toggleCollapsed } =
+        useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
     const messageKey = `message:${promptId}:${index}`
@@ -1076,6 +1086,24 @@ function MessageDisplay({
         <>
             <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-4 right-4 flex items-center gap-1">
+                    <LemonButton
+                        size="small"
+                        icon={<IconArrowUp />}
+                        tooltip="Move message up"
+                        noPadding
+                        disabledReason={index === 0 ? 'Already the first message' : undefined}
+                        onClick={() => moveMessage(index, 'up', promptId)}
+                        data-attr="llma-playground-move-message-up"
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconArrowDown />}
+                        tooltip="Move message down"
+                        noPadding
+                        disabledReason={index === messageCount - 1 ? 'Already the last message' : undefined}
+                        onClick={() => moveMessage(index, 'down', promptId)}
+                        data-attr="llma-playground-move-message-down"
+                    />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}

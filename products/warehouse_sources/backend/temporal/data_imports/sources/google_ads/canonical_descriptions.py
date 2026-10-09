@@ -227,6 +227,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/keyword_view",
         "columns": _stats_columns(
             ad_group_criterion_criterion_id="Unique ID of the keyword criterion the metrics belong to.",
+            metrics_top_impression_percentage="Fraction of Google Search ad impressions shown among the top ads.",
+            metrics_absolute_top_impression_percentage="Fraction of Google Search ad impressions shown as the first ad.",
         ),
     },
     "video": {
@@ -559,6 +561,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": _stats_columns(
             **{
                 "landing_page_view_unexpanded_final_url": "The final URL as entered by the advertiser, before URL expansion.",
+                "metrics_top_impression_percentage": "Fraction of Google Search ad impressions shown among the top ads.",
+                "metrics_absolute_top_impression_percentage": "Fraction of Google Search ad impressions shown as the first ad.",
                 "metrics_speed_score": "Google's 0-100 estimate of how fast the landing page loads on mobile, relative to other pages.",
                 "metrics_mobile_friendly_clicks_percentage": "Percentage of mobile clicks that went to a mobile-friendly page.",
                 "metrics_valid_accelerated_mobile_pages_clicks_percentage": "Percentage of clicks to a landing page that is a valid AMP page.",

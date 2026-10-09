@@ -16,6 +16,7 @@ import temporalio.workflow
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -154,6 +155,7 @@ async def _run_full_review_pr_workflow(
     automatic_reviewed_head_sha: str | None = None,
     gate_skips: bool = False,
     fail_gate: bool = False,
+    workflow_max_attempts: int | None = None,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -486,6 +488,9 @@ async def _run_full_review_pr_workflow(
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=workflow_max_attempts)
+                    if workflow_max_attempts is not None
+                    else None,
                 )
             except WorkflowFailureError:
                 failed = True
@@ -628,6 +633,20 @@ async def test_review_pr_workflow_removes_label_trigger_after_completion():
 async def test_review_pr_workflow_removes_label_trigger_after_failure():
     recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label", fail_dedup=True)
     assert recorded["failed"] is True
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_does_not_retry_a_wave_over_the_failure_floor():
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="label",
+        fail_review_units=frozenset((p, c) for p in (1, 2, 3) for c in (1, 2)),
+        workflow_max_attempts=2,
+    )
+    assert recorded["failed"] is True
+    assert recorded["split"] == [1]
+    assert len(recorded["review"]) == 6
     assert recorded["remove_label"] == [7]
 
 
@@ -1079,8 +1098,10 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         raise RuntimeError("sandbox boom")
 
-    with pytest.raises(WorkflowFailureError):
+    with pytest.raises(WorkflowFailureError) as excinfo:
         await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+    assert isinstance(excinfo.value.cause, ApplicationError)
+    assert excinfo.value.cause.non_retryable is True
 
 
 @pytest.mark.asyncio

@@ -10,12 +10,11 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange, ReportedPriority
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
     FALLBACK_BODY_MAX_CHARS,
-    SUGGESTION_CODE_MAX_CHARS,
     ReviewComment,
     _build_inline_comments,
     _format_issue_comment,
@@ -494,77 +493,86 @@ class TestPublishReviewGate:
 
         assert len(comments) == expected_count
         if expected_count:
-            assert "**Should fix**" in comments[0]["body"]  # the emitted comment displays the effective priority
+            assert comments[0]["body"].startswith("**P2 · Off-diff finding**")
 
-    @parameterized.expand(
-        [
-            ("range_fully_on_the_diff", {240, 241, 242}, True),
-            # The end line is off the diff, so the comment covers only line 240. GitHub would apply
-            # the three-line replacement to that one line and corrupt the file.
-            ("range_partly_off_the_diff", {240}, False),
-        ]
-    )
-    def test_suggestion_block_posts_only_when_the_comment_covers_the_finding_range(
-        self, _name: str, diff_line_numbers: set[int], expect_suggestion: bool
-    ) -> None:
+    def test_suggestion_code_is_not_posted(self) -> None:
         finding = _finding().model_copy(
-            update={
-                "lines": [LineRange(start=240, end=242)],
-                "suggestion": "",
-                "suggestion_code": "a = 1\nb = 2\nc = 3",
-            }
+            update={"lines": [LineRange(start=240, end=242)], "suggestion": "", "suggestion_code": "a = 1\nb = 2"}
         )
         comments = _build_inline_comments(
-            [(finding, _verdict())], {"src/auth.py": diff_line_numbers}, _SHOULD_FIX_PUBLISHED
+            [(finding, _verdict())], {"src/auth.py": {240, 241, 242}}, _SHOULD_FIX_PUBLISHED
         )
 
         assert len(comments) == 1
-        assert ("```suggestion\na = 1\nb = 2\nc = 3\n```" in comments[0]["body"]) is expect_suggestion
-        assert "**Suggested fix**" not in comments[0]["body"]
+        assert "```" not in comments[0]["body"] and "a = 1" not in comments[0]["body"]
 
 
 class TestFormatIssueComment:
     @parameterized.expand(
         [
-            (IssuePriority.MUST_FIX, "**Must fix**"),
-            (IssuePriority.SHOULD_FIX, "**Should fix**"),
-            (IssuePriority.CONSIDER, "**Consider**"),
+            ("pipeline_must_fix", IssuePriority.MUST_FIX, None, None, "P1"),
+            ("pipeline_should_fix", IssuePriority.SHOULD_FIX, None, None, "P2"),
+            ("pipeline_consider", IssuePriority.CONSIDER, None, None, "P3"),
+            ("single_agent_p0", IssuePriority.MUST_FIX, "P0", None, "P0"),
+            ("single_agent_p1", IssuePriority.MUST_FIX, "P1", None, "P1"),
+            ("single_agent_p2", IssuePriority.SHOULD_FIX, "P2", None, "P2"),
+            ("single_agent_p3", IssuePriority.CONSIDER, "P3", None, "P3"),
+            ("validator_lowers_a_p0", IssuePriority.MUST_FIX, "P0", IssuePriority.SHOULD_FIX, "P2"),
+            ("validator_raises_a_p3", IssuePriority.CONSIDER, "P3", IssuePriority.MUST_FIX, "P1"),
+            ("raised_by_dedup", IssuePriority.MUST_FIX, "P3", None, "P1"),
         ]
     )
-    def test_severity_line_tracks_priority(self, priority: IssuePriority, label: str) -> None:
-        body = _format_issue_comment(_finding(priority=priority), _verdict())
+    def test_heading_shows_the_p_level_and_title(
+        self,
+        _name: str,
+        priority: IssuePriority,
+        reported: ReportedPriority | None,
+        adjusted: IssuePriority | None,
+        level: str,
+    ) -> None:
+        finding = _finding(priority=priority).model_copy(update={"reported_priority": reported})
 
-        assert f"{label} · bug" in body
+        body = _format_issue_comment(finding, _verdict(adjusted_priority=adjusted))
 
-    def test_layout_is_title_severity_issue_fix_without_validator_notes(self) -> None:
-        finding = _finding()
-        body = _format_issue_comment(finding, _verdict())
+        assert body.split("\n", 1)[0] == f"**{level} · Off-diff finding**"
 
-        assert body.split("\n", 1)[0] == f"### {finding.title}"
-        assert body.index("**Should fix**") < body.index(finding.body) < body.index("**Suggested fix**")
-        assert "reason" not in body
-        assert "<details>" not in body and "![" not in body
+    def test_layout_is_heading_issue_fix_without_category_or_validator_notes(self) -> None:
+        body = _format_issue_comment(_finding(), _verdict())
+
+        assert body == f"**P2 · Off-diff finding**\n\nproblem fix\n\n{REVIEW_HOG_FINDING_MARKER}"
+        assert "bug" not in body and "reason" not in body
 
     @parameterized.expand(
         [
-            ("plain_code", "x = 1", "```"),
-            ("code_with_a_fence", 'DOC = """\n```python\nx = 1\n```\n"""', "````"),
-            ("code_with_a_longer_fence", "`````", "``````"),
-            ("code_over_the_size_cap", "x" * (SUGGESTION_CODE_MAX_CHARS + 1), None),
+            ("plain_prose", "The cache misses.", "Key it by team.", "The cache misses. Key it by team."),
+            (
+                "fix_opens_a_code_block",
+                "The cache misses.",
+                "```py\nkey = team\n```",
+                "The cache misses.\n\n```py\nkey = team\n```",
+            ),
+            (
+                "fix_is_a_list",
+                "The cache misses.",
+                "- key by team\n- add a test",
+                "The cache misses.\n\n- key by team\n- add a test",
+            ),
+            (
+                "issue_ends_with_a_code_block",
+                "Here:\n```\nx = 1\n```",
+                "Remove it.",
+                "Here:\n```\nx = 1\n```\n\nRemove it.",
+            ),
         ]
     )
-    def test_suggestion_block_holds_the_whole_code(self, _name: str, code: str, fence: str | None) -> None:
-        # A backtick run in the code would close a shorter fence early, and GitHub would offer a cut-off
-        # replacement. An oversized suggestion is skipped, but the finding still posts.
-        finding = _finding().model_copy(update={"suggestion": "", "suggestion_code": code})
+    def test_fix_joins_the_issue_without_breaking_markdown_blocks(
+        self, _name: str, issue: str, suggestion: str, expected: str
+    ) -> None:
+        finding = _finding().model_copy(update={"body": issue, "suggestion": suggestion})
 
-        body = _format_issue_comment(finding, _verdict(), with_suggestion_code=True)
+        body = _format_issue_comment(finding, _verdict())
 
-        assert finding.body in body
-        if fence is None:
-            assert "suggestion\n" not in body
-        else:
-            assert f"\n{fence}suggestion\n{code}\n{fence}\n" in body
+        assert body == f"**P2 · Off-diff finding**\n\n{expected}\n\n{REVIEW_HOG_FINDING_MARKER}"
 
     def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
         # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker

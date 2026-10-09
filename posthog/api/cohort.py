@@ -84,6 +84,7 @@ from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
+from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -112,6 +113,7 @@ from products.cohorts.backend.realtime_state import (
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
+from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -661,6 +663,33 @@ class CohortConditionTypeField(serializers.JSONField):
 REALTIME_READINESS_CONTEXT_KEY = "realtime_readiness"
 # Caches the product flag's answer for the request, so a list page evaluates it once.
 REALTIME_TARGETING_ENABLED_CONTEXT_KEY = "realtime_targeting_enabled"
+# Lets a caller save new criteria on an event hidden in query builders. An experiment's exposure cohort
+# sets it, because that cohort counts the same event as the experiment's default exposure.
+ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY = "allow_hidden_event_criteria"
+
+
+def _is_empty_filters(filters: object) -> bool:
+    if not filters:
+        return True
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    return isinstance(properties, dict) and isinstance(properties.get("values", []), list)
+
+
+def _flat_properties(filters: object) -> list[Property]:
+    # A static cohort saved before validate_filters checked the shape of empty filters can store any JSON.
+    if not isinstance(filters, dict) or not cohort_filters_have_values(filters):
+        return []
+    return parse_property_group_data(filters["properties"]).flat
+
+
+def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
+    for prop in properties:
+        if prop.type != "behavioral":
+            continue
+        if prop.event_type == "events":
+            yield prop.key
+        if prop.seq_event_type == "events":
+            yield prop.seq_event
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -1274,7 +1303,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         """
         cohort_will_be_static = self._cohort_will_be_static()
 
-        if cohort_will_be_static and not cohort_filters_have_values(raw):
+        if cohort_will_be_static and not cohort_filters_have_values(raw) and _is_empty_filters(raw):
             return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
@@ -1358,6 +1387,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         attrs = super().validate(attrs)
 
         self._validate_warehouse_access(attrs)
+        self._validate_no_new_hidden_event_criteria(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
@@ -1369,6 +1399,25 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
 
         return attrs
+
+    def _validate_no_new_hidden_event_criteria(self, attrs: dict) -> None:
+        if self.context.get(ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY):
+            return
+        if self.instance is not None and "filters" not in attrs and "groups" not in attrs:
+            return
+        team = _team_from_serializer_context(self.context)
+        # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
+        # legacy groups in place.
+        existing = self._effective_filters_after_update({}, team=team)
+        hidden_event = added_hidden_event(
+            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
+            _behavioral_event_names(_flat_properties(existing)),
+        )
+        if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
+            raise ValidationError(
+                {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                code="hidden_event",
+            )
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -2293,7 +2342,7 @@ BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS = 2.0
 COHORT_FLAG_GENERATION_COMPLETED_COUNTER = Counter(
     "cohort_flag_generation_completed_total",
     "Cohort generations from a feature flag that finished, by outcome",
-    ["outcome"],  # "success" or a CohortErrorCode value ("flag_changed", "unknown")
+    ["outcome"],  # "success" or a CohortErrorCode value
 )
 
 COHORT_FLAG_GENERATION_DURATION_SECONDS = Histogram(
@@ -2312,6 +2361,10 @@ COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER = Counter(
     "cohort_flag_generation_eval_errors_total",
     "Per-person evaluation errors reported by the flags service during cohort generation",
 )
+
+
+class PersonFlagEvaluationError(Exception):
+    """The flags service failed to evaluate the flag for some persons. The cohort keeps the persons that matched."""
 
 
 def _batch_evaluate_flag_page_with_retries(
@@ -2434,62 +2487,61 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER.inc(page_errors_count)
             eval_errors_count += page_errors_count
 
-            if len(uuids_to_add_to_cohort) >= batchsize:
+            next_cursor = page["next_cursor"]
+            # save_state=False keeps the cohort calculating until this function saves the result
+            # of the whole run. A caller that polls the cohort never sees a partial member list as
+            # a finished one. save_state=False also re-raises an insert failure, so the except below
+            # records the run as failed.
+            if len(uuids_to_add_to_cohort) >= batchsize or next_cursor is None:
                 cohort.insert_users_list_by_uuid(
-                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, save_state=False
                 )
                 uuids_to_add_to_cohort = []
 
-            next_cursor = page["next_cursor"]
             if next_cursor is None:
                 break
             if next_cursor <= cursor:
                 raise RuntimeError(f"Batch flag evaluation cursor did not advance (got {next_cursor} after {cursor})")
             cursor = next_cursor
 
-        # Always flush, even when empty: insert_users_list_by_uuid recomputes the cohort
-        # count and clears is_calculating via _safe_save_cohort_state. Re-running after a
-        # partial failure is safe because inserts dedupe on (cohort_id, person_id).
-        # raise_on_error surfaces an insert failure so the except below records it rather
-        # than letting a partial insert be counted as a successful generation.
-        cohort.insert_users_list_by_uuid(
-            uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
-        )
-
+        # The cohort keeps the persons that matched. The run still fails, because a person whose
+        # evaluation failed may match the flag and is missing from the cohort.
         if eval_errors_count:
-            logger.warning(
-                "cohort_from_feature_flag_eval_errors",
-                cohort_id=cohort_id,
-                team_id=team_id,
-                flag_key=feature_flag.key,
-                errors_count=eval_errors_count,
-            )
+            raise PersonFlagEvaluationError(f"Flag evaluation failed for {eval_errors_count} persons")
 
+        cohort._refresh_count(team_id=team_id)
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
-    except Exception as err:
+    # BaseException, so that an interruption raised into the task (SystemExit) also clears is_calculating.
+    # A prefork child that receives SIGTERM or SIGKILL exits without running this handler.
+    except BaseException as err:
         logger.exception(
             "cohort_from_feature_flag_failed",
             cohort_id=cohort_id,
             team_id=team_id,
             flag_key=feature_flag.key,
+            eval_errors_count=eval_errors_count,
             error=str(err),
         )
         capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
-        error_code = (
-            CohortErrorCode.FLAG_CHANGED
-            if isinstance(err, (FlagVersionConflictError, PropertyMatchingVersionConflictError))
-            else CohortErrorCode.UNKNOWN
-        )
+        match err:
+            case FlagVersionConflictError() | PropertyMatchingVersionConflictError():
+                error_code = CohortErrorCode.FLAG_CHANGED
+            case PersonFlagEvaluationError():
+                error_code = CohortErrorCode.FLAG_EVALUATION_FAILED
+            case _:
+                error_code = CohortErrorCode.UNKNOWN
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome=error_code.value).inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(
             time.monotonic() - start_monotonic
         )
-        # Finalize cohort state before writing the history row. _safe_save_cohort_state
-        # swallows its own failures, so if the history insert ran first and raised, the
-        # cohort would stay is_calculating=True with no Celery retry to recover it
+        # Finalize cohort state before writing the history row. _refresh_count and
+        # _safe_save_cohort_state swallow their own failures, so if the history insert ran first
+        # and raised, the cohort would stay is_calculating=True with no Celery retry to recover it
         # (max_retries=0). Worst case in this order is a finalized cohort missing a
         # history row, rather than one stuck calculating forever.
+        cohort._refresh_count(team_id=team_id)
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         # The history `error` field is user-visible via the calculation history API, so
         # store the friendly message; raw exception details (internal URLs, instance
@@ -2506,7 +2558,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         )
         raise
 
-    # The flush above finalized cohort state, including the recomputed count. Recording the run
+    # The save above finalized cohort state, including the recomputed count. Recording the run
     # here as well keeps every static population path writing one history row per attempt, so a
     # flag-backed cohort's calculation history is not just its failures. The write stays outside
     # the block above: the population is already committed, so a failure to record it must not

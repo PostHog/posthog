@@ -21,7 +21,7 @@
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                           FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$bool_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$bool_prop`)), if(isNull(nullIf(toString(e.person_properties.`$bool_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$bool_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$bool_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$bool_prop`), '[]'), '{}'), toString(e.person_properties.`$bool_prop`)))), 'x'), 0))
+                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(CAST(e.person_properties.`$bool_prop`, 'Nullable(String)'), 'x'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -38,7 +38,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events[new_events_schema.1]
@@ -121,7 +122,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events[new_events_schema]
@@ -176,7 +178,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events[new_events_schema]
@@ -207,7 +210,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), if(isNull(nullIf(toString(e.person_properties.key), '')), NULL, if(and(in(ascii(toString(e.person_properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.key), '[]'), '{}'), toString(e.person_properties.key)))), 'value'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -231,7 +234,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format[new_events_schema.1]
@@ -252,9 +256,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Windows'), 0)), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -278,7 +282,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format[new_events_schema.2]
@@ -299,9 +304,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Windows'), 0)), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -325,7 +330,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format[new_events_schema.3]
@@ -346,9 +352,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Windows'), 0)), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -372,7 +378,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format[new_events_schema]
@@ -393,9 +400,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Windows'), 0)), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`)))), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -419,7 +426,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated[new_events_schema]
@@ -444,7 +452,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -486,7 +494,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action[new_events_schema]
@@ -515,7 +524,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -524,10 +533,10 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), and(in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), if(isNull(nullIf(toString(e.person_properties.name), '')), NULL, if(and(in(ascii(toString(e.person_properties.name)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.name)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.name), '[]'), '{}'), toString(e.person_properties.name)))), tuple('p1', 'p2', 'p3')), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), and(in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('p1', 'p2', 'p3')), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                  FROM cohortpeople
+                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
@@ -559,7 +568,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events[new_events_schema]
@@ -580,7 +590,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -614,7 +624,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2[new_events_schema]
@@ -635,7 +646,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -676,7 +687,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling[new_events_schema.1]
@@ -697,7 +709,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -730,7 +742,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling[new_events_schema.2]
@@ -751,7 +764,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -784,7 +797,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling[new_events_schema.3]
@@ -805,7 +819,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -838,7 +852,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling[new_events_schema]
@@ -859,7 +874,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -892,7 +907,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort[new_events_schema]
@@ -934,7 +950,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events[new_events_schema.1]
@@ -1030,7 +1047,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events[new_events_schema]
@@ -1078,7 +1096,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events[new_events_schema]
@@ -1101,7 +1120,7 @@
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), if(isNull(nullIf(toString(e.person_properties.key), '')), NULL, if(and(in(ascii(toString(e.person_properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.key), '[]'), '{}'), toString(e.person_properties.key)))), 'value'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1118,7 +1137,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter[new_events_schema.1]
@@ -1147,7 +1167,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1156,7 +1176,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^filter_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^filter_prop)), if(isNull(nullIf(toString(e.person_properties.filter_prop), '')), NULL, if(and(in(ascii(toString(e.person_properties.filter_prop)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.filter_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.filter_prop), '[]'), '{}'), toString(e.person_properties.filter_prop)))), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               CROSS JOIN
@@ -1188,7 +1208,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter[new_events_schema]
@@ -1217,7 +1238,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1226,7 +1247,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^filter_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^filter_prop)), if(isNull(nullIf(toString(e.person_properties.filter_prop), '')), NULL, if(and(in(ascii(toString(e.person_properties.filter_prop)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.filter_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.filter_prop), '[]'), '{}'), toString(e.person_properties.filter_prop)))), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
@@ -1258,7 +1279,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_non_deterministic_timezones[new_events_schema]
@@ -1290,7 +1312,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action[new_events_schema]
@@ -1311,7 +1334,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1347,7 +1370,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering[new_events_schema]
@@ -1362,7 +1386,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), if(isNull(nullIf(toString(e.person_properties.name), '')), NULL, if(and(in(ascii(toString(e.person_properties.name)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.name)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.name), '[]'), '{}'), toString(e.person_properties.name)))), 'person1'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1379,7 +1403,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property[new_events_schema.1]
@@ -1394,7 +1419,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^name)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^name)), if(isNull(nullIf(toString(e.properties.name), '')), NULL, if(and(in(ascii(toString(e.properties.name)), tuple(91, 123)), in(ascii(toJSONString(e.properties.name)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.name), '[]'), '{}'), toString(e.properties.name)))), '1'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.properties.name, 'Nullable(String)'), '1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1411,7 +1436,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property[new_events_schema]
@@ -1426,7 +1452,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), if(isNull(nullIf(toString(e.person_properties.name), '')), NULL, if(and(in(ascii(toString(e.person_properties.name)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.name)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.name), '[]'), '{}'), toString(e.person_properties.name)))), 'person1'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1443,7 +1469,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2[new_events_schema.1]
@@ -1482,7 +1509,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2[new_events_schema]
@@ -1514,7 +1542,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override[new_events_schema.1]
@@ -1553,7 +1582,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override[new_events_schema.2]
@@ -1592,7 +1622,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override[new_events_schema]
@@ -1631,7 +1662,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily[new_events_schema.1]
@@ -1670,7 +1702,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily[new_events_schema.2]
@@ -1722,7 +1755,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily[new_events_schema.3]
@@ -1754,7 +1788,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily[new_events_schema.4]
@@ -1775,7 +1810,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$os`)), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$os`), '{}'), toJSONString(e.properties.^`$os`), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1808,7 +1843,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily[new_events_schema]
@@ -1840,7 +1876,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from[new_events_schema.1]
@@ -1872,7 +1909,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from[new_events_schema]
@@ -1911,7 +1949,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly[new_events_schema.1]
@@ -1943,7 +1982,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly[new_events_schema]
@@ -1975,7 +2015,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns[new_events_schema.1]
@@ -1996,9 +2037,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$os`)), if(isNull(nullIf(toString(e.person_properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$os`), '[]'), '{}'), toString(e.person_properties.`$os`)))), 'android'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'chrome'), 0)), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key)))), 'val'), 0), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 0)))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.person_properties.`$os`, 'android'), equals(e.person_properties.`$browser`, 'chrome')), and(ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0), ifNull(ilike(toString(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 0)))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -2022,7 +2063,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns[new_events_schema]
@@ -2043,9 +2085,9 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 1), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key)))), 'val'), 0)), or(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$os`)), if(isNull(nullIf(toString(e.person_properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$os`), '[]'), '{}'), toString(e.person_properties.`$os`)))), 'android'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'safari'), 0))))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 1), ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0)), or(equals(e.person_properties.`$os`, 'android'), equals(e.person_properties.`$browser`, 'safari'))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -2069,7 +2111,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.1]
@@ -2084,7 +2127,7 @@
        (SELECT count(DISTINCT e.distinct_id) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`)))), 'some_val'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.`$some_prop`, 'Nullable(String)'), 'some_val'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2101,7 +2144,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.2]
@@ -2122,7 +2166,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
@@ -2148,7 +2192,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.3]
@@ -2169,7 +2214,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
@@ -2195,7 +2240,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.4]
@@ -2240,7 +2286,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.5]
@@ -2285,7 +2332,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema.6]
@@ -2306,7 +2354,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_prop`)), if(isNull(nullIf(toString(e.properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_prop`), '[]'), '{}'), toString(e.properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_prop`), '{}'), toJSONString(e.properties.^`$some_prop`), if(isNull(nullIf(toString(e.properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_prop`), '[]'), '{}'), toString(e.properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
@@ -2332,7 +2380,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id[new_events_schema]
@@ -2364,7 +2413,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count[new_events_schema.1]
@@ -2396,7 +2446,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count[new_events_schema]
@@ -2428,7 +2479,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative[new_events_schema]
@@ -2454,7 +2506,7 @@
            FROM
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2488,7 +2540,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url[new_events_schema]
@@ -2515,8 +2568,8 @@
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(if(empty(trim(TRAILING '/?#'
-                                                                   FROM if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`)))))), '/', trim(TRAILING '/?#'
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                                                                   FROM if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`)))))), '/', trim(TRAILING '/?#'
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2550,7 +2603,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema.1]
@@ -2570,7 +2624,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -2602,7 +2656,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema.2]
@@ -2622,7 +2677,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -2654,7 +2709,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema.3]
@@ -2674,7 +2730,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -2706,7 +2762,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema]
@@ -2726,7 +2783,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -2758,7 +2815,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range[new_events_schema.1]
@@ -2790,7 +2848,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range[new_events_schema.2]
@@ -2822,7 +2881,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range[new_events_schema]
@@ -2854,7 +2914,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated[new_events_schema]
@@ -2886,7 +2947,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling[new_events_schema]
@@ -2909,7 +2971,7 @@
                      breakdown_value AS breakdown_value
               FROM
                 (SELECT count() AS total,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^color)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^color)), if(isNull(nullIf(toString(e.properties.color), '')), NULL, if(and(in(ascii(toString(e.properties.color)), tuple(91, 123)), in(ascii(toJSONString(e.properties.color)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.color), '[]'), '{}'), toString(e.properties.color))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^color), '{}'), toJSONString(e.properties.^color), if(isNull(nullIf(toString(e.properties.color), '')), NULL, if(and(in(ascii(toString(e.properties.color)), tuple(91, 123)), in(ascii(toJSONString(e.properties.color)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.color), '[]'), '{}'), toString(e.properties.color))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2942,7 +3004,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily[new_events_schema]
@@ -2989,7 +3052,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day[new_events_schema]
@@ -3021,7 +3085,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day_cumulative[new_events_schema]
@@ -3058,7 +3123,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative[new_events_schema]
@@ -3095,7 +3161,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_dau_cumulative[new_events_schema]
@@ -3139,7 +3206,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema.1]
@@ -3159,7 +3227,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -3191,7 +3259,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown[new_events_schema]
@@ -3211,7 +3280,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$some_prop`)), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -3243,7 +3312,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_hogql_math[new_events_schema]
@@ -3275,7 +3345,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math[new_events_schema.1]
@@ -3305,7 +3376,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math[new_events_schema]
@@ -3335,7 +3407,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math[new_events_schema.1]
@@ -3379,7 +3452,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math[new_events_schema]
@@ -3423,7 +3497,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns[new_events_schema.1]
@@ -3447,7 +3522,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -3484,7 +3559,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns[new_events_schema.2]
@@ -3508,7 +3584,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -3545,7 +3621,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns[new_events_schema.3]
@@ -3569,7 +3646,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -3606,7 +3683,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns[new_events_schema]
@@ -3630,7 +3708,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$some_property`)), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(nullIf(toString(e.properties.`$some_property`), '')), NULL, if(and(in(ascii(toString(e.properties.`$some_property`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$some_property`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$some_property`), '[]'), '{}'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -3667,7 +3745,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_groups_daily[new_events_schema]
@@ -3712,7 +3791,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week[new_events_schema]
@@ -3754,7 +3834,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week[new_events_schema]
@@ -3796,7 +3877,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling[new_events_schema]
@@ -3838,7 +3920,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily[new_events_schema]
@@ -3890,7 +3973,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering[new_events_schema]
@@ -3918,7 +4002,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^name)), if(isNull(nullIf(toString(e.person_properties.name), '')), NULL, if(and(in(ascii(toString(e.person_properties.name)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.name)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.name), '[]'), '{}'), toString(e.person_properties.name)))), tuple('person-1', 'person-2'))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
+              WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('person-1', 'person-2'))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
@@ -3942,7 +4026,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly[new_events_schema]
@@ -3994,7 +4079,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly[new_events_schema]
@@ -4033,6 +4119,7 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---

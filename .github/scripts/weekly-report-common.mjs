@@ -106,7 +106,7 @@ export function repoPathResolver(trackedPaths = trackedTestPaths()) {
 
 // Ambiguous suffix matches only count when every candidate agrees on the owner.
 // `slack` is the owning team's notifications channel, only set when the owner is unambiguous.
-export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
+export function resolveOwners(items, toRepoPaths = repoPathResolver(), producer = null) {
     const candidates = new Map()
     for (const item of items) {
         const selectorPath = item.selector.split('::')[0]
@@ -118,7 +118,8 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
     let resolved = {}
     if (allPaths.length > 0) {
         try {
-            const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications'], {
+            const producerArgs = producer ? ['--producer', producer] : []
+            const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications', ...producerArgs], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
                 env: { ...process.env, PYTHONPATH: 'packages/owners-yaml' },
@@ -185,5 +186,18 @@ export async function postToSlack(blocks, text, { threadTs, channel = SLACK_CHAN
             : ''
         throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
     }
-    return data.ts
+    // `channel` is the resolved channel ID, which chat.getPermalink needs when the post was addressed by name.
+    return { ts: data.ts, channel: data.channel }
+}
+
+export async function slackPermalink({ channel, ts }) {
+    const url = new URL('https://slack.com/api/chat.getPermalink')
+    url.searchParams.set('channel', channel)
+    url.searchParams.set('message_ts', ts)
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` } })
+    const data = await res.json()
+    if (!data.ok) {
+        throw new Error(`Slack chat.getPermalink failed: ${data.error}`)
+    }
+    return data.permalink
 }

@@ -101,6 +101,24 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
         expect(tooltip.row('Napped')).toContain('5')
         expect(tooltip.row('Napped')).not.toContain('139')
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toBeNull()
+    })
+
+    it('stacked breakdown tooltip shows the total of the stack', async () => {
+        // Napped by hedgehog at index 3: Spike=4, Bramble=1, Thistle=2, Conker=0, Prickles=1.
+        renderInsight({
+            query: trendsBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+        })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
+
+        await chart.hoverTooltip(3)
+
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toHaveTextContent(
+            /^Total\s*8$/
+        )
     })
 
     it('opens the persons modal on click for a single series', async () => {
@@ -209,6 +227,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         const tooltip = await chart.hoverTooltip(2)
 
         expect(tooltip.row('Pageview')).toMatch(/%/)
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toBeNull()
     })
 })
 

@@ -4,9 +4,9 @@ The `posthog.metrics` table holds OpenTelemetry metric data points from instrume
 
 **Namespacing:** Reference this table as `posthog.metrics`, not bare `metrics` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.metric_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level.)
 
-There is no typed `query-metrics` MCP tool yet — **HogQL is the primary interface for metrics**. The schema mirrors `logs` and `posthog.trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
+For time series (rates, increases, quantiles, formulas), prefer the typed `posthog:query-metrics` MCP tool. Use HogQL for exemplar lookups, cross-signal joins, and aggregations the typed tool doesn't expose. The schema mirrors `logs` and `posthog.trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
 
-> ⚠️ **Exemplar extraction is not yet wired up in the ingestion pipeline as of PR [#50936](https://github.com/PostHog/posthog/pull/50936)**. The `trace_id` and `span_id` columns exist on `posthog.metrics`, but `rust/capture-logs/src/metric_record.rs` currently ignores the `_exemplars` field (prefixed with underscore → unused). Every ingested metric row has `trace_id = ''` and `span_id = ''` today. The exemplar-based cross-signal correlation patterns documented below describe the intended capability once exemplar ingestion lands.
+> **Exemplars are sparse.** Ingestion (`rust/capture-logs/src/metric_record.rs`) keeps the first exemplar with a valid trace ID on each data point. Only points whose SDK attached an exemplar carry a `trace_id` / `span_id`; most rows have `''`. When no point in the window has one, anchor cross-signal work on `posthog.trace_spans` instead.
 
 ## `posthog.metrics`
 
@@ -55,8 +55,8 @@ with `count() AS event_count`, `sum(value) AS total_value`, `min(value) AS min_v
 ### Important notes
 
 - **Unit is metric-dependent.** Always check `unit` — `http.server.duration` may be reported in `ms`, `s`, or `ns` depending on the SDK. Don't assume.
-- **`trace_id` is currently always empty string** because exemplar extraction isn't wired up (see warning above). The Rust ingestion uses `String::new()` for both `trace_id` and `span_id`. Filtering `trace_id != ''` correctly excludes unset rows once exemplars start landing.
-- **`trace_id` will be base64-encoded** (matching `logs` and `posthog.trace_spans`) once exemplars are populated. Joins to those tables will be direct equality on `trace_id`. Use `hex(tryBase64Decode(trace_id))` to display in hex.
+- **`trace_id` is empty string on points without an exemplar**, which is most rows (see the note above). Filter `trace_id != ''` to keep only exemplar points.
+- **`trace_id` is base64-encoded** when set, matching `logs` and `posthog.trace_spans`. Joins to those tables are direct equality on `trace_id`. Use `hex(tryBase64Decode(trace_id))` to display in hex.
 - **Histograms store `histogram_bounds` and `histogram_counts` per row** — you need to expand them for quantile estimation. For a quick p95-ish summary, `value / count` gives the mean per-point.
 - **Choose the right temporality.** `delta` metrics measure activity in the interval; `cumulative` metrics are running totals. Summing `value` over time only makes sense for `delta`.
 - User HogQL queries on `posthog.metrics` are capped at 50 GB read per query.

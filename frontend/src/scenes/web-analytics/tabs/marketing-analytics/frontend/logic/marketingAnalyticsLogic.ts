@@ -394,6 +394,7 @@ export interface marketingAnalyticsLogicValues {
     externalTables: ExternalTable[]
     hasNoConfiguredSources: boolean
     hasSources: boolean
+    hasSyncedMarketingSources: boolean
     includeConversionGoals: boolean
     initialized: boolean
     integrationFilter: IntegrationFilter
@@ -588,7 +589,9 @@ export interface marketingAnalyticsLogicActions {
     setInitialized: () => {
         value: true
     }
-    setIntegrationFilter: (integrationFilter: IntegrationFilter) => { integrationFilter: IntegrationFilter }
+    setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
+        integrationFilter: IntegrationFilter
+    }
     setOptionsOpen: (optionsOpen: boolean) => {
         optionsOpen: boolean
     }
@@ -734,6 +737,7 @@ export interface marketingAnalyticsLogicMeta {
             loading: boolean,
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => boolean
+        hasSyncedMarketingSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         hasSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
@@ -1402,6 +1406,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return validExternalTables.length === 0 && validNativeSources.length === 0
             },
         ],
+        hasSyncedMarketingSources: [
+            (s) => [s.validExternalTables, s.validNativeSources],
+            (externalTables: ExternalTable[], nativeSources: NativeSource[]): boolean =>
+                externalTables.length > 0 ||
+                nativeSources.some(({ source }) => {
+                    const requiredFields =
+                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+                    return requiredFields.every((fieldName) => {
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
+                        return schema?.should_sync && !!schema.last_synced_at
+                    })
+                }),
+        ],
         hasSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]): boolean =>
@@ -1666,7 +1683,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             })
         },
     })),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
             if (!values.initialized) {
@@ -1776,9 +1793,38 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                 }
 
-                // Refresh warehouse tables to pick up new source tables, then reload queries.
-                actions.loadDatabase()
-                actions.reloadAll()
+                const sourceConfigurationKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.source_type,
+                        source.prefix,
+                        source.schemas.map((schema) => [
+                            schema.id,
+                            schema.name,
+                            schema.should_sync,
+                            !!schema.last_synced_at,
+                            schema.table?.name,
+                            schema.table?.hogql_name,
+                        ]),
+                    ])
+                )
+                const sourceSyncKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.status,
+                        source.schemas.map((schema) => [schema.id, schema.last_synced_at]),
+                    ])
+                )
+                // Health polling must not force every dashboard query while only sync status changes.
+                if (cache.sourceConfigurationKey !== sourceConfigurationKey) {
+                    cache.sourceConfigurationKey = sourceConfigurationKey
+                    actions.loadDatabase()
+                    actions.reloadAll()
+                } else if (cache.sourceSyncKey !== sourceSyncKey) {
+                    actions.loadDatabase()
+                    actions.loadSourceValidation()
+                }
+                cache.sourceSyncKey = sourceSyncKey
 
                 // Mark as initialized after initial data load to enable interaction tracking
                 if (!values.initialized) {

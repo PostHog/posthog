@@ -298,6 +298,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         lemonToast.error('Action name cannot be empty.')
                         return { ...updatedAction }
                     }
+                    if (response.code === 'hidden_event') {
+                        lemonToast.error(response.detail)
+                        return { ...updatedAction }
+                    }
                     throw response
                 }
 

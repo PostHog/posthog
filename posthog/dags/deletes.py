@@ -117,6 +117,9 @@ class SweepTargetsConfig(dagster.Config):
     )
 
 
+OLD_EVENTS_MIN_AGE_MONTHS = 13
+
+
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
         min_length=1,
@@ -128,7 +131,7 @@ class MonthlyCleanupConfig(dagster.Config):
         "in these months, and only where old rows for the teams exist.",
     )
     min_age_months: int = pydantic.Field(
-        default=13,
+        default=OLD_EVENTS_MIN_AGE_MONTHS,
         description="Minimum age in months for events to be deleted",
     )
 
@@ -1337,5 +1340,66 @@ def cleanup_old_events_by_partition(
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def monthly_old_events_cleanup_job():
-    """Delete old events for the named teams in the named partitions. Launched by hand, with no schedule."""
+    """Delete old events for the named teams in the named partitions."""
     cleanup_old_events_by_partition(find_partitions_to_cleanup())
+
+
+EU_OLD_EVENTS_CLEANUP_TEAM_IDS: tuple[int, ...] = (
+    9229,
+    10761,
+    19934,
+    41817,
+    9230,
+    9390,
+    19935,
+    41818,
+    9393,
+    22115,
+    7525,
+    9231,
+    19933,
+    54013,
+    9394,
+    12679,
+    19936,
+    41819,
+    9391,
+    54008,
+    29833,
+)
+
+# sharded_events_json clamps every earlier timestamp into its 202001 partition. The schedule leaves
+# events dated before 2020 in place, because a request for their month misses that json partition.
+OLD_EVENTS_CLEANUP_FIRST_PARTITION = 202001
+
+
+def partitions_through_cutoff(now: datetime, min_age_months: int) -> list[int]:
+    """Every YYYYMM from the first partition through the newest month that holds rows at least min_age_months old."""
+    first_year, first_month = divmod(OLD_EVENTS_CLEANUP_FIRST_PARTITION, 100)
+    first = first_year * 12 + first_month - 1
+    cutoff = now.year * 12 + now.month - 1 - min_age_months
+    return [(month // 12) * 100 + month % 12 + 1 for month in range(first, cutoff + 1)]
+
+
+@dagster.schedule(
+    job=monthly_old_events_cleanup_job,
+    cron_schedule="0 0 1 * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)
+def eu_monthly_old_events_cleanup_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+    scheduled_at = context.scheduled_execution_time
+    return dagster.RunRequest(
+        run_key=scheduled_at.strftime("%Y%m"),
+        run_config={
+            "ops": {
+                "find_partitions_to_cleanup": {
+                    "config": {
+                        "team_ids": list(EU_OLD_EVENTS_CLEANUP_TEAM_IDS),
+                        "partitions": partitions_through_cutoff(scheduled_at, OLD_EVENTS_MIN_AGE_MONTHS),
+                        "min_age_months": OLD_EVENTS_MIN_AGE_MONTHS,
+                    }
+                }
+            }
+        },
+    )

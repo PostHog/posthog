@@ -23,6 +23,8 @@ import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
+    /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
+    margins?: ComboChartConfig['margins']
     xAxis?: XAxisConfig
     /** Single object for a standard left axis; array for dual left+right axes. */
     yAxis?: YAxisConfig | YAxisConfig[]
@@ -88,6 +90,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
+        margins,
         valueLabels,
         goalLines,
         defaultSeriesType,
@@ -121,6 +124,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const comboChartConfig: ComboChartConfig = {
+        margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,

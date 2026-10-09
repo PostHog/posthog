@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { ConversationDetail } from '~/types'
 
-import { TaskActivityDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { TodayListItemField } from './todayListAppearance'
 import {
@@ -23,7 +23,6 @@ import {
     sessionDetails,
     sessionItem,
     shortTimeAgo,
-    unreadSessionCountsBySpace,
 } from './todayWorkItems'
 
 const session = (id: string, lastActivityAt: string, archived = false): TaskListItemApi =>
@@ -31,19 +30,6 @@ const session = (id: string, lastActivityAt: string, archived = false): TaskList
 
 const chat = (id: string, updatedAt: string): ConversationDetail =>
     ({ id, title: `Chat ${id}`, updated_at: updatedAt, created_at: updatedAt }) as ConversationDetail
-
-const activity = (
-    taskId: string | null,
-    channelId: string | null,
-    overrides: Partial<TaskActivityDTOApi> = {}
-): TaskActivityDTOApi =>
-    ({
-        id: `${taskId}-${overrides.latest_comment_id ?? 'run'}`,
-        task_id: taskId,
-        channel_id: channelId,
-        is_unread: true,
-        ...overrides,
-    }) as TaskActivityDTOApi
 
 const ME = 7
 
@@ -312,31 +298,6 @@ describe('todayWorkItems', () => {
         const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
 
         expect(item.finalMessage).toBe(message)
-    })
-
-    it.each<[string, TaskActivityDTOApi[], Record<string, number>]>([
-        [
-            'counts each unread session once per space',
-            [
-                activity('s1', 'space-a'),
-                activity('s1', 'space-a'),
-                activity('s2', 'space-a'),
-                activity('s3', 'space-b'),
-            ],
-            { 'space-a': 2, 'space-b': 1 },
-        ],
-        [
-            'skips read sessions, comment notifications and sessions outside a space',
-            [
-                activity('s1', 'space-a', { is_unread: false }),
-                activity('s2', 'space-a', { latest_comment_id: 'comment-1' }),
-                activity('s3', null),
-                activity(null, 'space-a'),
-            ],
-            {},
-        ],
-    ])('unread session counts %s', (_name, rows, expected) => {
-        expect(unreadSessionCountsBySpace(rows)).toEqual(expected)
     })
 
     it.each<[string, Partial<TaskListItemApi>, TodayListItemField[], string[]]>([

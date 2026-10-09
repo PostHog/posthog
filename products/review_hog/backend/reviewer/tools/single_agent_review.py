@@ -24,7 +24,9 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
+    REPORTED_LEVELS,
     SINGLE_AGENT_SOURCE,
+    STORED_PRIORITY_BY_REPORTED,
     flash_max_findings,
     priority_rank,
 )
@@ -56,13 +58,6 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # A full SHA-1 or SHA-256 commit id. The prompt puts the merge base into a shell command the session
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-
-_STORED_PRIORITY = {
-    "P0": IssuePriority.MUST_FIX,
-    "P1": IssuePriority.MUST_FIX,
-    "P2": IssuePriority.SHOULD_FIX,
-    "P3": IssuePriority.CONSIDER,
-}
 
 
 def load_prompt_file(path: Path) -> str:
@@ -220,7 +215,7 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
                 suggestion="",
                 # A reversed range does not say which lines the suggestion replaces, so it would post on the wrong ones.
                 suggestion_code=None if reversed_range else finding.suggestion_code or None,
-                priority=_STORED_PRIORITY[finding.priority],
+                priority=STORED_PRIORITY_BY_REPORTED[finding.priority],
                 reported_priority=finding.priority,
                 is_directly_related_to_changes=True,
                 source_perspective=source,
@@ -242,21 +237,22 @@ class FlashSelection:
     dedup_fell_back: bool = False
 
 
-# Most severe first. Storage folds P0 and P1 into `must_fix`, so the reported level ranks them apart.
-_REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
-
-
 def _reported_level(issue: Issue) -> int:
     """The reviewer's P level as a number that grows with severity, 0 for a finding without one."""
     reported = issue.reported_priority
-    return len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
+    return len(REPORTED_LEVELS) - REPORTED_LEVELS.index(reported) if reported is not None else 0
+
+
+def _level_priority(level: int) -> ReportedPriority | None:
+    """The P level that `_reported_level` encodes as `level`, None for 0."""
+    return REPORTED_LEVELS[len(REPORTED_LEVELS) - level] if level else None
 
 
 def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str, int] | None = None) -> list[Issue]:
     """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order.
 
     `group_levels` gives a dedup survivor the highest P level of its duplicate group, so a survivor that
-    absorbed a P0 ranks as a P0 although its own `reported_priority` stays what its session reported.
+    absorbed a P0 ranks as a P0 even when its `reported_priority` keeps its session's level.
     """
     levels = group_levels or {}
     return sorted(
@@ -457,8 +453,10 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     Dedup keeps the most complete statement of a problem, not the most severe one, so a lens P1 that
     repeats a main P3 would otherwise post as the P3, or not at all once the cap cuts it.
 
-    Returns the highest P level of each survivor's duplicate group, for `_flash_order`. The survivor's
-    `reported_priority` keeps its own session's level, which the turn stats count.
+    Returns the highest P level of each survivor's duplicate group, for `_flash_order`. A survivor whose
+    duplicate reported a more severe level of the same stored priority, such as a P0 merged into a P1,
+    takes that level, so its comment leads with it; the turn stats count both levels as must-fix.
+    Across stored priorities the survivor keeps its session's level, which the turn stats count.
     """
     kept_by_id = {issue.id: issue for issue in kept}
     group_levels: dict[str, int] = {}
@@ -477,6 +475,17 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
                 duplicate.issue.id,
             )
             survivor.priority = duplicate.issue.priority
+    for survivor_id, level in group_levels.items():
+        survivor = kept_by_id[survivor_id]
+        best = _level_priority(level)
+        own = survivor.reported_priority
+        if (
+            best is not None
+            and own is not None
+            and level > _reported_level(survivor)
+            and STORED_PRIORITY_BY_REPORTED[best] == STORED_PRIORITY_BY_REPORTED[own]
+        ):
+            survivor.reported_priority = best
     return group_levels
 
 

@@ -76,7 +76,11 @@ export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boole
         return !flag.active
     }
     if (active === 'STALE') {
-        return flag.status === 'STALE'
+        // The server's STALE set is wider than the checker's STALE status. The `filter_stale_flags`
+        // docstring in flag_status.py lists where they diverge. The count and the "select all
+        // matching" delete use the server's set, so the list has to show the same rows, and every
+        // row in that set is active.
+        return flag.active
     }
     return true
 }

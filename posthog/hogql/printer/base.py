@@ -1691,6 +1691,8 @@ class BasePrinter(Visitor[str]):
                 return f"toFloat64({self.visit(node.expr)})"
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
+            case "nullable(string)":
+                return f"CAST({self.visit(node.expr)}, 'Nullable(String)')"
             case "boolean" | "bool":
                 return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":

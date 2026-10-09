@@ -24,7 +24,7 @@ export function BIDateControls(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1" data-attr="bi-editor-date-controls">
             <LemonSelect
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 value={dateField?.expression ?? null}
                 options={[
@@ -40,7 +40,7 @@ export function BIDateControls(): JSX.Element {
                 data-attr="bi-editor-date-field"
             />
             <DateFilter
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dateFrom={config.dateRange?.date_from ?? 'all'}
                 dateTo={config.dateRange?.date_to ?? null}
@@ -67,6 +67,7 @@ export function BIDateControls(): JSX.Element {
                 size="small"
             />
             <CompareFilter
+                size="xsmall"
                 compareFilter={config.compareFilter}
                 updateCompareFilter={setCompareFilter}
                 disableReason={getBIComparisonDisabledReason(config)}

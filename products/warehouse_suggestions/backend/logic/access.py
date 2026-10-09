@@ -1,9 +1,9 @@
 from collections import defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 from posthog.dataclasses import frozen
 
@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from ..models import WarehouseSuggestion
+from .rules import RULES
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -59,7 +60,9 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = WarehouseSuggestion.objects.for_team(team_id)
+    suggestions = WarehouseSuggestion.objects.for_team(team_id).exclude(
+        status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True
+    )
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
     if kind is not None:
@@ -67,7 +70,12 @@ def visible_suggestions(
     if status is not None:
         suggestions = suggestions.filter(status=status)
     access = subject_access(team_id, user_access_control, suggestions)
-    visible = suggestions.filter(access.readable_q()).select_related("reviewed_by").order_by("-score", "id")
+    visible = (
+        suggestions.filter(access.readable_q())
+        .select_related("reviewed_by")
+        .annotate(kind_position=_kind_position(RULES.lifecycle.kind_order))
+        .order_by("kind_position", "-score", "id")
+    )
     return visible, access
 
 
@@ -96,3 +104,17 @@ def _allowed(
         )
         for subject_kind, allowed_ids in ALLOWED_SUBJECT_IDS.items()
     }
+
+
+def readable_table_ids(
+    team_id: int, user_access_control: "UserAccessControl", table_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return ALLOWED_SUBJECT_IDS[WarehouseSuggestionSubjectKind.TABLE](team_id, user_access_control, ids=table_ids)
+
+
+def _kind_position(kind_order: Sequence[WarehouseSuggestionKind]) -> Case:
+    return Case(
+        *(When(kind=kind, then=Value(position)) for position, kind in enumerate(kind_order)),
+        default=Value(len(kind_order)),
+        output_field=IntegerField(),
+    )

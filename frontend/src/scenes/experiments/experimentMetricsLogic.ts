@@ -223,6 +223,7 @@ export interface experimentMetricsLogicValues {
     receivedFeatureFlags: boolean // featureFlagLogic
     isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
+    backendEnforcesRefreshWindow: boolean
     currentRecalculation: RecalculationPayload | null
     isManualRefreshBlocked: boolean
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
@@ -262,6 +263,9 @@ export interface experimentMetricsLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadLatestRecalculation: () => {
+        value: true
+    }
+    markRefreshWindowEnforced: () => {
         value: true
     }
     pollRecalculation: (recalculationId: string) => {
@@ -356,6 +360,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         recheckRefreshEligibility: true,
+        markRefreshWindowEnforced: true,
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
@@ -382,6 +387,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
         // Bumped when the manual refresh window closes, so isManualRefreshBlocked recomputes without new data.
         refreshEligibilityTick: [0, { recheckRefreshEligibility: (state: number) => state + 1 }],
+        // A 429 proves the backend enforces the window, even when this page's cached flags still say otherwise.
+        backendEnforcesRefreshWindow: [false, { markRefreshWindowEnforced: () => true }],
         queuedRerun: [
             null as ExperimentMetricsRecalculationRequestTriggerEnumApi | null,
             {
@@ -484,6 +491,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
         isManualRefreshBlocked: [
             (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick, s.isDev],
+            // State for the reload button only. The backend is the gate: it answers 429 inside the window.
             // Local development skips the window, as the backend does, so a developer can reload at will.
             (nextAllowedManualRefresh: string | null, _tick: number, isDev: boolean | undefined): boolean =>
                 !isDev && !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
@@ -801,9 +809,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 if (!flagEnabled()) {
                     return
                 }
-                if (trigger === 'manual' && values.isManualRefreshBlocked) {
-                    return
-                }
                 /**
                  * Don't recalculate draft experiments; a config-change edit on a draft shouldn't kick off a
                  * run. Stopped experiments are allowed — they still need their final results computed.
@@ -947,6 +952,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         // Another tab or an agent used the refresh window first. Reload the latest run so the
                         // button picks up its completed_at and shows when the next refresh is possible.
                         lemonToast.info(error?.detail || 'Metrics were recalculated less than 5 minutes ago.')
+                        actions.markRefreshWindowEnforced()
                         actions.loadLatestRecalculation()
                         return
                     }
