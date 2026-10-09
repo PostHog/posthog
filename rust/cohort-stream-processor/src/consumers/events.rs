@@ -21,7 +21,7 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
 
@@ -54,9 +54,9 @@ use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
-use crate::partitions::InputTopic;
+use crate::partitions::{read_watermarks, InputTopic};
 use crate::producer::MembershipSink;
-use crate::store::durability::PendingRestore;
+use crate::store::durability::{FinishError, PendingRestore};
 use crate::store::StoreHandle;
 use crate::workers::{EventNameGating, EvictionRestore, MergeWorkerDeps, Stage1Worker};
 
@@ -1188,6 +1188,7 @@ impl CohortStreamEventsConsumer {
                             resume.hold_back(&outcome.events);
                             self.rewind(resume, restore, boot_started)
                         }
+                        BootPhase::Halted => BootPhase::Halted,
                     };
                     if transport_error {
                         tokio::time::sleep(RECV_ERROR_BACKOFF).await;
@@ -1280,6 +1281,13 @@ impl CohortStreamEventsConsumer {
         }
 
         if let Some(pending) = &restore {
+            let watermarks = |topic: &InputTopic, partitions: &[u16]| {
+                read_watermarks(
+                    self.consumer.as_ref(),
+                    topic.as_str(),
+                    partitions.iter().copied(),
+                )
+            };
             let commit_events = || match &seek_list {
                 Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
                 None => Ok(()),
@@ -1287,7 +1295,7 @@ impl CohortStreamEventsConsumer {
             // A sync commit waits until the group coordinator answers. `block_in_place` hands this
             // worker's other tasks to another thread meanwhile, so a runtime with one worker still
             // serves the health server.
-            match tokio::task::block_in_place(|| pending.finish(commit_events)) {
+            match tokio::task::block_in_place(|| pending.finish(&owned, watermarks, commit_events)) {
                 Ok(()) => {
                     gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
                     info!(
@@ -1295,6 +1303,17 @@ impl CohortStreamEventsConsumer {
                         partitions = sought,
                         "checkpoint restore finished: the events group committed the restored positions",
                     );
+                }
+                Err(FinishError::Expired(expired)) => {
+                    // The marker stays, so the next boot's window check resets these slices before
+                    // anything reads them. Halted never finishes, even if a revoke drops one of them.
+                    error!(
+                        ?expired,
+                        "the broker expired restored positions during boot; stopping so the next boot resets those slices",
+                    );
+                    self.handle
+                        .signal_failure("checkpoint restore positions expired during boot");
+                    return BootPhase::Halted;
                 }
                 Err(err) => {
                     gauge!(CHECKPOINT_RESTORE_BLOCKED).set(1.0);
