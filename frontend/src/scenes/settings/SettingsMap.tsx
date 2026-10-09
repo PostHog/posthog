@@ -70,6 +70,7 @@ import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
@@ -871,14 +872,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                description:
-                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
-                docsUrl: 'https://posthog.com/docs/error-tracking',
-                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
-                component: <ExceptionAutocaptureToggle />,
-                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                id: 'error-tracking-general',
+                title: 'General',
+                component: <GeneralSettings />,
+                keywords: [
+                    'kill switch',
+                    'disable',
+                    'stop',
+                    'ingestion',
+                    'drop',
+                    'autocapture',
+                    'crash',
+                    'bug',
+                    'exception',
+                    'stack trace',
+                ],
             },
             {
                 id: 'error-tracking-alerting',
