@@ -166,10 +166,10 @@ def discover_files(
             params = {"$select": "id,name,parentReference,file,folder,root,deleted,size,lastModifiedDateTime"}
             # Delta omits parent paths and can repeat items, so resolve paths after the final page.
             for page in _walk_child_collection(client, path, params, None, lambda _: None, logger):
-                for item in page:
-                    if item.get("id"):
-                        item.pop("@microsoft.graph.downloadUrl", None)
-                        items[item["id"]] = cast(_DriveItem, item)
+                for raw_item in page:
+                    if raw_item.get("id"):
+                        raw_item.pop("@microsoft.graph.downloadUrl", None)
+                        items[raw_item["id"]] = cast(_DriveItem, raw_item)
 
             folders = {
                 item_id: _Folder(
