@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from posthoganalytics import FeatureFlagResult
 
 from posthog.schema import (
     HogLanguage,
@@ -38,6 +39,15 @@ from products.data_tools.backend.models.expression import DataWarehouseExpressio
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+def _move_notices(payload: dict, enabled: bool = True) -> FeatureFlagResult:
+    return FeatureFlagResult(
+        key="flag-called-move-notices", enabled=enabled, variant=None, payload=payload, reason=None
+    )
+
+
+_MOVE_NOTICES_WITHOUT_URL = _move_notices({"url": None})
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -213,6 +223,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 8,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -253,6 +264,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -272,6 +284,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -291,6 +304,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 4,
                         "end": 12,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -387,7 +401,29 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
-            ("move_notices_off", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, False),
+            (
+                "move_notices_off",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                True,
+                0,
+                _move_notices({"url": None}, enabled=False),
+            ),
+            ("move_notices_missing", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, None),
+            (
+                "announcement_url",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                _move_notices({"url": "https://example.com/announcement"}),
+                "https://example.com/announcement",
+            ),
+            (
+                "command_announcement_url",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                _move_notices({"url": "command:editor.action.deleteLines"}),
+            ),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(
@@ -396,7 +432,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         query: str,
         flag_evaluations_enabled: bool,
         expected: int,
-        move_notices_enabled: bool = True,
+        move_notices: FeatureFlagResult | None = _MOVE_NOTICES_WITHOUT_URL,
+        expected_url: str | None = None,
     ) -> None:
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -417,7 +454,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
                 return_value=flag_evaluations_enabled,
             ),
-            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=move_notices_enabled),
+            patch("posthoganalytics.get_feature_flag_result", return_value=move_notices),
         ):
             metadata = self._select(query)
 
@@ -425,8 +462,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
         literal_start = query.rindex("'$feature_flag_called'")
         self.assertEqual(
-            [(w.start, w.end, w.fix) for w in warnings],
-            [(literal_start, literal_start + len("'$feature_flag_called'"), None)] * expected,
+            [(w.start, w.end, w.fix, w.url) for w in warnings],
+            [(literal_start, literal_start + len("'$feature_flag_called'"), None, expected_url)] * expected,
         )
 
     def test_metadata_warns_for_unknown_event_in_literal(self):
@@ -999,30 +1036,35 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 16,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
                         "fix": f"'{cohort.name}'",
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1055,12 +1097,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1118,12 +1162,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1198,7 +1244,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "notices": [],
                 "warnings": [],
-                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+                "errors": [
+                    {
+                        "end": 15,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 9,
+                        "url": None,
+                    }
+                ],
             },
         )
 
@@ -1210,8 +1264,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
-                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6, "url": None}],
+                "warnings": [
+                    {"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13, "url": None}
+                ],
                 "errors": [],
             },
         )
@@ -1234,7 +1290,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
+                "errors": [
+                    {
+                        "end": 17,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 11,
+                        "url": None,
+                    }
+                ],
             },
         )
 

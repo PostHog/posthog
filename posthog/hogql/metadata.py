@@ -1,9 +1,12 @@
 from dataclasses import replace
 from typing import Literal, Optional, Union, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import structlog
+import posthoganalytics
+from posthoganalytics import FeatureFlagResult
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -286,13 +289,13 @@ def _index_usage_enabled(team: Team) -> bool:
     )
 
 
-def _flag_called_move_notices_enabled(team: Team) -> bool:
+def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
     """Customers have not been told yet that $feature_flag_called is moving to posthog.flag_evaluations.
 
     A warning about the move with no announcement behind it reads as a bug, so the flag stays off until the
-    announcement goes out.
+    announcement goes out. The flag's payload holds the announcement's URL.
     """
-    return feature_enabled_or_false(
+    return posthoganalytics.get_feature_flag_result(
         "flag-called-move-notices",
         str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
@@ -303,13 +306,31 @@ def _flag_called_move_notices_enabled(team: Team) -> bool:
     )
 
 
+def _flag_called_announcement_url(payload: object) -> str | None:
+    """Only an https URL with a host passes.
+
+    Monaco runs a `command:` link as an editor command. Monaco assigns any other non-http link to
+    window.location, so a `javascript:` link would run as script in the page.
+    """
+    url = payload.get("url") if isinstance(payload, dict) else None
+    if url is None:
+        return None
+    if isinstance(url, str):
+        parsed = urlparse(url)
+        if parsed.scheme == "https" and parsed.netloc:
+            return url
+    logger.warning("hogql_flag_called_announcement_url_invalid", url=str(url))
+    return None
+
+
 def _flag_called_on_events_warnings(
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext, team: Team
 ) -> list[HogQLNotice]:
     try:
-        if not _flag_called_move_notices_enabled(team):
+        move_notices = _flag_called_move_notices(team)
+        if move_notices is None or not move_notices.enabled:
             return []
-        return flag_called_on_events_warnings(hogql_ast, context)
+        return flag_called_on_events_warnings(hogql_ast, context, _flag_called_announcement_url(move_notices.payload))
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
         # check failed, and the caller turns any exception here into an invalid query.

@@ -74,7 +74,7 @@ def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
 
 
 def flag_called_on_events_warnings(
-    node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
+    node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, announcement_url: str | None
 ) -> list[HogQLNotice]:
     """A warning on each `$feature_flag_called` literal that a query compares to the events table's `event` column.
 
@@ -89,7 +89,7 @@ def flag_called_on_events_warnings(
         finder.visit(resolve_types(clone_expr(node), context, dialect="clickhouse"))
     # A literal that a variable supplies has no span, and a notice without one marks the whole query.
     return [
-        HogQLNotice(message=FLAG_CALLED_ON_EVENTS_WARNING, start=literal.start, end=literal.end)
+        HogQLNotice(message=FLAG_CALLED_ON_EVENTS_WARNING, start=literal.start, end=literal.end, url=announcement_url)
         for literal in finder.literals
         if literal.start is not None and literal.end is not None
     ]
