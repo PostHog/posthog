@@ -22,7 +22,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                fix: [nocache, workerlimit, heap4g, heap3g]
+                fix: [nocache, workerlimit, heap6g, heap4g, heap3g]
                 order: [today-first, today-second]
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,20 +42,29 @@ jobs:
                   pnpm --filter=@posthog/frontend build:products
                   echo "RESULT runner: $(nproc) cpus, $(free -m | awk '/^Mem:/ {print $2}') MB RAM"
 
+                  # pnpm's jest launcher sets NODE_PATH, which jest needs to resolve imports from product folders.
+                  # A node flag that NODE_OPTIONS rejects goes into a copy of that launcher.
+                  # shellcheck disable=SC2016
+                  sed's|exec node  |exec node --no-compilation-cache |; s|exec "$basedir/node"  |exec "$basedir/node" --no-compilation-cache |' \
+                      frontend/node_modules/.bin/jest > frontend/node_modules/.bin/jest-nocache
+                  chmod +x frontend/node_modules/.bin/jest-nocache
+                  echo "RESULT nocache launcher lines with the flag: $(grep -c -- '--no-compilation-cache' frontend/node_modules/.bin/jest-nocache)"
+
                   run_variant() {
                       local variant="$1" log="$RUNNER_TEMP/jest-$1.log"
-                      local heap=16384
-                      local node_flags=() jest_flags=()
+                      local heap=16384 launcher=jest
+                      local jest_flags=()
                       case "$variant" in
-                          nocache) node_flags=(--no-compilation-cache) ;;
+                          nocache) launcher=jest-nocache ;;
                           workerlimit) jest_flags=(--workerIdleMemoryLimit=2GB) ;;
+                          heap6g) heap=6144 ;;
                           heap4g) heap=4096 ;;
                           heap3g) heap=3072 ;;
                       esac
                       local start
                       start=$(date +%s)
                       # Same jest arguments as the selective jest job, plus heap logging and a cold jest cache per variant.
-                      NODE_OPTIONS="--max-old-space-size=$heap" pnpm --filter=@posthog/frontend exec node "${node_flags[@]}" node_modules/jest/bin/jest.js \
+                      NODE_OPTIONS="--max-old-space-size=$heap" pnpm --filter=@posthog/frontend exec "$launcher" \
                           --forceExit \
                           --passWithNoTests \
                           --logHeapUsage \
