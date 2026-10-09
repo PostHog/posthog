@@ -112,14 +112,14 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 # Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
-    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 1),
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-1`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -149,6 +149,16 @@ SINGLE_AGENT_FLASH_ARM = ReviewArm(
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
 
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
@@ -276,13 +286,13 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
-# CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
-# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
+# CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui"})
+HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui", "comment"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
@@ -380,10 +390,11 @@ def validation_arm_for_mode(
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
+# The validator's model at high effort: xhigh gave the same outcomes on clear fixes at a higher cost
+# per turn (see the 2026-10-09 entry in DECISIONS.md).
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
 RESOLUTION_MODEL: str | None = "claude-opus-5-5"
-RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.HIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
 # A resolution run handles at most this many threads, priority-ordered; the binding constraint is

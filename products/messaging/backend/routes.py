@@ -1,9 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
-from products.messaging.backend.api.message_categories import MessageCategoryViewSet
-from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
-from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
-from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
+from products.messaging.backend.presentation.views.message_categories import MessageCategoryViewSet
+from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
+from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
+from products.messaging.backend.presentation.views.message_templates import MessageTemplatesViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

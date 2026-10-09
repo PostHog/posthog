@@ -88,6 +88,7 @@ from products.signals.backend.signal_metadata import SourceSliceSignalStats, fet
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
+from products.tasks.backend.facade.access import is_sandbox_run_request
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -98,100 +99,6 @@ MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
 
 
-def is_scout_trial_task(*, team_id: int, task_id: uuid.UUID) -> bool:
-    return (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .exists()
-    )
-
-
-def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uuid.UUID) -> bool:
-    run = (
-        SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run__task")
-        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .first()
-    )
-    if run is None:
-        return False
-    marker = (run.metadata or {})["scout_trial"]
-    launch_id = marker.get("launch_id")
-    return (
-        isinstance(launch_id, str)
-        and run.task_run.task.origin_product == "signals_scout"
-        and run.task_run.task.origin_key == f"scout-trial:{launch_id}"
-        and (run.task_run.state or {}).get("scout_trial") == marker
-    )
-
-
-def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) -> bool:
-    from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoids loading evaluation storage for ordinary tasks
-        _assert_worker_access,
-        _read_trial_judge_input,
-    )
-
-    if not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1:
-        return False
-    if type(marker.get("user_id")) is not int or marker["user_id"] != user_id:
-        return False
-    identifiers: dict[str, uuid.UUID] = {}
-    for key in (
-        "evaluation_id",
-        "launch_id",
-        "context_id",
-        "source_task_id",
-        "source_task_run_id",
-        "source_scout_run_id",
-    ):
-        value = marker.get(key)
-        if not isinstance(value, str):
-            return False
-        try:
-            identifiers[key] = uuid.UUID(value)
-        except ValueError:
-            return False
-        if str(identifiers[key]) != value:
-            return False
-    snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
-    if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
-        return False
-    _assert_worker_access(snapshot)
-    evidence = next((run for run in snapshot.runs if run.launch_id == identifiers["launch_id"]), None)
-    if evidence is None or (
-        evidence.task_id != identifiers["source_task_id"]
-        or evidence.task_run_id != identifiers["source_task_run_id"]
-        or evidence.run_id != identifiers["source_scout_run_id"]
-        or evidence.execution_status != "completed"
-        or evidence.exclusion_reason is not None
-    ):
-        return False
-    source = (
-        SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run__task")
-        .filter(
-            id=identifiers["source_scout_run_id"],
-            task_run_id=identifiers["source_task_run_id"],
-            task_run__task_id=identifiers["source_task_id"],
-            task_run__team_id=team_id,
-            task_run__task__team_id=team_id,
-            task_run__task__created_by_id=user_id,
-            task_run__task__deleted=False,
-            task_run__task__origin_product="signals_scout",
-            task_run__task__origin_key=f"scout-trial:{marker['launch_id']}",
-            task_run__status="completed",
-            metadata__scout_trial__version=1,
-            metadata__scout_trial__launch_id=marker["launch_id"],
-            metadata__scout_trial__context_id=marker["context_id"],
-        )
-        .first()
-    )
-    if source is None or (source.task_run.state or {}).get("scout_trial") != (source.metadata or {}).get("scout_trial"):
-        return False
-    private_state = (source.task_run.state or {}).get("scout_trial_private")
-    return not isinstance(private_state, dict) or not private_state.get("invalid_reason")
-
-
 @frozen
 class ScoutTrialSkill:
     name: str
@@ -199,29 +106,22 @@ class ScoutTrialSkill:
     body: str = dataclasses.field(repr=False)
 
 
-def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID) -> ScoutTrialSkill | None:
-    from products.signals.backend.scout_harness.trial_launch import (
-        read_trial_launch,  # noqa: PLC0415 -- trial tools import the shared Signals facade
+def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID, token_id: uuid.UUID) -> ScoutTrialSkill | None:
+    from products.signals.backend.scout_harness.trial_launch import (  # noqa: PLC0415 -- trial tools import the shared Signals facade
+        bound_trial_run,
+        read_trial_launch,
     )
 
-    run = (
-        SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run__task")
-        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .first()
-    )
-    if run is None:
-        return None
-    marker = (run.metadata or {})["scout_trial"]
-    launch_id = marker.get("launch_id")
+    run = bound_trial_run(team_id, task_id)
     if (
-        not isinstance(launch_id, str)
-        or run.task_run.task.origin_product != "signals_scout"
-        or run.task_run.task.origin_key != f"scout-trial:{launch_id}"
-        or (run.task_run.state or {}).get("scout_trial") != marker
+        run is None
+        or run.metadata is None
+        or not is_sandbox_run_request(
+            team_id=team_id, task_id=str(task_id), run_id=str(run.task_run_id), token_id=token_id
+        )
     ):
         return None
-    launch = read_trial_launch(team_id, launch_id)
+    launch = read_trial_launch(team_id, run.metadata["scout_trial"]["launch_id"])
     if launch.skill_name != run.skill_name or launch.skill_version != run.skill_version:
         return None
     return ScoutTrialSkill(name=launch.skill_name, version=launch.skill_version, body=launch.skill_body)
@@ -1460,6 +1360,20 @@ def repair_report_actionability_cache(
     artefact write, so this only repairs rows that drifted.
     """
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
+
+
+def retract_source_signals(*, team: "Team", source_product: str, source_type: str, source_id: str) -> int:
+    """Replace a source record's signal embeddings with an empty deleted row.
+
+    Returns how many documents were re-emitted. Zero when the source never emitted.
+    """
+    from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415
+        retract_source_signals as _retract_source_signals,
+    )
+
+    return _retract_source_signals(
+        team=team, source_product=source_product, source_type=source_type, source_id=source_id
+    )
 
 
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
