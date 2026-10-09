@@ -101,7 +101,7 @@ def create_observation_request(
     if idempotency_key:
         existing = ReplayObservationRequest.objects.for_team(team.id).filter(idempotency_key=idempotency_key).first()
         if existing is not None:
-            return _same_caller(existing, source, user), False
+            return _same_caller(existing, team, source, user), False
     try:
         with transaction.atomic():
             request = ReplayObservationRequest.objects.for_team(team.id).create(
@@ -118,7 +118,7 @@ def create_observation_request(
         if not idempotency_key:
             raise
         existing = ReplayObservationRequest.objects.for_team(team.id).get(idempotency_key=idempotency_key)
-        return _same_caller(existing, source, user), False
+        return _same_caller(existing, team, source, user), False
 
     try:
         if scanner is not None:
@@ -148,9 +148,13 @@ def create_observation_request(
 
 
 def _same_caller(
-    request: ReplayObservationRequest, source: ObservationRequestSource, user: User | None
+    request: ReplayObservationRequest, team: Team, source: ObservationRequestSource, user: User | None
 ) -> ReplayObservationRequest:
     if request.source != source or request.created_by_id != (user.id if user is not None else None):
+        raise IdempotencyKeyConflict()
+    # Requests are stored under the project's canonical team, but scanners and observations stay per environment,
+    # so a key from another environment of the same project must not read this environment's results.
+    if request.scanner is not None and request.scanner.team_id != team.id:
         raise IdempotencyKeyConflict()
     return request
 

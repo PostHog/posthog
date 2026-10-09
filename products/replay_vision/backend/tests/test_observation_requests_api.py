@@ -156,6 +156,19 @@ class TestObservationRequestAPI(APIBaseTest):
         # Neither the row nor whether it is still running may show: `status` reads only the visible rows.
         self.assertEqual((response.json()["sessions"], response.json()["status"]), ([], "completed"))
 
+    def test_a_key_from_another_environment_cannot_replay_this_environments_request(self) -> None:
+        payload = {"session_ids": ["s1"], "scanner_id": str(self.scanner.id), "idempotency_key": "shared"}
+        scopes = ["replay_scanner:write", "session_recording:read"]
+        first = self._psak_client(scopes).post(self.url, payload, format="json")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
+
+        # Requests are stored under the project's canonical team, so the child's lookup finds the parent's row.
+        replay = self._psak_client(scopes, team=child).post(
+            f"/api/projects/{child.id}/vision/requests/", payload, format="json"
+        )
+
+        self.assertEqual((first.status_code, replay.status_code), (202, 409), replay.json())
+
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 
         response = self.client.post(
