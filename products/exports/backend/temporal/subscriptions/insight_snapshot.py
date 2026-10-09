@@ -196,6 +196,10 @@ def _execute_and_serialize_insight_query(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             user=user,
             query_override=query_json,
+            # The subscription's queries were checked against the person who saved it, and against
+            # whoever edited them since. The delivery is trusted, so the creator's current
+            # warehouse access does not gate it (ACCESS_CONTROL.md, "Subscriptions").
+            bypass_warehouse_access_control=True,
         )
     except Exception as e:
         logger.exception(

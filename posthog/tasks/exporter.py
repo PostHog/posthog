@@ -87,6 +87,7 @@ def export_asset_direct(
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
+    bypass_warehouse_access_control: bool = False,  # For images: a trusted delivery skips warehouse access control
 ) -> None:
     from products.exports.backend.tasks import csv_exporter, image_exporter
 
@@ -132,7 +133,12 @@ def export_asset_direct(
                 raise InvalidExportContext("No handler is registered for this export format.")
             export_handler(exported_asset)
         else:
-            image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
+            image_exporter.export_image(
+                exported_asset,
+                max_height_pixels=max_height_pixels,
+                source=export_source,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+            )
 
         EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
         logger.info(

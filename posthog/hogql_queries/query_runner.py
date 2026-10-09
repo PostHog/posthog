@@ -1804,6 +1804,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+ChildRunner = TypeVar("ChildRunner", bound="QueryRunner")
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1847,6 +1848,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # The save-time access check compiles to_query() as the saving user. A trusted delivery may
+    # skip warehouse access control only when that check saw everything the runner executes. A
+    # runner that executes a different query, or narrows the schema to the user's tables instead
+    # of failing, sets this to False and runs the delivery as the creator.
+    save_check_covers_execution: bool = True
 
     def __init__(
         self,
@@ -1870,6 +1876,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._bypass_warehouse_access_control = False
         self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
@@ -1906,6 +1913,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
 
+    def bypass_warehouse_access_control(self) -> None:
+        """Run without warehouse access control, as a trusted job does (see Database.create_for).
+
+        The user stays in place for everything else: system tables, property access control and
+        query attribution. Call this only when the queries were checked against a real user when
+        they were saved, such as a subscription delivery, and never for a client-supplied query.
+        """
+        self._bypass_warehouse_access_control = True
+        # Dropped directly, not through _on_user_changed: a subclass hook may return early when
+        # the user is unchanged, and a database built before this call must not be reused.
+        self._shared_database = None
+
+    def _with_own_bypass(self, child: ChildRunner) -> ChildRunner:
+        """Give a runner this one builds for part of its result the same warehouse access bypass,
+        so a trusted run stays trusted in the queries it delegates."""
+        if self._bypass_warehouse_access_control:
+            child.bypass_warehouse_access_control()
+        return child
+
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -1929,6 +1955,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 user=self.user,
                 user_access_control=self.user_access_control,
                 modifiers=self.modifiers,
+                bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                 trigger="shared_kill_switch",
             )
         if self._shared_database is None:
@@ -1944,6 +1971,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                             trigger="shared",
                         )
         return self._shared_database
@@ -3544,8 +3572,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     @property
     def _bypassed_access_scopes(self) -> frozenset[str]:
-        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
-        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        """Scopes whose access control the principal skips. Service tokens, shared-link viewers and a
+        run that called bypass_warehouse_access_control() skip warehouse access control (see
+        Database.create_for); real users and userless runs bypass nothing."""
+        if self._bypass_warehouse_access_control:
+            return WAREHOUSE_ACCESS_SCOPES
         # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
         user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
         if user is None or isinstance(user, User):
@@ -3561,6 +3592,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         queried_resources = queried_access_controlled_resources(
             self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
         )
+        if queried_resources and self._bypass_warehouse_access_control:
+            # The run reads warehouse tables and views whatever the user's rules say, so those rules
+            # must not partition the key. Otherwise the result would land in the denied user's
+            # entry and be served to them.
+            queried_resources = queried_resources - WAREHOUSE_ACCESS_SCOPES
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
@@ -3671,13 +3707,22 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
+        self.database = Database.create_for(
+            team=self.team,
+            user=user,
+            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
+            trigger="runner_context",
+        )
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
         super()._on_user_changed()
+        self._build_hogql_context_for_user(self.user)
+
+    def bypass_warehouse_access_control(self) -> None:
+        super().bypass_warehouse_access_control()
         self._build_hogql_context_for_user(self.user)
 
     @property

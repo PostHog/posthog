@@ -46,6 +46,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                 asset,
                 source=EventSource(inputs.source) if inputs.source else None,
+                bypass_warehouse_access_control=inputs.bypass_warehouse_access_control,
             )
         except Exception as e:
             try:

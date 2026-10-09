@@ -175,6 +175,11 @@ def _session_start_day(expr: ast.Expr) -> ast.Expr:
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
     """Base class for marketing analytics query runners with shared functionality."""
 
+    # The source factory builds adapters from the tables in the user's schema, so a denied source
+    # is left out instead of failing. A save-time check passes on that narrower query, and a
+    # bypassed delivery would then read the sources it never checked. Deliveries run as the creator.
+    save_check_covers_execution = False
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Build from team so every runner (table, aggregated, non-integrated) picks up attribution

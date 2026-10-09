@@ -20,10 +20,13 @@ class ExportFailureMetadata(TypedDict):
     slo_failure_details: ExportFailureDetails
 
 
-@dataclasses.dataclass
+@frozen
 class ExportAssetActivityInputs:
     exported_asset_id: int
     source: Optional[str] = None
+    # Set by the subscription workflow only: its queries were checked when the subscription was
+    # saved, so the render runs without warehouse access control (see ACCESS_CONTROL.md).
+    bypass_warehouse_access_control: bool = False
 
 
 @frozen

@@ -64,7 +64,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
-from posthog.api.services.query import _run_query_runner
+from posthog.api.services.query import _run_query_runner, process_query_model
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -1985,6 +1985,49 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac.access_level = access_level
         ac.save()
         return ac
+
+    @parameterized.expand(RUNNER_BASES)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_bypass_rebuilds_the_database_and_changes_the_cache_key(self, _name, base, _flag):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self._ac(resource="warehouse_view", resource_id=str(view.id), organization_member=self.organization_membership)
+        runner = self._runner(self.user, base, queried_resources=set())
+        runner.query = HogQLQuery(query="SELECT id FROM denied_view")
+        # Built before the bypass, so a stale copy would be the one reused.
+        assert "denied_view" in runner.shared_database._denied_tables
+        denied_cache_key = runner.get_cache_key()
+
+        runner.bypass_warehouse_access_control()
+
+        # A bypass result must never be served from the denied user's cache entry, or the other way round.
+        assert "denied_view" not in runner.shared_database._denied_tables
+        assert runner.get_cache_key() != denied_cache_key
+        if base is QueryRunnerWithHogQLContext:
+            assert "denied_view" not in runner.database._denied_tables
+        # A runner built for part of the result stays trusted too.
+        child = runner._with_own_bypass(self._runner(self.user, base, queried_resources=set()))
+        assert "denied_view" not in child.shared_database._denied_tables
+
+    @parameterized.expand([("covered", True), ("not_covered", False)])
+    def test_delivery_bypass_only_reaches_a_runner_the_save_check_covers(self, _name, covered: bool):
+        runner = self._runner(self.user, queried_resources=set())
+        runner.save_check_covers_execution = covered
+
+        with mock.patch("posthog.api.services.query.get_query_runner_or_none", return_value=runner):
+            process_query_model(
+                self.team,
+                runner.query,
+                user=self.user,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                bypass_warehouse_access_control=True,
+            )
+
+        assert runner._bypass_warehouse_access_control is covered
 
     @parameterized.expand(RUNNER_BASES)
     def test_resource_grant_changes_cache_key(self, _name, base):
