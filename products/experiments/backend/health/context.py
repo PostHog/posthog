@@ -32,6 +32,9 @@ class FlagState:
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
+    # None when the exposure query had too little data for the sample ratio test.
+    sample_ratio_mismatch_p_value: float | None
+    hours_since_launch: float | None
 
 
 @frozen

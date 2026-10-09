@@ -2655,6 +2655,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "scout_trial",
         "scout_trial_judge",
         "scout_trial_private",
+        "include_live_context",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         "resume_from_run_id",

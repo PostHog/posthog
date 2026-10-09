@@ -114,12 +114,12 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
     (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-0`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -158,6 +158,8 @@ FLASH_MAX_FINDINGS_CEILING = 10
 # Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
 # marks everything P0 or P1 cannot flood the PR.
 FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+# A finding on a line next to a change is often about that change.
+FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
 
 
 def flash_max_findings(lens_part_count: int) -> int:
@@ -378,10 +380,11 @@ def validation_arm_for_mode(
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
+# The validator's model at high effort: xhigh gave the same outcomes on clear fixes at a higher cost
+# per turn (see the 2026-10-09 entry in DECISIONS.md).
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
 RESOLUTION_MODEL: str | None = "claude-opus-5-5"
-RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.HIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
 # A resolution run handles at most this many threads, priority-ordered; the binding constraint is
