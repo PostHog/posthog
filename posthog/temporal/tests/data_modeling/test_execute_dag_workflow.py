@@ -16,6 +16,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
@@ -53,6 +54,13 @@ from products.data_modeling.backend.facade.models import (
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@frozen(slots=False)
+class ShadowRunOutcome:
+    result: ExecuteDAGResult
+    start_child: AsyncMock
+    execute_activity: AsyncMock
 
 
 class TestGetDagStructureActivity:
@@ -1020,7 +1028,7 @@ class TestTrinoShadowRun:
         shadow_start_error: Exception | None = None,
         failing_node_ids: frozenset[str] = frozenset(),
         patched: bool = True,
-    ) -> tuple[ExecuteDAGResult, AsyncMock, AsyncMock]:
+    ) -> ShadowRunOutcome:
         plan = DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[])
 
         async def start_child(workflow: object, child_inputs: object, **kwargs: object) -> object:
@@ -1065,7 +1073,7 @@ class TestTrinoShadowRun:
             patch("posthog.temporal.data_modeling.workflows.execute_dag.capture_exception"),
         ):
             result = await ExecuteDAGWorkflow().run(inputs)
-        return result, start_child_mock, execute_activity_mock
+        return ShadowRunOutcome(result=result, start_child=start_child_mock, execute_activity=execute_activity_mock)
 
     @staticmethod
     def _shadow_starts(start_child: AsyncMock) -> list:
@@ -1090,18 +1098,18 @@ class TestTrinoShadowRun:
     async def test_a_clickhouse_run_starts_one_abandoned_trino_shadow_of_its_nodes(
         self, workflow_id: str, expected_shadow_id: str
     ) -> None:
-        result, start_child, _ = await self._run(
+        outcome = await self._run(
             ExecuteDAGInputs(team_id=7, dag_id="dag", node_ids=["a", "b"]), workflow_id=workflow_id
         )
 
-        [shadow] = self._shadow_starts(start_child)
+        [shadow] = self._shadow_starts(outcome.start_child)
         assert shadow.args[1] == ExecuteDAGInputs(
             team_id=7, dag_id="dag", node_ids=["a", "b"], managed_warehouse_only=True, shadow=True
         )
         assert shadow.kwargs["id"] == expected_shadow_id
         assert shadow.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
         assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=12)
-        assert result.successful_nodes == 2
+        assert outcome.result.successful_nodes == 2
 
     @pytest.mark.parametrize(
         "managed_warehouse_only,expected_engine",
@@ -1134,10 +1142,10 @@ class TestTrinoShadowRun:
         ],
     )
     async def test_a_shadow_that_cannot_start_does_not_fail_the_clickhouse_run(self, error: Exception) -> None:
-        result, _, _ = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
+        outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
 
-        assert result.successful_nodes == 2
-        assert result.failed_nodes == 0
+        assert outcome.result.successful_nodes == 2
+        assert outcome.result.failed_nodes == 0
 
     @pytest.mark.parametrize(
         "inputs,eligible,patched",
@@ -1159,20 +1167,20 @@ class TestTrinoShadowRun:
         ],
     )
     async def test_no_trino_shadow_starts(self, inputs: ExecuteDAGInputs, eligible: bool, patched: bool) -> None:
-        result, start_child, _ = await self._run(inputs, eligible=eligible, patched=patched)
+        outcome = await self._run(inputs, eligible=eligible, patched=patched)
 
-        assert self._shadow_starts(start_child) == []
-        assert result.successful_nodes == 2
+        assert self._shadow_starts(outcome.start_child) == []
+        assert outcome.result.successful_nodes == 2
 
     @pytest.mark.parametrize("shadow", [True, False])
     async def test_a_shadow_run_neither_checks_quality_nor_notifies_failures(self, shadow: bool) -> None:
-        result, _, execute_activity = await self._run(
+        outcome = await self._run(
             ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=True, shadow=shadow),
             failing_node_ids=frozenset({"b"}),
         )
 
-        started = self._activity_names(execute_activity)
-        assert result.failed_nodes == 1
+        started = self._activity_names(outcome.execute_activity)
+        assert outcome.result.failed_nodes == 1
         assert (MATERIALIZATION_GATE_ACTIVITY_NAME in started) is not shadow
         assert ("notify_dag_materialization_failures_activity" in started) is not shadow
 
@@ -1183,11 +1191,13 @@ class TestTrinoShadowRun:
     async def test_preemption_is_scoped_to_the_runs_engine(
         self, managed_warehouse_only: bool, engine: DataModelingJobEngine
     ) -> None:
-        _, _, execute_activity = await self._run(
+        outcome = await self._run(
             ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only), eligible=False
         )
 
         preempt_inputs = next(
-            call.args[1] for call in execute_activity.await_args_list if call.args[0] == preempt_dag_run_activity
+            call.args[1]
+            for call in outcome.execute_activity.await_args_list
+            if call.args[0] == preempt_dag_run_activity
         )
         assert preempt_inputs.engine == engine.value
