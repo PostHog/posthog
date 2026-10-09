@@ -50,6 +50,7 @@ CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.crea
 USAGE_LIMITED = "products.github_commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
 FLASH_AVAILABLE = "products.github_commands.backend.logic.handlers.review_hog_facade.flash_available"
 REQUEST_PR_REVIEW = "products.github_commands.backend.logic.handlers.review_hog_facade.request_pr_review"
+OWNING_TEAM_ID = "products.github_commands.backend.logic.handlers.review_hog_github.owning_team_id"
 CLAIM_CACHE = "products.github_commands.backend.logic.dispatch.cache"
 CONSUME_BUDGET = "products.github_commands.backend.logic.dispatch.consume"
 RUN_COMMENT_COMMAND = "products.github_commands.backend.tasks.tasks.run_comment_command.delay"
@@ -314,18 +315,37 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("flash", True, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
+            ("flash", "commenter_project", True, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
             (
                 "no_flash_in_project",
+                "commenter_project",
                 False,
                 RUN_MODE_REVIEW,
                 "Flash isn't available in this project, so PostHog Review started the full review.",
             ),
+            ("no_owner", None, True, None, "PostHog Review isn't set up for this repository."),
+            (
+                "owner_without_the_commenter",
+                "other_project",
+                True,
+                None,
+                "You aren't a member of the PostHog project that reviews this repository.",
+            ),
         ]
     )
-    def test_review_runs_flash_where_the_project_has_it(
-        self, _name: str, flash_available: bool, expected_mode: str, expected_message: str
+    def test_review_runs_in_the_project_that_owns_the_repository(
+        self,
+        _name: str,
+        owner: str | None,
+        flash_available: bool,
+        expected_mode: str | None,
+        expected_message: str,
     ) -> None:
+        owner_team_ids = {
+            "commenter_project": self.team.id,
+            "other_project": Team.objects.create(organization=self.organization, name="Other").id,
+            None: None,
+        }
         context = CommandContext(
             request=self._request(verb="review"),
             pull_request=_pull_request(),
@@ -335,14 +355,19 @@ class TestDispatchCommentCommand(BaseTest):
         started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
 
         with (
+            patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
             patch(FLASH_AVAILABLE, return_value=flash_available),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
             outcome = handle_review(context, ReviewArgs(full=False))
 
-        assert outcome.accepted
         assert outcome.message == expected_message
-        assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
+        assert outcome.accepted == (expected_mode is not None)
+        if expected_mode is None:
+            request_pr_review.assert_not_called()
+        else:
+            assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
+            assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
 
     @parameterized.expand(
         [("environment_of_a_denied_project",), ("unverified_email_domain",), ("organization_pending_deletion",)]

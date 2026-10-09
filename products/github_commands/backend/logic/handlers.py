@@ -14,7 +14,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
-from products.review_hog.backend.facade import reviews as review_hog_facade
+from products.review_hog.backend.facade import (
+    github as review_hog_github,
+    reviews as review_hog_facade,
+)
 from products.stamphog.backend.facade import (
     contracts as stamphog_contracts,
     review_requests as stamphog_requests,
@@ -59,14 +62,30 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     return CommandOutcome(accepted=False, message=refusal.message)
 
 
+def _team_in_project(team_ids: tuple[int, ...], project_team_id: int) -> int | None:
+    """The first of ``team_ids`` that belongs to the project, environments included."""
+    project_id = resolve_effective_team_id(project_team_id)
+    return next((team_id for team_id in team_ids if resolve_effective_team_id(team_id) == project_id), None)
+
+
 def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
-    """Start a PostHog Review run on the pull request, with the commenter as the acting user."""
-    team_id = context.team_ids[0]
+    """Start a PostHog Review run on the pull request, with the commenter as the acting user.
+
+    The project that owns the repository in PostHog Review decides, and the commenter must be a member of it.
+    """
+    pull_request = context.pull_request
+    owner_team_id = review_hog_github.owning_team_id(context.request.installation_id, pull_request.repository)
+    if owner_team_id is None:
+        return CommandOutcome(accepted=False, message="PostHog Review isn't set up for this repository.")
+    team_id = _team_in_project(context.team_ids, owner_team_id)
+    if team_id is None:
+        return CommandOutcome(
+            accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
+        )
     # Flash is the quick, cheap review, so it is what a plain `@posthog review` asks for. Where a
     # project has no Flash, the full review is the only review there is.
     flash_fallback = not args.full and not review_hog_facade.flash_available(team_id)
     run_mode = review_hog_facade.RUN_MODE_REVIEW if args.full or flash_fallback else review_hog_facade.RUN_MODE_FLASH
-    pull_request = context.pull_request
     outcome = review_hog_facade.request_pr_review(
         team_id=team_id,
         requester_id=context.user_id,
