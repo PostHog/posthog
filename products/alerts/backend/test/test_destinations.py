@@ -12,7 +12,11 @@ from parameterized import parameterized
 from posthog.models.team.team import Team
 
 from products.alerts.backend.facade.destinations import serialize_deliveries
-from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
+    HOG_FUNCTION_DESTINATION_TYPES,
+    build_alert_destination_config,
+)
 from products.alerts.backend.logic.destinations import (
     SPEC_BY_TEMPLATE_ID,
     AlertDestinationGroupKey,
@@ -170,7 +174,7 @@ def _group_key_of(config: AlertDestinationConfig) -> AlertDestinationGroupKey:
 
 
 class TestAlertDestinationGroupKey:
-    @pytest.mark.parametrize("destination_type", list(DestinationType))
+    @pytest.mark.parametrize("destination_type", HOG_FUNCTION_DESTINATION_TYPES)
     def test_a_config_built_for_any_destination_type_is_readable(self, destination_type: DestinationType) -> None:
         assert _group_key_of(_config_for(destination_type, "$logs_alert_firing")).is_config_readable
 
@@ -184,7 +188,7 @@ class TestAlertDestinationGroupKey:
 
     def test_template_ids_and_destination_types_name_each_other_one_to_one(self) -> None:
         assert set(SPEC_BY_TEMPLATE_ID) == {spec.template_id for spec in DESTINATION_SPECS.values()}
-        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(DestinationType)
+        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(HOG_FUNCTION_DESTINATION_TYPES)
 
 
 class TestGroupAlertDestinationRows:

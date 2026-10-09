@@ -22,6 +22,7 @@ to read a specific source; otherwise the oldest source's repos are tried first, 
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
@@ -30,8 +31,13 @@ from django.db.models import QuerySet
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.facade.contracts import (
+    CIDataFreshness,
+    GitHubSource,
+    GitHubSourceNotConnectedError,
+)
 from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
+from products.engineering_analytics.backend.logic.views.source_schema import OPTIONAL_WORKFLOW_RUNS_COLUMNS
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -118,6 +124,11 @@ class GitHubTables:
     reviews: str | None = None
     # True when the issue-events table has the requested_team column (see REQUESTED_TEAM_COLUMN).
     issue_events_team_requests: bool = False
+    # The OPTIONAL_WORKFLOW_RUNS_COLUMNS that the runs table has. A read selects NULL for the others.
+    workflow_runs_optional_columns: frozenset[str] = frozenset()
+    # When the last completed sync of each CI table started. None when the table never synced.
+    workflow_runs_synced_at: datetime | None = None
+    workflow_jobs_synced_at: datetime | None = None
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
     # The source these tables came from, already filtered by the caller's per-source warehouse RBAC.
@@ -195,6 +206,9 @@ def resolve_github_tables(
                 deployment_statuses=tables.get(DEPLOYMENT_STATUSES_SCHEMA),
                 reviews=tables.get(REVIEWS_SCHEMA),
                 issue_events_team_requests=candidate.tables.issue_events_team_requests,
+                workflow_runs_optional_columns=candidate.tables.workflow_runs_optional_columns,
+                workflow_runs_synced_at=candidate.tables.synced_at.get(WORKFLOW_RUNS_SCHEMA),
+                workflow_jobs_synced_at=candidate.tables.synced_at.get(WORKFLOW_JOBS_SCHEMA),
                 repository=candidate.repository,
                 source_id=candidate.source_id,
             )
@@ -218,12 +232,17 @@ class JobSourceTables:
     reviews: str | None = None
     source_id: str = ""
     depot_job_attempts: depot_ci.DepotJobAttempts | None = None
+    workflow_runs_optional_columns: frozenset[str] = frozenset()
 
     @property
     def runs_source(self) -> str:
         """The runs to read: the GitHub runs table plus this repo's Depot CI runs when synced."""
         return depot_ci.with_depot_runs(
-            self.github_workflow_runs, self.depot_job_attempts, self.pull_requests, self.github_workflow_jobs
+            self.github_workflow_runs,
+            self.depot_job_attempts,
+            self.pull_requests,
+            self.github_workflow_jobs,
+            optional_columns=self.workflow_runs_optional_columns,
         )
 
     @property
@@ -257,6 +276,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                     issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
                     reviews=tables.get(REVIEWS_SCHEMA),
                     source_id=str(source.id),
+                    workflow_runs_optional_columns=repo_tables.workflow_runs_optional_columns,
                 )
                 entries.append((repository, entry))
     # The views union every entry, so a repository that two GitHub sources sync takes its Depot table on
@@ -406,6 +426,9 @@ class _RepoTables(NamedTuple):
     # ``{endpoint: table name}`` for this one repo's synced curated schemas.
     names: dict[str, str]
     issue_events_team_requests: bool
+    workflow_runs_optional_columns: frozenset[str]
+    # ``{endpoint: last_synced_at}`` for the same schemas as ``names``.
+    synced_at: dict[str, datetime | None]
 
 
 class _RepoCandidate(NamedTuple):
@@ -535,14 +558,53 @@ def resolve_depot_job_attempts_tables(
     A Depot source syncs only the repository its ``repository`` input names, so that input decides
     which GitHub repository its runs join. The oldest source wins, like every other resolver here.
     """
-    tables: dict[str, depot_ci.DepotJobAttempts] = {}
+    return {
+        repository: depot.attempts
+        for repository, depot in _depot_job_attempts_by_repo(team, user_access_control).items()
+    }
+
+
+@frozen
+class _SyncedDepotJobAttempts:
+    attempts: depot_ci.DepotJobAttempts
+    synced_at: datetime | None
+
+
+def _depot_job_attempts_by_repo(
+    team: Team, user_access_control: "UserAccessControl | None"
+) -> dict[str, _SyncedDepotJobAttempts]:
+    by_repo: dict[str, _SyncedDepotJobAttempts] = {}
     for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
         repository = _source_repository(source).casefold()
-        table = depot_source_job_attempts_table(team, source) if repository else None
-        attempts = depot_ci.DepotJobAttempts.for_repository(table, repository) if table else None
-        if attempts:
-            tables.setdefault(repository, attempts)
-    return tables
+        schema = _synced_schema(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA) if repository else None
+        table = schema.table if schema is not None else None
+        attempts = depot_ci.DepotJobAttempts.for_repository(table.name, repository) if table is not None else None
+        if schema is not None and attempts is not None:
+            by_repo.setdefault(repository, _SyncedDepotJobAttempts(attempts=attempts, synced_at=schema.last_synced_at))
+    return by_repo
+
+
+def resolve_ci_data_freshness(
+    *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+) -> CIDataFreshness:
+    """When the CI data that ``tables`` reads was last synced from its source.
+
+    Runs and jobs of a repository with synced Depot CI job attempts come from two tables each, so each
+    time is the older of the two. Every row a read returns is then at least that fresh.
+    """
+    depot = _depot_job_attempts_by_repo(team, user_access_control).get(tables.repository.casefold())
+
+    def watermark(github_synced_at: datetime | None) -> datetime | None:
+        if depot is None:
+            return github_synced_at
+        if github_synced_at is None or depot.synced_at is None:
+            return None
+        return min(github_synced_at, depot.synced_at)
+
+    return CIDataFreshness(
+        runs_synced_at=watermark(tables.workflow_runs_synced_at),
+        jobs_synced_at=watermark(tables.workflow_jobs_synced_at) if tables.workflow_jobs else None,
+    )
 
 
 def depot_source_api_token(team: Team, source_id: str) -> str | None:
@@ -562,10 +624,15 @@ def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> s
 def _synced_table_name(team: Team, source: ExternalDataSource, schema_name: str) -> str | None:
     """The warehouse table a source syncs for ``schema_name``, or None. Only a plain identifier
     qualifies, because callers interpolate the name into HogQL."""
+    schema = _synced_schema(team, source, schema_name)
+    return schema.table.name if schema is not None and schema.table is not None else None
+
+
+def _synced_schema(team: Team, source: ExternalDataSource, schema_name: str) -> ExternalDataSchema | None:
     for schema in _synced_schemas(team=team, source=source):
         table = schema.table
         if schema.name == schema_name and table is not None and not table.deleted and _IDENTIFIER.match(table.name):
-            return table.name
+            return schema
     return None
 
 
@@ -590,6 +657,8 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     legacy_repo = _source_repository(source) or None
     by_repo: dict[str, dict[str, str]] = {}
     team_requests_by_repo: dict[str, bool] = {}
+    run_columns_by_repo: dict[str, frozenset[str]] = {}
+    synced_at_by_repo: dict[str, dict[str, datetime | None]] = {}
     for schema in _synced_schemas(team=team, source=source):
         repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
         if endpoint not in _CURATED_ENDPOINTS:
@@ -597,10 +666,20 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
         table = schema.table
         if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
             by_repo.setdefault(repository or "", {})[endpoint] = table.name
-            # Set together with the table name, so a later schema row for the same endpoint replaces both.
+            # Set together with the table name, so a later schema row for the same endpoint replaces all of them.
+            synced_at_by_repo.setdefault(repository or "", {})[endpoint] = schema.last_synced_at
             if endpoint == ISSUE_EVENTS_SCHEMA:
                 team_requests_by_repo[repository or ""] = REQUESTED_TEAM_COLUMN in (table.columns or {})
+            if endpoint == WORKFLOW_RUNS_SCHEMA:
+                run_columns_by_repo[repository or ""] = frozenset(OPTIONAL_WORKFLOW_RUNS_COLUMNS) & frozenset(
+                    table.columns or {}
+                )
     return {
-        repository: _RepoTables(names=names, issue_events_team_requests=team_requests_by_repo.get(repository, False))
+        repository: _RepoTables(
+            names=names,
+            issue_events_team_requests=team_requests_by_repo.get(repository, False),
+            workflow_runs_optional_columns=run_columns_by_repo.get(repository, frozenset()),
+            synced_at=synced_at_by_repo.get(repository, {}),
+        )
         for repository, names in by_repo.items()
     }

@@ -229,6 +229,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
@@ -1274,7 +1275,11 @@ class SignalReportViewSet(
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
-    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    # Monitoring has no supported lifecycle yet, so it is excluded from reads too.
+    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {
+        SignalReport.Status.DELETED,
+        SignalReport.Status.MONITORING,
+    }
     _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
@@ -1979,6 +1984,11 @@ class SignalReportViewSet(
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
             implementation_pr_by_report = {}
             pull_requests_map = {}
+        try:
+            source_suggestion = current_source_suggestion(self.team, str(report.id))
+        except Exception:
+            logger.exception("signals.enriched_context.source_suggestion_failed", report_id=str(report.id))
+            source_suggestion = None
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -1988,6 +1998,7 @@ class SignalReportViewSet(
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            "source_suggestions_map": {str(report.id): source_suggestion},
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -3221,6 +3232,20 @@ class SignalReportViewSet(
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
+            # A merged report has no signals of its own left: they moved to the survivor, and
+            # so did its work log. Restoring it would put an empty duplicate back in the inbox
+            # and start it collecting again alongside the report it was folded into.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED}
+                and was_merged_away(report)
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "This report was merged into another one and can't be restored. Open the report it was "
+                    "merged into instead.",
+                )
+
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
             # through the archive into RESOLVED from candidate/in_progress with no title or summary.
@@ -3248,15 +3273,6 @@ class SignalReportViewSet(
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
-                    )
-                # A merged report has no signals of its own left: they moved to the survivor, and
-                # so did its work log. Restoring it would put an empty duplicate back in the inbox
-                # and start it collecting again alongside the report it was folded into.
-                if was_merged_away(report):
-                    return (
-                        SignalReportBulkStateOutcome.SKIPPED,
-                        "This report was merged into another one and can't be restored. Open the report it was "
-                        "merged into instead.",
                     )
                 effective_target = report.restore_target_status()
 

@@ -72,7 +72,8 @@ class LightdashSource(SimpleSource[LightdashSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Appending would add a copy of every run in the API's rolling 7-day window on each sync.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=["scheduler_runs"])
 
     def validate_credentials(
         self,

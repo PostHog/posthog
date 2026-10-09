@@ -1,25 +1,34 @@
 //! The outputs layer: the produce surface above the sinks.
 //!
 //! An [`Output`] is a published-to destination: either a single backend
-//! leaf, or a policy composing two child outputs. Today the one policy is
-//! failover (health-gated Kafka primary with an S3 secondary). Policies
-//! operate on *events*, before any payload prep, so each target resolves
-//! topics and serializes for itself.
+//! sink, or a policy composing two child outputs. Today the one policy is
+//! failover (health-gated Kafka primary with an S3 secondary).
+//!
+//! Outputs take two routes. The v0 event route ([`PublishEvents`]) hands over
+//! events before any payload prep, so each target resolves topics and
+//! serializes for itself. The prepared route ([`PublishPrepared`]) hands over
+//! [`PreparedEvent`]s, already serialized and addressed, and reports one
+//! result per event. Every sink and every policy serves both.
 
 use async_trait::async_trait;
+use common_types::CapturedEventHeaders;
 use metrics::{counter, gauge};
 use tracing::instrument;
 use tracing::log::error;
+use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::ordering::OrderingGuarantee;
+use crate::pipeline::Address;
+use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v0_request::ProcessedEvent;
 
-/// The leaf produce contract: run prep, publish, and fold internally and
+/// The sink produce contract: run prep, publish, and fold internally and
 /// report the v0 whole-request result, so no caller sees a two-phase
 /// protocol.
 ///
 /// `pub` rather than `pub(crate)` because the integration suites in
-/// `tests/` stand their own capturing sinks in as output leaves; there is
+/// `tests/` stand their own capturing sinks in as outputs; there is
 /// no other reason to implement it outside this crate.
 #[async_trait]
 pub trait PublishEvents: Send + Sync {
@@ -28,26 +37,48 @@ pub trait PublishEvents: Send + Sync {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 }
 
+#[derive(Debug, Clone)]
+pub struct PreparedEvent {
+    pub uuid: Uuid,
+    pub address: Address,
+    pub partition_key: String,
+    pub ordering: OrderingGuarantee,
+    pub payload: bytes::Bytes,
+    pub headers: CapturedEventHeaders,
+}
+
+/// Returns one [`SinkResult`] per input event, in input order. A failure is
+/// reported in that event's result and does not affect the other events.
+#[async_trait]
+pub trait PublishPrepared: Send + Sync {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult>;
+}
+
+pub trait Sink: PublishEvents + PublishPrepared {}
+
+impl<T: PublishEvents + PublishPrepared> Sink for T {}
+
 pub struct Output {
     inner: Inner,
 }
 
 enum Inner {
-    Single(Box<dyn PublishEvents>),
+    Single(Box<dyn Sink>),
     Failover(Failover),
 }
 
 impl Output {
-    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
+    pub fn single<S: Sink + 'static>(sink: S) -> Self {
         Self {
-            inner: Inner::Single(Box::new(leaf)),
+            inner: Inner::Single(Box::new(sink)),
         }
     }
 
     /// Health-gated failover over two outputs. While the advisory handle
     /// reports unhealthy the primary is skipped entirely; without a handle
     /// the primary is always tried first. A retriable primary failure
-    /// re-publishes the batch on the fallback. Any other error is final:
+    /// re-publishes the batch on the fallback, or on the prepared route only
+    /// the events that failed. Any other error is final:
     /// a non-retryable error is a property of the event, not the backend,
     /// so the fallback would reject it too.
     pub(crate) fn failover(
@@ -75,8 +106,18 @@ impl Output {
 impl PublishEvents for Output {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         match &self.inner {
-            Inner::Single(leaf) => leaf.publish_events(events).await,
+            Inner::Single(sink) => sink.publish_events(events).await,
             Inner::Failover(failover) => failover.publish_events(events).await,
+        }
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for Output {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        match &self.inner {
+            Inner::Single(sink) => sink.publish_prepared(events).await,
+            Inner::Failover(failover) => failover.publish_prepared(events).await,
         }
     }
 }
@@ -115,6 +156,46 @@ impl Failover {
             self.fallback.publish_events(events).await
         }
     }
+
+    #[instrument(skip_all)]
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        let healthy = self.primary_is_healthy();
+        gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
+
+        if !healthy {
+            counter!("capture_fallback_sink_failovers_total").increment(1);
+            return self.fallback.publish_prepared(events).await;
+        }
+
+        let mut results = self.primary.publish_prepared(events.clone()).await;
+        debug_assert_eq!(results.len(), events.len());
+        // Retry by position, not uuid: v0 accepts client-supplied uuids
+        // unchecked, so a batch can repeat one.
+        let retry: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter(|(_, result)| {
+                matches!(
+                    result.outcome,
+                    Outcome::Failed(CaptureError::RetryableSinkError)
+                )
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+        if retry.is_empty() {
+            return results;
+        }
+
+        error!("Primary output failed, falling back");
+        counter!("capture_fallback_sink_failovers_total").increment(1);
+        let mut events: Vec<Option<PreparedEvent>> = events.into_iter().map(Some).collect();
+        let retry_events = retry.iter().filter_map(|&idx| events[idx].take()).collect();
+        let fallback_results = self.fallback.publish_prepared(retry_events).await;
+        for (idx, result) in retry.into_iter().zip(fallback_results) {
+            results[idx] = result;
+        }
+        results
+    }
 }
 
 /// The (pipeline, lane) → output map the deployment state holds. One
@@ -131,8 +212,8 @@ impl OutputRegistry {
         Self { output }
     }
 
-    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
-        Self::new(Output::single(leaf))
+    pub fn single<S: Sink + 'static>(sink: S) -> Self {
+        Self::new(Output::single(sink))
     }
 
     /// Per-event failures collapse to a whole-request `CaptureError`.
@@ -142,24 +223,113 @@ impl OutputRegistry {
     pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.output.publish_events(events).await
     }
+
+    pub async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        self.output.publish_prepared(events).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipeline::{Lane, Pipeline};
     use crate::sinks::test_sink::MockSink;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    struct FailLeaf(CaptureError);
+    struct FailSink(CaptureError);
 
     #[async_trait]
-    impl PublishEvents for FailLeaf {
+    impl PublishEvents for FailSink {
         async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             Err(self.0.clone())
         }
+    }
+
+    #[async_trait]
+    impl PublishPrepared for FailSink {
+        async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+            events
+                .iter()
+                .map(|event| SinkResult::failed(event.uuid, self.0.clone()))
+                .collect()
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct PreparedSink {
+        failures: Arc<HashMap<Uuid, CaptureError>>,
+        seen: Arc<Mutex<Vec<Uuid>>>,
+    }
+
+    impl PreparedSink {
+        fn failing(failures: impl IntoIterator<Item = (Uuid, CaptureError)>) -> Self {
+            Self {
+                failures: Arc::new(failures.into_iter().collect()),
+                ..Self::default()
+            }
+        }
+
+        fn seen(&self) -> Vec<Uuid> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl PublishEvents for PreparedSink {
+        async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+            unreachable!("prepared-route tests publish prepared events")
+        }
+    }
+
+    #[async_trait]
+    impl PublishPrepared for PreparedSink {
+        async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+            self.seen
+                .lock()
+                .unwrap()
+                .extend(events.iter().map(|event| event.uuid));
+            events
+                .iter()
+                .map(|event| match self.failures.get(&event.uuid) {
+                    Some(err) => SinkResult::failed(event.uuid, err.clone()),
+                    None => SinkResult::published(event.uuid),
+                })
+                .collect()
+        }
+    }
+
+    fn prepared_event() -> PreparedEvent {
+        let event = test_event().event;
+        PreparedEvent {
+            uuid: Uuid::now_v7(),
+            address: Address::Lane {
+                pipeline: Pipeline::Analytics,
+                lane: Lane::Main,
+            },
+            partition_key: event.key(),
+            ordering: OrderingGuarantee::PerDistinctId,
+            payload: bytes::Bytes::from_static(b"{}"),
+            headers: event.to_headers(),
+        }
+    }
+
+    fn outcomes(results: Vec<SinkResult>) -> Vec<(Uuid, Option<String>)> {
+        results
+            .into_iter()
+            .map(|result| match result.outcome {
+                Outcome::Published => (result.uuid, None),
+                Outcome::Failed(err) => (result.uuid, Some(format!("{err:?}"))),
+            })
+            .collect()
+    }
+
+    fn failed(err: CaptureError) -> Option<String> {
+        Some(format!("{err:?}"))
     }
 
     fn test_event() -> ProcessedEvent {
@@ -201,7 +371,7 @@ mod tests {
     async fn failover_republishes_on_retriable_primary_failure() {
         let fallback = MockSink::new();
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
             Output::single(fallback.clone()),
             None,
         );
@@ -217,8 +387,8 @@ mod tests {
     #[tokio::test]
     async fn failover_reports_the_error_when_both_targets_fail() {
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
             None,
         );
 
@@ -234,7 +404,7 @@ mod tests {
     async fn fatal_primary_error_does_not_fail_over() {
         let fallback = MockSink::new();
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::NonRetryableSinkError)),
+            Output::single(FailSink(CaptureError::NonRetryableSinkError)),
             Output::single(fallback.clone()),
             None,
         );
@@ -309,8 +479,8 @@ mod tests {
 
     #[tokio::test]
     async fn registry_publishes_to_its_output() {
-        let leaf = MockSink::new();
-        let registry = OutputRegistry::single(leaf.clone());
+        let sink = MockSink::new();
+        let registry = OutputRegistry::single(sink.clone());
 
         registry.publish(vec![test_event()]).await.unwrap();
         registry
@@ -318,6 +488,121 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(leaf.get_events().len(), 3);
+        assert_eq!(sink.get_events().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn prepared_route_reports_one_result_per_event_in_order() {
+        let events = vec![prepared_event(), prepared_event(), prepared_event()];
+        let uuids: Vec<Uuid> = events.iter().map(|event| event.uuid).collect();
+        let sink = PreparedSink::failing([(uuids[1], CaptureError::NonRetryableSinkError)]);
+        let registry = OutputRegistry::single(sink.clone());
+
+        let results = outcomes(registry.publish_prepared(events).await);
+
+        assert_eq!(
+            results,
+            vec![
+                (uuids[0], None),
+                (uuids[1], failed(CaptureError::NonRetryableSinkError)),
+                (uuids[2], None),
+            ]
+        );
+        assert_eq!(sink.seen(), uuids);
+    }
+
+    #[tokio::test]
+    async fn prepared_failover_republishes_only_retriable_events() {
+        let events = vec![prepared_event(), prepared_event(), prepared_event()];
+        let uuids: Vec<Uuid> = events.iter().map(|event| event.uuid).collect();
+        let primary = PreparedSink::failing([
+            (uuids[1], CaptureError::RetryableSinkError),
+            (uuids[2], CaptureError::NonRetryableSinkError),
+        ]);
+        let fallback = PreparedSink::default();
+        let output = Output::failover(
+            Output::single(primary.clone()),
+            Output::single(fallback.clone()),
+            None,
+        );
+
+        let results = outcomes(output.publish_prepared(events).await);
+
+        assert_eq!(
+            results,
+            vec![
+                (uuids[0], None),
+                (uuids[1], None),
+                (uuids[2], failed(CaptureError::NonRetryableSinkError)),
+            ],
+            "a fatal primary failure is final; a retriable one takes the fallback's result"
+        );
+        assert_eq!(primary.seen(), uuids);
+        assert_eq!(fallback.seen(), vec![uuids[1]]);
+    }
+
+    #[tokio::test]
+    async fn prepared_failover_leaves_the_fallback_idle_when_the_primary_succeeds() {
+        let fallback = PreparedSink::default();
+        let output = Output::failover(
+            Output::single(PreparedSink::default()),
+            Output::single(fallback.clone()),
+            None,
+        );
+
+        let results = outcomes(
+            output
+                .publish_prepared(vec![prepared_event(), prepared_event()])
+                .await,
+        );
+
+        assert!(results.iter().all(|(_, err)| err.is_none()));
+        assert!(fallback.seen().is_empty());
+    }
+
+    #[tokio::test]
+    async fn prepared_failover_reports_the_fallback_failure() {
+        let output = Output::failover(
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            None,
+        );
+
+        let results = outcomes(output.publish_prepared(vec![prepared_event()]).await);
+
+        assert_eq!(results[0].1, failed(CaptureError::RetryableSinkError));
+    }
+
+    #[tokio::test]
+    async fn prepared_failover_skips_an_unhealthy_primary() {
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_health_poll_interval(Duration::from_millis(50))
+            .build();
+        let kafka_handle = manager.register(
+            "kafka-advisory",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_millis(200))
+                .is_advisory(true),
+        );
+        let _monitor = manager.monitor_background();
+
+        let primary = PreparedSink::default();
+        let fallback = PreparedSink::default();
+        let output = Output::failover(
+            Output::single(primary.clone()),
+            Output::single(fallback.clone()),
+            Some(kafka_handle.clone()),
+        );
+
+        kafka_handle.report_healthy();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let event = prepared_event();
+        let uuid = event.uuid;
+        output.publish_prepared(vec![event]).await;
+
+        assert!(primary.seen().is_empty());
+        assert_eq!(fallback.seen(), vec![uuid]);
     }
 }
