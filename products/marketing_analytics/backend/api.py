@@ -912,6 +912,15 @@ class CapabilityReadinessSerializer(serializers.Serializer):
 
 
 class SetupPlanResponseSerializer(serializers.Serializer):
+    source_scanned_at = serializers.SerializerMethodField(
+        help_text="Time of the latest seven-day source scan, including cached scans. Null if no scan time is available."
+    )
+
+    def get_source_scanned_at(self, obj: dict[str, object]) -> str | None:
+        team_id = self.context.get("team_id")
+        scanned_at = cache.get(f"marketing_analytics:source_scan:v1:{team_id}:7:scanned_at") if team_id else None
+        return scanned_at.isoformat() if scanned_at else None
+
     suggestions = SuggestionSerializer(many=True, help_text="Ranked suggestions, most important first")
     readiness = CapabilityReadinessSerializer(
         many=True, help_text="Per-capability readiness, with the suggestions blocking each"
@@ -1647,7 +1656,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if not request.validated_query_data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
-                return Response(SetupPlanResponseSerializer(cached).data)
+                return Response(SetupPlanResponseSerializer(cached, context={"team_id": self.team.pk}).data)
         try:
             plan = async_to_sync(get_setup_plan)(
                 self.team,
@@ -1663,7 +1672,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             # whatever caused them has recovered.
             if not plan.degraded:
                 cache.set(cache_key, payload, _SETUP_PLAN_CACHE_SECONDS)
-            return Response(SetupPlanResponseSerializer(payload).data)
+            return Response(SetupPlanResponseSerializer(payload, context={"team_id": self.team.pk}).data)
         except Exception:
             logger.exception("marketing_setup_plan_failed", team_id=self.team.pk)
             return Response(

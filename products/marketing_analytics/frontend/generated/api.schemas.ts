@@ -2284,6 +2284,11 @@ export interface CapabilityReadinessApi {
 }
 
 export interface SetupPlanResponseApi {
+    /**
+     * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+     * @nullable
+     */
+    readonly source_scanned_at: string | null
     /** Ranked suggestions, most important first */
     suggestions: SuggestionApi[]
     /** Per-capability readiness, with the suggestions blocking each */

@@ -7,11 +7,16 @@ import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashboard/SearchConsoleSource'
+import { SourceOnboarding } from 'products/marketing_analytics/frontend/dashboard/SourceOnboarding'
 
 import { MarketingAnalyticsSourceStatusBanner } from '../../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { ConversionGoalsConfiguration } from '../../web-analytics/tabs/marketing-analytics/frontend/components/settings/ConversionGoalsConfiguration'
@@ -28,6 +33,18 @@ interface OnboardingProps {
 }
 
 export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ? (
+        <SourceOnboarding completeOnboarding={completeOnboarding} />
+    ) : (
+        <>
+            <LegacyOnboarding completeOnboarding={completeOnboarding} />
+            <SearchConsoleSource />
+        </>
+    )
+}
+
+function LegacyOnboarding({ completeOnboarding }: OnboardingProps): JSX.Element {
     const { reportMarketingAnalyticsOnboardingViewed, reportMarketingAnalyticsOnboardingCompleted } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
