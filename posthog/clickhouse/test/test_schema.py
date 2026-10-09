@@ -9,7 +9,7 @@ import pytest
 from django.conf import settings as django_settings
 from django.test import override_settings
 
-from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.models import DatabaseField, ExpressionField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
@@ -246,7 +246,7 @@ def _hogql_column_names(table: Table) -> set[str]:
     for field in table.fields.values():
         if isinstance(field, Table):
             names |= _hogql_column_names(field)
-        elif isinstance(field, DatabaseField):
+        elif isinstance(field, DatabaseField) and not isinstance(field, ExpressionField):
             names.add(field.name)
     return names
 
