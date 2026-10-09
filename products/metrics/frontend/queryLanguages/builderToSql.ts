@@ -1,6 +1,12 @@
 import type { MetricsAttributeScope } from '~/queries/schema/schema-general'
 
-import { type BuilderClause, type BuilderQuery, type ConversionResult, normalizeLabelKey } from './types'
+import {
+    type BuilderClause,
+    type BuilderQuery,
+    type ConversionResult,
+    normalizeClause,
+    normalizeLabelKey,
+} from './types'
 
 /**
  * Builder → SQL for a SQL metrics insight.
@@ -8,12 +14,16 @@ import { type BuilderClause, type BuilderQuery, type ConversionResult, normalize
  * The SQL follows the SQL-mode contract: a `time` column, a numeric `value` column, and one column
  * per label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in by the
  * backend, so dashboard date filters still apply. Each clause mirrors the query the builder engine
- * runs (products/metrics/backend/metric_query_runner.py): the last value of each series per bucket
- * for gauges, per-sample deltas with counter-reset handling for rate/increase, and the same bucket
- * interpolation for histogram quantiles. `sqlToBuilder` reads this exact shape back.
+ * runs (products/metrics/backend/metric_query_runner.py): one value per series and bucket (the last
+ * value, or the rate or increase from per-sample deltas with counter-reset handling), then the
+ * aggregation across series, and the same bucket interpolation for histogram quantiles. A clause
+ * without an aggregation keeps each series. `sqlToBuilder` reads this exact shape back.
  */
 
-export const SQL_RESERVED_COLUMNS = new Set(['time', 'value', 'clause'])
+/** The label column of a clause without an aggregation: SQL cannot list the attributes of each series. */
+export const PER_SERIES_COLUMN = 'series_fingerprint'
+
+export const SQL_RESERVED_COLUMNS = new Set(['time', 'value', 'clause', PER_SERIES_COLUMN])
 
 export const quoteSqlString = (value: string): string => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
@@ -126,6 +136,10 @@ function labelSelect(clause: BuilderClause, options: ClauseSqlOptions): { column
         columns.push(`${quoteSqlString(options.clauseLabel)} AS clause`)
     }
     for (const key of options.labelKeys) {
+        if (key === PER_SERIES_COLUMN) {
+            columns.push(`${clause.aggregation ? "''" : 'toString(s.series_fingerprint)'} AS ${key}`)
+            continue
+        }
         const index = own.indexOf(key)
         columns.push(`${index >= 0 ? `ser.group_${index}` : "''"} AS ${quoteSqlIdentifier(key)}`)
         if (index >= 0) {
@@ -145,37 +159,29 @@ const SIMPLE_VALUE: Record<string, (q: number | undefined) => string> = {
     quantile: (q) => `quantile(${q ?? 0.95})(s.series_value)`,
 }
 
-function simpleClauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
-    const labels = labelSelect(clause, options)
-    const join = groupJoin(clause)
-    const lines = [
+/** The last value of each series in each bucket. */
+function lastValueSql(clause: BuilderClause): string[] {
+    return [
         'SELECT',
-        `    ${['s.time AS time', ...labels.columns, `${SIMPLE_VALUE[clause.aggregation](clause.quantile)} AS value`].join(',\n    ')}`,
-        'FROM (',
-        '    SELECT',
-        '        toStartOfInterval(timestamp, {interval}) AS time,',
-        '        series_fingerprint,',
-        '        argMax(value, timestamp) AS series_value',
-        '    FROM posthog.metrics',
-        indent(whereBlock(pointsWhere(clause, '{date_from}')), 4),
-        '    GROUP BY time, series_fingerprint',
-        ') AS s',
-        ...(join ? [join] : []),
-        `GROUP BY ${['time', ...labels.groupBy].join(', ')}`,
-        ...(options.orderByTime ? ['ORDER BY time'] : []),
+        '    toStartOfInterval(timestamp, {interval}) AS time,',
+        '    series_fingerprint,',
+        '    argMax(value, timestamp) AS series_value',
+        'FROM posthog.metrics',
+        whereBlock(pointsWhere(clause, '{date_from}')),
+        'GROUP BY time, series_fingerprint',
     ]
-    return lines.join('\n')
 }
 
 const COUNTER_LOOKBACK_FROM = '{date_from} - toIntervalSecond(greatest({interval_seconds}, 300))'
 
-function counterClauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
-    const labels = labelSelect(clause, options)
-    const join = groupJoin(clause)
-    const value = clause.aggregation === 'rate' ? 'sum(s.contribution) / {interval_seconds}' : 'sum(s.contribution)'
-    const lines = [
+/** The rate or increase of each series in each bucket, from per-sample deltas. */
+function rangeFunctionSql(clause: BuilderClause): string[] {
+    const value = clause.rangeFunction === 'rate' ? 'sum(c.contribution) / {interval_seconds}' : 'sum(c.contribution)'
+    return [
         'SELECT',
-        `    ${['toStartOfInterval(s.sample_timestamp, {interval}) AS time', ...labels.columns, `${value} AS value`].join(',\n    ')}`,
+        '    toStartOfInterval(c.sample_timestamp, {interval}) AS time,',
+        '    c.series_fingerprint AS series_fingerprint,',
+        `    ${value} AS series_value`,
         'FROM (',
         '    SELECT',
         '        timestamp AS sample_timestamp,',
@@ -200,11 +206,27 @@ function counterClauseSql(clause: BuilderClause, options: ClauseSqlOptions): str
         '        FROM posthog.metrics',
         indent(whereBlock(pointsWhere(clause, COUNTER_LOOKBACK_FROM)), 8),
         '    )',
+        ') AS c',
+        'WHERE c.sample_timestamp >= {date_from}',
+        'GROUP BY time, series_fingerprint',
+        'HAVING isNotNull(series_value)',
+    ]
+}
+
+/** Combines the per-series values of a clause, or keeps each series when it has no aggregation. */
+function seriesClauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
+    const labels = labelSelect(clause, options)
+    const join = groupJoin(clause)
+    const value = clause.aggregation ? SIMPLE_VALUE[clause.aggregation](clause.quantile) : 's.series_value'
+    const inner = clause.rangeFunction ? rangeFunctionSql(clause) : lastValueSql(clause)
+    const lines = [
+        'SELECT',
+        `    ${['s.time AS time', ...labels.columns, `${value} AS value`].join(',\n    ')}`,
+        'FROM (',
+        indent(inner.join('\n'), 4),
         ') AS s',
         ...(join ? [join] : []),
-        'WHERE s.sample_timestamp >= {date_from}',
-        `GROUP BY ${['time', ...labels.groupBy].join(', ')}`,
-        'HAVING isNotNull(value)',
+        ...(clause.aggregation ? [`GROUP BY ${['time', ...labels.groupBy].join(', ')}`] : []),
         ...(options.orderByTime ? ['ORDER BY time'] : []),
     ]
     return lines.join('\n')
@@ -287,15 +309,9 @@ function histogramClauseSql(clause: BuilderClause, options: ClauseSqlOptions): s
 }
 
 function clauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
-    switch (clause.aggregation) {
-        case 'rate':
-        case 'increase':
-            return counterClauseSql(clause, options)
-        case 'histogram_quantile':
-            return histogramClauseSql(clause, options)
-        default:
-            return simpleClauseSql(clause, options)
-    }
+    return clause.aggregation === 'histogram_quantile'
+        ? histogramClauseSql(clause, options)
+        : seriesClauseSql(clause, options)
 }
 
 /** Builder formula → SQL expression over the per-clause value columns. The grammar is the same. */
@@ -303,12 +319,18 @@ const formulaToSql = (formula: string): string => formula.replace(/\s+/g, ' ').t
 
 export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     const issues: string[] = []
-    const clauses = query.clauses.filter((clause) => clause.metricName.trim())
+    const clauses = query.clauses.filter((clause) => clause.metricName.trim()).map(normalizeClause)
     if (clauses.length === 0) {
         return { value: '', issues }
     }
     const labelKeys: string[] = []
     for (const clause of clauses) {
+        if (!clause.aggregation) {
+            issues.push(`SQL names each series of ${clause.name} by its fingerprint, not by its attributes.`)
+            if (!labelKeys.includes(PER_SERIES_COLUMN)) {
+                labelKeys.push(PER_SERIES_COLUMN)
+            }
+        }
         for (const group of clause.groupBy ?? []) {
             const key = normalizeLabelKey(group.key)
             if (SQL_RESERVED_COLUMNS.has(key)) {

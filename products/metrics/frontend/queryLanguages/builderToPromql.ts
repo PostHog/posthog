@@ -1,7 +1,14 @@
 import { type Matcher, type PromExpr, PromQLParseError, parsePromQL, unwrapParens } from './promqlParser'
 import { printPromQL } from './promqlPrinter'
 import { builderRegexToPromRegex } from './regex'
-import { type BuilderClause, type BuilderQuery, CLAUSE_LABEL, type ConversionResult, normalizeLabelKey } from './types'
+import {
+    type BuilderClause,
+    type BuilderQuery,
+    CLAUSE_LABEL,
+    type ConversionResult,
+    normalizeClause,
+    normalizeLabelKey,
+} from './types'
 
 const FILTER_OP_TO_MATCH_OP: Record<string, Matcher['op']> = {
     eq: '=',
@@ -18,7 +25,8 @@ interface ClauseExpr {
     labels: string[]
 }
 
-function clauseToPromExpr(clause: BuilderClause, issues: string[]): ClauseExpr {
+function clauseToPromExpr(builderClause: BuilderClause, issues: string[]): ClauseExpr {
+    const clause = normalizeClause(builderClause)
     const matchers: Matcher[] = []
     for (const filter of clause.filters ?? []) {
         if (filter.scope && filter.scope !== 'auto') {
@@ -46,24 +54,23 @@ function clauseToPromExpr(clause: BuilderClause, issues: string[]): ClauseExpr {
     const grouping = labels.length ? { without: false, labels } : undefined
     const selector: PromExpr = { type: 'selector', name: clause.metricName, matchers }
 
+    // An omitted range uses the query step, which is how the builder computes per-bucket rates.
+    const series: PromExpr = clause.rangeFunction
+        ? { type: 'call', func: clause.rangeFunction, args: [selector] }
+        : selector
+
     let expr: PromExpr
     switch (clause.aggregation) {
-        case 'rate':
-        case 'increase':
-            // An omitted range uses the query step, which is how the builder computes per-bucket rates.
-            expr = {
-                type: 'aggregate',
-                op: 'sum',
-                expr: { type: 'call', func: clause.aggregation, args: [selector] },
-                ...(grouping ? { grouping } : {}),
-            }
+        case undefined:
+            // Without an aggregation, each series is its own line.
+            expr = series
             break
         case 'quantile':
             expr = {
                 type: 'aggregate',
                 op: 'quantile',
                 param: { type: 'number', value: clause.quantile ?? 0.95 },
-                expr: selector,
+                expr: series,
                 ...(grouping ? { grouping } : {}),
             }
             break
@@ -93,7 +100,7 @@ function clauseToPromExpr(clause: BuilderClause, issues: string[]): ClauseExpr {
             expr = {
                 type: 'aggregate',
                 op: SIMPLE_AGGREGATIONS.has(clause.aggregation) ? clause.aggregation : 'sum',
-                expr: selector,
+                expr: series,
                 ...(grouping ? { grouping } : {}),
             }
     }

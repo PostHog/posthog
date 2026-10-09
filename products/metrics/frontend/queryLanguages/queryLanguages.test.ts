@@ -29,8 +29,25 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
     'gauge max': { clauses: [clause({ metricName: 'jvm.memory.used', aggregation: 'max' })] },
     'series count': { clauses: [clause({ metricName: 'up', aggregation: 'count' })] },
     p95: { clauses: [clause({ metricName: 'request_latency_ms', aggregation: 'quantile', quantile: 0.95 })] },
-    'counter rate': { clauses: [clause({ metricName: 'http.server.request.count', aggregation: 'rate' })] },
-    'counter increase': { clauses: [clause({ metricName: 'jobs_processed_total', aggregation: 'increase' })] },
+    'counter rate': {
+        clauses: [clause({ metricName: 'http.server.request.count', aggregation: 'sum', rangeFunction: 'rate' })],
+    },
+    'legacy increase aggregation': {
+        clauses: [clause({ metricName: 'jobs_processed_total', aggregation: 'increase' })],
+    },
+    'max of per-series increase by service': {
+        clauses: [
+            clause({
+                metricName: 'jobs_processed_total',
+                aggregation: 'max',
+                rangeFunction: 'increase',
+                groupBy: [{ key: 'service_name' }],
+            }),
+        ],
+    },
+    'count of per-series rate': {
+        clauses: [clause({ metricName: 'http.server.request.count', aggregation: 'count', rangeFunction: 'rate' })],
+    },
     'histogram p99': {
         clauses: [clause({ metricName: 'http.server.duration', aggregation: 'histogram_quantile', quantile: 0.99 })],
     },
@@ -541,10 +558,15 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         'lossy',
     ],
     ['sum without (instance) (queue_depth)', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
-    ['queue_depth', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
+    ['queue_depth', { clauses: [clause({ metricName: 'queue_depth', aggregation: undefined })] }, 'lossless'],
+    [
+        'rate(http_requests_total)',
+        { clauses: [clause({ metricName: 'http_requests_total', aggregation: undefined, rangeFunction: 'rate' })] },
+        'lossless',
+    ],
     [
         'rate(http_requests_total[1m])',
-        { clauses: [clause({ metricName: 'http_requests_total', aggregation: 'rate' })] },
+        { clauses: [clause({ metricName: 'http_requests_total', aggregation: undefined, rangeFunction: 'rate' })] },
         'lossy',
     ],
     [
@@ -554,8 +576,8 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
     ],
     [
         'avg(rate(http_requests_total))',
-        { clauses: [clause({ metricName: 'http_requests_total', aggregation: 'rate' })] },
-        'lossy',
+        { clauses: [clause({ metricName: 'http_requests_total', aggregation: 'avg', rangeFunction: 'rate' })] },
+        'lossless',
     ],
     ['abs(sum(queue_depth))', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
     ['sum(avg_over_time(queue_depth[5m]))', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
@@ -575,7 +597,7 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         { clauses: [clause({ metricName: 'http_requests_total', aggregation: 'rate' })] },
         'lossy',
     ],
-    ['up == 1', { clauses: [clause({ metricName: 'up' })] }, 'lossy'],
+    ['up == 1', { clauses: [clause({ metricName: 'up', aggregation: undefined })] }, 'lossy'],
     ['sum({__name__=~"queue_.*"})', null, 'lossy'],
     ['vector(1)', null, 'lossy'],
     ['sum(', null, 'lossy'],
@@ -696,6 +718,7 @@ describe('metrics query languages', () => {
             ['gauge sum', 'sum(queue_depth)'],
             ['gauge avg', 'avg({"process.cpu.utilization"})'],
             ['counter rate', 'sum(rate({"http.server.request.count"}))'],
+            ['max of per-series increase by service', 'max by (service_name) (increase(jobs_processed_total))'],
             ['p95', 'quantile(0.95, request_latency_ms)'],
             ['histogram p99', 'histogram_quantile(0.99, sum by (le) (rate({"http.server.duration_bucket"})))'],
             ['multi-value chip regex', 'sum(queue_depth{service_name=~"api|worker"})'],
@@ -840,6 +863,19 @@ describe('metrics query languages', () => {
             ['PromQL that cannot be read', metricsQuery({ language: 'promql', promql: 'sum(' }), 'sql'],
         ])('warns about %s', (_name, query, to) => {
             expect(convertMetricsQuery(query, to).issues.length).toBeGreaterThan(0)
+        })
+
+        it('names per-series SQL by fingerprint and reads it back as per-series', () => {
+            const perSeries: BuilderQuery = {
+                clauses: [
+                    clause({ metricName: 'jobs_processed_total', aggregation: undefined, rangeFunction: 'rate' }),
+                ],
+            }
+            const sql = builderToSql(perSeries)
+            expect(sql.issues).toEqual(['SQL names each series of a by its fingerprint, not by its attributes.'])
+            const back = sqlToBuilder(sql.value!)
+            expect(back.issues).toEqual([])
+            expect(canonicalBuilder(back.value!)).toEqual(canonicalBuilder(perSeries))
         })
 
         it('reports an edit to generated SQL that the builder cannot hold', () => {

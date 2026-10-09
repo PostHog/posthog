@@ -88,7 +88,7 @@ class ClauseReader {
     }
 
     /** A counter function over a selector, such as `rate(x[5m])`. */
-    private counterCall(expr: PromExpr): { aggregation: 'rate' | 'increase'; selector: SelectorExpr } | null {
+    private counterCall(expr: PromExpr): { rangeFunction: 'rate' | 'increase'; selector: SelectorExpr } | null {
         expr = unwrapParens(expr)
         if (expr.type !== 'call' || !COUNTER_FUNCTIONS.has(expr.func) || expr.args.length !== 1) {
             return null
@@ -105,7 +105,7 @@ class ClauseReader {
             this.note('irate() becomes rate() over each chart interval.')
         }
         this.rangeNote(arg)
-        return { aggregation: expr.func === 'increase' ? 'increase' : 'rate', selector: arg }
+        return { rangeFunction: expr.func === 'increase' ? 'increase' : 'rate', selector: arg }
     }
 
     private numberParam(param: PromExpr | undefined): number | null {
@@ -118,12 +118,8 @@ class ClauseReader {
         switch (expr.type) {
             case 'selector': {
                 this.rangeNote(expr)
-                const fields = this.selectorFields(expr)
-                if (!fields) {
-                    return null
-                }
-                this.note(`${fields.metricName} has no aggregation; its series are summed into one line.`)
-                return { ...fields, aggregation: 'sum' }
+                // Without an aggregation, each series is its own line, as in the builder.
+                return this.selectorFields(expr)
             }
             case 'offset':
                 this.note(`The offset ${expr.offset} is dropped.`)
@@ -157,16 +153,22 @@ class ClauseReader {
             if (quantile !== ENGINE_QUANTILE) {
                 this.note(`Metrics support only quantile ${ENGINE_QUANTILE}; ${expr.op}() uses it.`)
             }
-            if (inner.type !== 'selector') {
-                this.note(`Only a plain selector can be inside ${expr.op}(); the inner function is dropped.`)
-            }
             const counter = inner.type === 'selector' ? null : this.counterCall(inner)
             const selector = inner.type === 'selector' ? inner : counter?.selector
             if (selector) {
                 this.rangeNote(selector)
                 const fields = this.selectorFields(selector)
-                return fields && { ...fields, aggregation: 'quantile', quantile: ENGINE_QUANTILE, ...groupBy }
+                return (
+                    fields && {
+                        ...fields,
+                        aggregation: 'quantile',
+                        quantile: ENGINE_QUANTILE,
+                        ...(counter ? { rangeFunction: counter.rangeFunction } : {}),
+                        ...groupBy,
+                    }
+                )
             }
+            this.note(`Only a plain selector or rate() can be inside ${expr.op}(); the inner function is dropped.`)
             const clause = this.read(inner)
             return clause && { ...clause, aggregation: 'quantile', quantile: ENGINE_QUANTILE, ...groupBy }
         }
@@ -184,18 +186,17 @@ class ClauseReader {
 
         const counter = this.counterCall(inner)
         if (counter) {
-            if (op !== 'sum') {
-                this.note(
-                    `${op}() of ${counter.aggregation}() becomes the sum of the per-series ${counter.aggregation}.`
-                )
-            }
             const fields = this.selectorFields(counter.selector)
-            return fields && { ...fields, aggregation: counter.aggregation, ...groupBy }
+            return fields && { ...fields, aggregation: op, rangeFunction: counter.rangeFunction, ...groupBy }
         }
 
         const nested = this.read(inner)
         if (!nested) {
             return null
+        }
+        if (!nested.aggregation) {
+            // The inner part kept each series, so this aggregation combines them.
+            return { ...nested, aggregation: op, ...groupBy }
         }
         this.note(`${expr.op}() over another aggregation is not supported; only the inner aggregation is kept.`)
         const { groupBy: _innerGroupBy, ...rest } = nested
@@ -208,12 +209,9 @@ class ClauseReader {
         }
         const counter = this.counterCall(expr)
         if (counter) {
+            // Without an aggregation, the range function applies to each series, which stays its own line.
             const fields = this.selectorFields(counter.selector)
-            if (!fields) {
-                return null
-            }
-            this.note(`${expr.func}() without an aggregation is summed over all series of ${fields.metricName}.`)
-            return { ...fields, aggregation: counter.aggregation }
+            return fields && { ...fields, rangeFunction: counter.rangeFunction }
         }
         const vectorArg = expr.args.find((arg) => !['number', 'string'].includes(unwrapParens(arg).type))
         this.note(`${expr.func}() is not supported and is dropped.`)

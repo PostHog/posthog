@@ -6,7 +6,7 @@ import { type PromExpr, parsePromQL } from './promqlParser'
 import { printPromQL } from './promqlPrinter'
 import { promqlToBuilder } from './promqlToBuilder'
 import { sqlToBuilder } from './sqlToBuilder'
-import { type BuilderQuery, type ConversionResult, clauseAlias, normalizeLabelKey } from './types'
+import { type BuilderQuery, type ConversionResult, clauseAlias, normalizeClause, normalizeLabelKey } from './types'
 
 export const METRICS_QUERY_LANGUAGES: MetricsQueryLanguage[] = ['builder', 'promql', 'sql']
 
@@ -17,15 +17,16 @@ export const queryLanguage = (query: Pick<MetricsQuery, 'language'>): MetricsQue
 export const GENERIC_LOSS_ISSUE = 'Parts of the query will change.'
 
 // The aggregations the builder's clause rows can show (see isBuilderCompatibleQuery in metricsViewerLogic).
-const BUILDER_EDITOR_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max', 'rate', 'increase'])
+const BUILDER_EDITOR_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max'])
 
 /** Parts of a builder query that the builder can chart but not show in its clause rows. */
 function builderEditorLimits(query: BuilderQuery): string[] {
     const limits: string[] = []
-    for (const clause of query.clauses) {
+    for (const clause of query.clauses.map(normalizeClause)) {
         if (clause.aggregation === 'histogram_quantile') {
             limits.push(`series ${clause.name} uses a histogram quantile`)
         } else if (
+            clause.aggregation &&
             !BUILDER_EDITOR_AGGREGATIONS.has(clause.aggregation) &&
             !(clause.aggregation === 'quantile' && clause.quantile === 0.95)
         ) {
@@ -66,7 +67,7 @@ function fromBuilderQuery(builder: BuilderQuery, to: 'promql' | 'sql'): Conversi
  * `service.name` normalized, and group-by keys sorted.
  */
 export function canonicalBuilder(query: BuilderQuery): string {
-    const clauses = query.clauses.filter((clause) => clause.metricName.trim())
+    const clauses = query.clauses.filter((clause) => clause.metricName.trim()).map(normalizeClause)
     const renames = new Map(clauses.map((clause, index) => [clause.name, clauseAlias(index)]))
     const formula = (query.formula ?? '')
         .replace(/[a-z_][a-z0-9_]*/g, (word) => renames.get(word) ?? word)
@@ -74,10 +75,12 @@ export function canonicalBuilder(query: BuilderQuery): string {
     return JSON.stringify({
         clauses: clauses.map((clause) => ({
             metricName: clause.metricName.trim(),
-            aggregation: clause.aggregation,
-            quantile: ['quantile', 'histogram_quantile'].includes(clause.aggregation)
-                ? (clause.quantile ?? 0.95)
-                : null,
+            aggregation: clause.aggregation ?? null,
+            rangeFunction: clause.rangeFunction ?? null,
+            quantile:
+                clause.aggregation === 'quantile' || clause.aggregation === 'histogram_quantile'
+                    ? (clause.quantile ?? 0.95)
+                    : null,
             filters: (clause.filters ?? []).map((filter) => ({
                 key: normalizeLabelKey(filter.key),
                 op: filter.op,

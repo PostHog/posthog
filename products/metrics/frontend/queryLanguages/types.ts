@@ -5,6 +5,12 @@ export type BuilderQuery = Pick<MetricsQuery, 'clauses' | 'formula'>
 
 export type BuilderClause = MetricsQueryClause
 
+/** A clause in the builder's current form: the legacy `rate` and `increase` aggregations mean `sum` over that range function. */
+export const normalizeClause = (clause: BuilderClause): BuilderClause =>
+    clause.aggregation === 'rate' || clause.aggregation === 'increase'
+        ? { ...clause, aggregation: 'sum', rangeFunction: clause.aggregation }
+        : clause
+
 /**
  * The result of a best-effort conversion. `value` is null when nothing usable came out.
  * Each issue names one part of the source that the target cannot express or that changes meaning.

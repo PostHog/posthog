@@ -1,5 +1,6 @@
 import type { MetricsAttributeScope, MetricsQueryFilter, MetricsQueryGroupBy } from '~/queries/schema/schema-general'
 
+import { PER_SERIES_COLUMN } from './builderToSql'
 import {
     type BuilderClause,
     type BuilderQuery,
@@ -508,7 +509,15 @@ const SIMPLE_AGGREGATIONS: Record<string, BuilderClause['aggregation']> = {
 }
 
 // Result columns, and the histogram columns builderToSql passes between its selects.
-const NON_LABEL_COLUMNS = new Set(['time', 'value', 'clause', 'bounds', 'counts', 'series_fingerprints'])
+const NON_LABEL_COLUMNS = new Set([
+    'time',
+    'value',
+    'clause',
+    'bounds',
+    'counts',
+    'series_fingerprints',
+    PER_SERIES_COLUMN,
+])
 
 interface ReadClause {
     clause: BuilderClause
@@ -564,6 +573,7 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
     }
 
     let aggregation: BuilderClause['aggregation']
+    let rangeFunction: BuilderClause['rangeFunction']
     let quantile: number | undefined
     if (/histogram_counts|sumForEach/i.test(allText)) {
         aggregation = 'histogram_quantile'
@@ -572,12 +582,20 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
         if (!rank) {
             note('The histogram quantile cannot be found; 0.95 is used.')
         }
-    } else if (/lagInFrame/i.test(allText)) {
-        aggregation = valueText.endsWith('/{interval_seconds}') ? 'rate' : 'increase'
     } else {
+        const counter = /lagInFrame/i.test(allText)
+        if (counter) {
+            rangeFunction = /\/\{interval_seconds\}/.test(allText) ? 'rate' : 'increase'
+        }
         const quantileMatch = /^quantile\((\d*\.?\d+)\)\((.*)\)$/i.exec(valueText)
         const simpleMatch = /^(\w+)\((.*)\)$/.exec(valueText)
-        if (quantileMatch) {
+        if (/^(\w+\.)?series_value$/i.test(valueText)) {
+            // Each series stays its own line.
+            aggregation = undefined
+        } else if (counter && /^sum\((\w+\.)?contribution\)/i.test(valueText)) {
+            // Summing every sample's contribution sums the per-series values.
+            aggregation = 'sum'
+        } else if (quantileMatch) {
             aggregation = 'quantile'
             quantile = ENGINE_QUANTILE
             if (Number(quantileMatch[1]) !== ENGINE_QUANTILE) {
@@ -589,8 +607,8 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
             note(`The value "${valueText}" is not a supported aggregation; sum is used.`)
             aggregation = 'sum'
         }
-        // The builder reduces each series to its last value per bucket before it aggregates.
-        if (chain.length === 1) {
+        // The builder reduces each series to one value per bucket before it aggregates.
+        if (chain.length === 1 && !counter) {
             note(
                 aggregation === 'count'
                     ? 'The SQL counts samples; the builder counts series.'
@@ -641,7 +659,8 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
         clause: {
             name: '',
             metricName: metricName!,
-            aggregation,
+            ...(aggregation ? { aggregation } : {}),
+            ...(rangeFunction ? { rangeFunction } : {}),
             ...(metricType ? { metricType } : {}),
             ...(filters.length ? { filters } : {}),
             ...(groupBy.length ? { groupBy } : {}),
