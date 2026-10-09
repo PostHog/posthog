@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -16,12 +17,14 @@ from products.review_hog.backend.temporal.activities import ResolveActingUserInp
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 
 class TestResolveActingUser(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "OctoCat"})
+        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
 
     @parameterized.expand(
         [
@@ -75,12 +78,14 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, True, True, True, "PostHog", None),
-            ("opted_out", False, True, True, True, "PostHog", None),
-            ("inactive", True, False, True, True, "PostHog", None),
-            ("left_organization", True, True, False, True, "PostHog", None),
-            ("repository_removed", True, True, True, False, "PostHog", None),
-            ("placeholder_account_name", True, True, True, True, "installation-1234", "1234"),
+            ("enabled", True, True, True, True, False, "PostHog", None),
+            ("opted_out", False, True, True, True, False, "PostHog", None),
+            ("inactive", True, False, True, True, False, "PostHog", None),
+            ("left_organization", True, True, False, True, False, "PostHog", None),
+            ("repository_removed", True, True, True, False, False, "PostHog", None),
+            # No Flash after Full: a Full review published while the push waited stops it.
+            ("full_review_published", True, True, True, True, True, "PostHog", None),
+            ("placeholder_account_name", True, True, True, True, False, "installation-1234", "1234"),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
@@ -90,6 +95,7 @@ class TestResolveActingUser(BaseTest):
         active: bool,
         member: bool,
         repository_added: bool,
+        full_published: bool,
         account_name: str,
         installation_id: str | None,
     ) -> None:
@@ -110,6 +116,7 @@ class TestResolveActingUser(BaseTest):
             pr_url="https://github.com/PostHog/posthog/pull/7",
             head_branch="feat",
             base_branch="main",
+            published_heads_by_mode={"full": "a" * 40} if full_published else None,
         )
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -131,7 +138,7 @@ class TestResolveActingUser(BaseTest):
                 installation_id=installation_id,
             )
         )
-        eligible = opted_in and active and member and repository_added
+        eligible = opted_in and active and member and repository_added and not full_published
         assert result.acting_user_id == (self.user.id if eligible else None)
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible
@@ -278,6 +285,39 @@ class TestResolveActingUser(BaseTest):
         )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "override")
         assert result.celebrate_clean_reviews is False
+
+    @parameterized.expand(
+        [
+            ("owner_opted_in_and_a_teammate_asks", "teammate", True, False, True, True),
+            ("requester_opted_in_but_the_owner_did_not", "teammate", False, True, True, False),
+            ("internal_flag_off", "teammate", True, False, False, False),
+            ("no_owner", "ghost", False, True, True, False),
+        ]
+    )
+    def test_resolution_follows_the_pr_owners_opt_in(
+        self,
+        _name: str,
+        author_login: str,
+        owner_opted_in: bool,
+        requester_opted_in: bool,
+        internal: bool,
+        expected: bool,
+    ) -> None:
+        teammate = self._create_user("teammate@posthog.com")
+        UserSocialAuth.objects.create(user=teammate, provider="github", uid="gh-2", extra_data={"login": "teammate"})
+        for user, opted_in in ((teammate, owner_opted_in), (self.user, requester_opted_in)):
+            ReviewUserSettings.objects.for_team(self.team.id).create(
+                team_id=self.team.id, user_id=user.id, preferences={"resolve_comments": opted_in}
+            )
+        self.internal_flag.return_value = internal
+
+        result = _resolve_acting_user(
+            ResolveActingUserInput(team_id=self.team.id, author_login=author_login, override_user_id=self.user.id)
+        )
+
+        assert result.acting_user_id == self.user.id
+        assert result.owner_user_id == (teammate.id if author_login == "teammate" else None)
+        assert result.resolve_comments is expected
 
     def test_automatic_bot_review_runs_as_the_connector_with_default_settings(self) -> None:
         Integration.objects.create(

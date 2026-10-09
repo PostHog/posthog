@@ -82818,8 +82818,6 @@ export namespace Schemas {
       readonly sources?: ReviewPreferenceSources;
       /** The project defaults the Full review preferences fall back to. */
       readonly project_defaults?: ReviewProjectDefaults;
-      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
-      readonly show_internal_features?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
     }
@@ -95569,6 +95567,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `flash_after_full` - Flash after a published Full review
+     * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `internal_feature` - Not available in this project
+     */
+    export type ReviewRequestRefusalEnum = typeof ReviewRequestRefusalEnum[keyof typeof ReviewRequestRefusalEnum];
+
+
+    export const ReviewRequestRefusalEnum = {
+      FlashAfterFull: 'flash_after_full',
+      ResolutionNotOptedIn: 'resolution_not_opted_in',
+      InternalFeature: 'internal_feature',
+    } as const;
+
+    /**
      * The review run a request points at.
      */
     export interface ReviewRequestResponse {
@@ -95599,6 +95611,12 @@ export namespace Schemas {
     export interface ReviewTriggerError {
       /** Human-readable explanation of why the trigger was rejected. */
       error: string;
+      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments), 'internal_feature' (the run mode is not available in this project). Absent for other errors.
+       *
+       * * `flash_after_full` - Flash after a published Full review
+       * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
+       * * `internal_feature` - Not available in this project */
+      code?: ReviewRequestRefusalEnum;
     }
 
     /**
@@ -95620,7 +95638,7 @@ export namespace Schemas {
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
-      /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.
+      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
        *
        * * `review` - review
        * * `review_only` - review_only
@@ -95661,8 +95679,6 @@ export namespace Schemas {
       readonly sources: ReviewPreferenceSources;
       /** The project defaults the Full review preferences fall back to. */
       readonly project_defaults: ReviewProjectDefaults;
-      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
-      readonly show_internal_features: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
     }

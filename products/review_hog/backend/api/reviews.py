@@ -29,6 +29,7 @@ from products.review_hog.backend.requested_reviews import (
     PRReviewRequestStatus,
     request_pr_review,
 )
+from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
     ReviewIssueFinding,
@@ -246,6 +247,7 @@ _TRIGGER_REFUSAL_STATUS = {
     PRReviewRequestStatus.INVALID: status.HTTP_400_BAD_REQUEST,
     PRReviewRequestStatus.NOT_ALLOWED: status.HTTP_403_FORBIDDEN,
     PRReviewRequestStatus.BUSY: status.HTTP_409_CONFLICT,
+    PRReviewRequestStatus.REFUSED: status.HTTP_409_CONFLICT,
 }
 
 
@@ -258,12 +260,13 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         required=False,
         default=RUN_MODE_REVIEW,
         choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH],
-        help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
-        "requesting user's resolve_comments setting is on, chains the resolution stage; "
-        "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
-        "the review and only runs the resolution stage on the PR's existing unresolved review "
-        "threads; 'flash' uses a lower-cost model for the review passes and validation, and never "
-        "resolves comments.",
+        help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
+        "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
+        "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
+        "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
+        "opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves "
+        "comments, and is refused once the PR has a published Full review. The owner is the PR's author, "
+        "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
 
@@ -281,6 +284,14 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
 
 class ReviewTriggerErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
+    code = serializers.ChoiceField(
+        required=False,
+        choices=ReviewRequestRefusal.choices,
+        help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
+        "(the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not "
+        "turned on resolving comments), 'internal_feature' (the run mode is not available in this project). "
+        "Absent for other errors.",
+    )
 
 
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
@@ -686,23 +697,26 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project, or Flash was requested in a "
-                "project without internal features (see show_internal_features in the settings response).",
+                description="The review-hog feature flag is off for this project, or Flash or resolve-only was "
+                "requested in a project without the review-hog-internal flag (code 'internal_feature').",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
                 description="The pull request's cycle is busy (busy-guard): reviews are blocked while its "
-                "comments are being resolved, and resolve-only runs are blocked while a review is running.",
+                "comments are being resolved, and resolve-only runs are blocked while a review is running. "
+                "Also returned with a code when Flash follows a published Full review ('flash_after_full') "
+                "or the PR owner has not opted in to resolution ('resolution_not_opted_in').",
             ),
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
         },
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
-        "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
-        "(which chains the resolution stage per the user's resolve_comments setting), a review without "
-        "resolving, resolution only, or a lower-cost Flash review that never resolves comments. "
+        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
+        "appears under their recent reviews. Resolution writes to the branch only when the pull request "
+        "owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution "
+        "stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a "
+        "lower-cost Flash review that never resolves comments and is refused after a published Full review. "
         "Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
         "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
@@ -737,7 +751,12 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if outcome.error:
-            return Response({"error": outcome.error}, status=_TRIGGER_REFUSAL_STATUS[outcome.status])
+            return Response(
+                ReviewTriggerErrorSerializer({"error": outcome.error, "code": outcome.refusal}).data
+                if outcome.refusal
+                else {"error": outcome.error},
+                status=_TRIGGER_REFUSAL_STATUS[outcome.status],
+            )
         return Response(
             ReviewTriggerResponseSerializer({"workflow_id": outcome.workflow_id, "status": outcome.status.value}).data,
             status=status.HTTP_200_OK
