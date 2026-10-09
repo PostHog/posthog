@@ -337,6 +337,17 @@ export const ReportCardStates: Story = {
                     summary: 'The flow works as designed.',
                 })}
             />
+            <ReportCard
+                report={makeReport({
+                    title: 'Held back by the safety check',
+                    priority: 'P2',
+                    status: SignalReportStatus.SUPPRESSED,
+                    suppression_source: 'safety_judge',
+                    suppression_explanation: 'The report asks to turn off a safety control.',
+                    source_products: ['github'],
+                    summary: 'Nobody has reviewed this verdict yet.',
+                })}
+            />
         </Stack>
     ),
 }

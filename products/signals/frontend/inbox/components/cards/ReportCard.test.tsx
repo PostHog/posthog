@@ -224,6 +224,37 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    test.each([
+        [
+            "a person's reason",
+            { suppression_source: 'dismissed', dismissal_reason: 'analysis_wrong' },
+            "Agent's analysis is wrong",
+        ],
+        [
+            'the safety verdict',
+            { suppression_source: 'safety_judge', suppression_explanation: 'Asks to disable a check.' },
+            'Held back by safety check',
+        ],
+        ['the actionability verdict', { suppression_source: 'not_actionable' }, 'Judged not actionable'],
+        ['a system suppression', { suppression_source: 'system' }, 'Held back automatically'],
+    ] as const)('labels a suppressed row with %s', (_name, overrides, label) => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, ...overrides })} />)
+
+        expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it('shows no reason chip on a dismissed row without a reason', () => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, suppression_source: 'dismissed' })}
+            />
+        )
+
+        expect(screen.queryByText(/Held back|Judged not actionable/)).not.toBeInTheDocument()
+    })
+
     it('locks the selection while a bulk action is running', () => {
         const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
         act(() => {
