@@ -86,12 +86,7 @@ class WorkflowEmailDraftViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.PermissionDenied("You don't have access to this item.")
         started = time.monotonic()
         try:
-            draft = write_email_draft(
-                self.team,
-                source,
-                request.validated_data["source_id"],
-                can_view=lambda entity: self.user_access_control.check_access_level_for_object(entity, "viewer"),
-            )
+            draft = write_email_draft(self.team, cast(User, request.user), source, request.validated_data["source_id"])
         except EmailDraftSourceNotFound:
             raise exceptions.NotFound("We couldn't find that item in this project.")
         except EmailDraftSourceForbidden:
