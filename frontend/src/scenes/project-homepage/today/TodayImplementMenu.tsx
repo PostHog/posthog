@@ -78,7 +78,7 @@ export function TodayImplementMenu({
                 dataAttr="today-report-start-task"
             >
                 <IconLogomark className="size-4 self-start" />
-                <span className="flex flex-col">
+                <span className="flex flex-col text-left">
                     <span>PostHog</span>
                     {postHogDisabledReason && (
                         <Text size="xs" variant="muted" render={<span />}>
