@@ -998,14 +998,20 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         allow_null=True,
         min_value=1,
         max_value=1000,
-        help_text="Most marketing messages one person can get in the window, across all workflows. Null disables the cap.",
+        help_text=(
+            "Most marketing messages one person can get in the window, across all workflows. "
+            "Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off."
+        ),
     )
     marketing_frequency_cap_window_days = serializers.IntegerField(
         required=False,
         allow_null=True,
         min_value=1,
         max_value=365,
-        help_text="Length of the rolling frequency cap window in days. Null disables the cap.",
+        help_text=(
+            "Length of the rolling frequency cap window in days. "
+            "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
+        ),
     )
 
     class Meta:

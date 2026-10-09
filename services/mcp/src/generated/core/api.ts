@@ -2771,14 +2771,16 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
                     .nullish()
                     .describe(
-                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
                     ),
                 marketing_frequency_cap_window_days: zod
                     .number()
                     .min(1)
                     .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
                     .nullish()
-                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5502,14 +5504,16 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
                     .nullish()
                     .describe(
-                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
                     ),
                 marketing_frequency_cap_window_days: zod
                     .number()
                     .min(1)
                     .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
                     .nullish()
-                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
