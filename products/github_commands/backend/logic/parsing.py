@@ -22,12 +22,13 @@ MAX_ARGUMENT_LENGTH = 200
 # Leading indentation is spaces only. Markdown counts a tab as four columns, so a line that starts
 # with a tab is an indented code block.
 # A fence can also open a list item, such as "- ```" or "1. ```".
-_FENCE_OPEN_RE = re.compile(r"^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})")
-# A closing fence carries no info string. "```python" inside a block does not close it. Inside a
-# list item the closing fence is indented to the item's content, so its indentation is checked
-# against the opener's column in `_live_lines`, not here.
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<marker>(?:[-*+]|\d{1,9}[.)])[ \t]+)?(?P<fence>`{3,}|~{3,})")
+# A closing fence carries no info string. "```python" inside a block does not close it. Its
+# indentation is checked in `_live_lines`, not here: Markdown allows a closer up to three columns
+# past the block's container, so a top-level closer sits in columns 0 to 3, and a closer inside a
+# list item sits between the item's content column and three past it. A fence outside that window
+# is content, or it ends the list and opens a new block, and either way what follows stays code.
 _FENCE_CLOSE_RE = re.compile(r"^([ \t]*)(`{3,}|~{3,})[ \t]*$")
-# A fence indented four or more columns past its opener is content, not a closer.
 _FENCE_CLOSE_EXTRA_INDENT = 3
 # HTML blocks that GitHub shows as code or as a quote. Each one runs to the line that closes its
 # tag, blank lines included.
@@ -99,7 +100,7 @@ def _live_lines(body: str) -> list[str]:
     text = _HTML_COMMENT_RE.sub("", body.replace("\r\n", "\n").replace("\r", "\n"))
     lines: list[str] = []
     fence: str | None = None
-    fence_column = 0
+    fence_container_column = 0
     html_block_close_tag: str | None = None
     in_quote = False
     for line in text.split("\n"):
@@ -109,7 +110,9 @@ def _live_lines(body: str) -> list[str]:
             if (
                 close_match is not None
                 and close_match.group(2).startswith(fence)
-                and _columns(close_match.group(1)) <= fence_column + _FENCE_CLOSE_EXTRA_INDENT
+                and fence_container_column
+                <= _columns(close_match.group(1))
+                <= fence_container_column + _FENCE_CLOSE_EXTRA_INDENT
             ):
                 fence = None
             continue
@@ -120,8 +123,9 @@ def _live_lines(body: str) -> list[str]:
         # A fence or an HTML block can start right after a quoted line, so check them first.
         fence_match = _FENCE_OPEN_RE.match(line)
         if fence_match is not None:
-            fence = fence_match.group(1)
-            fence_column = _columns(line[: fence_match.start(1)])
+            fence = fence_match.group("fence")
+            # A list item's content starts after its marker; a top-level block's container is the line.
+            fence_container_column = _columns(line[: fence_match.start("fence")]) if fence_match.group("marker") else 0
             in_quote = False
             continue
         html_block_match = _HTML_CODE_OR_QUOTE_OPEN_RE.match(line)

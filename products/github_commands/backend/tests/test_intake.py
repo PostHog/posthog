@@ -60,6 +60,9 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         # A fence can open a list item, and its closing fence is indented to the item's content.
         ("- ```\n  @posthog qa\n  ```", None),
         ("```\n    ```\n@posthog qa\n```", None),
+        (" ~~~\n    ~~~\n@posthog qa\n ~~~", None),
+        ("- ```\n  filler\n```\n@posthog qa", None),
+        ("1. ```\n   filler\n```\n@posthog qa", None),
         ("1. ```\n   @posthog qa\n   ```", None),
         ("- ```\n  example\n  ```\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
         # Removing the code span must not move the mention to the start of the line.
