@@ -669,6 +669,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("added_input_blocked", {"inputs_schema": "added"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
             ("retyped_input_blocked", {"inputs_schema": "retyped"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
             ("removed_input_blocked", {"inputs_schema": "removed"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
+            (
+                "custom_code_blocked",
+                {"hog": "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"},
+                status.HTTP_400_BAD_REQUEST,
+                "hog",
+            ),
         ]
     )
     def test_system_email_template_is_limited_to_internal_destinations_with_fixed_inputs(

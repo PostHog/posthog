@@ -553,7 +553,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # The worker sends this template's mail from a PostHog-owned address and takes the
         # recipients from the triggering event. Only internal events carry recipients that PostHog
         # set, so any other type must not use the template. The inputs stay fixed so nobody adds a
-        # recipient-like field that looks like it works.
+        # recipient-like field that looks like it works. The code stays the template's too, because
+        # the reserved-function check allows any call that the template's own code makes.
         instance = self.instance if isinstance(self.instance, HogFunction) else None
         template_id = attrs.get("template_id") or (instance.template_id if instance else None)
         if template_id != SYSTEM_EMAIL_TEMPLATE_ID or attrs.get("deleted") is True:
@@ -576,6 +577,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             raise serializers.ValidationError(
                 {"inputs_schema": "The inputs of this template are fixed. Remove the inputs that you added or changed."}
             )
+
+        proposed_hog = attrs.get("hog")
+        if proposed_hog is not None and proposed_hog not in (template.code, instance.hog if instance else None):
+            raise serializers.ValidationError({"hog": "The code of this template is fixed and cannot be edited."})
 
     def _validate_no_reserved_functions(self, attrs: dict) -> None:
         # The worker's async function registry is global, so `sendEmail` and its peers run from any
