@@ -194,6 +194,7 @@ class TestSeamEmitsSignalsOnFiringOnly(SimpleTestCase):
             patch(
                 "posthog.temporal.health_checks.processing.resolve_stale_issues_with_deltas", return_value=[resolved]
             ),
+            patch("posthog.temporal.health_checks.processing.record_health_check_runs"),
             patch("posthog.temporal.health_checks.processing.emit_health_check_alert"),
             patch("posthog.temporal.health_checks.processing.emit_health_check_signals") as emit_signals,
         ):
