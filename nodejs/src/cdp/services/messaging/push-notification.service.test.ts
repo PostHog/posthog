@@ -105,6 +105,14 @@ describe('PushNotificationService', () => {
                 fn({
                     get: (key: string) => valkeyStore.get(key) ?? null,
                     set: mockValkeySet,
+                    eval: (_script: string, _keys: number, key: string, rejected: string) => {
+                        const current = valkeyStore.get(key) ?? null
+                        if (current === rejected) {
+                            valkeyStore.delete(key)
+                            return null
+                        }
+                        return current
+                    },
                 })
             ),
         } as any
@@ -987,6 +995,94 @@ describe('PushNotificationService', () => {
 
             expect(result.error).toBeTruthy()
             expect(result.error).toContain('InvalidProviderToken')
+        })
+
+        describe('when APNs rejects the provider token', () => {
+            const apnsResponse = (status: number, reason?: string): any => ({
+                fetchError: null,
+                fetchResponse: {
+                    status,
+                    text: () => Promise.resolve(reason ? JSON.stringify({ reason }) : ''),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+            const send = (): Promise<any> =>
+                service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+            const sentTokens = (): string[] =>
+                mockTrackedFetch.mock.calls.map((call: any) => call[0].fetchParams.headers.Authorization)
+            const jwtCacheKey = `@posthog/apns-provider-jwt/${createHash('sha256').update(`TEAM456:KEY123:${testEcKey}`).digest('hex')}`
+
+            beforeEach(() => {
+                mockTrackedFetch.mockReset()
+            })
+
+            it.each(['InvalidProviderToken', 'ExpiredProviderToken'])(
+                'retries once with a new token after %s',
+                async (reason) => {
+                    mockTrackedFetch
+                        .mockResolvedValueOnce(apnsResponse(403, reason))
+                        .mockResolvedValueOnce(apnsResponse(200))
+
+                    const result = await send()
+
+                    expect(result.error).toBeUndefined()
+                    expect(result.metrics).toContainEqual(
+                        expect.objectContaining({ metric_name: 'push_sent', count: 1 })
+                    )
+                    const [rejected, retried] = sentTokens()
+                    expect(retried).not.toEqual(rejected)
+                    expect(`bearer ${valkeyStore.get(jwtCacheKey)}`).toEqual(retried)
+                }
+            )
+
+            it('signs at most one new token per refresh window for a key', async () => {
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const first = await send()
+                const second = await send()
+
+                expect(first.error).toContain('InvalidProviderToken')
+                expect(second.error).toContain('InvalidProviderToken')
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(3)
+                expect(new Set(sentTokens()).size).toBe(2)
+                expect(mockValkeySet).toHaveBeenCalledWith(
+                    expect.stringContaining('@posthog/apns-provider-jwt-refresh/'),
+                    '1',
+                    'EX',
+                    1200,
+                    'NX'
+                )
+            })
+
+            it('reuses a token another pod already put in place of the rejected one', async () => {
+                mockTrackedFetch
+                    .mockImplementationOnce(() => {
+                        valkeyStore.set(jwtCacheKey, 'token-from-another-pod')
+                        return Promise.resolve(apnsResponse(403, 'InvalidProviderToken'))
+                    })
+                    .mockResolvedValueOnce(apnsResponse(200))
+
+                const result = await send()
+
+                expect(result.error).toBeUndefined()
+                expect(sentTokens()[1]).toBe('bearer token-from-another-pod')
+                expect(valkeyStore.get(jwtCacheKey)).toBe('token-from-another-pod')
+                expect([...valkeyStore.keys()].some((key) => key.includes('jwt-refresh'))).toBe(false)
+            })
+
+            it('does not retry when the rejection is not about the provider token', async () => {
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'TopicDisallowed'))
+
+                const result = await send()
+
+                expect(result.error).toContain('TopicDisallowed')
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
+            })
         })
 
         it('does not let custom data overwrite the reserved aps payload', async () => {
