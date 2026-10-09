@@ -2,7 +2,7 @@ import json
 import time
 import logging
 from collections.abc import Callable, Collection, Iterator
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import TypeVar
@@ -556,25 +556,8 @@ def _refuse_unsweepable(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-_STORES_NONE_OF_THE_PROPERTIES = "the request names only person properties, and this table stores none"
-
-
 def _deletion_target(data_table: str) -> DeletionTarget:
     return next(target for target in PERSONAL_DATA_TARGETS if target.data_table == data_table)
-
-
-def _scoped_to(target: DeletionTarget, deletion_request: DeletionRequestContext) -> DeletionRequestContext:
-    """The property-removal request narrowed to the property columns ``target`` stores.
-
-    A target without ``stores_person_properties`` (today only flag_evaluations) drops the
-    request's ``person_properties`` half, since that column cannot be queried or assigned there;
-    see the field's own comment on ``DeletionTarget`` for what that costs.
-    """
-    return deletion_request if target.stores_person_properties else replace(deletion_request, person_properties=[])
-
-
-def _names_any_property(request: DeletionRequestContext) -> bool:
-    return bool(request.properties or request.person_properties)
 
 
 def _hogql_excludes(target: DeletionTarget, deletion_request: DeletionRequestContext) -> bool:
@@ -596,11 +579,10 @@ def _refuse_property_removal_unsweepable(
     which ``_property_rewrite_targets`` leaves out of the sweep.
     """
 
-    def predicate_for(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
-        request = _scoped_to(target, deletion_request)
-        if not _names_any_property(request):
-            return NotCounted(reason=_STORES_NONE_OF_THE_PROPERTIES)
-        return _property_removal_where(request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema)
+    def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
+        return _property_removal_where(
+            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+        )
 
     _refuse_unsweepable(
         cluster,
@@ -1164,6 +1146,14 @@ def _with_copied_inserted_at_bound(predicate: _ShardPredicate, copied_inserted_a
     )
 
 
+def _drop_keys_expr(source: str, keys_param: str) -> str:
+    # JSONDropKeysPool fails on an empty string. A legacy events row stores '' in a JSON column its
+    # producer omitted, because those columns have no DEFAULT. An insert can also set '' explicitly.
+    # Such a row has no key to drop, so it keeps its value. ClickHouse short-circuits `if`, so the
+    # UDF only runs on the rows that are not empty.
+    return f"if(empty({source}), {source}, JSONDropKeysPool({source}, %({keys_param})s))"
+
+
 @frozen
 class _CleanedSelect:
     """How the copy reads cleaned rows out of the source table."""
@@ -1210,11 +1200,11 @@ def _cleaned_select_list(
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
         source = "toJSONString(properties)" if target.json_schema else "properties"
-        replacements["properties"] = f"JSONDropKeysPool({source}, %(keys)s)"
+        replacements["properties"] = _drop_keys_expr(source, "keys")
         params["keys"] = deletion_request.properties
     if deletion_request.person_properties:
         source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
-        replacements["person_properties"] = f"JSONDropKeysPool({source}, %(person_keys)s)"
+        replacements["person_properties"] = _drop_keys_expr(source, "person_keys")
         params["person_keys"] = deletion_request.person_properties
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
@@ -1286,9 +1276,6 @@ def _property_rewrite_targets(
             continue
         if not target.may_hold_any_of(events):
             log.info(f"{target.read_table}: not rewritten, because it stores none of the request's events")
-            continue
-        if not _names_any_property(_scoped_to(target, deletion_request)):
-            log.info(f"{target.read_table}: not rewritten, because {_STORES_NONE_OF_THE_PROPERTIES}")
             continue
         swept.append(target)
     return swept
@@ -1422,12 +1409,11 @@ def copy_property_removal_shard(
     """
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
     def copy(client: Client) -> dict:
-        return _copy_property_removal_target(client, request, target, marker_str, hogql_compiled, staging, log)
+        return _copy_property_removal_target(client, deletion_request, target, marker_str, hogql_compiled, staging, log)
 
     copied = _run_on_shard(_cluster_for(cluster, target), target, copy)
     context.add_output_metadata({"copied": dagster.MetadataValue.int(copied["rows"])})
@@ -1448,7 +1434,6 @@ def delete_property_removal_shard(
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1472,7 +1457,7 @@ def delete_property_removal_shard(
             )
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         count_sql = (
             f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
@@ -1648,7 +1633,6 @@ def verify_property_removal_shard(
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1668,7 +1652,7 @@ def verify_property_removal_shard(
             return stats
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         remaining = client.execute(
             f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}",
@@ -1684,9 +1668,9 @@ def verify_property_removal_shard(
             "start_time": deletion_request.start_time,
             "end_time": deletion_request.end_time,
             "marker": marker_str,
-            **_presence_params(request),
+            **_presence_params(deletion_request),
         }
-        presence = _target_presence_clause(request, target, predicate.mat_cols)
+        presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
         unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
         expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
         cleaned_stats = client.execute(
@@ -1773,8 +1757,7 @@ def verify_property_removal(
     )
 
     def check(client: Client, target: DeletionTarget, hogql_compiled: tuple[str, dict]) -> int:
-        request = _scoped_to(target, deletion_request)
-        predicate = _shard_predicate(client, request, target, marker_str, hogql_compiled)
+        predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled)
         return client.execute(
             surviving_rows_sql(target.read_table, predicate.sql),
             predicate.params,

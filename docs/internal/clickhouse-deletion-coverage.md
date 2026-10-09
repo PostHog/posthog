@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event and person properties (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -156,8 +156,7 @@ That works because `materialize()` creates columns as `DEFAULT <expr>`, so an in
 `group0..group4_properties` no longer exist on the table: no Insight or Hog function used them as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them. Event `properties` and `person_id` are still sent.
 `person_properties` is on the table again, so test-account filters can read person properties off the row the way they do on `events`.
 The column defaults to `'{}'`, and no row holds real person properties until the producer sends them.
-Until then `DeletionTarget.stores_person_properties` stays `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
-`stores_person_properties` has to turn on before or with the producer change, or a person-property removal skips real values on this table and still reports success.
+Property removal treats `person_properties` here as it does on `events`: the gate counts it, the copy drops the named keys from it, and both verifications check it.
 
 #### Typed columns
 
@@ -274,7 +273,7 @@ A manual run can narrow the plan with `team_ids` and `partitions`. A listed team
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table that rewrites event properties without person properties.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns.
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
 A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
