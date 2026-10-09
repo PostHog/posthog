@@ -1396,7 +1396,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
         if not include_live_context:
-            store_skills = []
+            store_skills: list[dict[str, Any]] | None = []
             state[STORE_SKILLS_STATE_KEY] = []
         else:
             store_skills = (
