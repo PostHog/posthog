@@ -204,7 +204,6 @@ UNTAGGED_QUESTION_ACTION_RUN = "posthog_code_untagged_question_run"
 UNTAGGED_QUESTION_ACTION_DISMISS = "posthog_code_untagged_question_dismiss"
 UNTAGGED_QUESTION_ACTION_TURN_OFF = "posthog_code_untagged_question_turn_off"
 UNTAGGED_QUESTION_CONTEXT_KIND = "untagged_question"
-# Cheap bounds on a top-level post worth asking the classifier about.
 UNTAGGED_QUESTION_MIN_CHARS = 12
 UNTAGGED_QUESTION_MAX_CHARS = 2000
 _QUESTION_OPENER_PATTERN = re.compile(
@@ -1445,7 +1444,7 @@ def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> s
         return "no_message_ts"
     if time.time() - posted_at > EDITED_MENTION_WINDOW_SECONDS:
         return "too_old"
-    if not cache.add(cache_key, "edited_mention", timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS):
+    if not claim_message_handled(slack_team_id, event, "edited_mention"):
         return f"handled_as_{cache.get(cache_key) or 'unknown'}"
     return None
 
@@ -3944,7 +3943,6 @@ def _untagged_question_click(payload: dict) -> tuple[str, dict[str, Any], Integr
 
 
 def _handle_untagged_question_run(payload: dict) -> HttpResponse:
-    """Answer the question the author just confirmed, then clear the prompt."""
     response_url = payload.get("response_url", "")
     click = _untagged_question_click(payload)
     if click is None:
@@ -3955,15 +3953,15 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
     event = context.get("event")
 
     # The confirmed run skips the gates the webhook and the workflow already applied, so the
-    # ones that can change while the prompt waits are checked again here.
-    posthog_user = _is_org_member(integration, slack_user_id)
+    # ones that can change while the prompt waits are checked again here. The membership
+    # check can call Slack, so it runs last.
     if (
         not isinstance(event, dict)
-        or posthog_user is None
-        or not _can_access_team(posthog_user, integration)
         or resolve_user_untagged_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
         or not is_slack_app_unprompted_answers_enabled(integration)
         or SlackIntegration(integration).missing_scopes(REQUIRED_SLACK_SCOPES)
+        or (posthog_user := _is_org_member(integration, slack_user_id)) is None
+        or not _can_access_team(posthog_user, integration)
     ):
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)

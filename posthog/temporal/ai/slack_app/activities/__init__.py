@@ -43,7 +43,6 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
 )
 from posthog.temporal.ai.slack_app.activities.thread import collect_posthog_code_thread_messages_activity
 from posthog.temporal.ai.slack_app.activities.untagged_question import (
-    classify_untagged_question,
     classify_untagged_question_activity,
     request_untagged_question_confirmation_activity,
 )
@@ -62,7 +61,6 @@ __all__ = [
     "classify_slack_app_project_route",
     "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
-    "classify_untagged_question",
     "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
     "request_untagged_question_confirmation_activity",

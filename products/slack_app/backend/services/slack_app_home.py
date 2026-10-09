@@ -79,6 +79,7 @@ from products.slack_app.backend.services.slack_settings import (
     resolve_untagged_followup_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_untagged_followup_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
@@ -961,9 +962,7 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 }
 
 
-def _untagged_followups_section_blocks(
-    mode: UntaggedFollowupMode, *, covers_channel_questions: bool = False
-) -> list[dict]:
+def _untagged_followups_section_blocks(mode: UntaggedFollowupMode, *, covers_channel_questions: bool) -> list[dict]:
     """Picker for how untagged messages land in the threads you started.
 
     Ask until picked. The choice covers every reply in those threads,
@@ -2093,11 +2092,7 @@ def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: 
     picked = (action.get("selected_option") or {}).get("value")
     if picked not in UntaggedFollowupMode.values:
         return
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"untagged_followup_mode": picked},
-    )
+    set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode(picked))
 
 
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:

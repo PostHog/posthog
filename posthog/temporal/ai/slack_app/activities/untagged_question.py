@@ -31,7 +31,6 @@ UNTAGGED_QUESTION_TIMEOUT_SECONDS = 5.0
 # Both judgments must clear this. Tuned for precision over recall, see
 # products/slack_app/evals/eval_untagged_question.py.
 UNTAGGED_QUESTION_MIN_PROBABILITY = 0.85
-UNTAGGED_QUESTION_MAX_CHARS = 2000
 
 ASKS_QUESTION_ID = "asks_for_information"
 ANSWERABLE_QUESTION_ID = "answerable_by_posthog"
@@ -105,7 +104,7 @@ def classify_untagged_question(
         timeout=UNTAGGED_QUESTION_TIMEOUT_SECONDS,
     )
     result = client.decide(
-        state={"message": text[:UNTAGGED_QUESTION_MAX_CHARS]},
+        state={"message": text},
         questions={
             ASKS_QUESTION_ID: NoulQuestion(
                 instructions=ASKS_FOR_INFORMATION_INSTRUCTIONS,
@@ -121,7 +120,6 @@ def classify_untagged_question(
     )
     asks = result.answers.get(ASKS_QUESTION_ID)
     answerable = result.answers.get(ANSWERABLE_QUESTION_ID)
-    # A refusal on either question is a no.
     if not isinstance(asks, NoulAnswer) or not isinstance(answerable, NoulAnswer):
         logger.info("slack_app_untagged_question_refused")
         return None

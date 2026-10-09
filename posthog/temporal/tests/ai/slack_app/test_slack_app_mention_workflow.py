@@ -97,7 +97,6 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
-        # What the untagged-question classifier does: answer True/False, or raise.
         self.untagged_question_verdict: bool | Literal["raise"] = True
         # True holds an untagged question back on a private offer.
         self.untagged_question_awaiting_confirmation = False

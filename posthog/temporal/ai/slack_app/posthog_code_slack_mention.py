@@ -144,9 +144,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 if awaiting_confirmation:
                     return
 
-            # A top-level message nobody tagged us in. The classifier decides whether
-            # PostHog can answer it at all, then the author's mode decides whether to
-            # answer, offer privately, or stay quiet. Both run before anything visible.
+            # Both gates run before anything visible, because nobody tagged us in this message.
             if inputs.untagged_question and not inputs.untagged_question_confirmed:
                 answerable = await _execute_posthog_code_activity(classify_untagged_question_activity, inputs)
                 if not answerable:
