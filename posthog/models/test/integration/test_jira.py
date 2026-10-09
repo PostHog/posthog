@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import Assignee, Integration, JiraIntegration, ReconnectRequired
+from posthog.models.integration.jira import trim_url
 
 
 class TestJiraIntegrationModel:
@@ -195,6 +196,17 @@ class TestJiraIntegrationModel:
             "version": 1,
             "content": expected_content,
         }
+
+    @parameterized.expand(
+        [
+            ("long_punctuation_run", "https://example.com/a" + "." * 1_000_000, "https://example.com/a"),
+            ("long_unmatched_parentheses", "https://example.com/a" + ")." * 500_000, "https://example.com/a"),
+            ("matched_parenthesis_kept", "https://example.com/c_(x))).", "https://example.com/c_(x)"),
+        ]
+    )
+    def test_trim_url(self, _name, url, expected):
+        # A trailing run as long as the description must not make trimming quadratic.
+        assert trim_url(url) == expected
 
     @parameterized.expand(
         [
