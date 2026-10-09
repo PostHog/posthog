@@ -1411,13 +1411,19 @@ def _combine_and_clean(
 def _changed_since_last_review(
     team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
 ) -> ChangedSinceReview | None:
-    """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head."""
+    """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
+
+    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
+    then does not run.
+    """
     reviewed_head = (
         ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()
     )
     if reviewed_head is None or reviewed_head == head_sha:
         return None
-    reviewed = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=reviewed_head)
+    reviewed = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=reviewed_head, review_design=REVIEW_DESIGN_SINGLE_AGENT
+    )
     if reviewed is None:
         return None
     return ChangedSinceReview.between(reviewed.pr_files, current_files)

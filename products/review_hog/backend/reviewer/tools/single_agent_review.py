@@ -15,6 +15,7 @@ import logging
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from posthog.dataclasses import frozen
@@ -494,38 +495,54 @@ def _patch_missing(pr_file: PRFile) -> bool:
     return not pr_file.changes and bool(pr_file.additions or pr_file.deletions)
 
 
-def _diff_lines(pr_file: PRFile, change_type: str) -> list[str]:
-    return [line for change in pr_file.changes if change.type == change_type for line in change.code.split("\n")]
+@frozen
+class _DiffLine:
+    kind: str
+    code: str
+    # The head line it sits on. A removed line has none, so it takes the head line where it used to be.
+    head_line: int
 
 
-def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
-    """The head line numbers of the file's added lines, and of the places it removed lines, that the earlier diff did not have.
-
-    The two diffs are compared by line content, so code that a base merge or a rebase only moved stays old.
-    """
-    added_before = Counter(_diff_lines(earlier, "addition")) if earlier is not None else Counter()
-    removed_before = Counter(_diff_lines(earlier, "deletion")) if earlier is not None else Counter()
-    new_lines: set[int] = set()
+def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
+    sequence: list[_DiffLine] = []
     removal_point = 1
     for change in pr_file.changes:
         code_lines = change.code.split("\n")
         if change.type == "deletion":
-            for code in code_lines:
-                if removed_before[code] > 0:
-                    removed_before[code] -= 1
-                else:
-                    new_lines.add(removal_point)
+            sequence.extend(_DiffLine(kind=change.type, code=code, head_line=removal_point) for code in code_lines)
             continue
         start = change.new_start_line
         if start is None:
             continue
-        if change.type == "addition":
-            for offset, code in enumerate(code_lines):
-                if added_before[code] > 0:
-                    added_before[code] -= 1
-                else:
-                    new_lines.add(start + offset)
+        sequence.extend(
+            _DiffLine(kind=change.type, code=code, head_line=start + offset) for offset, code in enumerate(code_lines)
+        )
         removal_point = start + len(code_lines)
+    return sequence
+
+
+def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
+    """The head lines of the file's changes that the earlier diff did not have.
+
+    The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
+    only moved stays old, and a repeated line matches the occurrence in the same place.
+    """
+    current = _diff_sequence(pr_file)
+    before = _diff_sequence(earlier) if earlier is not None else []
+    matcher = SequenceMatcher(
+        None,
+        [(line.kind, line.code) for line in before],
+        [(line.kind, line.code) for line in current],
+        autojunk=False,
+    )
+    new_lines: set[int] = set()
+    for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        new_lines.update(line.head_line for line in current[current_start:current_end] if line.kind != "context")
+        # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
+        if any(line.kind != "context" for line in before[before_start:before_end]):
+            new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
     return new_lines
 
 
@@ -555,10 +572,11 @@ class ChangedSinceReview:
             return True
         changed = self.lines.get(issue.file, set())
         margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+        # The range comes from the model, so it is compared, never expanded line by line.
         return any(
-            line in changed
+            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
             for line_range in issue.lines
-            for line in range(line_range.start - margin, (line_range.end or line_range.start) + margin + 1)
+            for line in changed
         )
 
 

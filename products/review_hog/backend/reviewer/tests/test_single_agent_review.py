@@ -44,17 +44,15 @@ def _file(filename: str, code: str) -> PRFile:
     )
 
 
-def _added(filename: str, *chunks: tuple[int, list[str]]) -> PRFile:
+def _patched(filename: str, *chunks: tuple[str, int, list[str]]) -> PRFile:
     return PRFile(
         filename=filename,
         status="modified",
-        additions=sum(len(lines) for _, lines in chunks),
+        additions=sum(len(lines) for kind, _, lines in chunks if kind == "addition"),
         deletions=0,
         changes=[
-            PRFileUpdate(
-                type="addition", new_start_line=start, new_end_line=start + len(lines) - 1, code="\n".join(lines)
-            )
-            for start, lines in chunks
+            PRFileUpdate(type=kind, new_start_line=start, new_end_line=start + len(lines) - 1, code="\n".join(lines))
+            for kind, start, lines in chunks
         ],
     )
 
@@ -466,26 +464,58 @@ class TestDedupeFlashFindings:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "file,line,priority,posts",
+        "file,lines,priority,posts",
         [
-            pytest.param("a.py", 30, IssuePriority.SHOULD_FIX, False, id="p2_on_code_the_first_review_saw"),
-            pytest.param("a.py", 16, IssuePriority.CONSIDER, False, id="p3_on_lines_a_base_merge_only_moved"),
-            pytest.param("a.py", 42, IssuePriority.SHOULD_FIX, True, id="p2_next_to_a_new_line"),
-            pytest.param("a.py", 30, IssuePriority.MUST_FIX, True, id="p1_on_unchanged_code"),
-            pytest.param("b.py", 30, IssuePriority.SHOULD_FIX, True, id="p2_in_a_file_without_a_patch"),
+            pytest.param(
+                "a.py", LineRange(start=30), IssuePriority.SHOULD_FIX, False, id="p2_on_code_the_first_review_saw"
+            ),
+            pytest.param(
+                "a.py", LineRange(start=16), IssuePriority.CONSIDER, False, id="p3_on_lines_a_base_merge_only_moved"
+            ),
+            pytest.param("a.py", LineRange(start=42), IssuePriority.SHOULD_FIX, True, id="p2_next_to_a_new_line"),
+            pytest.param("a.py", LineRange(start=30), IssuePriority.MUST_FIX, True, id="p1_on_unchanged_code"),
+            pytest.param(
+                "a.py",
+                LineRange(start=100, end=10**9),
+                IssuePriority.SHOULD_FIX,
+                False,
+                id="p2_with_a_huge_range_is_compared_not_scanned",
+            ),
+            pytest.param(
+                "b.py", LineRange(start=30), IssuePriority.SHOULD_FIX, True, id="p2_in_a_file_without_a_patch"
+            ),
+            pytest.param(
+                "c.py", LineRange(start=10), IssuePriority.SHOULD_FIX, True, id="p2_where_a_guard_was_removed"
+            ),
+            pytest.param(
+                "d.py", LineRange(start=10), IssuePriority.SHOULD_FIX, True, id="p2_on_a_copy_above_the_original"
+            ),
         ],
     )
     async def test_a_follow_up_drops_p2_and_p3_findings_on_unchanged_code(
-        self, pr_metadata: PRMetadata, file: str, line: int, priority: IssuePriority, posts: bool
+        self, pr_metadata: PRMetadata, file: str, lines: LineRange, priority: IssuePriority, posts: bool
     ) -> None:
         # A follow-up turn re-reviews the whole PR, so without this it trickles in findings on code the
-        # first review already covered. Lines a base merge only moved are not new code, and a P1 still posts.
-        earlier = [_added("a.py", (10, ["x = 1", "y = 2", "z = 3"]))]
-        current = [
-            _added("a.py", (15, ["x = 1", "y = 2", "z = 3"]), (40, ["w = 4"])),
-            PRFile(filename="b.py", status="modified", additions=5, deletions=0),
+        # first review already covered. Moved lines stay old, while a removed guard or a repeated line in a
+        # new place is new code, and a P1 still posts.
+        earlier = [
+            _patched("a.py", ("addition", 10, ["x = 1", "y = 2", "z = 3"])),
+            _patched("c.py", ("context", 9, ["def delete(request):"]), ("addition", 10, ["    check()", "    drop()"])),
+            _patched("d.py", ("context", 99, ["def g():"]), ("addition", 100, ["    return None"])),
         ]
-        issue = _issue("2000-1-1", priority).model_copy(update={"file": file, "lines": [LineRange(start=line)]})
+        current = [
+            _patched("a.py", ("addition", 15, ["x = 1", "y = 2", "z = 3"]), ("addition", 40, ["w = 4"])),
+            PRFile(filename="b.py", status="modified", additions=5, deletions=0),
+            _patched("c.py", ("context", 9, ["def delete(request):"]), ("addition", 10, ["    drop()"])),
+            _patched(
+                "d.py",
+                ("context", 9, ["def h():"]),
+                ("addition", 10, ["    return None"]),
+                ("context", 103, ["def g():"]),
+                ("addition", 104, ["    return None"]),
+            ),
+        ]
+        issue = _issue("2000-1-1", priority).model_copy(update={"file": file, "lines": [lines]})
 
         selection = await self._dedupe(
             pr_metadata, [issue], _flash_dedup(), changed_since=ChangedSinceReview.between(earlier, current)
