@@ -9,6 +9,7 @@ boot.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import functools
@@ -46,7 +47,7 @@ _AGENT_ENV_MARKERS = (
     ("CODEX_CI", "codex"),
     ("CURSOR_AGENT", "cursor"),
     ("GEMINI_CLI", "gemini-cli"),
-    ("OPENCODE_CLIENT", "opencode"),
+    ("OPENCODE", "opencode"),
 )
 
 # Cross-tool convention for a harness to name itself, listed as standard by
@@ -54,6 +55,8 @@ _AGENT_ENV_MARKERS = (
 # because each harness formats the value differently and a marker gives one
 # stable name. A harness that sets neither can export HOGLI_AGENT instead.
 _STANDARD_AGENT_ENV_VARS = ("AI_AGENT", "AGENT")
+
+_ACTOR_ENV_VAR = "HOGLI_ACTOR"
 
 
 def _declared(var: str) -> str:
@@ -92,11 +95,13 @@ def _detect_agent() -> str | None:
         if os.environ.get(var):
             return agent
     for var in _STANDARD_AGENT_ENV_VARS:
-        # The convention allows a `name@version` value, and a version would
-        # split one harness into a telemetry value per release.
-        declared = _declared(var).partition("@")[0]
+        declared = _declared(var)
         if declared:
-            return declared
+            # Some harnesses append a version (`name@1.2`, `name_1-2_agent`),
+            # which would split one harness into a telemetry value per release.
+            name = re.split(r"\s*[@_]\d", declared, maxsplit=1)[0]
+            # A harness can set the variable as a bare flag (`AGENT=1`) without naming itself.
+            return "unknown" if name in {"", "1", "true"} else name
     return None
 
 
@@ -109,6 +114,10 @@ def _detect_actor(agent: str | None) -> Literal["agent", "human", "unknown"]:
     """
     if agent is not None:
         return "agent"
+    # A nested hogli command runs with captured streams, so the outermost
+    # invocation passes its verdict down through the environment.
+    if _declared(_ACTOR_ENV_VAR) == "human":
+        return "human"
     # Any stream, not stdin alone: git pipes the pushed refs into the stdin of
     # a pre-push hook, so a person's push has a terminal only on stdout/stderr.
     if any(os.isatty(fd) for fd in (0, 1, 2)):
@@ -228,8 +237,13 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
     # Agent-driven traffic (e.g. skills running metabase:query) otherwise
     # swamps human usage stats.
     agent = _detect_agent()
+    actor = _detect_actor(agent)
+    # The first call runs at command start, before the telemetry send thread
+    # exists. setdefault keeps every later call read-only, because a write to
+    # the environment while that thread runs is unsafe.
+    os.environ.setdefault(_ACTOR_ENV_VAR, actor)
     return {
-        "actor": _detect_actor(agent),
+        "actor": actor,
         "agent": agent,
         "environment": _detect_environment(),
         "git_hook": _declared("HOGLI_GIT_HOOK") or None,

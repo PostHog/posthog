@@ -107,8 +107,9 @@ class TestDetectAgent:
             ({"HOGLI_AGENT": " Goose "}, "goose"),
             ({"HOGLI_AGENT": "goose", "CLAUDECODE": "1"}, "goose"),
             ({"AI_AGENT": "Cursor-CLI@1.2.3"}, "cursor-cli"),
-            ({"AGENT": "amp"}, "amp"),
-            ({"AI_AGENT": "claude-code_2-1-295_agent", "CLAUDECODE": "1"}, "claude-code"),
+            ({"AI_AGENT": "claude-code_2-1-295_agent"}, "claude-code"),
+            ({"AGENT": "1"}, "unknown"),
+            ({"AGENT": "1", "OPENCODE": "1"}, "opencode"),
         ],
         ids=[
             "undeclared",
@@ -118,8 +119,9 @@ class TestDetectAgent:
             "posthog_code_beats_claude",
             "declared_normalized",
             "declared_beats_sniffed",
-            "standard_var_drops_version",
-            "standard_agent_var",
+            "standard_var_drops_at_version",
+            "standard_var_drops_underscore_version",
+            "standard_var_bare_flag",
             "marker_beats_standard_var",
         ],
     )
@@ -131,17 +133,28 @@ class TestDetectAgent:
 
 class TestDetectActor:
     @pytest.mark.parametrize(
-        ("agent", "terminal_fds", "expected"),
+        ("agent", "terminal_fds", "inherited", "expected"),
         [
-            ("claude-code", {0, 1, 2}, "agent"),
-            (None, {0, 1, 2}, "human"),
-            (None, {1, 2}, "human"),
-            (None, set(), "unknown"),
+            ("claude-code", {0, 1, 2}, "human", "agent"),
+            (None, {0, 1, 2}, None, "human"),
+            (None, {1, 2}, None, "human"),
+            (None, set(), None, "unknown"),
+            (None, set(), "human", "human"),
         ],
-        ids=["agent_with_terminal", "terminal", "pre_push_hook_stdin_piped", "no_terminal_no_agent"],
+        ids=[
+            "agent_beats_terminal_and_inherited",
+            "terminal",
+            "pre_push_hook_stdin_piped",
+            "no_terminal_no_agent",
+            "nested_command_inherits_human",
+        ],
     )
-    def test_classification(self, monkeypatch, agent, terminal_fds, expected) -> None:
+    def test_classification(self, monkeypatch, agent, terminal_fds, inherited, expected) -> None:
         monkeypatch.setattr("hogli_commands.telemetry_props.os.isatty", lambda fd: fd in terminal_fds)
+        if inherited is None:
+            monkeypatch.delenv("HOGLI_ACTOR", raising=False)
+        else:
+            monkeypatch.setenv("HOGLI_ACTOR", inherited)
         assert _detect_actor(agent) == expected
 
 
