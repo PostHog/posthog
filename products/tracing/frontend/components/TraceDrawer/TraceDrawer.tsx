@@ -25,6 +25,7 @@ import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span, SpanInspectorTab } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { MissingParentSpanNotice } from './MissingParentSpanNotice'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
@@ -119,6 +120,14 @@ export function TraceDrawer({
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
     )
+    // The waterfall's "<parent span missing>" row selects an id that only appears as a parent id.
+    const missingParentSpanId = useMemo(
+        () =>
+            selectedSpanId && !selectedSpan && spans.some((span) => span.parent_span_id === selectedSpanId)
+                ? selectedSpanId
+                : null,
+        [spans, selectedSpanId, selectedSpan]
+    )
     // Shared with the waterfall so a service is the same color in the bars and the summary header.
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
 
@@ -201,7 +210,9 @@ export function TraceDrawer({
                     data-attr="tracing-span-inspector"
                 >
                     <Resizer {...inspectorResizerProps} />
-                    {inspectedSpan ? (
+                    {missingParentSpanId ? (
+                        <MissingParentSpanNotice traceId={traceId ?? ''} parentSpanId={missingParentSpanId} />
+                    ) : inspectedSpan ? (
                         <>
                             <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
                             <LemonTabs

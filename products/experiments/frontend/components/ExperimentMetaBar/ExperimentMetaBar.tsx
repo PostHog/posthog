@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { TruncatedText } from 'products/experiments/frontend/components/TruncatedText'
 import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
 import { RunningTimeConfigModal } from 'products/experiments/frontend/modals/RunningTimeConfigModal/RunningTimeConfigModal'
 
 import { ExperimentConclusionCard } from './ExperimentConclusionCard'
@@ -72,6 +73,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
                                     </LemonTag>
                                 </Tooltip>
                             )}
+                            <ExperimentHealthChip />
                         </MetaItem>
 
                         {visibility.showConclusion && (

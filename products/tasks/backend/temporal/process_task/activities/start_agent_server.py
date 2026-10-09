@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -44,7 +45,9 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.stream.redis_stream import release_task_run_milestone_claims
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
@@ -456,7 +459,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
-        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes, run_id=ctx.run_id)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -482,6 +485,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
+    release_task_run_milestone_claims(ctx.run_id, run_uses_dedicated_stream(task_run.state))
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
@@ -634,6 +638,9 @@ def _invoke_start_agent_server(
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,
+            sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            if isinstance(sandbox, ModalSandbox)
+            else None,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 

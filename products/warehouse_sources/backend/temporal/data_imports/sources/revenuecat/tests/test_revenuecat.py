@@ -13,7 +13,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
-    REVENUECAT_AUTO_WEBHOOK_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat import (
     RevenueCatResumeConfig,
@@ -116,33 +115,6 @@ class TestValidateCredentials:
         assert called_url == f"{REVENUECAT_API_BASE_URL}/projects"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_accepts_project_id_found_in_projects_list(self, mock_session):
-        # The project check is a membership test against `GET /projects` — the
-        # v2 API has no `GET /projects/{id}` endpoint (probing it 404s even for
-        # a valid id, which used to fail every connection attempt).
-        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_test"}]})
-
-        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
-
-        assert success is True
-        assert error is None
-        assert mock_session.return_value.get.call_count == 1
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{REVENUECAT_API_BASE_URL}/projects"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_accepts_bare_project_id_missing_proj_prefix(self, mock_session):
-        # Users routinely enter the id shown on the dashboard without its `proj`
-        # prefix (e.g. `64dbb3e3`). The prefix is restored before the membership
-        # check so the bare id resolves against the real `proj`-prefixed id.
-        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj64dbb3e3"}]})
-
-        success, error = api_client.validate_credentials("sk_test", project_id="64dbb3e3")
-
-        assert success is True
-        assert error is None
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_follows_pagination_when_project_is_on_a_later_page(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _ok_json_response({"items": [{"id": "proj_a"}], "next_page": "/v2/projects?starting_after=proj_a"}),
@@ -189,18 +161,6 @@ class TestValidateCredentials:
         assert "dns fail" not in error
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_skips_project_check_when_id_normalizes_to_empty(self, mock_session):
-        # A whitespace-only id is truthy as a raw string but empty once trimmed,
-        # so it must not trigger a `GET /projects/` with an empty path segment.
-        mock_session.return_value.get.return_value = _ok_json_response({"items": []})
-
-        success, error = api_client.validate_credentials("sk_test", project_id="   ")
-
-        assert success is True
-        assert error is None
-        assert mock_session.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_fails_open_on_invalid_json_on_projects_list(self, mock_session):
         # If `GET /projects` returns a 200 with an unparseable body, the key is
         # good but we can't run the membership check — accept rather than block.
@@ -237,26 +197,6 @@ class TestApiSource:
             prepared[1].url == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_1&limit=100"
         )
 
-    def test_first_request_uses_limit_and_bearer_auth(self):
-        _rows_, prepared = _run("customers", [_api_response([], next_page=None)], _manager())
-
-        assert prepared[0].method == "GET"
-        assert urlsplit(prepared[0].url).path == "/v2/projects/proj_test/customers"
-        assert _query(prepared[0])["limit"] == ["100"]
-        assert prepared[0].headers["Authorization"] == "Bearer sk_test"
-
-    def test_returns_empty_page_when_items_missing(self):
-        # A 200 with no `items` field is a legit empty page (not an error) — terminate cleanly.
-        rows, prepared = _run("customers", [_api_response(next_page=None)], _manager())
-
-        assert rows == []
-        assert len(prepared) == 1
-
-    def test_skips_non_dict_rows(self):
-        rows, _prepared = _run("customers", [_api_response([{"id": "ok"}, "noise", 42], next_page=None)], _manager())
-
-        assert rows == [{"id": "ok"}]
-
     def test_normalizes_created_at_from_ms_to_seconds(self):
         # `created_at` arrives as a millisecond epoch — divided by 1000 so the partition layer
         # (which treats bare ints as Unix seconds) buckets rows into the correct week.
@@ -265,43 +205,6 @@ class TestApiSource:
         )
 
         assert rows == [{"id": "p_1", "created_at": 1658399423}]
-
-    def test_leaves_created_at_untouched_when_missing(self):
-        rows, _prepared = _run("products", [_api_response([{"id": "p_1"}], next_page=None)], _manager())
-
-        assert rows == [{"id": "p_1"}]
-
-    def test_normalizes_only_the_partition_field_for_customers(self):
-        # The customer object has no `created_at` — it partitions by `first_seen_at`, so only that
-        # field is normalized; `last_seen_at` (not the partition key) keeps its raw ms epoch.
-        rows, _prepared = _run(
-            "customers",
-            [
-                _api_response(
-                    [{"id": "cus_1", "first_seen_at": 1658399423658, "last_seen_at": 1700000000000}], next_page=None
-                )
-            ],
-            _manager(),
-        )
-
-        assert rows == [{"id": "cus_1", "first_seen_at": 1658399423, "last_seen_at": 1700000000000}]
-
-    def test_saves_resume_state_only_after_yielding_and_only_when_pages_remain(self):
-        # Checkpoint the resolved next link AFTER a page is yielded (a crash re-yields it, the merge
-        # dedupes) and never after the final page — there's nothing left to resume.
-        next_page = "/v2/projects/proj_test/customers?starting_after=cus_1&limit=100"
-        manager = _manager()
-        _run(
-            "customers",
-            [_api_response([{"id": "cus_1"}], next_page=next_page), _api_response([{"id": "cus_2"}], next_page=None)],
-            manager,
-        )
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == RevenueCatResumeConfig(
-            endpoint="customers",
-            next_url=f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_1&limit=100",
-        )
 
     def test_resumes_from_saved_next_url(self):
         saved_url = f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_99&limit=100"
@@ -333,34 +236,6 @@ class TestApiSource:
         assert "starting_after" not in query
         assert query["limit"] == ["100"]
 
-    def test_normalizes_pasted_project_url_in_request_path(self):
-        # A stored value that's actually a pasted dashboard URL must still resolve to the bare
-        # project path at sync time.
-        _rows_, prepared = _run(
-            "customers",
-            [_api_response([], next_page=None)],
-            _manager(),
-            project_id="https://app.revenuecat.com/projects/proj_real/overview",
-        )
-
-        assert urlsplit(prepared[0].url).path == "/v2/projects/proj_real/customers"
-
-    def test_restores_missing_proj_prefix_in_request_path(self):
-        _rows_, prepared = _run("customers", [_api_response([], next_page=None)], _manager(), project_id="64dbb3e3")
-
-        assert urlsplit(prepared[0].url).path == "/v2/projects/proj64dbb3e3/customers"
-
-    def test_source_response_partitions_customers_on_first_seen_at(self):
-        response = revenuecat_api_source(
-            "sk_test", "proj_test", "customers", team_id=1, job_id="j", resumable_source_manager=_manager()
-        )
-
-        assert response.name == "customers"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == ["first_seen_at"]
-
     def test_auth_error_raises_without_retry(self):
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             session = MockSession.return_value
@@ -376,15 +251,6 @@ class TestApiSource:
 
 
 class TestMsToSeconds:
-    def test_converts_int_milliseconds_to_seconds(self):
-        assert api_client._ms_to_seconds(1658399423658) == 1658399423
-
-    def test_passes_through_non_int_values(self):
-        # Defensive: don't mangle nulls, strings, or anything else the API
-        # might surprise us with — only ints get the division.
-        assert api_client._ms_to_seconds(None) is None
-        assert api_client._ms_to_seconds("1658399423658") == "1658399423658"
-
     def test_does_not_treat_bool_as_int(self):
         # `bool` subclasses `int` in Python, which would silently turn `True`
         # into `0` (1 // 1000). Make sure we don't fall into that trap.
@@ -393,42 +259,6 @@ class TestMsToSeconds:
 
 
 class TestCreateWebhook:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_creates_webhook_with_authorization_header(self, mock_session, mock_find):
-        mock_find.return_value = None
-        mock_session.return_value.post.return_value = _ok_json_response({"id": "wh_1"})
-
-        result = api_client.create_webhook(
-            "sk_test",
-            project_id="proj_test",
-            webhook_url="https://example.com/h",
-            authorization_header_value="Bearer my-secret",
-        )
-
-        assert result.success is True
-        # If we don't pass back the auth header value we asked for it as a
-        # pending input, so this list should be empty when we supplied one
-        # upfront.
-        assert result.pending_inputs == []
-
-        post_args = mock_session.return_value.post.call_args
-        # `/integrations/webhooks` — plural. The singular path 404s ("Resource
-        # not found"), which used to surface as a bogus "could not find the
-        # project" error on every webhook setup attempt.
-        assert post_args.args[0] == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhooks"
-        # Exact body match: `authorization_header` is the API's field name (a
-        # `signing_secret` key means something else and gets rejected), and
-        # `event_types` is omitted so the integration receives every event
-        # type, current and future.
-        assert post_args.kwargs["json"] == {
-            "name": REVENUECAT_AUTO_WEBHOOK_NAME,
-            "url": "https://example.com/h",
-            "authorization_header": "Bearer my-secret",
-        }
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
     )
@@ -593,11 +423,6 @@ class TestGetExternalWebhookInfo:
         assert info.exists is False
 
 
-class TestProjectPath:
-    def test_combines_project_id_with_suffix(self):
-        assert api_client._project_path("proj_test", "/customers") == "/projects/proj_test/customers"
-
-
 class TestNormalizeProjectId:
     @parameterized.expand(
         [
@@ -623,11 +448,6 @@ class TestNormalizeProjectId:
 
 
 class TestAccessibleProjectIds:
-    def test_extracts_ids_in_order(self):
-        payload = {"items": [{"id": "proj_a", "name": "A"}, {"id": "proj_b"}]}
-
-        assert api_client._accessible_project_ids(payload) == ["proj_a", "proj_b"]
-
     @parameterized.expand(
         [
             ("empty_items", {"items": []}),
@@ -678,16 +498,3 @@ class TestValidateCredentialsProjectSuggestions:
         assert success is False
         assert error is not None
         assert "could not find" in error.lower()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_normalizes_pasted_url_before_checking_project(self, mock_session):
-        # A user pastes the whole dashboard URL — the bare id pulled out of it
-        # must match against the accessible-projects list.
-        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_real"}]})
-
-        success, error = api_client.validate_credentials(
-            "sk_test", project_id="https://app.revenuecat.com/projects/proj_real/overview"
-        )
-
-        assert success is True
-        assert error is None

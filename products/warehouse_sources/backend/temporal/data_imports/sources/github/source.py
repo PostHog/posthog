@@ -368,13 +368,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
         #
-        # A TLS session cut at the socket while minting the installation access token
-        # (``GitHubIntegrationBase.client_request``, called from ``_get_access_token``) has no
-        # in-process retry of its own — unlike ``_fetch_page``'s data requests, whose tenacity retry
-        # already covers ``requests.ConnectionError`` (the base class ``SSLError`` subclasses).
-        # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
-        # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
-        # equivalent classification of the same urllib3/OpenSSL wording.
+        # A TLS session cut at the socket, or a read that outran its 10s deadline, while minting the
+        # installation access token (``GitHubIntegrationBase.client_request``, called from
+        # ``_get_access_token``) has no in-process retry of its own — unlike ``_fetch_page``'s data
+        # requests, whose tenacity retry already covers ``requests.ConnectionError`` (the base class
+        # ``SSLError`` subclasses) and ``requests.ReadTimeout`` directly. Either way it's a transient
+        # network blip, not a GitHub or customer problem, so once Temporal retries the activity the
+        # failure is self-recovering. Mirrors ClickHouse's equivalent classification of the same
+        # urllib3/OpenSSL wording.
         #
         # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
         # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
@@ -386,6 +387,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
+            "Read timed out",
         }
 
     def get_oauth_accounts(
@@ -912,8 +914,17 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Same customer-side state as in delete_webhook: the OAuth integration is gone or the token
+            # is unset. Report it as status so the settings page can say so, instead of raising into
+            # the view's catch-all, which captures it as an exception.
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Couldn't check the GitHub webhook because the connected account is no longer available. Reconnect your GitHub account, then reload.",
+            )
         # exists=True only when every repo carries the hook; partial coverage surfaces the
         # missing repos so the UI can prompt a re-create (which is idempotent per repo).
         missing: list[str] = []

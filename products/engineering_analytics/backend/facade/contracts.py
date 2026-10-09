@@ -23,11 +23,17 @@ intentionally absent until the warehouse data that backs them lands.
 
 from dataclasses import field
 from datetime import date, datetime
-from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
+
+from posthog.enums import LabeledStrEnum
+
+
+class CIEngine(LabeledStrEnum):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    DEPOT_CI = "depot_ci", "Depot CI"
 
 
 class QueryWorkLimitExceededError(Exception):
@@ -55,10 +61,12 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
 
 
-class CISignalsSyncStatus(StrEnum):
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+# The default labels would equal the choices of data_warehouse's backfill lifecycle state. Two classes with
+# identical choices get no class-derived OpenAPI name, so these labels must stay distinct.
+class CISignalsSyncStatus(LabeledStrEnum):
+    RUNNING = "running", "Sync Running"
+    COMPLETED = "completed", "Sync Completed"
+    FAILED = "failed", "Sync Failed"
 
 
 @dataclass(frozen=True)
@@ -89,13 +97,13 @@ class UnknownDoraEnvironmentError(Exception):
         self.environments = environments
 
 
-class PRState(StrEnum):
+class PRState(LabeledStrEnum):
     OPEN = "open"
     CLOSED = "closed"
     MERGED = "merged"
 
 
-class WorkflowConclusion(StrEnum):
+class WorkflowConclusion(LabeledStrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     CANCELLED = "cancelled"
@@ -104,7 +112,7 @@ class WorkflowConclusion(StrEnum):
     NEUTRAL = "neutral"
 
 
-class MetricQuality(StrEnum):
+class MetricQuality(LabeledStrEnum):
     """How much to trust a metric, surfaced on a deep-tool return so an
     autonomous caller can act on the result without paraphrasing a caveat.
 
@@ -121,7 +129,7 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
-class WorkflowHealthRunScope(StrEnum):
+class WorkflowHealthRunScope(LabeledStrEnum):
     """Which population of runs a workflow surface reports on.
 
     - ``all``: every run in the window.
@@ -142,7 +150,7 @@ class WorkflowHealthRunScope(StrEnum):
     MERGE_QUEUE = "merge_queue"
 
 
-class BrokenTestState(StrEnum):
+class BrokenTestState(LabeledStrEnum):
     """How a live CI-failure fingerprint is behaving right now — the broken-tests classifier's
     verdict, ordered by triage urgency (``breaking_master`` on top, ``pr_only`` last). Inferred
     from the failure fingerprints and the latest default-branch job status; see
@@ -168,37 +176,37 @@ class BrokenTestState(StrEnum):
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"
-    PR_ONLY = "pr_only"
+    PR_ONLY = "pr_only", "PR Only"
 
 
-class PRLifecycleEventKind(StrEnum):
+class PRLifecycleEventKind(LabeledStrEnum):
     OPENED = "opened"
     READY_FOR_REVIEW = "ready_for_review"
     CONVERTED_TO_DRAFT = "converted_to_draft"
-    CI_STARTED = "ci_started"
-    CI_FINISHED = "ci_finished"
+    CI_STARTED = "ci_started", "CI Started"
+    CI_FINISHED = "ci_finished", "CI Finished"
     MERGED = "merged"
     CLOSED = "closed"
 
 
-class QuarantineMode(StrEnum):
+class QuarantineMode(LabeledStrEnum):
     # "run": the test still executes but cannot fail the suite. "skip": not run at all.
     RUN = "run"
     SKIP = "skip"
 
 
-class CITestRunner(StrEnum):
+class CITestRunner(LabeledStrEnum):
     PYTEST = "pytest"
     JEST = "jest"
 
 
-class QuarantineRunner(StrEnum):
+class QuarantineRunner(LabeledStrEnum):
     PYTEST = "pytest"
     JEST = "jest"
     PLAYWRIGHT = "playwright"
 
 
-class QuarantineLifecycle(StrEnum):
+class QuarantineLifecycle(LabeledStrEnum):
     """Where an entry sits relative to its expiry: ``active`` (more than 7 days
     left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
     7 days ago — inert, but its removal is not yet mandatory), ``overdue``
@@ -211,14 +219,14 @@ class QuarantineLifecycle(StrEnum):
     OVERDUE = "overdue"
 
 
-class QuarantineSelectorKind(StrEnum):
+class QuarantineSelectorKind(LabeledStrEnum):
     PRODUCT = "product"
     FILE = "file"
     DIRECTORY = "directory"
     TEST = "test"
 
 
-class QuarantineRequestAction(StrEnum):
+class QuarantineRequestAction(LabeledStrEnum):
     """What a write to the quarantine file does. ``quarantine`` adds (or replaces) an
     entry and files a fresh tracking issue; ``extend`` re-stamps an existing entry's
     expiry, reusing its issue; ``remove`` deletes the entry. All three open a PR.
@@ -384,6 +392,9 @@ class WorkflowRunDetail:
     commit_pr_number: int | None
     # A merge-queue gate attempt landing `pr_number`. Counts as CI; not as a push the author made.
     is_merge_queue: bool
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -408,6 +419,7 @@ class WorkflowRunActivityPoint:
     pr_number: int
     # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
     head_sha: str
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -447,6 +459,11 @@ class WorkflowJob:
     # The job's runner tier label, e.g. '16-core' (self-hosted) or 'ubuntu-latest' (GitHub-hosted).
     runner_label: str
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
+    native_job_id: str | None = None
+    native_attempt_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -481,7 +498,7 @@ class WorkflowCost:
 @dataclass(frozen=True)
 class RunCost:
     """One workflow run's billable CI spend within a PR — the per-run cost shown when a PR's workflow
-    row is expanded to its runs. Keyed by ``(run_id, run_attempt)`` so a re-run's attempts stay
+    row is expanded to its runs. Keyed by ``(ci_engine, run_id, run_attempt)`` so a re-run's attempts stay
     distinct. Billable runners only; same exclusion rules as ``PRCostSummary``.
     """
 
@@ -489,6 +506,7 @@ class RunCost:
     run_attempt: int
     billable_minutes: float
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -535,7 +553,7 @@ class PRCostSummary:
     excluded_jobs: int
     # Same spend broken down per workflow, so the PR's per-workflow table can show a cost column.
     by_workflow: list[WorkflowCost]
-    # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
+    # Same spend broken down per workflow run, keyed by (ci_engine, run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
     # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
@@ -549,8 +567,9 @@ class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
     detail: str | None = None
-    # GitHub Actions run id for ci_* events — links straight to the run page.
+    # Integer run id for ci_* events. It is unique only together with ci_engine.
     run_id: int | None = None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -592,6 +611,7 @@ class CIJobFailureLog:
     line_count: int
     lines: list[CIFailureLogLine]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -624,7 +644,7 @@ FLAKY_TEST_SIGNAL_CAVEAT = (
 )
 
 
-class FlakyTestClassification(StrEnum):
+class FlakyTestClassification(LabeledStrEnum):
     # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
@@ -937,13 +957,25 @@ class PullRequestListItem:
 class PullRequestList:
     """A page of the PR list plus an explicit truncation signal. ``items`` is capped
     at ``limit`` (newest first); ``truncated`` is True when more pull requests match
-    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
+    after this page. Surfaced so a consumer never mistakes a capped page for the whole
     set — the aggregate counts in ``CICardSummary`` can legitimately exceed
     ``len(items)`` when ``truncated`` is True.
     """
 
     items: list[PullRequestListItem]
     truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class AttentionPullRequestList:
+    """Open pull requests that need attention: failing CI, or stuck by the ``CICardSummary`` rule.
+    Failing first, then newest. ``items`` holds at most ``limit``; ``total`` counts every match, so
+    a consumer can say how many it did not show.
+    """
+
+    items: list[PullRequestListItem]
+    total: int
     limit: int
 
 
@@ -1113,6 +1145,8 @@ class WorkflowHealthItem:
     # even when a scope is active.
     merge_queue_run_count: int = 0
 
+    latest_ci_engine: CIEngine | None = None
+
 
 @dataclass(frozen=True)
 class CostPerMergeBucket:
@@ -1197,7 +1231,7 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
-class DeliveryStage(StrEnum):
+class DeliveryStage(LabeledStrEnum):
     """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
 
     - ``OPEN_TO_GATE``: ``created_at`` to the PR's first merge-queue gate run starting; review,
@@ -1500,6 +1534,7 @@ class MasterFailureGroup:
     last_seen: datetime
     # The most recent failing run in the group — the drill-down anchor.
     latest_run_id: int
+    latest_ci_engine: CIEngine | None = None
 
 
 # The sparkline is a fixed-width hourly histogram; the width is the contract so a caller can render
@@ -1541,6 +1576,8 @@ class BrokenTestRow:
     latest_branch: str
     trend_24h: list[int] = field(default_factory=list)
 
+    latest_ci_engine: CIEngine | None = None
+
 
 @dataclass(frozen=True)
 class BrokenTestsResult:
@@ -1570,6 +1607,7 @@ class RunFailureLogs:
     logs_available: bool
     jobs: list[CIJobFailureLog]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -1599,12 +1637,12 @@ class WorkflowJobAggregate:
     estimated_cost_usd: float | None
 
 
-class DeliveryScopeKind(StrEnum):
+class DeliveryScopeKind(LabeledStrEnum):
     """Which pull requests a delivery read covers. A scope is always exactly one author, one GitHub
     team, or one pull request, so no delivery read puts people side by side (SPEC §2)."""
 
     AUTHOR = "author"
-    GITHUB_TEAM = "github_team"
+    GITHUB_TEAM = "github_team", "GitHub Team"
     PULL_REQUEST = "pull_request"
 
 
@@ -1705,7 +1743,7 @@ class DeliverySummary:
     lead_time: DeliveryLeadTime
 
 
-class ComparisonTeamBasis(StrEnum):
+class ComparisonTeamBasis(LabeledStrEnum):
     """Why a delivery comparison shows the teams it shows. The candidates are the author's GitHub teams
     with evidence of owning code (the ownership census or a review request), or every team of an author
     without such a team."""
@@ -1756,10 +1794,10 @@ class TeamReadyToMergeMedians:
     medians: ReadyToMergeMedians | None
 
 
-class FrictionGroup(StrEnum):
+class FrictionGroup(LabeledStrEnum):
     """The kinds of friction an author meets, each a share of the friction score."""
 
-    CI = "ci"
+    CI = "ci", "CI"
     REVIEW = "review"
     QUEUE = "queue"
     REWORK = "rework"
@@ -1891,7 +1929,7 @@ class DeliveryComparison:
     pull_request: PullRequestReadyToMerge | None
 
 
-class PRTimelineSegmentKind(StrEnum):
+class PRTimelineSegmentKind(LabeledStrEnum):
     """What a pull request was waiting on during one stretch of its timeline. The red variants name
     what turned the check green, which is evidence about the cause, not proof of it.
     ``logic/pr_timeline.py`` defines the precedence."""
@@ -1903,7 +1941,7 @@ class PRTimelineSegmentKind(StrEnum):
     # Review state without review data: the stretch is neither CI nor the queue, but who it waits on
     # is unknown.
     REVIEW_STATE_UNKNOWN = "review_state_unknown"
-    CI_RUNNING = "ci_running"
+    CI_RUNNING = "ci_running", "CI Running"
     RED_PASSED_ON_RERUN = "red_passed_on_rerun"
     RED_MASTER_BROKEN = "red_master_broken"
     RED_FIXED_BY_PUSH = "red_fixed_by_push"

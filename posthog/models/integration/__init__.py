@@ -15,6 +15,7 @@ from .anthropic import (
     AnthropicIntegration,
     AnthropicIntegrationError,
 )
+from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -219,6 +220,9 @@ __all__ = [
     "GitHubIntegration",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "Assignee",
+    "AssigneeLookupFailed",
+    "ReconnectRequired",
     "GitLabIntegration",
     "MetaGraphIntegration",
     "MetaAdsIntegration",

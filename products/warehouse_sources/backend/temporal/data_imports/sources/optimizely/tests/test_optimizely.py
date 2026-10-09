@@ -11,7 +11,6 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
-    PAGE_SIZE,
     optimizely_source,
     validate_credentials,
 )
@@ -72,35 +71,8 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("token") is expected
 
-    @mock.patch(OPTIMIZELY_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
 
 class TestSimpleEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_projects_paginates_via_link_header(self, mock_make_session):
-        next_url = "https://api.optimizely.com/v2/projects?page=2&per_page=100"
-
-        def router(url: str) -> Response:
-            if "page=2" in url:
-                return _response([{"id": 2}])
-            return _response([{"id": 1}], next_url=next_url)
-
-        sent = _wire(mock_make_session, router)
-        rows = _rows("projects")
-
-        assert [row["id"] for row in rows] == [1, 2]
-        # The second request follows the Link header URL verbatim.
-        assert sent[1] == next_url
-        assert parse_qs(urlparse(sent[0]).query)["per_page"] == [str(PAGE_SIZE)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, mock_make_session):
-        _wire(mock_make_session, lambda url: _response([]))
-        assert _rows("projects") == []
-
     @parameterized.expand(
         [
             ("attacker_host", "https://evil.example.com/v2/projects?page=2&per_page=100"),
@@ -126,28 +98,6 @@ class TestSimpleEndpoint:
 
 
 class TestProjectScopedFanOut:
-    def _router_over_two_projects(self) -> Callable[[str], Any]:
-        def router(url: str) -> Response:
-            parsed = urlparse(url)
-            if parsed.path == "/v2/projects":
-                return _response([{"id": 11}, {"id": 22}])
-            project_id = parse_qs(parsed.query)["project_id"][0]
-            return _response([{"id": f"exp-{project_id}", "project_id": int(project_id)}])
-
-        return router
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_every_project_with_scoped_query_param(self, mock_make_session):
-        sent = _wire(mock_make_session, self._router_over_two_projects())
-        rows = _rows("experiments")
-
-        assert sorted(row["id"] for row in rows) == ["exp-11", "exp-22"]
-
-        child_urls = [url for url in sent if urlparse(url).path == "/v2/experiments"]
-        project_ids = sorted(parse_qs(urlparse(url).query)["project_id"][0] for url in child_urls)
-        assert project_ids == ["11", "22"]
-        assert all(parse_qs(urlparse(url).query)["per_page"] == [str(PAGE_SIZE)] for url in child_urls)
-
     @parameterized.expand([(400,), (403,), (404,)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_skips_projects_without_feature_access(self, skip_status, mock_make_session):

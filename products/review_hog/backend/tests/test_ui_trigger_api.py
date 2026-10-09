@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,17 +9,23 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models import Team, User
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.facade.reviews import (
+    PRReviewRequestStatus,
+    request_pr_review as request_pr_review_from_comment,
+)
+from products.review_hog.backend.models import ReviewReport, ReviewSkillConfig, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import REVIEW_ARMS_BY_TIER, ReviewTier
 from products.review_hog.backend.reviewer.persistence import load_review_arm
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
+from products.skills.backend.models.skills import LLMSkill
 
-_START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
-_START_RESOLUTION = "products.review_hog.backend.api.reviews.start_resolution_workflow"
-_ACCESS = "products.review_hog.backend.api.reviews.GitHubIntegration.first_for_team_repository"
-_META = "products.review_hog.backend.api.reviews._fetch_pr_metadata"
-_BUSY = "products.review_hog.backend.api.reviews.workflow_running"
+_START = "products.review_hog.backend.requested_reviews.start_review_pr_workflow"
+_START_RESOLUTION = "products.review_hog.backend.requested_reviews.start_resolution_workflow"
+_ACCESS = "products.review_hog.backend.requested_reviews.GitHubIntegration.first_for_team_repository"
+_META = "products.review_hog.backend.requested_reviews.fetch_pr_metadata"
+_BUSY = "products.review_hog.backend.requested_reviews.workflow_running"
 
 
 def _pr_meta(**overrides: object) -> MagicMock:
@@ -29,11 +37,9 @@ def _pr_meta(**overrides: object) -> MagicMock:
 
 
 class TestReviewHogUiTriggerApi(APIBaseTest):
-    # The settings GET below resolves stamphog_connected off the stamphog product DB.
-    databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
-
     def setUp(self) -> None:
         super().setUp()
+        self.mock_feature_flag = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         # The busy-guard probes Temporal on every trigger; tests must never open real connections.
         busy_patcher = patch(_BUSY, return_value=False)
         self.mock_busy = busy_patcher.start()
@@ -48,11 +54,15 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
-    def test_trigger_starts_a_publishing_workflow_acting_as_the_requester(self, mock_start, mock_access, _mock_meta):
+    def test_trigger_starts_a_publishing_workflow_acting_as_the_requester(
+        self, mock_start: MagicMock, mock_access: MagicMock, _mock_meta: MagicMock
+    ) -> None:
         # The URL is canonicalized (trailing /files dropped) and the requester is both the run user
         # and the acting user — losing the override would make the review follow the PR author's
         # perspectives instead of the person who asked for it.
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        member = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
+        self.client.force_login(member)
+        with override_settings(REVIEWHOG_TEAM_IDS=[]):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
@@ -61,9 +71,9 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
             team_id=self.team.id,
-            user_id=self.user.id,
+            user_id=member.id,
             publish=True,
-            acting_user_id=self.user.id,
+            acting_user_id=member.id,
             trigger_source="ui",
             # None = the requester's resolve_comments setting decides whether resolution chains.
             resolve_comments=None,
@@ -96,6 +106,54 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
+
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-comment-1")
+    def test_comment_facade_never_resolves_comments(self, mock_start, _mock_access, _mock_meta):
+        # A comment run acts with the commenter's settings, so an unpinned None would let the
+        # commenter's resolve_comments setting write commits to someone else's branch.
+        outcome = request_pr_review_from_comment(
+            team_id=self.team.id,
+            requester_id=self.user.id,
+            repository="PostHog/posthog.com",
+            pr_number=123,
+            run_mode="review",
+        )
+
+        self.assertEqual(outcome.workflow_id, "wf-comment-1")
+        self.assertEqual(mock_start.call_args.kwargs["trigger_source"], "comment")
+        self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+
+    @patch(_START, return_value="wf-comment-1")
+    def test_comment_facade_gates_on_the_commented_environment_not_its_parent(self, mock_start):
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        with patch(
+            "products.review_hog.backend.facade.reviews.posthog_feature_flag_enabled",
+            side_effect=lambda *_args, team_id, **_kwargs: team_id == self.team.id,
+        ):
+            outcome = request_pr_review_from_comment(
+                team_id=environment.id,
+                requester_id=self.user.id,
+                repository="PostHog/posthog.com",
+                pr_number=123,
+                run_mode="review",
+            )
+
+        self.assertEqual(outcome.status, PRReviewRequestStatus.NOT_ALLOWED)
+        mock_start.assert_not_called()
+
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_flash_mode_is_refused_outside_the_internal_project(
+        self, mock_start: MagicMock, _mock_access: MagicMock, _mock_meta: MagicMock
+    ) -> None:
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id + 1, self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="flash")
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        mock_start.assert_not_called()
 
     @patch(_META, return_value=_pr_meta(head_sha="abc123"))
     @patch(_ACCESS, return_value=object())
@@ -231,17 +289,61 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("team_unset", []),
-            ("other_team", [999_999]),
+            ("flag_off", False, False),
+            ("flag_missing", None, False),
+            ("staff_with_flag_off", False, True),
         ]
     )
+    @patch(_ACCESS)
+    @patch(_START_RESOLUTION)
     @patch(_START)
-    def test_rejected_unless_the_project_is_the_reviewhog_team(self, _name, team_setting, mock_start):
-        with override_settings(REVIEWHOG_TEAM_IDS=team_setting):
-            resp = self._trigger("https://github.com/PostHog/posthog/pull/1")
+    def test_project_endpoints_require_the_feature_flag(
+        self,
+        _name: str,
+        flag_value: bool | None,
+        is_staff: bool,
+        mock_start: MagicMock,
+        mock_start_resolution: MagicMock,
+        mock_access: MagicMock,
+    ) -> None:
+        self.mock_feature_flag.return_value = flag_value
+        self.user.is_staff = is_staff
+        self.user.save(update_fields=["is_staff"])
+        endpoints: list[tuple[str, str, dict[str, str | bool]]] = [
+            ("get", "settings/", {}),
+            ("patch", "settings/", {"resolve_comments": False}),
+            ("get", "reviews/", {}),
+            ("get", f"reviews/{uuid4()}/", {}),
+            ("get", "reviews/perspective_stats/", {}),
+            ("post", "reviews/trigger/", {"pr_url": "https://github.com/example/repository/pull/1"}),
+            (
+                "post",
+                "reviews/trigger/",
+                {"pr_url": "https://github.com/example/repository/pull/1", "run_mode": "resolve_only"},
+            ),
+            ("get", "perspectives/", {}),
+            ("patch", "perspectives/review-hog-perspective-logic-correctness/", {"enabled": False}),
+            ("get", "validators/", {}),
+            ("patch", "validators/review-hog-validation-criteria/", {"active": True}),
+            ("get", "blind_spots/", {}),
+            ("patch", "blind_spots/review-hog-blind-spots-general/", {"active": True}),
+            ("get", "resolution/", {}),
+            ("patch", "resolution/review-hog-resolution-criteria/", {"active": True}),
+        ]
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            for method, path, data in endpoints:
+                with self.subTest(method=method, path=path, data=data):
+                    response = getattr(self.client, method)(
+                        f"/api/projects/{self.team.id}/review_hog/{path}", data, format="json"
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
+        mock_start_resolution.assert_not_called()
+        mock_access.assert_not_called()
+        self.assertFalse(ReviewSkillConfig.objects.for_team(self.team.id).exists())
+        self.assertFalse(ReviewUserSettings.objects.for_team(self.team.id).exists())
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
     @patch(_START)
     def test_non_pr_github_url_rejected(self, mock_start):
@@ -351,13 +453,22 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("reviewhog_team", True),
-            ("other_team", False),
+            ("automation_project", True),
+            ("manual_project", False),
         ]
     )
-    def test_settings_expose_whether_reviews_can_be_triggered_here(self, _name, is_reviewhog_team):
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id] if is_reviewhog_team else [self.team.id + 1]):
+    @patch("products.review_hog.backend.api.settings.has_reviewable_repo_config", return_value=False)
+    def test_settings_enable_manual_reviews_independently_of_automation(
+        self, _name: str, is_automation_project: bool, mock_stamphog: MagicMock
+    ) -> None:
+        legacy_teams = [self.team.id] if is_automation_project else [self.team.id + 1, self.team.id]
+        with override_settings(REVIEWHOG_TEAM_IDS=legacy_teams):
             resp = self.client.get(f"/api/projects/{self.team.id}/review_hog/settings/")
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.json()["can_trigger_reviews"], is_reviewhog_team)
+        self.assertIs(resp.json()["can_trigger_reviews"], True)
+        self.assertEqual(resp.json()["show_internal_features"], is_automation_project)
+        if is_automation_project:
+            mock_stamphog.assert_called_once_with(self.team.id)
+        else:
+            mock_stamphog.assert_not_called()

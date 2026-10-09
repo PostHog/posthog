@@ -1,15 +1,18 @@
+import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     DEFAULT_CI_MESSAGE,
     HEARTBEAT_DEBOUNCE,
     MAX_ACK_RETRIES,
+    MAX_CI_IDLE_SKIPS,
     MAX_CI_REPETITIONS,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_VERSION,
@@ -18,7 +21,13 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTA
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.task_management import workflow as task_management_workflow_module
+from products.tasks.backend.temporal.task_management.activities.pending_followups import (
+    ReadPendingFollowupsResult,
+    persist_pending_followups_v2,
+    persist_pending_followups_v3,
+)
 from products.tasks.backend.temporal.task_management.workflow import (
+    MAX_CI_WAIT_CHECKS,
     MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES,
     ChildAck,
     ChildCompletion,
@@ -29,6 +38,21 @@ from products.tasks.backend.temporal.task_management.workflow import (
     TaskManagementWorkflow,
     TaskRunManagementInput,
 )
+
+
+@pytest.fixture(params=[True, False])
+def durable_ci_patch(request, monkeypatch) -> bool:
+    original = task_management_workflow_module._patch_enabled
+    monkeypatch.setattr(
+        task_management_workflow_module,
+        "_patch_enabled",
+        lambda patch_id: (
+            request.param
+            if patch_id == task_management_workflow_module._PATCH_ID_DURABLE_CI_CHECKPOINTS
+            else original(patch_id)
+        ),
+    )
+    return request.param
 
 
 def _build_context(
@@ -284,6 +308,38 @@ class TestCIFollowUpEnabled:
 
 
 class TestShouldRunCIFollowUp:
+    @pytest.mark.parametrize("patched", [True, False])
+    @pytest.mark.parametrize("queued", [True, False])
+    async def test_pending_or_queued_pr_waits_without_using_idle_budget(
+        self, monkeypatch, silent_workflow_logger, patched: bool, queued: bool
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._pr_fingerprint = "fp-1"
+        monkeypatch.setattr(task_management_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "patched",
+            lambda patch_id: patched if patch_id == task_management_workflow_module._PATCH_ID_CI_WAIT else True,
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(
+                return_value=GetPrContextOutput(
+                    pr_url="https://github.com/example/repo/pull/1",
+                    pr_state="open",
+                    fingerprint="fp-1",
+                    ci_status="pending" if not queued else "failing",
+                    merge_queue_push_would_eject=queued,
+                )
+            ),
+        )
+
+        assert await workflow._should_run_ci_follow_up() == (
+            CIFollowUpDecision.WAIT if patched else CIFollowUpDecision.SKIP
+        )
+
     async def test_returns_no_pr_when_pr_context_missing(self, monkeypatch):
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()
@@ -297,21 +353,27 @@ class TestShouldRunCIFollowUp:
         decision = await workflow._should_run_ci_follow_up()
         assert decision is CIFollowUpDecision.NO_PR
 
-    async def test_returns_skip_when_pr_closed(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize("pr_state", ["closed", "merged"])
+    @pytest.mark.parametrize("patched", [True, False])
+    async def test_closed_pr_stops_polling_only_for_patched_histories(
+        self, monkeypatch, silent_workflow_logger, pr_state, patched
+    ):
+        monkeypatch.setattr(task_management_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _: patched)
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             return GetPrContextOutput(
                 pr_url="https://github.com/org/repo/pull/1",
-                pr_state="closed",
+                pr_state=pr_state,
                 fingerprint="closed-fp",
             )
 
         monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
 
         decision = await workflow._should_run_ci_follow_up()
-        assert decision is CIFollowUpDecision.SKIP
+        assert decision is (CIFollowUpDecision.TERMINAL if patched else CIFollowUpDecision.SKIP)
 
     @pytest.mark.parametrize(
         "ci_status,changes_requested,expected_decision,expected_fingerprint",
@@ -319,14 +381,12 @@ class TestShouldRunCIFollowUp:
             # Actionable changes fire.
             ("failing", False, CIFollowUpDecision.FIRE, "fp-1"),
             ("passing", True, CIFollowUpDecision.FIRE, "fp-1"),
+            ("pending", True, CIFollowUpDecision.FIRE, "fp-1"),
             # Non-actionable changes persist the fingerprint but stay quiet —
             # waking the agent here produced "nothing to report" Slack spam.
-            # Pending needs no deferral: the settled state hashes differently
-            # (CI status and head SHA are both in the fingerprint), so it still
-            # registers as a change on a later tick.
             ("passing", False, CIFollowUpDecision.SKIP, "fp-1"),
             ("none", False, CIFollowUpDecision.SKIP, "fp-1"),
-            ("pending", False, CIFollowUpDecision.SKIP, "fp-1"),
+            ("pending", False, CIFollowUpDecision.WAIT, "fp-1"),
         ],
     )
     async def test_fingerprint_change_fires_only_when_actionable(
@@ -422,13 +482,78 @@ class TestShouldRunCIFollowUp:
 
 
 class TestMaybeDispatchCIFollowUp:
-    async def test_fire_dispatches_and_increments_repetitions(self, monkeypatch, fixed_now):
+    @pytest.mark.parametrize("patched", [True, False])
+    @pytest.mark.parametrize("mode", ["background", "interactive"])
+    @pytest.mark.parametrize("wait_checks", [2, MAX_CI_WAIT_CHECKS])
+    async def test_idle_polling_is_bounded_and_wait_preserves_budget(
+        self, monkeypatch, fixed_now, silent_workflow_logger, patched: bool, mode: str, wait_checks: int
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow.context.state = {"mode": mode}
+        workflow._run_id = "run-id"
+        monkeypatch.setattr(task_management_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "patched",
+            lambda patch_id: (
+                patched
+                if patch_id
+                in (
+                    task_management_workflow_module._PATCH_ID_CI_IDLE_SKIP_CAP,
+                    task_management_workflow_module._PATCH_ID_CI_WAIT_CAP,
+                )
+                else True
+            ),
+        )
+        pr_context = GetPrContextOutput(
+            pr_url="https://github.com/example/repo/pull/1",
+            pr_state="open",
+            fingerprint="fp-1",
+            ci_status="passing",
+        )
+        execute_activity = AsyncMock(return_value=pr_context)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", execute_activity)
+
+        await workflow._maybe_dispatch_ci_follow_up()
+        assert workflow._ci_follow_up_enabled()
+        for check in range(wait_checks):
+            execute_activity.return_value = replace(
+                pr_context, ci_status="pending", merge_queue_push_would_eject=bool(check % 2)
+            )
+            await workflow._maybe_dispatch_ci_follow_up()
+            assert workflow._ci_follow_up_enabled() is (not patched or check + 1 < MAX_CI_WAIT_CHECKS)
+
+        assert workflow._ci_wait_checks == (wait_checks if patched else 0)
+        assert workflow._ci_idle_skips == (1 if patched and mode == "background" else 0)
+        if patched and wait_checks == MAX_CI_WAIT_CHECKS:
+            persisted = execute_activity.await_args_list[-1].args[1]
+            assert persisted.ci_wait_checks == MAX_CI_WAIT_CHECKS
+            return
+
+        execute_activity.return_value = pr_context
+        await workflow._maybe_dispatch_ci_follow_up()
+
+        capped = patched and mode == "background"
+        assert workflow._ci_follow_up_enabled() is not capped
+        assert workflow._ci_idle_skips == (MAX_CI_IDLE_SKIPS if capped else 0)
+        assert workflow._ci_repetitions == 0
+        assert workflow._last_active_time == fixed_now.now
+        if capped:
+            persisted = execute_activity.await_args_list[-1].args[1]
+            assert persisted.ci_idle_skips == MAX_CI_IDLE_SKIPS
+
+    async def test_fire_dispatches_and_increments_repetitions(self, monkeypatch, fixed_now, durable_ci_patch):
         # `_dispatch_ci_follow_up` increments repetitions, sets last_active so
         # _wait_for_ci_follow_up sleeps a full window, and forwards via the
         # signal-child-followup machinery.
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context(ci_prompt="custom prompt")
+        workflow._ci_idle_skips = 1
+        workflow._ci_wait_checks = 1
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock())
         workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
         workflow._sandbox_workflow_id = "sandbox-wf"
 
         monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.FIRE))
@@ -438,13 +563,21 @@ class TestMaybeDispatchCIFollowUp:
         await workflow._maybe_dispatch_ci_follow_up()
 
         assert workflow._ci_repetitions == 1
+        assert workflow._ci_idle_skips == 0
+        assert workflow._ci_wait_checks == 0
         assert workflow._last_active_time == fixed_now.now
-        signal_mock.assert_awaited_once_with(message="custom prompt", artifact_ids=[], source="ci")
+        signal_mock.assert_awaited_once()
+        assert signal_mock.await_args is not None
+        assert signal_mock.await_args.kwargs["message"] == "custom prompt"
+        assert signal_mock.await_args.kwargs["source"] == "ci"
+        assert workflow._pending_external_followups == []
 
-    async def test_fire_falls_back_to_default_ci_message(self, monkeypatch, fixed_now):
+    async def test_fire_falls_back_to_default_ci_message(self, monkeypatch, fixed_now, durable_ci_patch):
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context(ci_prompt=None)
         workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock())
 
         monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.FIRE))
         signal_mock = AsyncMock()
@@ -452,16 +585,21 @@ class TestMaybeDispatchCIFollowUp:
 
         await workflow._maybe_dispatch_ci_follow_up()
 
-        signal_mock.assert_awaited_once_with(message=DEFAULT_CI_MESSAGE, artifact_ids=[], source="ci")
+        signal_mock.assert_awaited_once()
+        assert signal_mock.await_args is not None
+        assert signal_mock.await_args.kwargs["message"] == DEFAULT_CI_MESSAGE
+        assert signal_mock.await_args.kwargs["source"] == "ci"
+        assert workflow._pending_external_followups == []
 
-    async def test_no_pr_disables_ci_loop(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize("decision", [CIFollowUpDecision.NO_PR, CIFollowUpDecision.TERMINAL])
+    async def test_terminal_decision_disables_ci_loop(self, monkeypatch, silent_workflow_logger, decision):
         # No PR → there will never be one; we have to disable the loop entirely
         # or the CI timer branch would keep waking up the orchestrator.
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()
         workflow._run_id = "run-id"
 
-        monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.NO_PR))
+        monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=decision))
         signal_mock = AsyncMock()
         monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
 
@@ -479,6 +617,7 @@ class TestMaybeDispatchCIFollowUp:
         workflow._context = _build_context()
         workflow._run_id = "run-id"
 
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock())
         monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.SKIP))
         signal_mock = AsyncMock()
         monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
@@ -492,6 +631,35 @@ class TestMaybeDispatchCIFollowUp:
 
 
 class TestDrainExternalSignals:
+    async def test_followups_arriving_during_checkpoint_are_saved_before_delivery(self, monkeypatch, fixed_now):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="first", artifact_ids=[], source="user")
+        )
+        saved_messages: list[str] = []
+        delivered_messages: list[str] = []
+
+        async def save_snapshot(_activity, input, **_kwargs):
+            saved_messages[:] = [item["message"] for item in input.followups]
+            if saved_messages == ["first"]:
+                workflow._pending_external_followups.append(
+                    PendingExternalFollowup(message="second", artifact_ids=[], source="user", sequence=1)
+                )
+
+        async def deliver(*, message, **_kwargs):
+            assert message in saved_messages
+            delivered_messages.append(message)
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", save_snapshot)
+        monkeypatch.setattr(workflow, "_signal_child_followup", deliver)
+
+        await workflow._drain_external_signals()
+
+        assert delivered_messages == ["first", "second"]
+        assert saved_messages == []
+
     async def test_followups_drained_before_completion(self, monkeypatch):
         # complete_task is terminal for a session — if we processed it first,
         # any pending follow-up messages would be dropped on the floor.
@@ -499,6 +667,8 @@ class TestDrainExternalSignals:
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
         workflow._sandbox_alive = True  # sandbox running → no re-bootstrap
+        workflow._ci_idle_skips = MAX_CI_IDLE_SKIPS
+        workflow._ci_wait_checks = MAX_CI_WAIT_CHECKS
         workflow._pending_external_followups.extend(
             [
                 PendingExternalFollowup(message="m1", artifact_ids=[], source="user"),
@@ -517,6 +687,8 @@ class TestDrainExternalSignals:
         await workflow._drain_external_signals()
 
         assert call_order == ["followup:m1", "followup:m2", "complete:completed"]
+        assert workflow._ci_idle_skips == 0
+        assert workflow._ci_wait_checks == 0
         assert workflow._pending_external_followups == []
         assert workflow._pending_external_complete is None
 
@@ -822,6 +994,8 @@ class TestDrainExternalSignals:
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
         workflow._sandbox_alive = True
+        workflow._ci_idle_skips = MAX_CI_IDLE_SKIPS
+        workflow._ci_wait_checks = MAX_CI_WAIT_CHECKS
         workflow._pending_external_followups.extend(
             [
                 PendingExternalFollowup(
@@ -869,6 +1043,8 @@ class TestDrainExternalSignals:
         await workflow._drain_external_signals()
 
         assert workflow._sandbox_alive is False
+        assert workflow._ci_idle_skips == 0
+        assert workflow._ci_wait_checks == 0
         assert workflow._pending_ack_slots == {}
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(
@@ -1531,7 +1707,8 @@ class TestShutdownRejectionHandling:
     the orchestrator re-queues the message so it stays visible in workflow
     state for the next orchestrator execution to drain."""
 
-    async def test_followup_rejection_requeues_to_external_queue(self, fixed_now, silent_workflow_logger):
+    async def test_followup_rejection_requeues_to_external_queue(self, monkeypatch, fixed_now, silent_workflow_logger):
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock())
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
         workflow._pending_ack_slots["ack-shut"] = PendingAckSlot(
@@ -1560,7 +1737,10 @@ class TestShutdownRejectionHandling:
         ]
         silent_workflow_logger.warning.assert_called()
 
-    async def test_steer_rejections_preserve_arrival_order_as_normal_followups(self, fixed_now, silent_workflow_logger):
+    async def test_steer_rejections_preserve_arrival_order_as_normal_followups(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock())
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
         workflow._pending_ack_slots["ack-steer-1"] = PendingAckSlot(
@@ -1737,6 +1917,8 @@ class TestSandboxSessionCompletionReset:
         workflow._sandbox_alive = True
         workflow._child_completion = ChildCompletion(success=True, error=None, sandbox_id="sb-1", timed_out=False)
         workflow._ci_repetitions = 2
+        workflow._ci_idle_skips = 1
+        workflow._ci_wait_checks = 1
         workflow._pr_fingerprint = "fp-1"
         workflow._heartbeat_received = True
         workflow._last_active_time = fixed_now.now
@@ -1748,6 +1930,8 @@ class TestSandboxSessionCompletionReset:
         assert workflow._child_completion is None
         assert workflow._sandbox_alive is False
         assert workflow._ci_repetitions == 0
+        assert workflow._ci_idle_skips == 0
+        assert workflow._ci_wait_checks == 0
         assert workflow._pr_fingerprint is None
         assert workflow._heartbeat_received is False
         assert workflow._last_active_time is None
@@ -1845,6 +2029,129 @@ class TestSandboxSessionCompletionReset:
 
 
 class TestPendingFollowupPersistence:
+    @pytest.mark.parametrize("patched", [True, False])
+    @pytest.mark.parametrize(
+        "activity_type", ["read_pending_followups", "persist_pending_followups_v3", "get_task_processing_context"]
+    )
+    async def test_checkpoint_failure_preserves_recoverable_run_status(
+        self, monkeypatch, silent_workflow_logger, patched: bool, activity_type: str
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="queued work", artifact_ids=[], source="user")
+        )
+        workflow._sandbox_alive = True
+        error = ActivityError(
+            "storage unavailable",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type=activity_type,
+            activity_id="activity-1",
+            retry_state=None,
+        )
+        original_patch = task_management_workflow_module._patch_enabled
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: (
+                patched
+                if patch_id == task_management_workflow_module._PATCH_ID_CHECKPOINT_RECOVERY_STATUS
+                else original_patch(patch_id)
+            ),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "info", lambda: Mock(workflow_id="wf-id"))
+
+        async def execute_activity(activity_fn, *_args, **_kwargs):
+            if activity_fn.__name__ == activity_type:
+                raise error
+            return ReadPendingFollowupsResult(followups=[])
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", execute_activity)
+        monkeypatch.setattr(
+            workflow,
+            "_get_task_processing_context",
+            AsyncMock(side_effect=error)
+            if activity_type == "get_task_processing_context"
+            else AsyncMock(return_value=_build_context()),
+        )
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", AsyncMock())
+        monkeypatch.setattr(workflow, "_wait_for_event", AsyncMock(return_value=TaskEvent.EXTERNAL_SIGNAL))
+        status_update = AsyncMock()
+        monkeypatch.setattr(workflow, "_update_task_run_status", status_update)
+
+        result = await workflow.run(TaskRunManagementInput(run_id="run-id"))
+
+        assert result.success is False
+        if patched and activity_type != "get_task_processing_context":
+            status_update.assert_not_awaited()
+        else:
+            status_update.assert_awaited_once_with(
+                "failed", error_message="storage unavailable", error_type="ActivityError"
+            )
+
+    @pytest.mark.parametrize("patched", [True, False])
+    @pytest.mark.parametrize("wait_cap", [False, True])
+    async def test_restart_preserves_ci_caps_with_no_pending_followups(
+        self, monkeypatch, silent_workflow_logger, patched: bool, wait_cap: bool
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._context = _build_context()
+        monkeypatch.setattr(task_management_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _: patched)
+        execute_activity = AsyncMock(
+            return_value=ReadPendingFollowupsResult(
+                followups=[],
+                ci_idle_skips=0 if wait_cap else MAX_CI_IDLE_SKIPS,
+                ci_wait_checks=MAX_CI_WAIT_CHECKS if wait_cap else 0,
+            )
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", execute_activity)
+
+        await workflow._restore_pending_followups()
+
+        assert workflow._ci_follow_up_enabled() is not patched
+        assert await workflow._persist_pending_followups()
+        assert execute_activity.await_count == 1
+
+    @pytest.mark.parametrize("source", ["user", "ci"])
+    async def test_failed_checkpoint_keeps_followup_queued_before_delivery(
+        self, monkeypatch, fixed_now, silent_workflow_logger, durable_ci_patch, source
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context(ci_prompt="queued work")
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._ci_idle_skips = MAX_CI_IDLE_SKIPS
+        workflow._ci_wait_checks = MAX_CI_WAIT_CHECKS
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(side_effect=RuntimeError("storage unavailable")),
+        )
+        deliver = AsyncMock()
+        monkeypatch.setattr(workflow, "_signal_child_followup", deliver)
+        if source == "user":
+            workflow._pending_external_followups.append(
+                PendingExternalFollowup(message="queued work", artifact_ids=[], source=source)
+            )
+            transition = workflow._drain_external_signals
+        else:
+            transition = workflow._dispatch_ci_follow_up
+        if durable_ci_patch:
+            with pytest.raises(RuntimeError, match="storage unavailable"):
+                await transition()
+            deliver.assert_not_awaited()
+            assert [f.message for f in workflow._pending_external_followups] == ["queued work"]
+            assert workflow._last_persisted_ci_idle_skips == 0
+        else:
+            await transition()
+            deliver.assert_awaited_once()
+
     async def test_restore_pending_seeds_in_memory_queue(self, monkeypatch, silent_workflow_logger):
         # An orchestrator that restarts must rebuild its queue from
         # TaskRun.state so user messages that landed against the previous
@@ -1875,7 +2182,7 @@ class TestPendingFollowupPersistence:
             PendingExternalFollowup(message="queued-2", artifact_ids=["a1"], source="user", sequence=1),
         ]
 
-    async def test_restore_swallows_read_error(self, monkeypatch, silent_workflow_logger):
+    async def test_restore_error_requires_recovery(self, monkeypatch, silent_workflow_logger, durable_ci_patch):
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
 
@@ -1884,15 +2191,43 @@ class TestPendingFollowupPersistence:
 
         monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", boom)
 
+        if durable_ci_patch:
+            with pytest.raises(RuntimeError, match="db down"):
+                await workflow._restore_pending_followups()
+            return
         await workflow._restore_pending_followups()
 
         assert workflow._pending_external_followups == []
         silent_workflow_logger.warning.assert_called()
 
-    async def test_persist_writes_current_queue(self, monkeypatch):
-        from products.tasks.backend.temporal.task_management.activities.pending_followups import (
-            persist_pending_followups_v2,
+    @pytest.mark.parametrize("operation", ["_restore_pending_followups", "_persist_pending_followups"])
+    async def test_checkpoint_cancellation_stays_cancelled(
+        self, monkeypatch, silent_workflow_logger, durable_ci_patch, operation: str
+    ) -> None:
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="queued work", artifact_ids=[], source="user")
         )
+        error = ActivityError(
+            "Activity cancelled",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type="checkpoint",
+            activity_id="checkpoint-1",
+            retry_state=None,
+        )
+        error.__cause__ = CancelledError()
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", AsyncMock(side_effect=error))
+
+        if durable_ci_patch:
+            with pytest.raises(asyncio.CancelledError):
+                await getattr(workflow, operation)()
+        else:
+            await getattr(workflow, operation)()
+
+    async def test_persist_writes_current_queue(self, monkeypatch, durable_ci_patch):
 
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
@@ -1903,7 +2238,7 @@ class TestPendingFollowupPersistence:
         captured: dict = {}
 
         async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
-            assert activity_fn is persist_pending_followups_v2
+            assert activity_fn is (persist_pending_followups_v3 if durable_ci_patch else persist_pending_followups_v2)
             captured["input"] = input_arg
             return None
 
