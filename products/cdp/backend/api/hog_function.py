@@ -39,6 +39,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
+    SYSTEM_EMAIL_TEMPLATE_ID,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -548,6 +549,34 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _validate_system_email_template(self, attrs: dict) -> None:
+        # The worker sends this template's mail from a PostHog-owned address and takes the
+        # recipients from the triggering event. Only internal events carry recipients that PostHog
+        # set, so any other type must not use the template. The inputs stay fixed so nobody adds a
+        # recipient-like field that looks like it works.
+        instance = self.instance if isinstance(self.instance, HogFunction) else None
+        template_id = attrs.get("template_id") or (instance.template_id if instance else None)
+        if template_id != SYSTEM_EMAIL_TEMPLATE_ID or attrs.get("deleted") is True:
+            return
+
+        if attrs.get("type", instance.type if instance else None) != HogFunctionType.INTERNAL_DESTINATION:
+            raise serializers.ValidationError(
+                {"type": "This template only works as a notification for a PostHog alert, not as a destination."}
+            )
+
+        template = HogFunctionTemplate.get_template(template_id)
+        if template is None:
+            return
+
+        def schema_shape(schemas: list[dict] | None) -> set[tuple[str, str]]:
+            return {(str(schema.get("key")), str(schema.get("type"))) for schema in schemas or []}
+
+        proposed = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
+        if schema_shape(proposed) != schema_shape(template.inputs_schema):
+            raise serializers.ValidationError(
+                {"inputs_schema": "The inputs of this template are fixed. Remove the inputs that you added or changed."}
+            )
+
     def _validate_no_reserved_functions(self, attrs: dict) -> None:
         # The worker's async function registry is global, so `sendEmail` and its peers run from any
         # function that names them, and a call from user-authored code kills the worker process.
@@ -753,6 +782,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
+        self._validate_system_email_template(attrs)
 
         # Existing functions keep working (and can be updated/disabled) if the flag is
         # later turned off; only creation is gated.

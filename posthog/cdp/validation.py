@@ -241,10 +241,18 @@ register_supported_function("postHogSetAccountProperties")
 # `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
 #
 # Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
+#
+# sendSystemEmail is reserved for a different reason. It stages no queue, but it sends mail from a
+# PostHog-owned address, so only the code of its own template may call it.
 RESERVED_ASYNC_FUNCTIONS = {
     "sendEmail",
     "sendPushNotification",
+    "sendSystemEmail",
 }
+
+# Must match SYSTEM_EMAIL_TEMPLATE_ID in nodejs/src/cdp/services/messaging/system-email.service.ts.
+# The worker checks the same id again when it sends.
+SYSTEM_EMAIL_TEMPLATE_ID = "template-posthog-email"
 
 
 # Globals that the realtime transformer actually populates at runtime.
