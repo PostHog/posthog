@@ -1479,6 +1479,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "replayVisionTab": {
+        "template": "/replay-vision",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionTemplates": {
         "template": "/replay-vision/new/template",
         "params": [],
