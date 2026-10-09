@@ -141,10 +141,10 @@ def _truncate_writable_events(client: Client) -> None:
 
 def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client, **row_values: object) -> None:
     # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at[, _timestamp]).
-    # row_values sets one column to the same value on every row. The event name is stamped here
-    # because a property-removal request narrows on it. inserted_at is set explicitly rather than left
-    # to its `DEFAULT timestamp` so a test can place a row before or after the removal marker, which is
-    # what the marker-bounded gate keys on.
+    # Each keyword in row_values sets that column to the same value on every row. The event name is
+    # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
+    # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the removal
+    # marker, which is what the marker-bounded gate keys on.
     columns = "team_id, distinct_id, properties, uuid, timestamp, inserted_at"
     if rows and len(rows[0]) == 7:
         columns += ", _timestamp"
@@ -2768,6 +2768,7 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
         resources={"cluster": cluster},
     )
     assert result.success
+    assert count_remaining_for_request(request) == 0
 
     cleaned = {key: value for key, value in stored.items() if key not in properties}
     cleaned_person = (

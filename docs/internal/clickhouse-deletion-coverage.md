@@ -156,7 +156,7 @@ That works because `materialize()` creates columns as `DEFAULT <expr>`, so an in
 `group0..group4_properties` no longer exist on the table: no Insight or Hog function used them as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them. Event `properties` and `person_id` are still sent.
 `person_properties` is on the table again, so test-account filters can read person properties off the row the way they do on `events`.
 The column defaults to `'{}'`, and no row holds real person properties until the producer sends them.
-Property removal treats `person_properties` here as it does on `events`: the gate counts it, the copy drops the named keys from it, and both verifications check it.
+Property removal treats `person_properties` here as it does on `events`: the gate counts it, the copy drops the named keys from it, and the per-shard verify, the final verify and the admin Verify count all check it.
 
 #### Typed columns
 
@@ -273,7 +273,7 @@ A manual run can narrow the plan with `team_ids` and `partitions`. A listed team
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns, and a `person_properties` column, because the job reads and rewrites that column on every table it sweeps.
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
 A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
