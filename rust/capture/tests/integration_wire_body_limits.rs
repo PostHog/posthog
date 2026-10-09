@@ -6,9 +6,10 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::{router, BATCH_BODY_SIZE};
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
@@ -52,6 +53,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 

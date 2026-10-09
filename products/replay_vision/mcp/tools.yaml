@@ -231,20 +231,6 @@ tools:
         description: >
             Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it
             to unrated. Team-wide: this clears the rating for everyone.
-    vision-observations-label-destroy:
-        operation: vision_observations_label_destroy
-        enabled: true
-        scopes:
-            - replay_scanner:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Remove a scanner observation rating (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-observations-label-delete. This alias calls the same endpoint and will be
-            removed. Call vision-observations-label-delete with the same arguments.
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -286,22 +272,6 @@ tools:
                 - created_at
                 - scanner_id
                 - _posthogUrl
-    vision-observations-retrieve:
-        operation: vision_observations_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{session_id}'
-        title: Get a replay vision observation (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-observations-get. This alias calls the same endpoint and will be removed. Call
-            vision-observations-get with the same arguments.
-        url_prefix: /replay
     vision-observations-retry:
         operation: vision_observations_retry_create
         enabled: true
@@ -381,19 +351,6 @@ tools:
             budget, a scanner's scheduled sweeps silently skip their observations until the next period, while
             `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate` to size
             a new scanner against the remaining budget.
-    vision-quota-retrieve:
-        operation: environment_vision_quota_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get replay vision quota (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-quota-get. This alias calls the same endpoint and will be removed. Call
-            vision-quota-get with the same arguments.
     vision-quota-spend-series-get:
         operation: environment_vision_quota_spend_series_retrieve
         enabled: true
@@ -664,20 +621,6 @@ tools:
             (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month
             while `remaining` covers only the rest of the current period, so prorate them by the days left between
             `period_start` and `period_end` before comparing.
-    vision-scanners-estimate-create:
-        operation: vision_scanners_estimate_create
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Estimate replay vision scanner volume (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-scanners-estimate. This alias calls the same endpoint and will be removed.
-            Call vision-scanners-estimate with the same arguments.
     vision-scanners-get:
         operation: vision_scanners_retrieve
         enabled: true
@@ -710,20 +653,6 @@ tools:
             count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require
             `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct
             ID, so the user count reads honestly against the session count.
-    vision-scanners-impact-retrieve:
-        operation: vision_scanners_impact_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a scanner's impact counts (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-scanners-impact-get. This alias calls the same endpoint and will be removed.
-            Call vision-scanners-impact-get with the same arguments.
     vision-scanners-inline-scan:
         operation: vision_scanners_inline_scan_create
         enabled: true
@@ -754,22 +683,6 @@ tools:
             being charged twice. Scans cost credits per session at the same rate a scanner does; check
             `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as
             `skipped_quota` instead of failing the call.
-        ui_app: inline-scan
-        requires_ai_consent: true
-    vision-scanners-inline-scan-create:
-        operation: vision_scanners_inline_scan_create
-        enabled: true
-        scopes:
-            - replay_scanner:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Scan sessions against a prompt (deprecated)
-        description: >
-            DEPRECATED: renamed to vision-scanners-inline-scan. This alias calls the same endpoint and will be removed.
-            Call vision-scanners-inline-scan with the same arguments.
         ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:

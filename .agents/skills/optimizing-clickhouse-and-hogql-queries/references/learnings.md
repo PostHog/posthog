@@ -249,4 +249,4 @@ Traps we hit:
 - `count(DISTINCT id)` on the persons table is a waste when nothing joins: the dedup already returns one row per person, plain `count()` is the same result without holding every id. But a filter that adds a join needs the DISTINCT back, e.g. a `distinct_id` filter joins one row per alias and plain `count()` counts that person once per alias.
 - The `id IN (prefilter)` set the persons table builds stays in memory no matter what (it is a set, not a GROUP BY, so the spill setting can't touch it). ~1 GiB per ~6M matched ids. Sampling shrinks it; exact queries on huge broad audiences keep paying it, which is where precalculated audiences eventually win.
 
-Applied in `products/workflows/backend/services/audience_v2.py` behind the `workflows-audience-query-v2` flag.
+Applied in `products/workflows/backend/services/audience_v2.py`.

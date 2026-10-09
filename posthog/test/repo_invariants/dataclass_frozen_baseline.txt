@@ -1,7 +1,6 @@
 1 common/hogvm/python/execute.py
 1 common/hogvm/python/stl/__init__.py
 1 ee/billing/salesforce_enrichment/conversations_signals.py
-1 ee/billing/salesforce_enrichment/stripe_signals.py
 1 ee/billing/salesforce_enrichment/usage_signals.py
 1 ee/clickhouse/models/test/test_action.py
 1 ee/clickhouse/views/test/funnel/util.py
@@ -736,13 +735,10 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/koyeb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/kubecost.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/kustomer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/lacework.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/lago.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/lambda_labs.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/langfuse/langfuse.py
@@ -752,7 +748,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/lattice.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/launchdarkly.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/leadfeeder.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leexi/leexi.py
@@ -766,18 +761,14 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lever/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lightdash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lightfield/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lightspeed_retail/lightspeed_retail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lightspeed_retail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/linear.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/linearb.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/lingo_dev.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/linkrunner.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/linode.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/llama_cloud/llama_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/llama_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/lob.py
@@ -1014,8 +1005,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/replicate/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/reply_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/resend.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/retently.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/revenuecat/revenuecat.py
@@ -1273,7 +1262,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/world_bank/world_bank.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/writesonic.py
@@ -1303,8 +1291,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zylo/zylo.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/calculate_table_size.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/check_billing_limits.py

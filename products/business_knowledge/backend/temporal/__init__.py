@@ -1,6 +1,7 @@
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
     BusinessKnowledgeRefreshCoordinatorWorkflow,
+    BusinessKnowledgeRefreshCoordinatorWorkflowV2,
     BusinessKnowledgeRefreshSourceWorkflow,
     classify_pending_documents_activity,
     emit_pending_embeddings_activity,
@@ -19,6 +20,7 @@ from .learning.workflow import BusinessKnowledgeLearningWorkflow
 
 WORKFLOWS = [
     BusinessKnowledgeRefreshCoordinatorWorkflow,
+    BusinessKnowledgeRefreshCoordinatorWorkflowV2,
     BusinessKnowledgeIngestSourceWorkflow,
     BusinessKnowledgeRefreshSourceWorkflow,
     BusinessKnowledgeLearningCoordinatorWorkflow,
@@ -46,6 +48,7 @@ __all__ = [
     "BusinessKnowledgeLearningCoordinatorWorkflow",
     "BusinessKnowledgeLearningWorkflow",
     "BusinessKnowledgeRefreshCoordinatorWorkflow",
+    "BusinessKnowledgeRefreshCoordinatorWorkflowV2",
     "BusinessKnowledgeRefreshSourceWorkflow",
     "classify_pending_documents_activity",
     "collect_learning_evidence_activity",

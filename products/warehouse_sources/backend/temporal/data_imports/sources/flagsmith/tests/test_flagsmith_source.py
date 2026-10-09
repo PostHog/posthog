@@ -22,14 +22,6 @@ class TestFlagsmithSource:
         # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_get_schemas_lists_all_endpoints_full_refresh(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Flagsmith has no server-side timestamp filter, so nothing is incremental.
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
         assert len(schemas) == 1

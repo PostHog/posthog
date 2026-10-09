@@ -93,6 +93,7 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagLoadError } from './FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -138,6 +139,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlag,
         featureFlagLoading,
         featureFlagMissing,
+        featureFlagLoadFailed,
         activeTab,
         availableTabs,
         accessDeniedToFeatureFlag,
@@ -266,6 +268,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+
+    // Before the form branch below: an edit session whose flag never loaded has nothing to edit.
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={props.id} />
     }
 
     if (featureFlagLoading) {

@@ -23,7 +23,11 @@ import type {
     AccountViewApi,
     UserCustomerAnalyticsConfigApi,
 } from '../../generated/api.schemas'
-import { createAccountViewContent, type AccountViewComponentInstance } from './accountViewDocument'
+import {
+    createAccountViewContent,
+    parseAccountViewContent,
+    type AccountViewComponentInstance,
+} from './accountViewDocument'
 import { accountViewsLogic, type accountViewsLogicValues } from './accountViewsLogic'
 
 jest.mock('../../generated/api', () => ({
@@ -324,6 +328,51 @@ describe('accountViewsLogic tracking', () => {
             expect(getAccountViewCaptures()).toEqual([expectedEntry, expectedEntry])
         }
     )
+
+    it('retains a failed properties tile config and saves it without changing other tiles or pins', async () => {
+        const firstConfig = { properties: [{ kind: 'account', key: 'website_domain' }] }
+        const secondConfig = {
+            properties: [
+                { kind: 'account', key: 'known_emails' },
+                { kind: 'relationship', id: '22222222-2222-4222-8222-222222222222' },
+            ],
+        }
+        let propertiesView: AccountViewApi = {
+            ...view,
+            content: createAccountViewContent([
+                { nodeId: 'first', kind: 'properties', span: 6, config: firstConfig },
+                { nodeId: 'second', kind: 'properties', span: 6, config: secondConfig },
+                ...components,
+            ]),
+        }
+        jest.mocked(accountViewsList).mockResolvedValue([propertiesView])
+        mockUpdate.mockImplementation(async (_, __, patch) => {
+            propertiesView = { ...propertiesView, content: patch.content ?? propertiesView.content, version: 2 }
+            return propertiesView
+        })
+        await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
+        const changed = { properties: [...secondConfig.properties].reverse() }
+        logic.actions.openTileEditor(view.id, 'first', 'Properties', {
+            propertiesConfig: firstConfig,
+            accountId: 'account-one',
+        })
+        logic.actions.setTileEditorPropertiesConfig(changed)
+        mockUpdate.mockRejectedValueOnce(new ApiError('Save failed', 500))
+        await expectLogic(logic, () => {
+            logic.actions.saveTileEditor()
+            logic.actions.saveTileEditor()
+        }).toFinishAllListeners()
+        expect(mockUpdate).toHaveBeenCalledTimes(1)
+        expect(logic.values.tileEditor?.propertiesConfig).toEqual(changed)
+        await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
+        expect(logic.values.tileEditor).toBeNull()
+        expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
+            changed,
+            secondConfig,
+            ...components.map(({ config }) => config),
+        ])
+        expect(logic.values.config?.pinned_properties).toEqual([])
+    })
 
     it.each(['editor', 'tabs'])('reports a blocked %s save without a write or success', async (surface) => {
         if (surface === 'editor') {

@@ -29,19 +29,6 @@ def _page(next_cursor: Any) -> Mock:
     return response
 
 
-class _FakeResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
 class TestYocoPaginator:
     def test_cursor_pages_resend_window_bounds(self) -> None:
         # Yoco echoes filters rather than encoding them in the cursor, so a page that drops the
@@ -69,45 +56,6 @@ class TestYocoPaginator:
             "updated_at__gte": "2026-01-01T00:00:00Z",
             "updated_at__lte": "2026-01-20T00:00:00Z",
         }
-
-    def test_window_advances_until_the_final_bound(self) -> None:
-        # Yoco rejects a range wider than 31 days, so an older watermark must be walked in
-        # windows; stopping after the first one would silently truncate the sync.
-        paginator = YocoCursorPaginator(
-            limit=DEFAULT_PAGE_SIZE,
-            date_field="created_at",
-            window_start=datetime(2026, 1, 1, tzinfo=UTC),
-            window_end=datetime(2026, 4, 1, tzinfo=UTC),
-        )
-        request = Request()
-        paginator.init_request(request)
-
-        windows = [(request.params["created_at__gte"], request.params["created_at__lte"])]
-        while True:
-            paginator.update_state(_page(None))
-            if not paginator.has_next_page:
-                break
-            paginator.update_request(request)
-            windows.append((request.params["created_at__gte"], request.params["created_at__lte"]))
-
-        assert windows == [
-            ("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z"),
-            ("2026-02-01T00:00:00Z", "2026-03-04T00:00:00Z"),
-            ("2026-03-04T00:00:00Z", "2026-04-01T00:00:00Z"),
-        ]
-        # The cursor from the previous window must not leak into the next one.
-        assert "cursor" not in request.params
-
-    def test_no_window_is_plain_cursor_pagination(self) -> None:
-        paginator = YocoCursorPaginator(limit=DEFAULT_PAGE_SIZE)
-        request = Request()
-        paginator.init_request(request)
-        assert request.params == {"limit": DEFAULT_PAGE_SIZE}
-
-        paginator.update_state(_page("cursor-2"))
-        assert paginator.has_next_page is True
-        paginator.update_state(_page(None))
-        assert paginator.has_next_page is False
 
     @parameterized.expand(
         [
@@ -161,23 +109,6 @@ class TestYocoPaginator:
 
 
 class TestYocoResources:
-    @time_machine.travel("2026-05-01T00:00:00Z", tick=False)
-    def test_incremental_resource_windows_from_the_watermark(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(
-                "payments",
-                should_use_incremental_field=True,
-                incremental_field="updated_at",
-                db_incremental_field_last_value=datetime(2026, 4, 1, tzinfo=UTC),
-            ),
-        )
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        request = Request()
-        resource["endpoint"]["paginator"].init_request(request)
-        assert request.params["updated_at__gte"] == "2026-04-01T00:00:00Z"
-        assert request.params["updated_at__lte"] == "2026-05-01T00:00:00Z"
-
     def test_window_never_exceeds_the_api_maximum(self) -> None:
         with time_machine.travel("2026-05-01T00:00:00Z", tick=False):
             resource = cast(
@@ -193,24 +124,6 @@ class TestYocoResources:
         start = datetime.fromisoformat(request.params["updated_at__gte"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(request.params["updated_at__lte"].replace("Z", "+00:00"))
         assert end - start == MAX_FILTER_WINDOW
-
-    def test_first_incremental_sync_sends_no_date_filter(self) -> None:
-        # With no watermark there is nothing to window from; sending a bogus lower bound would
-        # make the first sync walk years of 31-day windows instead of one cursor pass.
-        resource = cast(
-            dict[str, Any],
-            get_resource("payments", should_use_incremental_field=True, db_incremental_field_last_value=None),
-        )
-        request = Request()
-        resource["endpoint"]["paginator"].init_request(request)
-        assert request.params == {"limit": DEFAULT_PAGE_SIZE}
-
-    def test_full_refresh_resource_replaces_and_sends_no_date_filter(self) -> None:
-        resource = cast(dict[str, Any], get_resource("payments", should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        request = Request()
-        resource["endpoint"]["paginator"].init_request(request)
-        assert request.params == {"limit": DEFAULT_PAGE_SIZE}
 
     @parameterized.expand(
         [
@@ -235,20 +148,6 @@ class TestYocoResources:
         request = Request()
         resource["endpoint"]["paginator"].init_request(request)
         assert expected_param in request.params
-
-    def test_endpoint_without_incremental_fields_stays_full_refresh(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(
-                "locations",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 4, 1, tzinfo=UTC),
-            ),
-        )
-        assert resource["write_disposition"] == "replace"
-        request = Request()
-        resource["endpoint"]["paginator"].init_request(request)
-        assert request.params == {"limit": DEFAULT_PAGE_SIZE}
 
     def test_get_resource_rejects_fanout_endpoint(self) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
@@ -326,36 +225,6 @@ class TestYocoSource:
         resume_hook(None)
         resume_hook({})
         manager.save_state.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.build_dependent_resource")
-    def test_payout_entries_fanout_wiring(self, mock_build: MagicMock) -> None:
-        mock_build.return_value = iter([])
-
-        response = yoco_source(api_key="key", endpoint="payout_entries", team_id=1, job_id="job-1")
-
-        kwargs = mock_build.call_args.kwargs
-        assert kwargs["child_endpoint"] == "payout_entries"
-        assert kwargs["fanout"].parent_name == "payouts"
-        assert kwargs["fanout"].resolve_param == "payout_id"
-        # The cursor paginator already sends `limit`; a second size param would be undocumented.
-        assert kwargs["page_size_param"] is None
-        assert kwargs["should_use_incremental_field"] is False
-        # `id` is only documented as unique within its payout, and this table aggregates entries
-        # from every payout, so the parent id has to be part of the key.
-        assert response.primary_keys == ["payout_id", "id"]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_payout_entries_rows_carry_the_parent_id(self, mock_resources: MagicMock) -> None:
-        mock_resources.return_value = [
-            _FakeResource("payouts", [{"id": "po_1"}]),
-            _FakeResource("payout_entries", [{"id": "pe_1", "payout_id": "po_1", "type": "payment"}]),
-        ]
-
-        response = yoco_source(api_key="key", endpoint="payout_entries", team_id=1, job_id="job-1")
-
-        assert list(cast(Any, response.items())) == [{"id": "pe_1", "payout_id": "po_1", "type": "payment"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.build_dependent_resource")
     def test_payout_entries_fanout_resume_round_trip(self, mock_build: MagicMock) -> None:

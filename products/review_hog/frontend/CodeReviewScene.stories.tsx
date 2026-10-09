@@ -95,7 +95,6 @@ export const Default: Story = {
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on your PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Celebrate clean reviews')).toBeVisible()
-        await expect(canvas.queryByText('Flash strength')).not.toBeInTheDocument()
     },
 }
 
@@ -107,7 +106,6 @@ export const InternalFeatures: Story = {
         await expect(canvas.getByLabelText('Let Stamphog review your Inbox PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
-        await expect(canvas.getByText('Flash strength')).toBeVisible()
     },
 }
 

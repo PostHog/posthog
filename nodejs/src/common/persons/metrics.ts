@@ -196,6 +196,12 @@ export const personhogStoreShadowMergeRedriveCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreShadowCreateRetriesCounter = new Counter({
+    name: 'personhog_store_shadow_create_retries_total',
+    help: 'Shadow create attempts past the first (retried) and creates that landed after a retry (recovered); one that misses its deadline counts under personhog_store_shadow_errors_total',
+    labelNames: ['outcome'],
+})
+
 export const personhogStoreShadowCompareFailedCounter = new Counter({
     name: 'personhog_store_shadow_compare_failed_total',
     help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',
@@ -231,15 +237,6 @@ export const personProfileBatchIgnoredPropertiesCounter = new Counter({
     name: 'person_profile_batch_ignored_properties_total',
     help: 'Count of specific properties that were ignored during person profile updates at batch level',
     labelNames: ['property'],
-})
-
-export const personCreateStrandedClaimCounter = new Counter({
-    name: 'person_create_stranded_claim_total',
-    help: 'Person creations routed through the stranded-row claim statement, by outcome',
-    // claimed: adopted an unreachable row holding this (team_id, uuid)
-    // inserted: no row held the uuid, fresh insert
-    // inserted_duplicate: a reachable person already held the uuid, so the insert created a duplicate key
-    labelNames: ['outcome'],
 })
 
 export const personCreateConflictResolvedCounter = new Counter({
