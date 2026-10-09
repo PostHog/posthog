@@ -80,7 +80,7 @@ class TestSeedReviewSettingsMigration(BaseTest):
 
         claims = ReviewInstallationClaim.objects.for_team(self.team.id)
         assert list(claims.values_list("installation_id", "scope")) == ([("1001", "selected")] if expected_rows else [])
-        rows = ReviewRepository.objects.for_team(self.team.id).order_by("id")
-        assert list(rows.values_list("full_name", "github_repo_id", "selected", "flash_for")) == [
+        rows = ReviewRepository.objects.for_team(self.team.id)
+        assert set(rows.values_list("full_name", "github_repo_id", "selected", "flash_for")) == {
             (full_name, github_repo_id, True, None) for full_name, github_repo_id in expected_rows
-        ]
+        }
