@@ -32,12 +32,12 @@ import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '.
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { parsePullRequestReference, resolvePullRequestTarget } from '../lib/pullRequestReference'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
-import { scopeToValue, withScope } from '../lib/scope'
+import { scopeToValue, withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 
 // pinned: analytics event name. Renaming it breaks the insights built on it.
-const EVENT_PULL_REQUEST_JUMP_OPENED = 'ci explorer opened from pull request jump'
+const EVENT_PULL_REQUEST_JUMP_SUBMITTED = 'pull request jump submitted'
 
 // Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
@@ -958,6 +958,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     failPullRequestJump: (_, { failure }) => failure,
                     setPullRequestJumpText: () => null,
                     setScope: () => null,
+                    setSourceId: () => null,
                 },
             ],
             cardsStatus: [
@@ -1256,32 +1257,34 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.setThrashOnly(target === 'thrash')
             },
             submitPullRequestJump: () => {
-                // A bare number needs the sources to find its repository, so do nothing until they load.
+                // The repository in scope comes from the sources, so do nothing until they load.
                 if (!values.pullRequestJumpText.trim() || values.githubSourcesLoading) {
                     return
                 }
                 const reference = parsePullRequestReference(values.pullRequestJumpText)
-                const pickedSource =
-                    values.githubSources.find(
-                        (source) => scopeToValue(source.id, source.repo) === values.selectedScope
-                    ) ?? null
-                const target = reference && resolvePullRequestTarget(reference, values.githubSources, pickedSource)
-                if (!reference || !target) {
-                    actions.failPullRequestJump(reference ? 'needs_repository' : 'invalid')
+                const target = reference && resolvePullRequestTarget(reference, values.activeSource?.repo || null)
+                const capture = (outcome: 'opened' | PullRequestJumpFailure): void => {
+                    posthog.capture(EVENT_PULL_REQUEST_JUMP_SUBMITTED, {
+                        outcome,
+                        input_kind: reference?.kind ?? null,
+                    })
+                }
+                if (!target) {
+                    const failure = reference ? 'needs_repository' : 'invalid'
+                    capture(failure)
+                    actions.failPullRequestJump(failure)
                     return
                 }
-                const { owner, repo, number, sourceId } = target
-                posthog.capture(EVENT_PULL_REQUEST_JUMP_OPENED, { input_kind: reference.kind })
+                capture('opened')
                 // The next scene can take a moment to load. An empty box makes a second submit do nothing.
                 actions.setPullRequestJumpText('')
+                const explorerUrl = urls.engineeringAnalyticsCIExplorer(target.owner, target.repo, target.number)
                 router.actions.push(
-                    withScope(
-                        urls.engineeringAnalyticsCIExplorer(owner, repo, number),
-                        // The `repo` param of this page names the repository in scope here, which can
-                        // differ from the repository of a pasted link.
-                        { ...router.values.searchParams, repo: sourceId ? `${owner}/${repo}` : undefined },
-                        sourceId
-                    )
+                    target.inScope
+                        ? withCurrentScope(explorerUrl, values.sourceId)
+                        : // The source and repo in scope belong to another repository. Without them the
+                          // explorer reads from the source that syncs the pull request's own repository.
+                          withScope(explorerUrl, { ...router.values.searchParams, repo: undefined }, null)
                 )
             },
         })),
