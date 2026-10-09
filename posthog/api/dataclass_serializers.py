@@ -19,8 +19,6 @@ class LabeledChoicesDataclassSerializer(DataclassSerializer[T]):
     def build_enum_field(self, field_name: str, type_info: TypeInfo) -> SerializerFieldDefinition:
         field_class, field_kwargs = super().build_enum_field(field_name, type_info)
         enum_class = type_info.base_type
-        if isinstance(enum_class, LabeledEnumType):
-            field_kwargs["choices"] = enum_class.choices
-        elif issubclass(enum_class, Choices):
+        if isinstance(enum_class, LabeledEnumType) or issubclass(enum_class, Choices):
             field_kwargs["choices"] = enum_class.choices
         return field_class, field_kwargs
