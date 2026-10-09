@@ -573,8 +573,10 @@ export class LogsIngestionConsumer {
             if (modeWithoutMasking !== 'decode_and_reencode') {
                 logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
-            const messageKeys =
-                (await this.deps.patternMessageKeysCache?.getMessageKeys(message.teamId)) ?? MESSAGE_KEYS
+            const keysCache = this.deps.patternMessageKeysCache
+            const messageKeys = keysCache
+                ? await this.retryOnDependencyUnavailable(() => keysCache.getMessageKeys(message.teamId))
+                : MESSAGE_KEYS
             stages.push(makePatternMaskingStage(messageKeys))
         }
 

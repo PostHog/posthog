@@ -2621,11 +2621,12 @@ describe('LogsIngestionConsumer', () => {
                 { LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' },
                 { patternMessageKeysCache }
             )
-            const body = JSON.stringify({ message: 'default key wins', log: 'team key wins' })
-
-            const messages = await createKafkaMessages([createLogMessage({ message: body })], {
-                token: team.api_token,
-            })
+            const messages = await createKafkaMessages(
+                [createLogMessage({ message: 'default key wins', log: 'team key wins' })],
+                {
+                    token: team.api_token,
+                }
+            )
             await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
 
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
