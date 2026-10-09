@@ -7,6 +7,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
+import { LogsAlertQuickCreateModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertQuickCreateModal'
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
 import { LogsMetricRuleQuickCreateModal } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRuleQuickCreateModal'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
@@ -406,6 +407,7 @@ function LogsViewerContent({
             </div>
             <LogDetailsModal timezone={timezone} />
             <LogsMetricRuleQuickCreateModal />
+            <LogsAlertQuickCreateModal />
         </div>
     )
 }
