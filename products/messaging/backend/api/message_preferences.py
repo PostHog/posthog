@@ -240,7 +240,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if search:
             opt_outs = opt_outs.filter(identifier__icontains=search)
 
-        opt_outs = opt_outs.order_by("-updated_at")  # Order by most recently updated first
+        # Most recently updated first, with the unique id as tie-breaker: updated_at is not
+        # unique, and without a total order a page walk can skip or repeat a recipient.
+        opt_outs = opt_outs.order_by("-updated_at", "-id")
 
         # Apply pagination
         paginator = OptOutsPagination()
