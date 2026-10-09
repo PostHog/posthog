@@ -195,7 +195,7 @@ _DELETE_PREDICATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
 _PATCH_PART_DELETE_PREDICATE = (
     _any_of(_PERSON_ARM, _EVENT_ARM, _ADHOC_ARM)
     + """
-    AND (team_id IN (SELECT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(event_deletion_type)s))
+    AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(event_deletion_type)s))
         OR team_id IN (SELECT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
 )
 
