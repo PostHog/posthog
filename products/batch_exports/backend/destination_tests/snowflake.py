@@ -1,7 +1,7 @@
 import asyncio
 import collections.abc
 
-from products.batch_exports.backend.presentation.views.destination_tests.base import (
+from products.batch_exports.backend.destination_tests.base import (
     DestinationTest,
     DestinationTestStep,
     DestinationTestStepResult,
