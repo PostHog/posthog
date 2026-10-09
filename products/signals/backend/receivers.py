@@ -394,11 +394,16 @@ def arm_pending_checks_when_report_resolved(
     inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
     request to date a window from, which is why the report's own transition is the event.
     """
-    if instance.status != SignalReport.Status.RESOLVED:
-        return
+    prior_status = getattr(instance, "_prior_status", None)
     if not _status_changed_on_this_save(
-        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
+        return
+    if instance.status != SignalReport.Status.RESOLVED:
+        if prior_status == SignalReport.Status.RESOLVED:
+            from products.signals.backend.report_check_execution import park_report_checks_on_reopen
+
+            park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
         return
     team_id = instance.team_id
     report_id = str(instance.id)
