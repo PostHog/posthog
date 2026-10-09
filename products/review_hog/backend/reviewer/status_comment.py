@@ -125,6 +125,11 @@ _NO_ISSUES_MEDIA = (
         "A white car on a quiet road",
     ),
     (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "ecedff577f7086db1ebb26557f5521dcbce9d322/2026/10/e052ee1b-41ec-406b-8c9d-2a1ea076490c.png",
+        "Four people posing together",
+    ),
+    (
         "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
         "The dancing man in the red room from Twin Peaks",
     ),
