@@ -128,3 +128,4 @@ tokio = { workspace = true, features = ["test-util"] }
 tokio-util = { workspace = true }
 tokio-stream = "0.1"
 metrics-util = { workspace = true }
+personhog-replica = { path = "../personhog-replica" }

@@ -404,6 +404,12 @@ pub async fn evaluate_for_request(
                 .personhog_hash_key_override_read_team_ids
                 .includes_team(team_id)
         }),
+        personhog_hash_key_writer: state.personhog_client.clone().filter(|_| {
+            state
+                .config
+                .personhog_hash_key_override_write_team_ids
+                .includes_team(team_id)
+        }),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await
