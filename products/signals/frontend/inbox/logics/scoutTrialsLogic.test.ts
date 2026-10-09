@@ -1063,6 +1063,13 @@ describe('scoutTrialsLogic', () => {
         expect(signalsScoutConfigTrialComparisonResume).not.toHaveBeenCalled()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
 
+        const archive = promiseResolveReject<ScoutTrialComparisonApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonArchive).mockReturnValueOnce(archive.promise)
+        logic.actions.archiveComparison(trialFixtureComparison.id, true)
+        logic.actions.resumeComparison()
+        expect(signalsScoutConfigTrialComparisonResume).not.toHaveBeenCalled()
+        await expectLogic(logic, () => archive.reject(new Error('Save failed'))).toFinishAllListeners()
+
         logic.actions.resumeComparison()
         logic.actions.resumeComparison()
         expect(signalsScoutConfigTrialComparisonResume).toHaveBeenCalledTimes(1)

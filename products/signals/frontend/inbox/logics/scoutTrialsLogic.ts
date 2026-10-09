@@ -1179,6 +1179,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 !comparison ||
                 !values.managedComparison ||
                 state.value?.archived ||
+                values.archiving.includes(comparison.id) ||
                 state.loading ||
                 state.resuming ||
                 values.submitting

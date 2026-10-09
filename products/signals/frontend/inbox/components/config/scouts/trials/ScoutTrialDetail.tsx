@@ -115,6 +115,9 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                 disabledReason={
                                     props.trialsDisabledReason ||
                                     (trial?.archived ? 'Restore this trial before retrying it.' : undefined) ||
+                                    (trial && props.archiving.includes(trial.comparison_id)
+                                        ? 'Wait for the archive request to finish.'
+                                        : undefined) ||
                                     (props.comparisonState.loading ? 'Wait for the current status.' : undefined)
                                 }
                                 data-attr="scout-comparison-resume"
