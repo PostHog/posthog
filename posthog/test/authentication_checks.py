@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import NonCallableMock, patch
 
-from django.db import transaction
+from django.db import connections, transaction
 
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -89,7 +89,21 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
     if authentication_class in _replayed_classes:
         return
     problems_before = len(_problems)
+    # Keep the replay's queries out of assertNumQueries and query snapshots.
+    query_log_lengths = {
+        connection.alias: len(connection.queries_log) for connection in connections.all(initialized_only=True)
+    }
+    try:
+        _check_refusals(name, authentication_class, request, user)
+    finally:
+        for connection in connections.all(initialized_only=True):
+            while len(connection.queries_log) > query_log_lengths.get(connection.alias, 0):
+                connection.queries_log.pop()
+    if len(_problems) == problems_before:
+        _replayed_classes.add(authentication_class)
 
+
+def _check_refusals(name: str, authentication_class: type, request: Any, user: Any) -> None:
     with transaction.atomic():
         try:
             User.objects.filter(pk=user.pk).update(is_active=False)
@@ -110,5 +124,3 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
         _problems.append(f"{name}.authenticate() accepted a blocked account.")
     elif isinstance(error, AuthenticationFailed) and error.get_codes() != "access_blocked":
         _problems.append(f"{name}.authenticate() refused a blocked account without the access_blocked code.")
-    if len(_problems) == problems_before:
-        _replayed_classes.add(authentication_class)
