@@ -642,13 +642,26 @@ async def verify_match_specificity(
     )
 
 
+def _has_completed_research(report: SignalReport) -> bool:
+    """Whether a research pass completed on the report, so its title and summary describe the researched cause.
+
+    `researched_signal_count` alone does not prove this. A run that starts, and a snooze, move `signals_at_run`
+    before any research completes, so the reconstruction is positive while the summary is still the matcher's
+    first guess. Only a pass that reaches READY writes `signals_researched`. A report researched before that
+    column existed has it null, and only on a READY report is `signals_at_run` known to be a run's stamp.
+    """
+    if report.researched_signal_count == 0:
+        return False
+    return report.signals_researched is not None or report.status == SignalReport.Status.READY
+
+
 def _researched_summary(team_id: int, report_id: str) -> str | None:
     """The summary of a report that a research pass completed, or None when no research pass covers it.
 
     Before research, the summary is only the matcher's first guess, so it must not constrain later signals.
     """
     report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-    if report is None or report.researched_signal_count == 0 or not report.summary:
+    if report is None or not _has_completed_research(report) or not report.summary:
         return None
     if _is_safety_suppressed(report_id, team_id):
         return None
@@ -868,7 +881,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     update_fields = ["total_weight", "signal_count", "updated_at"]
                     # A research pass writes the title together with the summary. A later signal must
                     # not rename the report away from the cause that the summary explains.
-                    if input.updated_title and report.researched_signal_count == 0:
+                    if input.updated_title and not _has_completed_research(report):
                         report.title = input.updated_title
                         update_fields.append("title")
                     report.save(update_fields=update_fields)

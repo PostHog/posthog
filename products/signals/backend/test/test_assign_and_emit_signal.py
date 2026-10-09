@@ -1027,18 +1027,23 @@ async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam,
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("status", "signals_researched", "expected_title"),
+    ("status", "signals_at_run", "signals_researched", "expected_title"),
     [
-        (SignalReport.Status.POTENTIAL, None, "specificity title"),
-        (SignalReport.Status.READY, 4, "researched title"),
+        (SignalReport.Status.POTENTIAL, 0, None, "specificity title"),
+        # A first run stamps signals_at_run when it starts, before its research completes.
+        (SignalReport.Status.IN_PROGRESS, 7, None, "specificity title"),
+        (SignalReport.Status.READY, 7, 4, "researched title"),
     ],
 )
-async def test_specificity_title_only_renames_unresearched_reports(ateam, status, signals_researched, expected_title):
+async def test_specificity_title_only_renames_unresearched_reports(
+    ateam, status, signals_at_run, signals_researched, expected_title
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=status,
         total_weight=0.5,
         signal_count=4,
+        signals_at_run=signals_at_run,
         signals_researched=signals_researched,
         title="researched title",
         summary="researched summary",
@@ -1056,21 +1061,26 @@ async def test_specificity_title_only_renames_unresearched_reports(ateam, status
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("signals_researched", "expect_summary_in_prompt"),
+    ("status", "signals_at_run", "signals_researched", "expect_summary_in_prompt"),
     [
-        (None, False),
-        (4, True),
+        (SignalReport.Status.POTENTIAL, 0, None, False),
+        # A first run stamps signals_at_run when it starts, before its research completes.
+        (SignalReport.Status.IN_PROGRESS, 7, None, False),
+        (SignalReport.Status.READY, 7, 4, True),
+        # Researched before signals_researched existed: only the READY run stamp proves the pass.
+        (SignalReport.Status.READY, 7, None, True),
     ],
 )
 async def test_specificity_gate_judges_against_the_researched_cause(
-    ateam, signals_researched, expect_summary_in_prompt
+    ateam, status, signals_at_run, signals_researched, expect_summary_in_prompt
 ):
     report_title = "Handle failed source config loads"
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.READY if signals_researched else SignalReport.Status.POTENTIAL,
+        status=status,
         total_weight=0.5,
         signal_count=4,
+        signals_at_run=signals_at_run,
         signals_researched=signals_researched,
         title=report_title,
         summary="The settings page crashes when the source config request fails.",
