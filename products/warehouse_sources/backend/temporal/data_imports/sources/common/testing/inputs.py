@@ -1,6 +1,7 @@
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _LOGGER_NAME = "source_testing"
 
@@ -12,7 +13,7 @@ def source_inputs(
     job_id: str = "00000000-0000-4000-8000-000000000003",
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
-    incremental_field_type: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value: object | None = None,
     db_incremental_field_earliest_value: object | None = None,
     reset_pipeline: bool = False,
