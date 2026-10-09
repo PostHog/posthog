@@ -60,10 +60,11 @@ def list_suggestions(
     *,
     kind: WarehouseSuggestionKind | None,
     status: WarehouseSuggestionStatus | None,
+    subject_id: UUID | None,
     limit: int,
     offset: int,
 ) -> SuggestionPage:
-    visible, access = visible_suggestions(team_id, user_access_control, kind=kind, status=status)
+    visible, access = visible_suggestions(team_id, user_access_control, kind=kind, status=status, subject_id=subject_id)
     page = list(visible[offset : offset + limit])
     return SuggestionPage(count=visible.count(), results=_to_contracts(team_id, user_access_control, page, access))
 

@@ -113,6 +113,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 self.user_access_control,
                 kind=WarehouseSuggestionKind(kind) if kind else None,
                 status=WarehouseSuggestionStatus(status) if status else None,
+                subject_id=request.validated_query_data.get("subject_id"),
                 limit=limit,
                 offset=offset,
             ),

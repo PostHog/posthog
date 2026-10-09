@@ -182,6 +182,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ("by_kind", "kind=deprecate", status.HTTP_200_OK, ["table"]),
             ("by_status", "status=dismissed", status.HTTP_200_OK, ["table"]),
             ("by_kind_and_status", "kind=certify&status=dismissed", status.HTTP_200_OK, []),
+            ("by_subject", "subject_id={view_id}", status.HTTP_200_OK, ["view"]),
             ("unknown_status", "status=bogus", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
@@ -198,7 +199,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ),
         )
 
-        response = self.client.get(f"{self.url}/?{query}")
+        response = self.client.get(f"{self.url}/?{query.format(view_id=self.view.id)}")
 
         assert response.status_code == expected_status, response.json()
         if expected is not None:
