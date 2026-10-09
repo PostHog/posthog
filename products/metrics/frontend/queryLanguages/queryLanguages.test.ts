@@ -223,6 +223,19 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
         ],
         formula: 'a / b',
     },
+    'histogram share, spreading a series without labels': {
+        clauses: [
+            clause({
+                name: 'a',
+                metricName: 'http.server.duration',
+                aggregation: 'histogram_quantile',
+                quantile: 0.5,
+                groupBy: [{ key: 'service_name' }],
+            }),
+            clause({ name: 'b', metricName: 'http.server.duration', aggregation: 'histogram_quantile', quantile: 0.5 }),
+        ],
+        formula: 'a / b',
+    },
     'formula with a small constant': {
         clauses: [clause({ name: 'a', metricName: 'queue_depth' })],
         formula: 'a * 0.0000001',

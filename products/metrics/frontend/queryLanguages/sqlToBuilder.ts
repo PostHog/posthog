@@ -653,6 +653,13 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
             continue
         }
         const text = canon(column.expr)
+        // A column that passes on a label an inner select sets to '' is not a group-by.
+        const emptyInside = chain.some((select) =>
+            select.columns.some((inner) => inner.alias?.toLowerCase() === alias && canon(inner.expr) === '""')
+        )
+        if (emptyInside && /^(?:\w+\.)?(?:\w+|`[^`]*`)$/.test(text)) {
+            continue
+        }
         const groupMatch = /^(?:\w+\.)?(group_\d+)$/.exec(text)
         const field = groupMatch ? groupFields.get(groupMatch[1]) : readField(text)
         if (field) {

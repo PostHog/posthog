@@ -271,6 +271,25 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
 
         assert {point.value for series in results for point in series.points} == {50.0, None}
 
+    @parameterized.expand([("UTC", "week", "-30d"), ("Asia/Kathmandu", "minute_30", "-3h")])
+    def test_interval_starts_are_zero_filled_in_any_timezone(
+        self, timezone: str, interval: str, date_from: str
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        sql = (
+            "SELECT toStartOfInterval({date_from} + toIntervalSecond(n * {interval_seconds}), {interval}) AS time, "
+            "if(n = 0, 'api', 'worker') AS service, 1 AS value FROM (SELECT arrayJoin([0, 1, 2]) AS n)"
+        )
+        query = MetricsQuery(
+            clauses=[], language="sql", sql=sql, interval=interval, dateRange=DateRange(date_from=date_from)
+        )
+
+        results = MetricsQueryRunner(query=query, team=self.team).calculate().results
+
+        by_service = {series.labels["service"]: [point.value for point in series.points] for series in results}
+        assert by_service == {"api": [1.0, 0.0, 0.0], "worker": [0.0, 1.0, 1.0]}
+
     def test_caches_like_a_metrics_insight_not_a_sql_insight(self) -> None:
         sql = "SELECT now() AS time, 1 AS value FROM posthog.metrics"
         sql_runner = MetricsQueryRunner(query=MetricsQuery(clauses=[], language="sql", sql=sql), team=self.team)

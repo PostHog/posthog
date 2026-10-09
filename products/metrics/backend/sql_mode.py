@@ -153,11 +153,18 @@ def _numeric(value: Any) -> float | None:
 
 def _on_interval_starts(times: list[Any], interval: str, team: Team) -> bool:
     """Whether every time is the start of a chart interval, as the times of `toStartOfInterval(…, {interval})` are."""
+    step = _interval_step(interval)
     for time in times:
-        if not isinstance(time, dt.datetime):
+        if isinstance(time, dt.datetime):
+            time = time if time.tzinfo else time.replace(tzinfo=dt.UTC)
+        elif isinstance(time, dt.date):
+            # ClickHouse returns week intervals as dates.
+            time = dt.datetime.combine(time, dt.time(), tzinfo=team.timezone_info)
+        else:
             return False
-        time = time if time.tzinfo else time.replace(tzinfo=dt.UTC)
-        if _align_to_interval(time, interval, tzinfo=team.timezone_info) != time:
+        # ClickHouse counts intervals shorter than an hour from the Unix epoch, not from local midnight.
+        on_epoch_grid = step < dt.timedelta(hours=1) and time.timestamp() % step.total_seconds() == 0
+        if not on_epoch_grid and _align_to_interval(time, interval, tzinfo=team.timezone_info) != time:
             return False
     return True
 
