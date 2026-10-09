@@ -50,6 +50,7 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_LINE_PROXIMITY_WINDOW,
     OUTCOME_MAX_EXTRA_COMPARE_BASES,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    OUTCOME_MAX_REACTION_READS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
     priority_rank,
@@ -253,12 +254,27 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
         )
         for finding, verdict in to_classify
     ]
-    reactions_by_comment = {
-        pf.comment["id"]: fetch_comment_reactions(
-            owner=owner, repo=repo, comment_id=pf.comment["id"], token=token, installation_id=installation_id
+    reacted_comment_ids = list(
+        dict.fromkeys(
+            pf.comment["id"]
+            for pf in published_findings
+            if pf.comment is not None and (pf.comment.get("reactions") or {}).get("total_count", 0) > 0
         )
-        for pf in published_findings
-        if pf.comment is not None and (pf.comment.get("reactions") or {}).get("total_count", 0) > 0
+    )
+    if len(reacted_comment_ids) > OUTCOME_MAX_REACTION_READS_PER_REPORT:
+        logger.warning(
+            "Report %s has %d reacted finding comments; reading the reactions of the first %d, so the rest "
+            "may read as addressed or ignored instead of reacted",
+            report.id,
+            len(reacted_comment_ids),
+            OUTCOME_MAX_REACTION_READS_PER_REPORT,
+        )
+        reacted_comment_ids = reacted_comment_ids[:OUTCOME_MAX_REACTION_READS_PER_REPORT]
+    reactions_by_comment = {
+        comment_id: fetch_comment_reactions(
+            owner=owner, repo=repo, comment_id=comment_id, token=token, installation_id=installation_id
+        )
+        for comment_id in reacted_comment_ids
     }
 
     return _ReportInputs(
