@@ -115,8 +115,15 @@ def check_detector_alert(
     )
 
 
+@frozen
+class _ResolvedQuery:
+    insight: Insight
+    query: Any
+    kind: Any
+
+
 @contextmanager
-def _resolved_query(alert: AlertConfiguration) -> Iterator[tuple[Insight, Any, Any]]:
+def _resolved_query(alert: AlertConfiguration) -> Iterator[_ResolvedQuery]:
     """The alert's insight query, upgraded, unwrapped and checked against its evaluation delay.
 
     A context manager, because the upgrade holds only while the query runs.
@@ -137,7 +144,7 @@ def _resolved_query(alert: AlertConfiguration) -> Iterator[tuple[Insight, Any, A
             validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
         except ValueError as err:
             raise AlertExtractionError(str(err)) from err
-        yield insight, query, kind
+        yield _ResolvedQuery(insight=insight, query=query, kind=kind)
 
 
 def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
@@ -148,11 +155,11 @@ def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | 
     dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
     ``ExtractionResult`` and the comparator evaluates it against the threshold.
     """
-    with _resolved_query(alert) as (insight, query, kind):
+    with _resolved_query(alert) as resolved:
         if alert.detector_config:
-            return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
+            return check_detector_alert(alert, resolved.insight, resolved.query, evaluation_id=evaluation_id)
 
-        extracted = _extract_for_threshold(alert, insight, query, kind)
+        extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
         if extracted is None:
             return AlertEvaluationResult(value=0, breaches=[])
         return describe_delayed_evaluation(
@@ -215,8 +222,8 @@ def check_alert_per_series(
     if alert.detector_config:
         raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
     try:
-        with _resolved_query(alert) as (insight, query, kind):
-            extracted = _extract_for_threshold(alert, insight, query, kind)
+        with _resolved_query(alert) as resolved:
+            extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
     if extracted is None:

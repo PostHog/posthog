@@ -378,10 +378,18 @@ def _delivery(
     )
 
 
+@frozen
+class _Move:
+    """The state a group left and the state it reached in one check."""
+
+    before: AlertState
+    after: AlertState
+
+
 def _request(
     check: PlatformAlertCheckInput,
     recorded: PlatformAlertOutcome,
-    moves: Mapping[str, tuple[AlertState, AlertState]],
+    moves: Mapping[str, _Move],
     *,
     sends_messages: bool,
 ) -> AlertDeliveryRequest | None:
@@ -395,8 +403,8 @@ def _request(
     destination_alert_id = str(check.legacy_configuration_id or check.id)
     actions = {
         key: action
-        for key, (before, after) in moves.items()
-        if (action := decide_incident_action(before, after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
+        for key, move in moves.items()
+        if (action := decide_incident_action(move.before, move.after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
     }
     if actions and not _has_incident_destination(check.team_id, destination_alert_id):
         actions = {}
@@ -418,8 +426,8 @@ def _request(
     )
 
 
-def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[str, tuple[AlertState, AlertState]]:
-    return {"": (AlertState(check.instance().state), outcome.new_state)}
+def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[str, _Move]:
+    return {"": _Move(before=AlertState(check.instance().state), after=outcome.new_state)}
 
 
 def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
@@ -709,7 +717,7 @@ def _evaluate_grouped(
         check,
         recorded,
         {
-            verdict.group.grouping_key: (verdict.snapshot.state, verdict.outcome.new_state)
+            verdict.group.grouping_key: _Move(before=verdict.snapshot.state, after=verdict.outcome.new_state)
             for verdict in decision.verdicts
         },
         sends_messages=any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts),
