@@ -23,9 +23,17 @@ LATTICE_SESSION_PATCH = (
 
 
 def _response(
-    items: list[dict[str, Any]] | None, *, has_more: bool = False, ending_cursor: str | None = None
+    items: list[dict[str, Any]] | None,
+    *,
+    has_more: bool = False,
+    ending_cursor: str | None = None,
+    page_info: bool = False,
 ) -> Response:
-    body: dict[str, Any] = {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
+    body: dict[str, Any] = (
+        {"data": items or [], "pageInfo": {"endCursor": ending_cursor, "hasNextPage": has_more}}
+        if page_info
+        else {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
+    )
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
@@ -116,19 +124,27 @@ class TestValidateCredentials:
 
 
 class TestPagination:
+    @pytest.mark.parametrize(
+        "endpoint, page_info",
+        [
+            ("users", False),
+            # /v1/goals/updates nests the cursor under pageInfo instead of the top level.
+            ("goal_updates", True),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_ending_cursor(self, MockSession):
+    def test_paginates_via_ending_cursor(self, MockSession, endpoint, page_info):
         session = MockSession.return_value
         snaps = _wire(
             session,
             [
-                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc"),
-                _response([{"id": "2"}], has_more=False),
+                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc", page_info=page_info),
+                _response([{"id": "2"}], has_more=False, page_info=page_info),
             ],
         )
 
         manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
+        rows = _rows(_source("us", endpoint, manager))
 
         assert [r["id"] for r in rows] == ["1", "2"]
         # Checkpoint saved after the first page (points at the next cursor); the second page ends it.
@@ -145,3 +161,53 @@ class TestPagination:
         list(_source("us", "users", manager).items())
 
         assert snaps[0]["params"]["startingAfter"] == "cur_resume"
+
+
+class TestReviewCycleFanout:
+    @pytest.mark.parametrize(
+        "endpoint, resume_state, expected_child_urls",
+        [
+            (
+                "reviews",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviews",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviews",
+                ],
+            ),
+            (
+                "reviewees",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviewees",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviewees",
+                ],
+            ),
+            (
+                "reviews",
+                LatticeResumeConfig(
+                    fanout_state={"completed": ["/v1/reviewCycle/c1/reviews"], "current": None, "child_state": None}
+                ),
+                ["https://api.latticehq.com/v1/reviewCycle/c2/reviews"],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_review_cycles(self, MockSession, endpoint, resume_state, expected_child_urls):
+        session = MockSession.return_value
+        child_responses = {
+            "https://api.latticehq.com/v1/reviewCycle/c1/" + endpoint: _response([{"id": "r1"}]),
+            "https://api.latticehq.com/v1/reviewCycle/c2/" + endpoint: _response([{"id": "r1"}]),
+        }
+        snaps = _wire(session, [])
+        session.send.side_effect = lambda *_args, **_kwargs: (
+            _response([{"id": "c1"}, {"id": "c2"}]) if len(snaps) == 1 else child_responses[snaps[-1]["url"]]
+        )
+
+        rows = _rows(_source("us", endpoint, _make_manager(resume_state)))
+
+        assert snaps[0]["url"] == "https://api.latticehq.com/v1/reviewCycles"
+        assert [s["url"] for s in snaps[1:]] == expected_child_urls
+        # Review ids repeat across cycles, so each row must carry its cycle for the composite key.
+        expected_cycles = [url.split("/")[-2] for url in expected_child_urls]
+        assert [(r["review_cycle_id"], r["id"]) for r in rows] == [(c, "r1") for c in expected_cycles]

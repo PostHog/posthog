@@ -16,21 +16,23 @@ from products.warehouse_sources.backend.facade.models import (
 
 from . import rendered_node_states
 
+
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
 # frontend `DataModelingSyncInterval` type. All values are accepted by
-# `sync_frequency_to_sync_frequency_interval`.
-SYNC_FREQUENCY_CHOICES = [
-    ("never", "never"),
-    ("15min", "15min"),
-    ("30min", "30min"),
-    ("1hour", "1hour"),
-    ("6hour", "6hour"),
-    ("12hour", "12hour"),
-    ("24hour", "24hour"),
-    ("7day", "7day"),
-    ("30day", "30day"),
-]
+# `sync_frequency_to_sync_frequency_interval`. The labels repeat the values because the published
+# OpenAPI enum lists these exact pairs.
+class SavedQuerySyncFrequency(models.TextChoices):
+    NEVER = "never", "never"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
 
 # Deprecated sub-15min cadences clamped up to the 15min floor for backwards compatibility
 # with any legacy caller still sending them.
@@ -42,7 +44,7 @@ DEFAULT_MATERIALIZE_SYNC_FREQUENCY = "24hour"
 
 # `never` is missing on purpose: materializing is what starts the refreshes, so asking for none
 # has no meaning here. Callers stop them afterwards by setting the cadence to `never`.
-MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SYNC_FREQUENCY_CHOICES if choice[0] != "never"]
+MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SavedQuerySyncFrequency.choices if choice[0] != "never"]
 
 
 class SyncFrequencyBlockerSerializer(serializers.Serializer):
@@ -269,7 +271,7 @@ class SyncFrequencyField(serializers.ChoiceField):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("choices", SYNC_FREQUENCY_CHOICES)
+        kwargs.setdefault("choices", SavedQuerySyncFrequency.choices)
         kwargs.setdefault("required", False)
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)

@@ -22,6 +22,7 @@ import {
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
+    WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
@@ -1128,6 +1129,26 @@ describe('sourceWizardLogic', () => {
 
             try {
                 logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(true)
+                expect(logic.values.nextButtonDisabledReason).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('blocks Import on the destination step until one destination is turned on', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: 'full_refresh' }),
+            ])
+
+            try {
+                logic.actions.setStep(WIZARD_DESTINATION_STEP)
+                logic.actions.setWizardAvailableDestinationCount(2)
+                logic.actions.setWizardDestinationIds([])
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual('Pick at least one destination')
+
+                logic.actions.setWizardDestinationIds(['warehouse-id'])
                 expect(logic.values.canGoNext).toBe(true)
                 expect(logic.values.nextButtonDisabledReason).toBeNull()
             } finally {

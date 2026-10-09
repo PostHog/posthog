@@ -13,6 +13,7 @@ cross-team index on (status, created_at), so the sweep never queries it without 
 """
 
 import asyncio
+from collections import Counter
 from contextlib import suppress
 from datetime import UTC, datetime
 from statistics import fmean
@@ -25,6 +26,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.models.team import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ml_inference.backend.facade import api as decision_api
@@ -83,6 +85,12 @@ def _teams_with_scanners() -> list[int]:
     return [*PINNED_TEAM_IDS, *[team_id for team_id in team_ids if team_id not in PINNED_TEAM_IDS]]
 
 
+def _team_uuids(team_ids: list[int]) -> dict[int, UUID]:
+    """The flag keys on the project's uuid, so the sweep looks them up in one query per run."""
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
+        return dict(Team.objects.filter(id__in=team_ids).values_list("id", "uuid"))
+
+
 def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
     with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         return list(
@@ -133,6 +141,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     deadline = monotonic() + SWEEP_TIME_BUDGET.total_seconds()
     window_start = datetime.now(UTC) - WATCH_RANK_WINDOW
     team_ids = await sync_to_async(_teams_with_scanners)()
+    team_uuids = await sync_to_async(_team_uuids)(team_ids[:MAX_TEAMS_PER_SWEEP])
 
     teams_enrolled = 0
     teams_without_consent = 0
@@ -151,7 +160,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         if monotonic() > deadline:
             hit_time_budget = True
             break
-        mode = await asyncio.to_thread(watch_feed_ranker, team_id)
+        team_uuid = team_uuids.get(team_id)
+        if team_uuid is None:
+            continue
+        mode = await asyncio.to_thread(watch_feed_ranker, team_id, team_uuid)
         if mode == "weighted-score":
             continue
         # The scan prose the sweep sends to the model derives from recordings, so a revoked consent
@@ -178,7 +190,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # scanner's volume, and a fully judged window costs nothing.
             try:
                 judged_state = await asyncio.to_thread(load_judged_state, team_id, scanner_id)
-                cached_watchable = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
+                cached = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
             except Exception:
                 # A cache the sweep cannot read must not be judged over or written: without the
                 # judged set it re-buys rows, and the write would replace entries it never saw.
@@ -203,9 +215,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # the feed loads for every readable scanner on each request — small.
             window_strs = {str(row_id) for row_id in window_ids}
             watchable = {
-                **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
+                **{oid: p for oid, p in cached.probabilities.items() if oid in window_strs},
                 **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
+            reasons = {oid: reason for oid, reason in (cached.reasons | judgment.reasons).items() if oid in watchable}
             # A row whose judgment failed through its own batch (an invalid answer, a gateway
             # refusal the batch caused) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
             # newest-first pick would otherwise retry a deterministically failing batch every hour
@@ -227,7 +240,14 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             if all_judged or attempts:
                 try:
                     await asyncio.to_thread(
-                        store_watch_ranks, team_id, scanner_id, all_judged, watchable, attempts, judgment.model
+                        store_watch_ranks,
+                        team_id,
+                        scanner_id,
+                        all_judged,
+                        watchable,
+                        attempts,
+                        judgment.model,
+                        reasons,
                     )
                 except Exception:
                     # The batch is re-bought next run, which beats one write failure ending the sweep.
@@ -266,6 +286,8 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                         "chunks": judgment.chunks,
                         "failed_chunks": judgment.failed_chunks,
                         "chunk_error_types": judgment.chunk_error_types,
+                        "watch_reasons": dict(Counter(judgment.reasons.values())),
+                        "failed_reason_chunks": judgment.failed_reason_chunks,
                         "jev_model": judgment.model,
                         "input_tokens": judgment.input_tokens,
                         "estimated_cost_usd": judgment.estimated_cost_usd,
