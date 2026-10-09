@@ -34,6 +34,7 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.tasks import process_authored_pr_event, process_label_event
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
@@ -500,9 +501,21 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("POST", "/repos/PostHog/posthog/issues/42/comments"),
                 ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+                ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
+
+    def test_a_retried_bot_label_refusal_comments_once(self) -> None:
+        queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
+        self.github.side_effect = [GitHubAPIError("boom", status=502), GitHubAPIError("gone", status=404), None]
+
+        with self.assertRaises(GitHubAPIError):
+            process_label_event.run(**queued)
+        process_label_event.run(**queued)
+
+        calls = [call.args[0] for call in self.github.call_args_list]
+        assert calls == ["DELETE", "DELETE", "POST"]
+        self.start.assert_not_called()
 
     @parameterized.expand(
         [
