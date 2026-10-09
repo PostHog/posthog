@@ -10480,6 +10480,10 @@ snapshots:
         hash: v1.k794b7964.7c1812f3bae81f2ec5f88bdd8981269c9ab1db8de052f62261b6a526078e1db1.lLPRMvHcm3J30ZNs_Uv27aiYvPrYiEkQ9v9jzeGl4Rw
     scenes-app-feature-flags--edit-rules-v-2-feature-flag--light:
         hash: v1.k794b7964.6d2f9704f59bf6e3d61b811d92c7ecfc3d4a5263096d0e57181c2bce6dc4dc97.RTb3YQ69UQA3cySea7dGUkkZhOnIDrzoqgk7t0HpMXI
+    scenes-app-feature-flags--feature-flag-load-failed--dark:
+        hash: v1.k794b7964.78c0cc612dbea90f7040fdc919c91d37255bd3c1a5d149a26a7968e86bcd1649.ZSqbZArI-ot3gRLxJErCln6BkMjyS8my3F7ILlT9qX0
+    scenes-app-feature-flags--feature-flag-load-failed--light:
+        hash: v1.k794b7964.78afb799eb165b132bfb6310a7fd4356040e98955d6ee7a051d76b24a0eb290d.81OytD3WSL06BSsRwjMis1NVd27K8lL9FqZtwh5pn20
     scenes-app-feature-flags--feature-flag-not-found--dark:
         hash: v1.k794b7964.4f1e063fd0ea193507fc461100835138a210c677172cf02c4e6a1d3ca85053af.QLMBnXZd8GFY-ERfzWmRUW-eFybjMBVuSeT9PLkOnzI
     scenes-app-feature-flags--feature-flag-not-found--light:
@@ -12104,6 +12108,10 @@ snapshots:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.RmzBOXeIfu6YtXX5xWbtQ-LBgX6Vffw7nsiC9tqy6Nk
     scenes-app-logs-sessionerrorsbadge--several-errors--light:
         hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.cBNgS9GhMzI2LlBJ1nlaPLzWNdYY5Xr1P9FhiLoYbFw
+    scenes-app-logs-sparkline--query-failed--dark:
+        hash: v1.k794b7964.9f5c91afc93b1776b4b471d58926c2e4f04265b3ab0680c753033d12d75dd5fe.D-VpA5oDQ51Wf-8ArUCRDz-1swBA8e25ZWUQvipNnDk
+    scenes-app-logs-sparkline--query-failed--light:
+        hash: v1.k794b7964.033213fcc13c3082940bcb43810cab9e0e7021411ac19d53e8ed4bcda2ad8bc3.El1jETgS50w4NInRRc1Ot9KZPvoCyn-7pUA5q63Kr0Y
     scenes-app-logs-sparkline--volume-by-severity--dark:
         hash: v1.k794b7964.0342a42ad3e96fb82282914a3c60aedb873de9f8dfc94c850b22b3f7f17d56a0.c_sYZ1aNex35E-5hGq0aHwwV1MQCROpZBvMfAznRPoY
     scenes-app-logs-sparkline--volume-by-severity--light:
