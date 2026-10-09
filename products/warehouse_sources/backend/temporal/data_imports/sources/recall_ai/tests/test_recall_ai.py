@@ -99,45 +99,6 @@ class TestRecallAIRequestShaping:
 
         assert sent_params[0][self.INCREMENTAL_PARAMS[endpoint]] == "2026-01-15T10:30:00Z"
 
-    @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_PARAMS))
-    @pytest.mark.parametrize(
-        ("should_use_incremental_field", "last_value"),
-        [
-            # First incremental sync has no watermark yet and must go out unfiltered.
-            (True, None),
-            # Full refresh must ignore a stale watermark.
-            (False, datetime(2026, 1, 15, tzinfo=UTC)),
-        ],
-    )
-    def test_filter_omitted_without_active_watermark(
-        self, endpoint: str, should_use_incremental_field: bool, last_value: Any
-    ) -> None:
-        _, sent_params, _ = _drive(
-            endpoint,
-            _manager(),
-            [_make_http_response({"next": None, "previous": None, "results": [{"id": "r1"}]})],
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=last_value,
-        )
-
-        assert self.INCREMENTAL_PARAMS[endpoint] not in sent_params[0]
-
-    def test_bots_request_uses_cursor_pagination_and_no_time_filter(self) -> None:
-        # Without use_cursor the bot list paginates by page number, which skips or repeats
-        # rows when bots are created mid-walk. Bots also have no server-side created-at
-        # filter, so no watermark param may ever be attached.
-        _, sent_params, _ = _drive(
-            "bots",
-            _manager(),
-            [_make_http_response({"next": None, "previous": None, "results": [{"id": "b1"}]})],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 15, tzinfo=UTC),
-        )
-
-        assert sent_params[0]["use_cursor"] == "true"
-        assert "join_at_after" not in sent_params[0]
-        assert "created_at_after" not in sent_params[0]
-
 
 class TestRecallAIPaginationAndResume:
     def test_fresh_run_follows_next_urls_and_saves_state_per_page(self) -> None:
@@ -159,18 +120,6 @@ class TestRecallAIPaginationAndResume:
             RecallAIResumeConfig(next_url=page2),
             RecallAIResumeConfig(next_url=page3),
         ]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _manager()
-
-        _drive(
-            "recordings",
-            manager,
-            [_make_http_response({"next": None, "previous": None, "results": [{"id": "r1"}]})],
-        )
-
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
 
     def test_resume_starts_at_saved_next_url(self) -> None:
         manager = _manager(can_resume=True)

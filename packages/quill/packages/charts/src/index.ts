@@ -113,6 +113,10 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Proportion bar
+export { ProportionBar } from './charts/ProportionBar/ProportionBar'
+export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
 export type {

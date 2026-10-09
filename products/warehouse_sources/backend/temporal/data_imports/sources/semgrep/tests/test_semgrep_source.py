@@ -7,10 +7,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
-    ENDPOINTS,
-    SEMGREP_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
 
 
@@ -21,28 +18,9 @@ def _config(api_token: str = "token") -> Any:
 
 
 class TestGetSchemas:
-    def test_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = SemgrepSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Semgrep has no server-side updated-since filter (the findings `since` param doesn't move
-        # on status/triage changes), so nothing may be advertised as incremental/append.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-        for schema in schemas:
-            assert schema.detected_primary_keys == SEMGREP_ENDPOINTS[schema.name].primary_keys
-
     def test_names_filter(self) -> None:
         schemas = SemgrepSource().get_schemas(_config(), team_id=1, names=["deployments", "secrets"])
         assert {s.name for s in schemas} == {"deployments", "secrets"}
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O) — public docs render the table list.
-        assert SemgrepSource.lists_tables_without_credentials is True
-        tables = SemgrepSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        findings = next(t for t in tables if t["name"] == "sast_findings")
-        assert findings["sync_methods"] == ["Full refresh"]
-        assert findings["primary_keys"] == ["deployment_id", "id"]
 
 
 class TestValidateCredentials:

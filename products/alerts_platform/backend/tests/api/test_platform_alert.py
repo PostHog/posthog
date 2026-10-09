@@ -21,17 +21,18 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 
 class TestPlatformAlertAPI(APIBaseTest):
     def _create_configuration(
-        self, team: Team, name: str, legacy_configuration_id: UUID | None = None
+        self,
+        team: Team,
+        name: str,
+        legacy_configuration_id: UUID | None = None,
+        source_kind: str = PlatformAlertConfiguration.SourceKind.LOGS,
     ) -> PlatformAlertConfiguration:
         with team_scope(team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=team,
                 name=name,
-                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_kind=source_kind,
                 source_config={"service": "api"},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=10,
                 legacy_configuration_id=legacy_configuration_id,
             )
@@ -106,16 +107,17 @@ class TestPlatformAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member_without_logs_access", None, False),
-            ("key_without_logs_scope", ["alert:read"], False),
-            ("key_with_logs_scope", ["alert:read", "logs:read"], True),
+            ("logs_member_without_access", "logs", None, False),
+            ("logs_key_without_scope", "logs", ["alert:read"], False),
+            ("logs_key_with_scope", "logs", ["alert:read", "logs:read"], True),
+            ("insight_key_with_scope", "insight", ["alert:read", "insight:read"], False),
         ]
     )
-    def test_logs_configurations_need_logs_read_access(
-        self, _name: str, key_scopes: list[str] | None, visible: bool
+    def test_a_configuration_needs_read_access_to_its_source_product(
+        self, _name: str, source_kind: str, key_scopes: list[str] | None, visible: bool
     ) -> None:
         self._set_flag(True)
-        configuration = self._create_configuration(self.team, "API errors")
+        configuration = self._create_configuration(self.team, "API errors", source_kind=source_kind)
         if key_scopes is None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -124,7 +126,7 @@ class TestPlatformAlertAPI(APIBaseTest):
             member = User.objects.create_and_join(self.organization, "alerts-only@posthog.com", "testtest")
             AccessControl.objects.create(
                 team=self.team,
-                resource="logs",
+                resource=source_kind,
                 resource_id=None,
                 access_level="none",
                 organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),

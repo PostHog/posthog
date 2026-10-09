@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import Callable
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 import pytest
@@ -6,13 +8,20 @@ import pytest
 import dagster
 import psycopg2
 import psycopg2.extras
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
 from posthog.dags.personhog_shadow_lane import (
+    GROUP_ID_NOT_FOUND,
+    NON_EMPTY_GROUP,
+    SHADOW_CONSUMER_GROUP,
+    SHADOW_KAFKA_BOOTSTRAP_ENV_VAR,
     ShadowLaneStartConfig,
+    _reset_consumer_offsets,
     _reset_shadow_state,
     read_shadow_write_counter,
     require_shadow_dsn,
+    shadow_kafka_admin,
     wait_for_deployments,
     wait_for_quiescence,
 )
@@ -111,13 +120,94 @@ class _FakeAppsApi:
         self.desired_replicas = desired_replicas
 
     def read_namespaced_deployment(self, name: str, namespace: str) -> SimpleNamespace:
-        return SimpleNamespace(spec=SimpleNamespace(replicas=self.desired_replicas))
+        return SimpleNamespace(
+            spec=SimpleNamespace(replicas=self.desired_replicas, selector=SimpleNamespace(match_labels={"app": name}))
+        )
 
 
-def test_reset_refuses_while_lane_wants_pods() -> None:
-    context = dagster.build_op_context()
+class _NoPodsCoreApi:
+    def list_namespaced_pod(self, namespace: str, label_selector: str) -> SimpleNamespace:
+        return SimpleNamespace(items=[])
+
+
+@pytest.fixture
+def stopped_lane(monkeypatch: pytest.MonkeyPatch) -> _FakeAppsApi:
+    monkeypatch.setattr("posthog.dags.personhog_shadow_lane.k8s_client.CoreV1Api", _NoPodsCoreApi)
+    return _FakeAppsApi(desired_replicas=0)
+
+
+class _FakeKafkaAdmin:
+    def __init__(self, error_code: int | None = None) -> None:
+        self.error_code = error_code
+        self.deleted: list[str] = []
+
+    def delete_consumer_groups(self, group_ids: list[str], **_kwargs: object) -> dict[str, Future]:
+        futures: dict[str, Future] = {}
+        for group_id in group_ids:
+            future: Future = Future()
+            if self.error_code is None:
+                self.deleted.append(group_id)
+                future.set_result(None)
+            else:
+                future.set_exception(KafkaException(KafkaError(self.error_code)))
+            futures[group_id] = future
+        return futures
+
+
+def _no_admin() -> _FakeKafkaAdmin:
+    raise AssertionError("the admin client must not be reached while the lane has pods")
+
+
+@parameterized.expand(
+    [
+        (
+            "reset_state",
+            lambda context, apps: _reset_shadow_state(context, ShadowLaneStartConfig(reset_state=True), apps),
+        ),
+        (
+            "reset_offsets",
+            lambda context, apps: _reset_consumer_offsets(
+                context, ShadowLaneStartConfig(reset_offsets=True), apps, _no_admin
+            ),
+        ),
+    ]
+)
+def test_reset_refuses_while_lane_wants_pods(
+    _name: str, reset: Callable[[dagster.OpExecutionContext, _FakeAppsApi], object]
+) -> None:
     with pytest.raises(dagster.Failure, match="stop-and-compare"):
-        _reset_shadow_state(context, ShadowLaneStartConfig(reset_state=True), _FakeAppsApi(desired_replicas=2))
+        reset(dagster.build_op_context(), _FakeAppsApi(desired_replicas=2))
+
+
+@pytest.mark.parametrize(
+    "error_code,expected",
+    [
+        pytest.param(None, True, id="deleted"),
+        pytest.param(GROUP_ID_NOT_FOUND, False, id="missing_group"),
+    ],
+)
+def test_offset_reset_deletes_the_consumer_group(
+    stopped_lane: _FakeAppsApi, error_code: int | None, expected: bool
+) -> None:
+    admin = _FakeKafkaAdmin(error_code)
+    config = ShadowLaneStartConfig(reset_offsets=True)
+    deleted = _reset_consumer_offsets(dagster.build_op_context(), config, stopped_lane, lambda: admin)
+    assert deleted == expected
+    assert admin.deleted == ([SHADOW_CONSUMER_GROUP] if expected else [])
+
+
+def test_offset_reset_fails_while_the_group_has_members(stopped_lane: _FakeAppsApi) -> None:
+    admin = _FakeKafkaAdmin(NON_EMPTY_GROUP)
+    with pytest.raises(dagster.Failure, match="still has members"):
+        _reset_consumer_offsets(
+            dagster.build_op_context(), ShadowLaneStartConfig(reset_offsets=True), stopped_lane, lambda: admin
+        )
+
+
+def test_offset_reset_needs_the_bootstrap_servers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(SHADOW_KAFKA_BOOTSTRAP_ENV_VAR, raising=False)
+    with pytest.raises(dagster.Failure, match=SHADOW_KAFKA_BOOTSTRAP_ENV_VAR):
+        shadow_kafka_admin()
 
 
 @pytest.mark.persons_db_direct

@@ -21,6 +21,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -57,6 +58,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { getRetryCooldown } from '../sharedUtils'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -211,10 +213,12 @@ const RetryButton = ({
     onRetry,
     query,
     loading = false,
+    disabledReason,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
     loading?: boolean
+    disabledReason?: string
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -240,6 +244,7 @@ const RetryButton = ({
             size="small"
             type="primary"
             loading={loading}
+            disabledReason={disabledReason}
             onClick={() => onRetry()}
             sideAction={sideAction}
         >
@@ -822,6 +827,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
+    retryAfterTimestamp?: number | null
     retryLoading?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
     excludeDetail?: boolean
@@ -837,6 +843,7 @@ export function InsightErrorState({
     query,
     queryId,
     retryAfter,
+    retryAfterTimestamp,
     retryLoading = false,
     placement,
     excludeDetail = false,
@@ -845,15 +852,28 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
+    const [, setTick] = useState(0)
     const errorKind = getInsightErrorKind(titleStatus)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    // InsightCard passes the later of its own and its embedded query's deadlines, so a non-503 card error can carry one.
+    const capacityRetryAt = canRetry ? retryAfterTimestamp : null
+    const {
+        secondsLeft: retrySecondsLeft,
+        disabledReason: retryDisabledReason,
+        remediation: capacityRemediation,
+    } = getRetryCooldown(capacityRetryAt)
+    useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
     const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
-    const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
+    // A 429 card error can carry the 503 deadline of its embedded query. That deadline still guards the retry button,
+    // but the copy keeps the 429 wait because it can outlast the 503 deadline.
+    const remediation =
+        (errorKind === 'rate_limit' ? null : capacityRemediation) ??
+        getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -906,7 +926,12 @@ export function InsightErrorState({
 
             {!supportOnly && (
                 <div className="mt-4">
-                    {remediation && <p className="max-w-120">{renderDetailWithLinks(remediation)}</p>}
+                    {remediation && (
+                        <p className="max-w-120">
+                            {/* A sole string child keeps the countdown updating after page translation replaces its text node. */}
+                            {capacityRetryAt ? remediation : renderDetailWithLinks(remediation)}
+                        </p>
+                    )}
                     {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
@@ -918,7 +943,16 @@ export function InsightErrorState({
             {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
                     {onRetry && canRetry ? (
-                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
+                        <RetryButton
+                            onRetry={() => {
+                                if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+                                    onRetry()
+                                }
+                            }}
+                            query={query}
+                            loading={retryLoading}
+                            disabledReason={retryDisabledReason}
+                        />
                     ) : (
                         <QueryDebuggerButton query={query} />
                     )}

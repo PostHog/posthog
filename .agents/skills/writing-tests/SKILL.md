@@ -202,6 +202,11 @@ Escalating to the next rung is the last resort, not the default.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
+- **A test must not inherit the CI matrix mode.**
+  Backend CI runs one test under several modes, such as persons-on-events on and off, and a local run uses one of them.
+  If the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
+- **A test you added that fails in CI blocks the merge, even when the job is green.**
+  Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
 - **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
 - **Never commit `.only`** (`it.only` / `describe.only`).

@@ -34,6 +34,16 @@ class TrialEvaluationRequest(EvaluationDocument):
     rubric_source: Literal["saved"]
 
 
+class TrialEvaluationAccess(EvaluationDocument):
+    evaluation_id: UUID
+    team_id: int
+    config_id: UUID
+    user_id: int
+    context_id: UUID
+    skill_name: str
+    skill_version: int = Field(ge=1)
+
+
 class TrialEvaluationSnapshot(EvaluationDocument):
     version: Literal[1] = 1
     evaluation_id: UUID

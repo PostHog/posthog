@@ -131,9 +131,9 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
-// the exact stamped death version for tombstones), so a deletion must state it
-// explicitly — a stale person.version can never become a no-headroom death row.
+// Deletion call sites own the version they emit (the exact stamped death version
+// for tombstones), so a deletion must state it explicitly — a stale person.version
+// can never become a no-headroom death row.
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
 export function generateKafkaPersonUpdateMessage(
     person: InternalPerson,

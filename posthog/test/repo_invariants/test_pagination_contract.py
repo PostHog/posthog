@@ -24,7 +24,6 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
-    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
@@ -228,6 +227,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.stamphog.backend.presentation.views.PullRequestViewSet",
     "products.stamphog.backend.presentation.views.ReviewRunViewSet",
     "products.stamphog.backend.presentation.views.StamphogRepoConfigViewSet",
+    "products.messaging.backend.presentation.views.message_templates.MessageTemplatesViewSet",
     "products.streamlit_apps.backend.presentation.views.StreamlitAppViewSet",
     "products.surveys.backend.api.survey.SurveyViewSet",
     "products.tasks.backend.presentation.views.api.SandboxCustomImageViewSet",
@@ -267,6 +267,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
+    "products.messaging.backend.presentation.views.message_categories.MessageCategoryViewSet",
 }
 
 

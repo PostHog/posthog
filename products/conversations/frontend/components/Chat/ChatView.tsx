@@ -13,6 +13,7 @@ import type {
     TicketChannel,
     TicketStatus,
 } from '../../types'
+import type { SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -70,6 +71,8 @@ export interface ChatViewProps {
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
+    /** Composer header and send menu in place of draft mode; see MessageInput */
+    simplifiedReplies?: SimplifiedRepliesProps
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
@@ -122,6 +125,7 @@ export function ChatView({
     onDraftModeChange,
     sendConfirmationMessage,
     sendAndSetStatusOptions,
+    simplifiedReplies,
     unsavedTicketChanges,
     latestAiMessageId,
     latestAiDraftId,
@@ -195,6 +199,7 @@ export function ChatView({
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
+                    simplifiedReplies={simplifiedReplies}
                     unsavedTicketChanges={unsavedTicketChanges}
                     editingMessageId={editingMessageId}
                     onCancelEdit={onCancelEdit}

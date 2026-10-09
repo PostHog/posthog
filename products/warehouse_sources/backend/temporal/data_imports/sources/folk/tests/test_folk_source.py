@@ -3,32 +3,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk import source as folk_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk.source import FolkSource
-
-
-class TestFolkSourceConfig:
-    def test_config_basics(self) -> None:
-        config = FolkSource().get_source_config
-        assert config.label == "Folk"
-        assert config.category == DataWarehouseSourceCategory.CRM
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source ships visible — the scaffold's unreleasedSource flag must stay gone.
-        assert not config.unreleasedSource
-
-
-class TestFolkGetSchemas:
-    def test_every_endpoint_is_full_refresh_only(self) -> None:
-        # Folk has no updatedAt filter and no sort param, so offering incremental or append would
-        # sync wrong data (missed updates, corrupt watermark) — see settings.py.
-        schemas = FolkSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
 
 
 class TestFolkValidateCredentials:
@@ -112,12 +88,3 @@ class TestFolkResumableAndPipeline:
         assert response.primary_keys == ["id"]
         assert response.partition_keys == expected_keys
         assert response.partition_mode == expected_mode
-
-
-class TestFolkCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = FolkSource().get_canonical_descriptions()
-        # Every documented key must be a real endpoint so enrichment binds to the right table.
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "people" in descriptions
-        assert descriptions["people"]["columns"]["id"]

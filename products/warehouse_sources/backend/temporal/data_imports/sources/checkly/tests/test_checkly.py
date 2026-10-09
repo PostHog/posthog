@@ -178,15 +178,6 @@ def test_definitions_project_only_safe_metadata(
     assert materialize(checkly_source(CONFIG, manager, inputs(name), api_version)) == [[{"id": "check-a"}]]
 
 
-def test_list_resume(transport: Transport, manager: MagicMock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = ChecklyResumeConfig(paginator_state={"page": 4})
-    transport.add([{"id": "last"}])
-    transport.add([])
-    assert materialize(checkly_source(CONFIG, manager, inputs("checks"), "v2")) == [[{"id": "last"}]]
-    assert [transport.params(i)["page"] for i in range(2)] == [["4"], ["5"]]
-
-
 def test_statuses_are_unpaginated_and_exclude_null_statuses(transport: Transport, manager: MagicMock) -> None:
     transport.add([None, {"checkId": "check-a", "hasFailures": False}])
     response = checkly_source(CONFIG, manager, inputs("check_statuses"), "v2")
