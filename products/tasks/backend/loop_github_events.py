@@ -13,8 +13,8 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
+from posthog.github.installations import InstallationIntegration, installation_integrations
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
-from posthog.models.integration import Integration
 from posthog.redis import get_client
 
 from products.tasks.backend.logic.services import loop_runs
@@ -131,11 +131,11 @@ def _matching_triggers(
 ) -> list[LoopTrigger]:
     """Collect the triggers every team on this installation matches.
 
-    Only the installation lookup is capped here. Each team's trigger lookup carries its own cap,
-    so a cancelled statement for one team leaves the matches the other teams already produced.
+    The shared installation lookup carries its own cap. Each team's trigger lookup is capped
+    separately, so a cancelled statement for one team leaves the matches the other teams already
+    produced.
     """
-    with bounded_statement_timeout(_MATCH_STATEMENT_TIMEOUT_MS, models=[Integration]):
-        integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
+    integrations = installation_integrations(installation_id)
 
     triggers: list[LoopTrigger] = []
     for integration in integrations:
@@ -148,7 +148,7 @@ def _matching_triggers(
 
 
 def _matching_triggers_for_integration(
-    integration: Integration,
+    integration: InstallationIntegration,
     repository_full_name: str,
     event_type: str,
     action: str | None,

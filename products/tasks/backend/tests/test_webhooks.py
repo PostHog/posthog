@@ -6,8 +6,9 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -2603,6 +2604,55 @@ class TestGitHubWebhookFanout(TestCase):
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
         self.assertEqual(response.status_code, 405)
+
+    @parameterized.expand(
+        [
+            (
+                "issue_opened",
+                "issues",
+                {
+                    "action": "opened",
+                    "issue": {
+                        "number": 7,
+                        "title": "Broken",
+                        "body": "It broke",
+                        "author_association": "MEMBER",
+                        "html_url": "https://github.com/myorg/myrepo/issues/7",
+                    },
+                },
+            ),
+        ]
+    )
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    @patch("products.conversations.backend.services.github_events.process_github_event")
+    @patch("products.workflows.backend.github_workflow_events.produce_internal_event")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
+    def test_every_consumer_on_a_delivery_shares_one_installation_lookup(
+        self, _name, event_type, event_payload, mock_secret, mock_produce, mock_conversations_task, _mock_capture
+    ):
+        mock_secret.return_value = self.webhook_secret
+        mock_conversations_task.delay = MagicMock()
+        payload = {
+            **event_payload,
+            "installation": {"id": 77777},
+            "repository": {"full_name": "myorg/myrepo", "private": True},
+            "sender": {"login": "octocat", "type": "User"},
+        }
+
+        with (
+            self.settings(GITHUB_WORKFLOW_TRIGGERS_ENABLED=True),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self._make_request(payload, event_type=event_type, url="/webhooks/github/")
+
+        self.assertEqual(response.status_code, 202)
+        installation_lookups = [
+            query["sql"]
+            for query in queries.captured_queries
+            if '"posthog_integration"' in query["sql"] and "'77777'" in query["sql"]
+        ]
+        self.assertEqual(len(installation_lookups), 1, installation_lookups)
+        self.assertEqual(mock_produce.call_args.args[0], self.team.id)
 
 
 class TestFindSignalImplementationRun(TestCase):
