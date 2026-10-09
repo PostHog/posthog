@@ -27,7 +27,10 @@ const buildAccount = (properties: AccountApiProperties): AccountApi =>
 
 const ACCOUNT_VARIABLE = { variableId: 'var-1', code_name: 'salesforce_account_id', value: '' }
 
-const buildInsight = (sql: string, variables: Record<string, typeof ACCOUNT_VARIABLE>): InsightModel =>
+const buildInsight = (
+    sql: string,
+    variables: Record<string, typeof ACCOUNT_VARIABLE> = { 'var-1': ACCOUNT_VARIABLE }
+): InsightModel =>
     ({
         short_id: 'xauPgpXt',
         query: {
@@ -76,38 +79,76 @@ describe('accountOpportunitiesLogic', () => {
     })
 
     it.each([
-        ['is absent', () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null)],
-        ['fails to load', () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom'))],
-    ])('shows the not-found state when the saved insight %s', async (_label, mockInsight) => {
-        mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
-        mockInsight()
+        [
+            'is absent',
+            () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null),
+            { sfdcId: 'sfdc-1', insight: null },
+        ],
+        [
+            'fails to load',
+            () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom')),
+            { sfdcId: 'sfdc-1', insight: null, loadFailed: true },
+        ],
+    ])(
+        'keeps a missing insight apart from a failed load when the saved insight %s',
+        async (_label, mockInsight, expected) => {
+            mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
+            mockInsight()
 
-        await mount()
+            await mount()
 
-        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', insight: null })
-        expect(logic.values.variablesOverride).toBeNull()
-    })
+            expect(logic.values.opportunitiesResult).toEqual(expected)
+        }
+    )
 
     it.each([
         [
-            'sets the account Salesforce id on the variable',
-            buildInsight('select 1 from salesforce.opportunity where account_id = {variables.salesforce_account_id}', {
-                'var-1': ACCOUNT_VARIABLE,
-            }),
+            'sets the account Salesforce id when the WHERE filters by the variable',
+            buildInsight(
+                'select name from salesforce.opportunity where account_id = {variables.salesforce_account_id}'
+            ),
             { 'var-1': { ...ACCOUNT_VARIABLE, value: 'sfdc-1' } },
         ],
         [
-            'refuses an insight whose SQL does not filter by the variable',
-            buildInsight('select 1 from salesforce.opportunity', { 'var-1': ACCOUNT_VARIABLE }),
-            null,
+            'sets the account Salesforce id when the filter is one AND term among others',
+            buildInsight(
+                'select name from salesforce.opportunity as o where o.close_date is not null and o.account_id = {variables.salesforce_account_id}'
+            ),
+            { 'var-1': { ...ACCOUNT_VARIABLE, value: 'sfdc-1' } },
+        ],
+        [
+            'refuses an insight that only selects the variable',
+            buildInsight('select *, {variables.salesforce_account_id} from salesforce.opportunity'),
+            undefined,
+        ],
+        [
+            'refuses an insight that only mentions the filter in a comment',
+            buildInsight(
+                'select name from salesforce.opportunity -- where account_id = {variables.salesforce_account_id}'
+            ),
+            undefined,
+        ],
+        [
+            'refuses an insight whose filter sits in an OR branch',
+            buildInsight(
+                'select name from salesforce.opportunity where account_id = {variables.salesforce_account_id} or 1 = 1'
+            ),
+            undefined,
+        ],
+        [
+            'refuses an insight that filters by a longer variable name',
+            buildInsight(
+                'select name from salesforce.opportunity where account_id = {variables.salesforce_account_id_all}'
+            ),
+            undefined,
         ],
         [
             'refuses an insight without the variable',
             buildInsight(
-                'select 1 from salesforce.opportunity where account_id = {variables.salesforce_account_id}',
+                'select name from salesforce.opportunity where account_id = {variables.salesforce_account_id}',
                 {}
             ),
-            null,
+            undefined,
         ],
     ])('%s', async (_label, insight, expectedOverride) => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
@@ -115,6 +156,7 @@ describe('accountOpportunitiesLogic', () => {
 
         await mount()
 
-        expect(logic.values.variablesOverride).toEqual(expectedOverride)
+        expect(logic.values.opportunitiesResult.variablesOverride).toEqual(expectedOverride)
+        expect(logic.values.opportunitiesResult.loadFailed).toBeUndefined()
     })
 })

@@ -37,13 +37,13 @@ export function AccountOpportunitiesExpansion({
     instanceId?: string
 }): JSX.Element {
     const logic = accountOpportunitiesLogic({ accountId, instanceId })
-    const { opportunitiesResult, opportunitiesResultLoading, variablesOverride } = useValues(logic)
+    const { opportunitiesResult, opportunitiesResultLoading } = useValues(logic)
 
     if (opportunitiesResultLoading || opportunitiesResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    const { sfdcId, insight, loadFailed } = opportunitiesResult
+    const { sfdcId, insight, variablesOverride, loadFailed } = opportunitiesResult
 
     if (loadFailed) {
         return (
@@ -78,7 +78,8 @@ export function AccountOpportunitiesExpansion({
                 title="Opportunities insight needs an account filter"
                 detail={
                     <>
-                        Add <code>{`{variables.${SALESFORCE_ACCOUNT_VARIABLE}}`}</code> to the SQL of the{' '}
+                        Add <code>{`account_id = {variables.${SALESFORCE_ACCOUNT_VARIABLE}}`}</code> to the WHERE clause
+                        of the{' '}
                         <Link to={urls.insightView(OPPORTUNITIES_INSIGHT_SHORT_ID)} target="_blank">
                             saved opportunities insight
                         </Link>
@@ -101,8 +102,7 @@ export function AccountOpportunitiesExpansion({
                 variablesOverride={variablesOverride}
                 readOnly
                 embedded
-                // Attach the insight's data logic to the tab logic, which the expanded-row root keeps mounted,
-                // so the loaded results survive tab switches instead of refetching on return.
+                // The expanded-row root keeps the tab logic mounted, so attaching here keeps results across tab switches.
                 attachTo={logic}
                 context={{
                     insightProps: {
