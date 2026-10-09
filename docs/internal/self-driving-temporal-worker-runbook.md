@@ -141,19 +141,14 @@ Deleting the record alone does not put the signal back in the queue.
 
 After deployment, an existing blocked grouping workflow adopts the new path on its next run after `continue_as_new`. Do not restart or terminate it to apply this change. Verify that review records appear, healthy signals reach assignment, and the waiting-batch count falls. A saved refusal does not prove that the rest of the pipeline recovered.
 
-#### Remove selected signals before deployment
+#### Before deployment
 
-The existing workflow has no signal-ejection API. An authorized operator can edit the stored batches while grouping is paused:
-
-1. Call `TeamSignalGroupingV2Workflow.pause_until(team_id, timestamp)` with a future UTC timestamp through an authorized Django shell.
-2. Wait for the active batch to finish or return to the queue. Confirm in Temporal that the workflow waits in its pause loop with no active processing activities. The pause signal does not cancel an active batch.
-3. Read each affected batch with `object_storage.read(object_key)`. Select signals by their exact source product, source type, source ID, and payload. Confirm each selected signal against the refusal trace.
-4. Save each original batch and the selected full signal payloads under new private object keys. Verify the saved copies before changing a batch.
-5. Write the remaining signals back to the original batch keys. Preserve their order. Keep an empty JSON list for a batch with no remaining signals. Do not delete a batch key.
-6. Read back every changed batch. Confirm that only the selected signals are absent and that every other payload is unchanged.
-7. Call `TeamSignalGroupingV2Workflow.unpause(team_id)`. Check assignment progress and the waiting-batch count.
-
-Stop if the workflow resumes before the edits finish. Do not edit blobs while their batch is active. Deploying the automatic refusal path is preferable when its rollout can finish promptly.
+Do not pause grouping to remove signals from stored batches by hand.
+The pause loop in `TeamSignalGroupingV2Workflow` does not catch the timeout of its 30-second wait.
+A pause longer than 30 seconds fails the workflow.
+The failed run loses its pending batch keys.
+`unpause()` then starts a new run without those keys.
+Deploy the automatic refusal path instead.
 
 **Runs stay in `Running` with no activity progress.**
 No worker polls `self-driving-task-queue` in that region.
