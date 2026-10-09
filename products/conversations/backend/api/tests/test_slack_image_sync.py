@@ -501,6 +501,22 @@ class TestSlackDurableImageDelivery(BaseTest):
     def _api_method_calls(self, client: MagicMock, method: str) -> int:
         return sum(1 for call in client.api_call.call_args_list if call.kwargs.get("api_method") == method)
 
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_body_is_not_posted_after_ticket_delete(self, mock_get_client: MagicMock, _avatar: MagicMock) -> None:
+        self._create_reply()
+        client = self._slack_client()
+        mock_get_client.return_value = client
+        body = self._part(DELIVERY_PART_KEY_BODY)
+        Ticket.all_objects.filter(id=self.ticket.id).update(deleted_at=timezone.now())
+
+        process_slack_delivery_part(str(body.id))
+
+        body.refresh_from_db()
+        assert body.status == ConversationDeliveryPart.Status.FAILED
+        assert body.last_error_code == "ticket_deleted"
+        client.chat_postMessage.assert_not_called()
+
     @patch("products.conversations.backend.tasks.slack.requests.post", return_value=_ok_upload_response())
     @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload", return_value=b"img")
     @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)

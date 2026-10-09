@@ -17,6 +17,7 @@ from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.models.delivery import ConversationDeliveryChannel
 from products.conversations.backend.models.inbound_event import ConversationInboundEventSource
 from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTER, Ticket, deleted_ticket_holds_thread
+from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets
 from products.conversations.backend.temporal.zendesk_import.activities import _partition_new_tickets
 
@@ -44,10 +45,11 @@ class TestPurgeDeletedTickets(BaseTest):
             file_name="shot.png",
             content_type="image/png",
             media_location="uploads/shot.png",
+            purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
         )
-        user_upload = UploadedMedia.objects.create(
+        team_file = UploadedMedia.objects.create(
             team=self.team,
-            created_by=self.user,
+            created_by=None,
             file_name="insight.png",
             media_location="uploads/insight.png",
         )
@@ -55,12 +57,13 @@ class TestPurgeDeletedTickets(BaseTest):
             team=self.team,
             file_name="shared.png",
             media_location="uploads/shared.png",
+            purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
         )
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
-            content=f"see /uploaded_media/{media.id} /uploaded_media/{user_upload.id} /uploaded_media/{shared.id}",
+            content=f"see /uploaded_media/{media.id} /uploaded_media/{team_file.id} /uploaded_media/{shared.id}",
         )
         Comment.objects.create(
             team=self.team,
@@ -128,7 +131,7 @@ class TestPurgeDeletedTickets(BaseTest):
         self.assertTrue(Ticket.all_objects.filter(id=fresh.id).exists())
         self.assertFalse(Comment.objects.filter(item_id=str(ticket.id)).exists())
         self.assertFalse(UploadedMedia.objects.filter(id=media.id).exists())
-        self.assertEqual(UploadedMedia.objects.filter(id__in=[user_upload.id, shared.id]).count(), 2)
+        self.assertEqual(UploadedMedia.objects.filter(id__in=[team_file.id, shared.id]).count(), 2)
         self.assertFalse(ConversationDelivery.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
         self.assertFalse(ConversationInboundEvent.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
         self.assertFalse(KnowledgeGapSuggestion.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
@@ -178,6 +181,7 @@ class TestPurgeDeletedTickets(BaseTest):
             team=self.team,
             file_name="shot.png",
             media_location="uploads/shot.png",
+            purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
         )
         Comment.objects.create(
             team=self.team,

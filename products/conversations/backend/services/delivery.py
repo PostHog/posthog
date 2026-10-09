@@ -1047,6 +1047,14 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
     return part
 
 
+def delivery_ticket_is_live(delivery: ConversationDelivery) -> bool:
+    """Whether the delivery's ticket still exists and is not deleted, so a reply may go out."""
+    if delivery.ticket_id is None:
+        return True
+    # nosemgrep: idor-lookup-without-team (ticket id comes from the claimed delivery row)
+    return Ticket.objects.filter(id=delivery.ticket_id).exists()
+
+
 def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
     """Stop outbound sends for a ticket that was just soft-deleted.
 

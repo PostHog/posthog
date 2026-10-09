@@ -1466,6 +1466,19 @@ class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
 
         assert response.results == [("organization_organization",)]
 
+    def test_deleted_ticket_is_excluded(self):
+        live = _create_support_ticket(self.team, "live")
+        deleted = _create_support_ticket(self.team, "deleted")
+        Ticket.all_objects.filter(id=deleted.id).update(deleted_at=timezone.now())
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.support_tickets",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [str(row[0]) for row in response.results] == [str(live.id)]
+
     def test_tags_lazy_join_returns_tag_names_array(self):
         ticket = _create_support_ticket(self.team, "tagged")
         ticket.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.team))

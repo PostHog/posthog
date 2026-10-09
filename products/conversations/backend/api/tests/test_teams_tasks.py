@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -134,11 +135,12 @@ class TestProcessTeamsEvent(BaseTest):
 class TestPostReplyToTeams(BaseTest):
     @parameterized.expand(
         [
-            # (name, team_id_attr, status_code, token_side_effect, expected_post, expected_raises, expected_bearer)
-            ("successful_reply", "team_id", 201, None, True, False, "Bearer bot-tok"),
-            ("failed_reply_retries", "team_id", 500, None, True, True, "Bearer bot-tok"),
-            ("no_bot_token_does_not_retry", "team_id", None, ValueError("not configured"), False, False, None),
-            ("nonexistent_team_returns_early", "missing_team_id", 201, None, False, False, None),
+            # (name, team_id_attr, status_code, token_side_effect, expected_post, expected_raises, expected_bearer, ticket_deleted)
+            ("successful_reply", "team_id", 201, None, True, False, "Bearer bot-tok", False),
+            ("failed_reply_retries", "team_id", 500, None, True, True, "Bearer bot-tok", False),
+            ("no_bot_token_does_not_retry", "team_id", None, ValueError("not configured"), False, False, None, False),
+            ("nonexistent_team_returns_early", "missing_team_id", 201, None, False, False, None, False),
+            ("deleted_ticket_does_not_post", "team_id", 201, None, False, False, None, True),
         ]
     )
     @patch("products.conversations.backend.tasks.teams.get_bot_from_id", return_value="28:app-id")
@@ -153,6 +155,7 @@ class TestPostReplyToTeams(BaseTest):
         expected_post: bool,
         expected_raises: bool,
         expected_bearer: str | None,
+        ticket_deleted: bool,
         mock_post: MagicMock,
         mock_token: MagicMock,
         _mock_from_id: MagicMock,
@@ -168,9 +171,14 @@ class TestPostReplyToTeams(BaseTest):
             resp.text = "err" if status_code >= 400 else ""
             mock_post.return_value = resp
 
+        ticket = Ticket.objects.create_with_number(
+            team=self.team, channel_source="teams", widget_session_id="teams-session", distinct_id="customer"
+        )
+        if ticket_deleted:
+            Ticket.all_objects.filter(id=ticket.id).update(deleted_at=timezone.now())
         team_id = self.team.id if team_id_attr == "team_id" else 999999
         kwargs: dict[str, Any] = {
-            "ticket_id": "ticket-1",
+            "ticket_id": str(ticket.id),
             "team_id": team_id,
             "content": "Reply text",
             "rich_content": None,
