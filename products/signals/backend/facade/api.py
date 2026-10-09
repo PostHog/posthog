@@ -1362,6 +1362,20 @@ def repair_report_actionability_cache(
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
 
 
+def retract_source_signals(*, team: "Team", source_product: str, source_type: str, source_id: str) -> int:
+    """Replace a source record's signal embeddings with an empty deleted row.
+
+    Returns how many documents were re-emitted. Zero when the source never emitted.
+    """
+    from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415
+        retract_source_signals as _retract_source_signals,
+    )
+
+    return _retract_source_signals(
+        team=team, source_product=source_product, source_type=source_type, source_id=source_id
+    )
+
+
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     """Whether to offer the user scout creation on the team's project.
 
