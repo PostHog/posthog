@@ -1,9 +1,10 @@
-from collections import defaultdict
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import connection, models
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 RETENTION_MONTHS_HELP = (
@@ -153,38 +154,32 @@ def _describe_range(low: int | None, high: int | None) -> str:
     return f"at most {high} months"
 
 
-def effective_events_retention_months() -> dict[int, int]:
-    """Each team's effective events retention: its own value, else its organization's default. Teams with neither are absent."""
-    org_defaults = dict(
-        OrganizationEventsRetentionConfig.objects.filter(default_events_retention_months__isnull=False).values_list(
-            "organization_id", "default_events_retention_months"
+@frozen
+class TeamEventsRetention:
+    organization_id: UUID
+    team_id: int
+    months: int
+
+
+def effective_events_retention() -> list[TeamEventsRetention]:
+    """Every team with an effective events retention: its own value, else its organization's default."""
+    team_table = Team._meta.db_table
+    team_config_table = TeamEventsRetentionConfig._meta.db_table
+    org_config_table = OrganizationEventsRetentionConfig._meta.db_table
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT team.organization_id,
+                   team.id,
+                   COALESCE(team_config.events_retention_months, org_config.default_events_retention_months)
+            FROM {team_table} AS team
+            LEFT JOIN {team_config_table} AS team_config ON team_config.team_id = team.id
+            LEFT JOIN {org_config_table} AS org_config ON org_config.organization_id = team.organization_id
+            WHERE COALESCE(team_config.events_retention_months, org_config.default_events_retention_months) IS NOT NULL
+            ORDER BY team.organization_id, team.id
+            """
         )
-    )
-    team_overrides = dict(
-        TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values_list(
-            "team_id", "events_retention_months"
-        )
-    )
-
-    effective: dict[int, int] = {}
-    for team_id, organization_id in Team.objects.filter(
-        models.Q(organization_id__in=org_defaults) | models.Q(id__in=team_overrides)
-    ).values_list("id", "organization_id"):
-        months = team_overrides.get(team_id, org_defaults.get(organization_id))
-        if months is not None:
-            effective[team_id] = months
-    return effective
-
-
-def team_ids_by_events_retention_months() -> dict[int, list[int]]:
-    """Every team with an effective events retention, grouped by months."""
-    grouped: defaultdict[int, list[int]] = defaultdict(list)
-    for team_id, months in effective_events_retention_months().items():
-        grouped[months].append(team_id)
-    return {months: sorted(team_ids) for months, team_ids in sorted(grouped.items())}
-
-
-def team_ids_due_for_events_retention(team_ids: list[int], months: int) -> list[int]:
-    """The teams whose current effective retention still allows deleting events older than ``months``."""
-    effective = effective_events_retention_months()
-    return [team_id for team_id in team_ids if (current := effective.get(team_id)) is not None and current <= months]
+        return [
+            TeamEventsRetention(organization_id=organization_id, team_id=team_id, months=months)
+            for organization_id, team_id, months in cursor.fetchall()
+        ]

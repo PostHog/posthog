@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
     TeamEventsRetentionConfig,
-    team_ids_due_for_events_retention,
+    effective_events_retention,
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -73,17 +73,24 @@ class TestEventsRetentionConfig(BaseTest):
             config.full_clean()
         assert "default_events_retention_months" in error.exception.message_dict
 
-    def test_only_teams_whose_current_retention_allows_the_run_stay_due(self) -> None:
+    def test_effective_retention_prefers_the_team_value_over_the_org_default(self) -> None:
         OrganizationEventsRetentionConfig.objects.create(
             organization=self.organization, default_events_retention_months=13
         )
-        raised = Team.objects.create(organization=self.organization, name="Raised")
-        lowered = Team.objects.create(organization=self.organization, name="Lowered")
-        TeamEventsRetentionConfig.objects.create(team=raised, events_retention_months=24)
-        TeamEventsRetentionConfig.objects.create(team=lowered, events_retention_months=12)
-        other_org = Organization.objects.create(name="No retention")
-        cleared = Team.objects.create(organization=other_org, name="Cleared")
+        overrides = Team.objects.create(organization=self.organization, name="Overrides")
+        TeamEventsRetentionConfig.objects.create(team=overrides, events_retention_months=18)
+        cleared = Team.objects.create(organization=self.organization, name="Cleared")
+        TeamEventsRetentionConfig.objects.create(team=cleared, events_retention_months=None)
+        other_org = Organization.objects.create(name="No default")
+        Team.objects.create(organization=other_org, name="Keeps everything")
+        own_value = Team.objects.create(organization=other_org, name="Own value")
+        TeamEventsRetentionConfig.objects.create(team=own_value, events_retention_months=24)
 
-        due = team_ids_due_for_events_retention([self.team.id, raised.id, lowered.id, cleared.id], 13)
+        retention = {(item.organization_id, item.team_id): item.months for item in effective_events_retention()}
 
-        assert due == [self.team.id, lowered.id]
+        assert retention == {
+            (self.organization.id, self.team.id): 13,
+            (self.organization.id, overrides.id): 18,
+            (self.organization.id, cleared.id): 13,
+            (other_org.id, own_value.id): 24,
+        }
