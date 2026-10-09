@@ -12,7 +12,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.posthog_ai.backend.turn_suggestions.drafter import draft_notebook, draft_scout
+from products.posthog_ai.backend.turn_suggestions.drafter import draft_notebook, draft_scout, draft_workflow
 from products.posthog_ai.backend.turn_suggestions.judgment import TurnJudgment, judge_turn
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript
 from products.posthog_ai.backend.turn_suggestions.verdict import (
@@ -27,6 +27,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
     ScoutMode,
     SubscriptionDraft,
     TurnVerdict,
+    WorkflowDraft,
 )
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +68,8 @@ def build_draft(
     offer: OfferKind, judgment: TurnJudgment, transcript: TurnTranscript, *, team_id: int, today: date
 ) -> Draft | None:
     match offer:
+        case OfferKind.WORKFLOW:
+            return draft_workflow(transcript, team_id=team_id, today=today)
         case OfferKind.SCOUT:
             return draft_scout(
                 transcript, team_id=team_id, today=today, mode=judgment.scout_mode, cadence=judgment.cadence
@@ -93,6 +96,11 @@ def _every(cadence: ScoutCadence) -> str:
 
 def card_copy(draft: Draft) -> CardCopy:
     match draft:
+        case WorkflowDraft():
+            return CardCopy(
+                title="Turn this into a workflow",
+                description="Review the brief in the workflow builder, then ask PostHog AI to create a draft.",
+            )
         case ScoutDraft(mode=ScoutMode.WATCH, cadence=cadence):
             return CardCopy(
                 title="Get a Slack message when this changes",

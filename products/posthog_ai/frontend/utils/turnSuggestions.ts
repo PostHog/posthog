@@ -47,6 +47,7 @@ const TURN_SUGGESTION_KINDS: readonly TurnSuggestion['kind'][] = [
     'alert',
     'subscription',
     'error_alert',
+    'workflow',
 ]
 
 function parseScoutDraft(scout: PosthogTurnSuggestionParams['scout']): ScoutSuggestionDraft | null {
@@ -158,6 +159,10 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
         description,
     }
     switch (kind) {
+        case 'workflow': {
+            const prompt = drafts.workflow?.prompt
+            return nonEmptyString(prompt) && prompt.length <= 4000 ? { ...base, kind, workflow: { prompt } } : null
+        }
         case 'scout': {
             const scout = parseScoutDraft(drafts.scout)
             return scout ? { ...base, kind, scout } : null

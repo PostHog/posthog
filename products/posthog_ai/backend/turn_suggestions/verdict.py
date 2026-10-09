@@ -24,6 +24,7 @@ class OfferKind(StrEnum):
     ALERT = "alert"
     SUBSCRIPTION = "subscription"
     ERROR_ALERT = "error_alert"
+    WORKFLOW = "workflow"
 
 
 class ScoutMode(StrEnum):
@@ -127,7 +128,17 @@ class ErrorAlertDraft:
         return {"issueId": self.issue.issue_id, "issueName": self.issue.name}
 
 
-Draft = ScoutDraft | NotebookDraft | AlertDraft | SubscriptionDraft | ErrorAlertDraft
+@frozen
+class WorkflowDraft:
+    WIRE_KEY: ClassVar[str] = "workflow"
+
+    prompt: str
+
+    def to_params(self) -> dict[str, str]:
+        return {"prompt": self.prompt}
+
+
+Draft = ScoutDraft | NotebookDraft | AlertDraft | SubscriptionDraft | ErrorAlertDraft | WorkflowDraft
 
 
 @frozen

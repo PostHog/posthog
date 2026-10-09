@@ -1,3 +1,4 @@
+import { storeWorkflowDraftBrief } from 'lib/utils/workflowDraftHandoff'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +46,7 @@ export interface AcceptInput {
     changePercent: number
     notebookTitle: string
     conversationBlocks: ConversationBlocks
+    workflowPrompt: string
 }
 
 function slackDestination(input: AcceptInput): SlackDestinationInput {
@@ -67,6 +69,13 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
     const { suggestion, cadence } = input
     const projectId = String(input.projectId)
     switch (suggestion.kind) {
+        case 'workflow': {
+            storeWorkflowDraftBrief(input.projectId, input.workflowPrompt)
+            return {
+                accepted: { url: `${urls.workflowNew()}?mode=ai`, slackConnected: true },
+                eventProperties: {},
+            }
+        }
         case 'scout': {
             const created = await signalsScoutCreate(
                 projectId,

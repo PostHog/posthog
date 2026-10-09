@@ -1,3 +1,4 @@
+import { consumeWorkflowDraftBrief } from 'lib/utils/workflowDraftHandoff'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -34,4 +35,8 @@ export const NEW_WORKFLOW_HANDOFF: AiFirstHandoffLogicProps = {
     eventPrefix: 'workflow ai composer',
     createdEvent: 'workflow ai composer created workflow',
     createdIdProperty: 'workflow_id',
+    getInitialPrompt: () => {
+        const projectId = projectLogic.findMounted()?.values.currentProjectId
+        return projectId === null || projectId === undefined ? null : consumeWorkflowDraftBrief(projectId)
+    },
 }

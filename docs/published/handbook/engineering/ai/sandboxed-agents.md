@@ -38,6 +38,12 @@ The thread hides empty and whitespace-only assistant messages during streaming a
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
+When `posthog-ai-turn-suggestions` is enabled, a completed chat turn can offer a workflow for an event-triggered automation.
+Workflow offers also require the AI-first workflow builder rollout (`workflows-ai-first-new`, enabled or `test`) and `phai-scene-auto-open`.
+The user edits the brief, opens the workflow builder, and sends it there to request a draft.
+The brief travels once through project-scoped session storage, without appearing in the URL, and remains unsent in the composer.
+Accepting the suggestion creates or enables no workflow. Metric reports and aggregate thresholds still use scouts, subscriptions, or alerts.
+
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.

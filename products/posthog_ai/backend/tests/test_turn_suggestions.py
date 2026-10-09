@@ -85,6 +85,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
     SubscriptionDraft,
     TurnIntent,
     TurnVerdict,
+    WorkflowDraft,
 )
 from products.tasks.backend.facade.api import TaskClientProvenance
 from products.tasks.backend.facade.contracts import StreamNotificationDelivery
@@ -239,6 +240,9 @@ _DRAFTS: dict[OfferKind, Draft] = {
     OfferKind.ALERT: AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.DECREASE, change_percent=20),
     OfferKind.SUBSCRIPTION: SubscriptionDraft(insight=SAVED_INSIGHT, cadence=ScoutCadence.WEEKLY),
     OfferKind.ERROR_ALERT: ErrorAlertDraft(issue=ERROR_ISSUE),
+    OfferKind.WORKFLOW: WorkflowDraft(
+        prompt="Draft a workflow triggered by signed_up that sends an onboarding reminder after one day."
+    ),
 }
 
 
@@ -833,6 +837,25 @@ class TestBenchmark(SimpleTestCase):
 
 
 class TestClassifyTurn(SimpleTestCase):
+    def test_workflow_offer_carries_a_standalone_brief(self) -> None:
+        offer = OfferKind("workflow")
+        brief = "When signed_up fires, wait one day and send a reminder if onboarding_complete is false."
+        with (
+            patch(f"{CLASSIFIER}.judge_turn", return_value=_judgment(offer=offer)),
+            patch(
+                "products.posthog_ai.backend.turn_suggestions.drafter.build_openai_client",
+                return_value=_gateway_reply({"prompt": brief}),
+            ),
+        ):
+            verdict = classify_turn(
+                build_turn_transcript(_metric_turn()), team_id=1, today=date(2026, 9, 16), available=ALL_OFFERS
+            )
+
+        assert verdict is not None and verdict.draft is not None
+        assert verdict.picked == offer
+        assert verdict.draft.to_params() == {"prompt": brief}
+        assert card_copy(verdict.draft).title == "Turn this into a workflow"
+
     def _classify(self, judgment: TurnJudgment | None, scout_draft: ScoutDraft | None = None):
         with (
             patch(f"{CLASSIFIER}.judge_turn", return_value=judgment),
@@ -1085,6 +1108,7 @@ class TestGenerateTurnSuggestion(BaseTest):
             "classify": patch(f"{SERVICE}.classify_turn", return_value=_verdict()),
             "scouts": patch(f"{SERVICE}.scout_creation_available", return_value=True),
             "flag": patch(f"{SERVICE}.feature_enabled_or_false", return_value=True),
+            "workflow_flag": patch(f"{SERVICE}.get_feature_flag_or_none", return_value=False),
             "judge": patch(f"{SERVICE}.judge_configured", return_value=True),
             "capture": patch(f"{SERVICE}.ph_scoped_capture"),
         }
@@ -1123,8 +1147,27 @@ class TestGenerateTurnSuggestion(BaseTest):
         }
         assert self._available() == frozenset({OfferKind.NOTEBOOK, OfferKind.SCOUT})
 
+    @parameterized.expand([(True, True, True), ("test", True, True), ("control", True, False), (True, False, False)])
+    def test_workflow_offer_requires_the_builder_rollouts(
+        self, variant: bool | str, scene_enabled: bool, expected: bool
+    ) -> None:
+        self.mocks["workflow_flag"].return_value = variant
+        self.mocks["flag"].side_effect = lambda key, *args, **kwargs: (
+            scene_enabled if key == "phai-scene-auto-open" else True
+        )
+
+        self._generate()
+
+        assert (OfferKind.WORKFLOW in self._available()) is expected
+
     @parameterized.expand(
         [
+            (
+                "workflow",
+                OfferKind.WORKFLOW,
+                "workflow",
+                {"prompt": "Draft a workflow triggered by signed_up that sends an onboarding reminder after one day."},
+            ),
             (
                 "incident_notebook",
                 OfferKind.NOTEBOOK,
