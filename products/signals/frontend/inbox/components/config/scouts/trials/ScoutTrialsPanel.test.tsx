@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { promiseResolveReject } from 'lib/utils/async'
 import { downloadFile } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
@@ -18,7 +19,10 @@ import {
     signalsScoutConfigTrialSetup,
     signalsScoutRubricsRetrieve,
 } from 'products/signals/frontend/generated/api'
-import type { ScoutRubricDocumentApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ScoutRubricDocumentApi,
+    ScoutTrialComparisonHistoryApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import { tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 
 import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
@@ -79,8 +83,40 @@ describe('ScoutTrialsPanel', () => {
         jest.mocked(signalsScoutConfigList).mockResolvedValue([trialFixtureConfig])
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue(trialFixtureSetup)
         jest.mocked(signalsScoutConfigTrialHistory).mockResolvedValue({ results: [], has_more: false })
-        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({ results: [], has_more: false })
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [],
+            next_cursor: null,
+            has_more: false,
+        })
         jest.mocked(signalsScoutRubricsRetrieve).mockResolvedValue(savedRubric)
+    })
+
+    it('navigates between trial history pages and disables navigation while loading', async () => {
+        const recent = { ...trialFixtureServerComparison, comparison_id: 'new-trial', variants: [] }
+        const older = { ...trialFixtureServerComparison, comparison_id: 'old-trial', variants: [] }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [recent],
+            has_more: true,
+            next_cursor: 'older-trials',
+        })
+        render(<ScoutTrialsPanel teamId={2} userId={42} configId={trialFixtureConfig.id} />)
+        expect(await screen.findByRole('button', { name: 'Trial new-tria' })).toBeTruthy()
+        const page = promiseResolveReject<ScoutTrialComparisonHistoryApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockReturnValueOnce(page.promise)
+        await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
+        expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('aria-disabled')).toBe('true')
+        expect(screen.getByRole('button', { name: 'Previous page' }).getAttribute('aria-disabled')).toBe('true')
+        expect(screen.getByRole('button', { name: 'Trial new-tria' })).toBeTruthy()
+        await act(async () => page.resolve({ results: [older], has_more: false, next_cursor: null }))
+        expect(await screen.findByRole('button', { name: 'Trial old-tria' })).toBeTruthy()
+        expect(screen.queryByRole('button', { name: 'Trial new-tria' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('aria-disabled')).toBe('true')
+        await userEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+        expect(await screen.findByRole('button', { name: 'Trial new-tria' })).toBeTruthy()
+        expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenLastCalledWith('2', trialFixtureConfig.id, {
+            limit: 30,
+            include_archived: false,
+        })
     })
 
     test.each([true, false])(
@@ -138,6 +174,7 @@ describe('ScoutTrialsPanel', () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
             jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
                 results: [trialFixtureServerComparison],
+                next_cursor: null,
                 has_more: false,
             })
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
@@ -161,6 +198,7 @@ describe('ScoutTrialsPanel', () => {
     it('lists runs and reloads unconfirmed results from refresh in a new judging attempt', async () => {
         jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
             results: [trialFixtureServerComparison],
+            next_cursor: null,
             has_more: false,
         })
         jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
@@ -193,6 +231,7 @@ describe('ScoutTrialsPanel', () => {
         }
         jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
             results: [comparison],
+            next_cursor: null,
             has_more: false,
         })
         jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(comparison)

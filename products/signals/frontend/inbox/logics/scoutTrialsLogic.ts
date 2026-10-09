@@ -122,6 +122,7 @@ export interface scoutTrialsLogicValues {
     cancelErrors: Record<string, string>
     canceling: string[]
     comparisonHistory: ScoutTrialComparisonHistoryApi | null
+    comparisonHistoryCursors: string[]
     comparisonHistoryLoading: boolean
     comparisonRows: ScoutTrialRow[]
     comparisonState: ScoutTrialComparisonState
@@ -193,7 +194,14 @@ export interface scoutTrialsLogicActions {
     loadComparison: (comparisonId: string) => {
         comparisonId: string
     }
-    loadComparisonHistory: (configId: string) => string
+    loadComparisonHistory: (
+        configId: string,
+        cursors?: string[]
+    ) => {
+        configId: string
+        cursors: string[]
+        includeArchived: boolean
+    }
     loadComparisonHistoryFailure: (
         error: string,
         errorObject?: any
@@ -203,10 +211,10 @@ export interface scoutTrialsLogicActions {
     }
     loadComparisonHistorySuccess: (
         comparisonHistory: ScoutTrialComparisonHistoryApi | null,
-        payload?: string
+        payload?: { configId: string; cursors: string[]; includeArchived: boolean }
     ) => {
         comparisonHistory: ScoutTrialComparisonHistoryApi | null
-        payload?: string
+        payload?: { configId: string; cursors: string[]; includeArchived: boolean }
     }
     loadConfigs: () => any
     loadConfigsFailure: (
@@ -265,6 +273,8 @@ export interface scoutTrialsLogicActions {
     newScoringAttempt: () => {
         value: true
     }
+    nextComparisonHistoryPage: () => { value: true }
+    previousComparisonHistoryPage: () => { value: true }
     reconcileComparisons: (
         configId: string,
         comparisonIds: string[]
@@ -273,6 +283,7 @@ export interface scoutTrialsLogicActions {
         comparisonIds: string[]
         configId: string
         managedIds: string[]
+        selectedId: string | undefined
     }
     refreshResults: (force?: boolean) => {
         force: boolean
@@ -484,6 +495,13 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         setArchiving: (comparisonId: string, archiving: boolean) => ({ comparisonId, archiving }),
         setArchiveError: (comparisonId: string, error: string | null) => ({ comparisonId, error }),
         setShowArchived: (showArchived: boolean) => ({ showArchived }),
+        loadComparisonHistory: (configId: string, cursors: string[] = values.comparisonHistoryCursors) => ({
+            configId,
+            cursors,
+            includeArchived: values.showArchived,
+        }),
+        nextComparisonHistoryPage: true,
+        previousComparisonHistoryPage: true,
         reconcileComparisons: (configId: string, comparisonIds: string[]) => ({
             configId,
             comparisonIds,
@@ -495,6 +513,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                     ? values.batch.comparison.id
                     : undefined,
             managedIds: values.serverComparisonIds,
+            selectedId: values.trialView === 'detail' ? values.selectedComparison?.id : undefined,
         }),
         resumeComparison: true,
         registerComparison: (comparison: ScoutTrialComparison) => ({ comparison }),
@@ -588,12 +607,13 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         comparisonHistory: [
             null as ScoutTrialComparisonHistoryApi | null,
             {
-                loadComparisonHistory: async (configId: string, breakpoint) => {
+                loadComparisonHistory: async ({ configId, cursors, includeArchived }, breakpoint) => {
                     let history: ScoutTrialComparisonHistoryApi
                     try {
                         history = await signalsScoutConfigTrialComparisonHistory(String(props.teamId), configId, {
                             limit: 30,
-                            include_archived: values.showArchived,
+                            include_archived: includeArchived,
+                            ...(cursors.length ? { cursor: cursors[cursors.length - 1] } : {}),
                         })
                     } finally {
                         breakpoint()
@@ -605,6 +625,14 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
     })),
     reducers({
         showArchived: [false, { setShowArchived: (_, { showArchived }) => showArchived }],
+        comparisonHistoryCursors: [
+            [] as string[],
+            {
+                selectConfig: () => [],
+                setShowArchived: () => [],
+                loadComparisonHistorySuccess: (state, { payload }) => payload?.cursors ?? state,
+            },
+        ],
         archiving: [
             [] as string[],
             {
@@ -661,13 +689,14 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             {
                 registerComparison: (state, { comparison }) =>
                     [...state.filter((item) => item.id !== comparison.id), comparison].slice(-100),
-                reconcileComparisons: (state, { configId, comparisonIds, batchId, managedIds }) =>
+                reconcileComparisons: (state, { configId, comparisonIds, batchId, managedIds, selectedId }) =>
                     state.filter(
                         (comparison) =>
                             comparison.configId !== configId ||
                             comparisonIds.includes(comparison.id) ||
                             !managedIds.includes(comparison.id) ||
-                            comparison.id === batchId
+                            comparison.id === batchId ||
+                            comparison.id === selectedId
                     ),
             },
         ],
@@ -1030,6 +1059,17 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         setShowArchived: () => {
             if (values.selectedConfigId) {
                 actions.loadComparisonHistory(values.selectedConfigId)
+            }
+        },
+        nextComparisonHistoryPage: () => {
+            const cursor = values.comparisonHistory?.next_cursor
+            if (values.selectedConfigId && cursor && !values.comparisonHistoryLoading) {
+                actions.loadComparisonHistory(values.selectedConfigId, [...values.comparisonHistoryCursors, cursor])
+            }
+        },
+        previousComparisonHistoryPage: () => {
+            if (values.selectedConfigId && values.comparisonHistoryCursors.length && !values.comparisonHistoryLoading) {
+                actions.loadComparisonHistory(values.selectedConfigId, values.comparisonHistoryCursors.slice(0, -1))
             }
         },
         archiveComparison: async ({ comparisonId, archived }) => {

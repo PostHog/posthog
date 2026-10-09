@@ -35,6 +35,8 @@ type ViewAction =
     | 'loadComparison'
     | 'resumeComparison'
     | 'loadComparisonHistory'
+    | 'nextComparisonHistoryPage'
+    | 'previousComparisonHistoryPage'
     | 'setShowArchived'
     | 'archiveComparison'
     | 'retryResult'

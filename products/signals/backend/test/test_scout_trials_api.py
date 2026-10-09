@@ -1236,7 +1236,10 @@ class TestScoutTrialLaunch(APIBaseTest):
             dispatch.assert_not_called()
         assert not self.documents
 
-    def test_finished_trials_can_be_archived_and_restored_without_changing_their_runs(self) -> None:
+    @parameterized.expand([True, False])
+    def test_finished_trials_can_be_archived_and_restored_without_changing_their_runs(
+        self, trials_enabled: bool
+    ) -> None:
         base = self._internal_scout_base()
         self.config.rubrics = {
             "revision": 1,
@@ -1291,6 +1294,22 @@ class TestScoutTrialLaunch(APIBaseTest):
                     created = self.client.post(f"{base}trial_comparison/", payload, format="json")
                 assert created.status_code == 202, created.data
                 comparison_ids.append(comparison_id)
+            history_url = f"{base}trial_comparison_history/"
+            first_page = self.client.get(history_url, {"limit": 1})
+            assert first_page.status_code == 200, first_page.data
+            assert [row["comparison_id"] for row in first_page.json()["results"]] == comparison_ids[-1:]
+            assert first_page.json()["has_more"] is True
+            cursor = first_page.json()["next_cursor"]
+            assert cursor is not None
+            for index, comparison_id in enumerate(reversed(comparison_ids[:-1])):
+                page = self.client.get(history_url, {"limit": "1", "cursor": cursor})
+                assert page.status_code == 200, page.data
+                assert [row["comparison_id"] for row in page.json()["results"]] == [comparison_id]
+                assert page.json()["has_more"] is (index == 0)
+                cursor = page.json()["next_cursor"]
+            assert cursor is None
+            assert self.client.get(history_url, {"cursor": "../another-history/"}).status_code == 400
+            self.trials_flag.return_value = trials_enabled
             archive_url = f"{base}trial_comparison_archive/"
             archive_request = {"comparison_id": comparison_ids[-1], "archived": True}
             before_archive = dict(self.documents)
@@ -1319,27 +1338,37 @@ class TestScoutTrialLaunch(APIBaseTest):
                 assert response.json()["status"] == "failed"
             save_comparison_progress(self.team.id, UUID(comparison_ids[-1]), TrialComparisonProgress(status="failed"))
 
-            history_url = f"{base}trial_comparison_history/"
             history = self.client.get(history_url, {"limit": 1})
             assert history.status_code == 200, history.data
             assert [row["comparison_id"] for row in history.json()["results"]] == comparison_ids[:1]
             assert history.json()["has_more"] is False
+            assert history.json()["next_cursor"] is None
             assert any("StartAfter" in call.kwargs for call in storage_client.list_objects_v2.call_args_list)
             included = self.client.get(history_url, {"limit": "1", "include_archived": "true"})
             assert included.status_code == 200, included.data
             assert included.json()["results"][0]["comparison_id"] == comparison_ids[-1]
             assert included.json()["results"][0]["archived"] is True
             assert included.json()["has_more"] is True
+            older = self.client.get(
+                history_url,
+                {"limit": "1", "include_archived": "true", "cursor": included.json()["next_cursor"]},
+            )
+            assert older.status_code == 200, older.data
+            assert older.json()["results"][0]["comparison_id"] == comparison_ids[1]
+            assert older.json()["results"][0]["archived"] is True
+            unarchived = self.client.get(history_url, {"cursor": included.json()["next_cursor"]})
+            assert unarchived.status_code == 200, unarchived.data
+            assert [row["comparison_id"] for row in unarchived.json()["results"]] == comparison_ids[:1]
+            assert unarchived.json()["next_cursor"] is None
             saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_ids[-1]})
             assert saved.status_code == 200, saved.data
             assert saved.json()["archived"] is True
-            assert (
-                self.client.post(
-                    f"{base}trial_comparison_resume/", {"comparison_id": comparison_ids[-1]}, format="json"
-                ).status_code
-                == 400
+            assert self.client.post(
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_ids[-1]}, format="json"
+            ).status_code == (400 if trials_enabled else 403)
+            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == (
+                400 if trials_enabled else 403
             )
-            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 400
             restored = self.client.post(archive_url, {**archive_request, "archived": False}, format="json")
             assert restored.status_code == 200, restored.data
             assert restored.json()["archived"] is False

@@ -97471,6 +97471,11 @@ export namespace Schemas {
       results: ScoutTrialComparison[];
       /** Whether more comparisons exist than the requested limit. */
       has_more: boolean;
+      /**
+         * Cursor for the next page, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface ScoutTrialComparisonQuery {
@@ -125598,6 +125603,12 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string;
     /**
      * Include archived trials in the history.
      */

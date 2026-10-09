@@ -63,6 +63,20 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                 dataSource={props.comparisonsForConfig}
                 rowKey="id"
                 loading={props.comparisonHistoryLoading && !props.comparisonsForConfig.length}
+                nouns={['trial', 'trials']}
+                pagination={{
+                    controlled: true,
+                    useUrl: false,
+                    hideOnSinglePage: !props.comparisonHistoryCursors.length && !props.comparisonHistory?.next_cursor,
+                    onForward:
+                        props.comparisonHistory?.next_cursor && !props.comparisonHistoryLoading
+                            ? props.nextComparisonHistoryPage
+                            : undefined,
+                    onBackward:
+                        props.comparisonHistoryCursors.length && !props.comparisonHistoryLoading
+                            ? props.previousComparisonHistoryPage
+                            : undefined,
+                }}
                 emptyState={
                     props.showArchived
                         ? 'No trials yet. Create a trial to compare prompts, models, or effort.'
@@ -172,12 +186,6 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                     },
                 ]}
             />
-            {props.comparisonHistory?.has_more && (
-                <p className="m-0 text-xs text-secondary">
-                    Showing your 30 most recent{' '}
-                    {props.showArchived ? 'trials, including archived trials' : 'unarchived trials'}.
-                </p>
-            )}
             <p className="m-0 text-xs text-secondary">
                 Trials and their results are private to you. Your live scout stays unchanged.
             </p>

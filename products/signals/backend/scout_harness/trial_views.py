@@ -64,14 +64,18 @@ TRIAL_DATA_UNAVAILABLE_REASON = "Saved run data is unavailable. This run cannot 
 class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     team: Team
 
-    def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
+    def _internal_trial_access(self, request: Request, identifier: str) -> SignalScoutConfig:
         if self.team.id != 2 or not request.user.is_staff:
             raise exceptions.NotFound()
+        return self._trial_config(request, identifier)
+
+    def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
+        config = self._internal_trial_access(request, identifier)
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not scout_trials_enabled(self.team):
             raise exceptions.PermissionDenied(
                 "Scout trials are disabled for this project. Saved results remain available."
             )
-        return self._trial_config(request, identifier)
+        return config
 
     def _trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         if (

@@ -31,7 +31,8 @@ const defaults: ScoutTrialsViewProps = {
     trialsDisabledReason: null,
     comparisonStates: {},
     comparisonState: { value: null, loading: false, resuming: false, error: null, notStarted: false },
-    comparisonHistory: { results: [], has_more: false },
+    comparisonHistory: { results: [], has_more: false, next_cursor: null },
+    comparisonHistoryCursors: [],
     comparisonHistoryLoading: false,
     comparisonRows: [],
     managedComparison: false,
@@ -43,6 +44,8 @@ const defaults: ScoutTrialsViewProps = {
     loadComparison: noop,
     resumeComparison: noop,
     loadComparisonHistory: noop,
+    nextComparisonHistoryPage: noop,
+    previousComparisonHistoryPage: noop,
     comparisons: [],
     comparisonsForConfig: [],
     selectedComparisonIds: {},
@@ -341,7 +344,13 @@ export const MissingSavedRubric: Story = {
     },
 }
 
-export const History: Story = { args: { ...Scored.args, trialView: 'list' } }
+export const History: Story = {
+    args: {
+        ...Scored.args,
+        trialView: 'list',
+        comparisonHistory: { results: [trialFixtureServerComparison], has_more: true, next_cursor: 'older-trials' },
+    },
+}
 export const HistoryNarrow: Story = { ...History, decorators: Narrow.decorators }
 
 export const Archived: Story = {

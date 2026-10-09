@@ -93,6 +93,7 @@ class TrialComparisonResult(EvaluationDocument):
 class TrialComparisonHistory(EvaluationDocument):
     results: list[TrialComparisonResult]
     has_more: bool
+    next_cursor: str | None = None
 
 
 class TrialComparisonProgress(EvaluationDocument):

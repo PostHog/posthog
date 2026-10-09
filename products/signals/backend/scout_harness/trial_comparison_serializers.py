@@ -55,6 +55,11 @@ class ScoutTrialComparisonArchiveRequestSerializer(ScoutTrialComparisonQuerySeri
 
 class ScoutTrialComparisonHistoryQuerySerializer(ScoutTrialHistoryQuerySerializer):
     include_archived = serializers.BooleanField(default=False, help_text="Include archived trials in the history.")
+    cursor = serializers.RegexField(
+        r"\A[0-9]{19}-[0-9a-f-]{36}\.json\Z",
+        required=False,
+        help_text="Cursor returned by the previous history page. Omit to read the newest trials.",
+    )
 
 
 class ScoutTrialComparisonVariantSerializer(serializers.Serializer):
@@ -88,3 +93,6 @@ class ScoutTrialComparisonSerializer(serializers.Serializer):
 class ScoutTrialComparisonHistorySerializer(serializers.Serializer):
     results = ScoutTrialComparisonSerializer(many=True, help_text="This operator's most recent saved comparisons.")
     has_more = serializers.BooleanField(help_text="Whether more comparisons exist than the requested limit.")
+    next_cursor = serializers.CharField(
+        allow_null=True, help_text="Cursor for the next page, or null on the last page."
+    )

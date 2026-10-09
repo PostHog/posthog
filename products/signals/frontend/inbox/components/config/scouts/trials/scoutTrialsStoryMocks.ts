@@ -130,6 +130,7 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                         )
                         .map((comparison) => ({ ...comparison, evaluation: null })),
                     has_more: false,
+                    next_cursor: null,
                 },
             ],
             '/api/projects/:team/signals/scout/configs/:config/trial_comparison_result/': ({ request }) => {

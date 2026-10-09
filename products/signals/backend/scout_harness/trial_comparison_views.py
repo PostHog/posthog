@@ -26,6 +26,9 @@ from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunch
 
 
 class ScoutTrialComparisonMixin:
+    def _internal_trial_access(self, request: Request, identifier: str) -> SignalScoutConfig:
+        raise NotImplementedError
+
     def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         raise NotImplementedError
 
@@ -155,7 +158,7 @@ class ScoutTrialComparisonMixin:
             ScoutTrialComparisons,
         )
 
-        config = self._internal_trial_config(request, kwargs.get("id", ""))
+        config = self._internal_trial_access(request, kwargs.get("id", ""))
         service = ScoutTrialComparisons(config, cast(User, request.user))
         try:
             plan = service.read(request.validated_data["comparison_id"])
@@ -190,5 +193,6 @@ class ScoutTrialComparisonMixin:
         history = ScoutTrialComparisons(config, cast(User, request.user)).history(
             request.validated_query_data["limit"],
             include_archived=request.validated_query_data["include_archived"],
+            cursor=request.validated_query_data.get("cursor"),
         )
         return Response(ScoutTrialComparisonHistorySerializer(history.model_dump(mode="json")).data)

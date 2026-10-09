@@ -382,12 +382,16 @@ class ScoutTrialComparisons:
         return result.model_copy(update={"archived": archived})
 
     @private_capture_context()
-    def history(self, limit: int, *, include_archived: bool = False) -> TrialComparisonHistory:
+    def history(
+        self, limit: int, *, include_archived: bool = False, cursor: str | None = None
+    ) -> TrialComparisonHistory:
         ScoutTrialInspection(self.config, self.user)._check_skill_access()
         results: list[TrialComparisonResult] = []
-        start_after: str | None = None
+        prefix = self._history_prefix()
+        start_after = f"{prefix}{cursor}" if cursor is not None else None
+        next_cursor: str | None = None
         while len(results) <= limit:
-            keys = sorted(list_comparison_history_keys(self._history_prefix(), limit, start_after=start_after))
+            keys = sorted(list_comparison_history_keys(prefix, limit, start_after=start_after))
             for key in keys:
                 try:
                     entry = _read_document(key, TrialComparisonHistoryEntry)
@@ -416,12 +420,16 @@ class ScoutTrialComparisons:
                     )
                     if len(results) > limit:
                         break
+                    next_cursor = key.removeprefix(prefix)
                 except (ValueError, TrialEvaluationError):
                     continue
             if len(keys) <= limit:
                 break
             start_after = keys[-1]
-        return TrialComparisonHistory(results=results[:limit], has_more=len(results) > limit)
+        has_more = len(results) > limit
+        return TrialComparisonHistory(
+            results=results[:limit], has_more=has_more, next_cursor=next_cursor if has_more else None
+        )
 
 
 type LiteralComparisonStatus = Literal[
