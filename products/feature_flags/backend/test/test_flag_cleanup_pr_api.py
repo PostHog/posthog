@@ -13,13 +13,17 @@ from parameterized import parameterized
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.tasks.integrations import refresh_github_repository_cache
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.flag_cleanup import (
     FlagCleanupKeep,
@@ -483,6 +487,39 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert not TeamExperimentsConfig.objects.filter(team=self.team).exists()
+
+    def test_cleanup_does_not_expose_a_protected_flag_through_tasks(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        teammate = User.objects.create_and_join(self.organization, "restricted-cleanup@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=teammate)
+        flag = self._flag(filters=MULTIVARIATE_FILTERS)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="feature_flag",
+            resource_id=str(flag.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        assert not UserAccessControl(teammate, self.team).check_access_level_for_object(flag, "viewer")
+        prompt = build_flag_cleanup_prompt(flag.key, ["control", "test"], FlagCleanupKeep.VARIANT, "test")
+
+        created = tasks_facade.create_and_run_task(
+            team=self.team,
+            user_id=self.user.id,
+            title=prompt.title,
+            description=prompt.description,
+            origin_product=Task.OriginProduct.FEATURE_FLAGS,
+            origin_key=f"feature-flag-cleanup:{flag.id}",
+            start_workflow=False,
+        )
+
+        assert tasks_facade.get_task_detail(created.task_id, self.team.id, self.user.id) is not None
+        assert tasks_facade.get_task_detail(created.task_id, self.team.id, teammate.id) is None
+        assert not tasks_facade.task_accessible_for_run_view(created.task_id, self.team.id, teammate.id)
 
     @patch("posthog.tasks.integrations.refresh_github_repository_cache.delay")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_repositories")

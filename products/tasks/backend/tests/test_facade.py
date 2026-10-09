@@ -539,9 +539,12 @@ class TestFacadeReadsAndMappers(TestCase):
         assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
 
     @parameterized.expand(
-        [("experiments", Task.OriginProduct.EXPERIMENTS), ("feature_flags", Task.OriginProduct.FEATURE_FLAGS)]
+        [
+            ("experiments", Task.OriginProduct.EXPERIMENTS, True),
+            ("feature_flags", Task.OriginProduct.FEATURE_FLAGS, False),
+        ]
     )
-    def test_task_control_runtime_and_origin_uses_control_predicate(self, _name, origin_product):
+    def test_task_control_runtime_and_origin_uses_control_predicate(self, _name, origin_product, team_readable):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
         self.assertEqual(
             facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
@@ -550,16 +553,18 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         )
 
-        # A product cleanup task is readable across the team but only its creator may drive it, so the
-        # warm gate must use the control predicate, not the read predicate.
+        # Experiment tasks are team-readable. Flag cleanup tasks carry potentially protected flag
+        # configuration and stay private by default; both remain controllable only by their creator.
         other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
         experiments_task = self._make_task(origin_product=origin_product)
-        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        self.assertEqual(
+            facade.get_task_detail(experiments_task.id, self.team.id, other_user.id) is not None, team_readable
+        )
         self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
 
         self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
 
-    def test_flag_cleanup_creation_uses_a_team_readable_task(self):
+    def test_flag_cleanup_creation_is_private_by_default(self):
         created = facade.create_and_run_task(
             team=self.team,
             user_id=self.user.id,
@@ -571,8 +576,10 @@ class TestFacadeReadsAndMappers(TestCase):
         task = Task.objects.get(id=created.task_id)
         other_user = User.objects.create(email="cleanup-viewer@example.com")
 
-        self.assertIsNone(task.channel_id)
-        self.assertIsNotNone(facade.get_task_detail(task.id, self.team.id, other_user.id))
+        self.assertIsNotNone(task.channel_id)
+        self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertIsNotNone(facade.get_task_detail(task.id, self.team.id, self.user.id))
+        self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
