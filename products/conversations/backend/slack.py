@@ -49,6 +49,7 @@ from .cache import (
 )
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .models.ticket import deleted_ticket_holds_thread
 from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
     MAX_ATTACHMENTS_PER_MESSAGE,
@@ -515,11 +516,21 @@ def create_or_update_slack_ticket(
         ).first()
 
         if not ticket:
-            logger.debug(
-                "slack_support_thread_reply_no_ticket",
-                slack_channel_id=slack_channel_id,
-                thread_ts=thread_ts,
-            )
+            if deleted_ticket_holds_thread(
+                team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts
+            ):
+                logger.info(
+                    "slack_inbound_deleted_ticket",
+                    team_id=team_id,
+                    slack_channel_id=slack_channel_id,
+                    thread_ts=thread_ts,
+                )
+            else:
+                logger.debug(
+                    "slack_support_thread_reply_no_ticket",
+                    slack_channel_id=slack_channel_id,
+                    thread_ts=thread_ts,
+                )
             return None
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
@@ -600,6 +611,14 @@ def create_or_update_slack_ticket(
         # Re-check after acquiring — the winner may have committed between our earlier
         # .exists() call and now.
         if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts).exists():
+            return None
+        if deleted_ticket_holds_thread(team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts):
+            logger.info(
+                "slack_inbound_deleted_ticket",
+                team_id=team_id,
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+            )
             return None
 
         ticket = Ticket.objects.create_with_number(

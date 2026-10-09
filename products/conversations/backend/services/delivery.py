@@ -1045,3 +1045,30 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
         part.refresh_from_db()
         transaction.on_commit(lambda: _safe_wake(wake, part))
     return part
+
+
+def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: object) -> None:
+    """Stop outbound sends for a ticket that was just soft-deleted.
+
+    QuerySet.update skips the model save hook, so terminal_at is set here.
+    A failed row is what the worker treats as done.
+    """
+    now = timezone.now()
+    open_statuses = [ConversationDelivery.Status.PENDING, ConversationDelivery.Status.PROCESSING]
+    delivery_ids = list(
+        ConversationDelivery.objects.for_team(team_id)
+        .filter(ticket_id=ticket_id, status__in=open_statuses)
+        .values_list("id", flat=True)
+    )
+    if not delivery_ids:
+        return
+    failed = {
+        "status": ConversationDelivery.Status.FAILED,
+        "terminal_at": now,
+        "last_error_code": "ticket_deleted",
+        "updated_at": now,
+    }
+    ConversationDeliveryPart.objects.for_team(team_id).filter(
+        delivery_id__in=delivery_ids, status__in=open_statuses
+    ).update(**failed)
+    ConversationDelivery.objects.for_team(team_id).filter(id__in=delivery_ids).update(**failed)

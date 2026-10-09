@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
 
@@ -6,6 +7,10 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
+
+# Soft-deleted tickets stay this long so a mistaken delete can still be recovered
+# operationally, and so the hard purge finishes inside a one-month erasure window.
+TICKET_HARD_DELETE_AFTER = timedelta(days=14)
 
 # Two-arg lock namespace for ticket_number allocation. Keep this value stable:
 # every allocator (create_with_number and bulk import) must use the same pair.
@@ -16,6 +21,12 @@ if TYPE_CHECKING:
 
 
 class TicketManager(models.Manager):
+    """Every ticket, including soft-deleted rows.
+
+    ``objects`` hides those rows. This manager stays unfiltered so number allocation
+    and inbound thread-key checks can still see them.
+    """
+
     def lock_ticket_number_allocation(self, team_id: int) -> None:
         """Serialize ticket_number assignment for this team.
 
@@ -38,15 +49,40 @@ class TicketManager(models.Manager):
         if not team:
             raise ValueError("team is required")
 
-        with transaction.atomic(using=self.db):
-            self.lock_ticket_number_allocation(team.id)
-            max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
+        # Number allocation must see soft-deleted rows. The live manager hides them,
+        # and reusing a deleted ticket's number collides with unique_ticket_number_per_team.
+        allocation = Ticket.all_objects
+        with transaction.atomic(using=allocation.db):
+            allocation.lock_ticket_number_allocation(team.id)
+            max_num = allocation.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
-            return self.create(**kwargs)
+            return allocation.create(**kwargs)
+
+
+class LiveTicketManager(TicketManager):
+    """Tickets a person can still open. Soft-deleted rows stay on ``all_objects``."""
+
+    def get_queryset(self) -> models.QuerySet:
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
+def deleted_ticket_holds_thread(*, team_id: int, **lookup: Any) -> bool:
+    """Whether a soft-deleted ticket still owns this inbound thread key.
+
+    Callers that create a ticket when no live row matches must check this first.
+    The unique keys stay on the deleted row until the sweeper, so a new ticket
+    would either violate that constraint or open a second copy of a deleted thread.
+    """
+    if not lookup:
+        return False
+    return Ticket.all_objects.filter(team_id=team_id, deleted_at__isnull=False, **lookup).exists()
 
 
 class Ticket(Taggable, UUIDTModel):
-    objects = TicketManager()
+    # Live rows are the default so a forgotten query cannot return a deleted ticket.
+    # ``all_objects`` is the unfiltered manager historical migrations already import.
+    objects = LiveTicketManager()
+    all_objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
@@ -133,6 +169,17 @@ class Ticket(Taggable, UUIDTModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Set together when a manager deletes the ticket. The sweeper hard-deletes
+    # once deleted_at is older than TICKET_HARD_DELETE_AFTER.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        related_name="+",
+    )
 
     class Meta:
         db_table = "posthog_conversations_ticket"
@@ -209,6 +256,12 @@ class Ticket(Taggable, UUIDTModel):
                 models.F("created_at").desc(),
                 name="posthog_con_compose_dedupe_idx",
                 condition=models.Q(channel_source="email"),
+            ),
+            # Sweeper scans only soft-deleted rows, which are rare compared to the table.
+            models.Index(
+                fields=["deleted_at"],
+                name="posthog_con_ticket_deleted_idx",
+                condition=models.Q(deleted_at__isnull=False),
             ),
         ]
         constraints = [

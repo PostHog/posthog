@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models import Q
 
@@ -39,6 +41,14 @@ def _followup_already_posted(*, team_id: int, ticket_id: str) -> bool:
     ).exists()
 
 
+def _ticket_was_deleted(*, team_id: int, ticket_id: str) -> bool:
+    try:
+        UUID(str(ticket_id))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return Ticket.all_objects.filter(team_id=team_id, id=ticket_id, deleted_at__isnull=False).exists()
+
+
 def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
     input = coerce_dataclass(PersistReplyInput, input)
     persist_as = input.persist_as
@@ -69,6 +79,9 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
         if persist_as != "findings" and input.allow_bot_reply:
             if ticket and channel_allows_bot_reply(ticket=ticket, ticket_type=input.ticket_type):
                 is_private = False
+
+        if ticket is None and _ticket_was_deleted(team_id=input.team_id, ticket_id=input.ticket_id):
+            return PersistReplyOutput(posted=False)
 
         content = input.reply
         item_context: dict[str, object] = {

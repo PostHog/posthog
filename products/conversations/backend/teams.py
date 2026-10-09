@@ -27,6 +27,7 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .models.ticket import deleted_ticket_holds_thread
 from .services.attachments import build_content_with_images
 from .support_teams import (
     get_bot_framework_token,
@@ -591,11 +592,21 @@ def create_or_update_teams_ticket(
         ).first()
 
         if not ticket:
-            logger.debug(
-                "teams_thread_reply_no_ticket",
-                channel_id=channel_id,
-                conversation_id=conversation_id,
-            )
+            if deleted_ticket_holds_thread(
+                team_id=team.id, teams_channel_id=channel_id, teams_conversation_id=conversation_id
+            ):
+                logger.info(
+                    "teams_inbound_deleted_ticket",
+                    team_id=team_id,
+                    channel_id=channel_id,
+                    conversation_id=conversation_id,
+                )
+            else:
+                logger.debug(
+                    "teams_thread_reply_no_ticket",
+                    channel_id=channel_id,
+                    conversation_id=conversation_id,
+                )
             return None
 
         if activity_id and is_teams_graph_message_seen(team_id, channel_id, activity_id):
@@ -673,6 +684,16 @@ def create_or_update_teams_ticket(
             ticket_id=str(existing_ticket.id),
         )
         return existing_ticket
+    if deleted_ticket_holds_thread(
+        team_id=team.id, teams_channel_id=channel_id, teams_conversation_id=thread_conversation_id
+    ):
+        logger.info(
+            "teams_inbound_deleted_ticket",
+            team_id=team_id,
+            channel_id=channel_id,
+            conversation_id=thread_conversation_id,
+        )
+        return None
 
     ticket = Ticket.objects.create_with_number(
         team=team,

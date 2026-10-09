@@ -48,6 +48,7 @@ import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/t
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
@@ -280,6 +281,7 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
     unsavedTicketChanges: string[]
@@ -313,6 +315,12 @@ export interface supportTicketSceneLogicActions {
     }
     deleteMessage: (messageId: string) => {
         messageId: string
+    }
+    deleteTicket: () => {
+        value: true
+    }
+    setTicketDeleting: (deleting: boolean) => {
+        deleting: boolean
     }
     incrementUnreadCustomerCount: () => {
         value: true
@@ -637,6 +645,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         clearEditingMessage: true,
         stashDraftForEdit: (content: string | JSONContent | null, isPrivate: boolean) => ({ content, isPrivate }),
         deleteMessage: (messageId: string) => ({ messageId }),
+        deleteTicket: true,
+        setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
@@ -872,6 +882,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 sendMessage: () => true,
                 setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        ticketDeleting: [
+            false,
+            {
+                setTicketDeleting: (_, { deleting }) => deleting,
             },
         ],
         aiDraftApplying: [
@@ -1615,6 +1631,43 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.editingMessageId && !messages.some((m) => m.id === values.editingMessageId)) {
                 actions.cancelEditingMessage()
             }
+        },
+        deleteTicket: () => {
+            const ticket = values.ticket
+            if (!ticket || values.ticketDeleting) {
+                return
+            }
+            LemonDialog.open({
+                title: `Delete ticket #${ticket.ticket_number}?`,
+                description:
+                    'The ticket and its messages disappear for your team and the customer right away, and are permanently deleted after 14 days. Messages already sent to Slack, Teams, email, or GitHub stay there.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        if (values.ticketDeleting) {
+                            return
+                        }
+                        actions.setTicketDeleting(true)
+                        try {
+                            await conversationsTicketsDestroy(String(getCurrentTeamId()), ticket.id)
+                            const listLogic = supportTicketsSceneLogic.findMounted()
+                            if (listLogic) {
+                                listLogic.actions.setTickets(
+                                    listLogic.values.tickets.filter((item) => item.id !== ticket.id)
+                                )
+                            }
+                            lemonToast.success('Ticket deleted')
+                            router.actions.push(urls.supportTickets())
+                        } catch {
+                            lemonToast.error('Failed to delete ticket. Try again.')
+                        } finally {
+                            actions.setTicketDeleting(false)
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
         deleteMessage: async ({ messageId }) => {
             if (!values.ticket?.id) {
