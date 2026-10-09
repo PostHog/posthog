@@ -481,12 +481,12 @@ impl CohortStore {
         Ok(coverage)
     }
 
-    /// Begins the slice at `now` when it has no record. The commit loop's fsync makes the write
+    /// Begins the slice at `start` when it has no record. The commit loop's fsync makes the write
     /// durable before any offset commits.
     pub fn resume_or_begin_slice(
         &self,
         partition_id: u16,
-        now: CoverageStartMs,
+        start: CoverageStartMs,
     ) -> Result<SliceTenure, StoreError> {
         if let Some(coverage) = self.slice_coverage(partition_id)? {
             return Ok(SliceTenure::Resumed(coverage));
@@ -494,10 +494,10 @@ impl CohortStore {
         self.write_batch(|batch| {
             batch.put::<SliceCoverages>(
                 &SliceCoverageKey(partition_id),
-                &SliceCoverage::Since(now).encode(),
+                &SliceCoverage::Since(start).encode(),
             );
         })?;
-        Ok(SliceTenure::Begun(now))
+        Ok(SliceTenure::Begun(start))
     }
 
     /// Read a raw value from any CF.

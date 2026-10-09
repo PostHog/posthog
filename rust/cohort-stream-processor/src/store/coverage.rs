@@ -55,7 +55,7 @@ impl SliceCoverage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SliceTenure {
     Resumed(SliceCoverage),
-    /// No record, so the slice holds nothing older than now.
+    /// No record, so the slice holds nothing from before this start.
     Begun(CoverageStartMs),
 }
 

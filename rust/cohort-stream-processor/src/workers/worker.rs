@@ -108,6 +108,7 @@ impl Stage1Worker {
             merge,
             restore,
             EventNameGating::Disabled,
+            CoverageStartMs::now(),
         )
     }
 
@@ -122,6 +123,7 @@ impl Stage1Worker {
         merge: Arc<MergeWorkerDeps>,
         restore: EvictionRestore,
         event_name_gating: EventNameGating,
+        assigned_at: CoverageStartMs,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -133,6 +135,7 @@ impl Stage1Worker {
             merge,
             restore,
             event_name_gating,
+            assigned_at,
         ));
         Self {
             partition_id,
@@ -180,13 +183,14 @@ async fn run_worker(
     merge: Arc<MergeWorkerDeps>,
     restore: EvictionRestore,
     event_name_gating: EventNameGating,
+    assigned_at: CoverageStartMs,
 ) {
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<BehavioralKey>::new();
     let mut sweep = SweepSchedule::new(partition_id);
-    // Before any message, so the slice holds every event from here on.
-    let coverage = resume_or_begin_slice(partition_id, &handle).await;
+    // Before any message, so the slice holds every event from the assignment on.
+    let coverage = resume_or_begin_slice(partition_id, assigned_at, &handle).await;
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
@@ -934,10 +938,16 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
-/// The worker's slice coverage, beginning the slice now when it has no record.
-async fn resume_or_begin_slice(partition_id: u16, handle: &StoreHandle) -> SliceCoverage {
-    let now = CoverageStartMs::now();
-    let coverage = match handle.resume_or_begin_slice(partition_id, now).await {
+/// The worker's slice coverage, beginning the slice at its assignment when it has no record.
+async fn resume_or_begin_slice(
+    partition_id: u16,
+    assigned_at: CoverageStartMs,
+    handle: &StoreHandle,
+) -> SliceCoverage {
+    let coverage = match handle
+        .resume_or_begin_slice(partition_id, assigned_at)
+        .await
+    {
         Ok(SliceTenure::Resumed(coverage)) => coverage,
         Ok(SliceTenure::Begun(since)) => {
             counter!(SLICES_BEGUN_TOTAL).increment(1);
@@ -955,7 +965,7 @@ async fn resume_or_begin_slice(partition_id: u16, handle: &StoreHandle) -> Slice
                 error = %err,
                 "slice coverage unreadable; withholding runs with an earlier boundary",
             );
-            SliceCoverage::Since(now)
+            SliceCoverage::Since(CoverageStartMs::now())
         }
     };
     let covered_since_seconds = match coverage {
