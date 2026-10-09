@@ -29,8 +29,15 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
+    from products.conversations.backend.models import (
+        EmailChannel,
+        EmailChannelKind,
+        PurgedTicketThread,
+        Ticket,
+        ZendeskImportJob,
+    )
     from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
@@ -287,7 +294,17 @@ def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> _TicketPartit
         .values_list("zendesk_ticket_id", flat=True)
         if tid is not None
     }
-    to_import = [tid for tid in ticket_ids if tid not in existing_ids]
+    # A purged import stays out, so the next import does not bring the deleted ticket back.
+    purged_keys = set(
+        PurgedTicketThread.objects.for_team(team_id)
+        .filter(thread_key__in=[ticket_thread_key(zendesk_ticket_id=tid) for tid in ticket_ids])
+        .values_list("thread_key", flat=True)
+    )
+    to_import = [
+        tid
+        for tid in ticket_ids
+        if tid not in existing_ids and ticket_thread_key(zendesk_ticket_id=tid) not in purged_keys
+    ]
     return _TicketPartition(existing_ids=existing_ids, to_import=to_import, skipped=len(ticket_ids) - len(to_import))
 
 

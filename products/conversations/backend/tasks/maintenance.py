@@ -20,6 +20,7 @@ from posthog.models.data_deletion_request import (
     RequestType,
     compile_hogql_predicate,
 )
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
@@ -29,6 +30,7 @@ from products.conversations.backend.events import CONVERSATION_ANALYTICS_EVENTS,
 from products.conversations.backend.models import (
     ConversationDelivery,
     ConversationInboundEvent,
+    PurgedTicketThread,
     TeamConversationsTicketConfig,
 )
 from products.conversations.backend.models.constants import Status
@@ -180,6 +182,18 @@ def _retire_ticket_number(*, ticket: Ticket) -> None:
     ).update(retired_ticket_number=ticket.ticket_number)
 
 
+def _close_inbound_threads(*, ticket: Ticket) -> None:
+    """Keep the ticket's external threads closed, so a later message cannot import the deleted history again."""
+    keys = ticket.inbound_thread_keys()
+    if not keys:
+        return
+    team_id = resolve_effective_team_id(ticket.team_id)
+    PurgedTicketThread.objects.for_team(team_id, canonical=True).bulk_create(
+        [PurgedTicketThread(team_id=team_id, thread_key=key) for key in keys],
+        ignore_conflicts=True,
+    )
+
+
 def _file_ticket_event_deletion(ticket: Ticket) -> None:
     """Ask the event-deletion sweep to remove this ticket's analytics events.
 
@@ -277,6 +291,7 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
         team_id = locked.team_id
         item_id = str(locked.id)
         _retire_ticket_number(ticket=locked)
+        _close_inbound_threads(ticket=locked)
         locked.delete()
         log_activity(
             organization_id=organization_id,
