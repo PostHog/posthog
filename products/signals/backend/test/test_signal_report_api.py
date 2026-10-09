@@ -1208,21 +1208,28 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
-    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
-    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+    @parameterized.expand(
+        [
+            (f"{field}_{direction}", f"{prefix}{field}", head)
+            for field, head in SignalReportViewSet._RANKING_ORDERING_HEADS.items()
+            for direction, prefix in (("descending", "-"), ("ascending", ""))
+        ]
+    )
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering, head):
         self.user.is_staff = True
         self.user.save()
+        other_head = "action" if head == "open" else "open"
         low = self._create_report(title="Low")
         high = self._create_report(title="High")
         unscored = self._create_report(title="Unscored")
         no_head = self._create_report(title="No head")
-        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
-        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
-        self._ranking_score_artefact(no_head, scores={"open": 0.5})
-        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        self._ranking_score_artefact(low, scores={head: 0.1, other_head: 0.9})
+        self._ranking_score_artefact(high, scores={head: 0.7, other_head: 0.1})
+        self._ranking_score_artefact(no_head, scores={other_head: 0.5})
+        stale = self._ranking_score_artefact(low, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
         impossible_time = self._create_report(title="Impossible time")
-        impossible_score = self._ranking_score_artefact(impossible_time, scores={"pr_merged": 0.4})
+        impossible_score = self._ranking_score_artefact(impossible_time, scores={head: 0.4})
         SignalReportArtefact.objects.filter(pk=impossible_score.pk).update(
             content=impossible_score.content.replace("2026-09-20T12:00:00Z", "2026-02-31T12:00:00Z")
         )
@@ -1233,7 +1240,7 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"old_title": "Old", "new_title": "Impossible time"}),
         )
         bad_latest = self._create_report(title="Bad latest")
-        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        older_valid = self._ranking_score_artefact(bad_latest, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
         self._ranking_score_artefact(bad_latest, content="not json")
 
