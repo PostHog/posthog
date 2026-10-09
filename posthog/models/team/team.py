@@ -285,6 +285,19 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            # The session replay consumers re-read all replay-enabled teams on a timer (nodejs TeamService).
+            # The included columns keep that refresh off the wide heap.
+            models.Index(
+                fields=["id"],
+                include=[
+                    "organization_id",
+                    "api_token",
+                    "capture_console_log_opt_in",
+                    "session_recording_retention_period",
+                ],
+                condition=models.Q(session_recording_opt_in=True),
+                name="posthog_team_replay_optin_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
