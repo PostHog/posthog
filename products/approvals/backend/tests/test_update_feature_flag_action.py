@@ -166,6 +166,38 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 True,
             ),
             (
+                "negation_enabled",
+                [_condition_set(GROUP_KEY_FILTER)],
+                [_condition_set({**GROUP_KEY_FILTER, "negation": True})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "property_type_changed",
+                [_condition_set(PROVIDER_FILTER)],
+                [_condition_set({**PROVIDER_FILTER, "type": "person"})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "group_type_index_changed",
+                [_condition_set(PROVIDER_FILTER)],
+                [_condition_set({**PROVIDER_FILTER, "group_type_index": 1})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "condition_set_removed",
+                [_condition_set(GROUP_KEY_FILTER), _condition_set(PROVIDER_FILTER)],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                True,
+            ),
+            (
                 "condition_set_added",
                 [_condition_set(GROUP_KEY_FILTER)],
                 [_condition_set(GROUP_KEY_FILTER), _condition_set(PROVIDER_FILTER)],
@@ -1151,6 +1183,7 @@ class TestReleaseConditionGating(APIBaseTest):
         assert self._change_request_keys() == expected_change_requests
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
+        assert flag.active is not enabling
 
     @parameterized.expand(
         [

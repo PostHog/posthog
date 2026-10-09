@@ -231,6 +231,20 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         raise ApplyFailed(f"Serializer save failed: {str(e)}")
 
 
+_OWNER_KIND_ATTR = "_approval_owner_kind"
+
+
+def _cached_owner_kind(flag: FeatureFlag) -> Optional[str]:
+    """Return `flag_owner_kind(flag)`, read once per flag instance.
+
+    Detection, the policy conditions check and the gate each read the owner for the same save, and
+    each read runs up to six EXISTS queries.
+    """
+    if not hasattr(flag, _OWNER_KIND_ATTR):
+        setattr(flag, _OWNER_KIND_ATTR, flag_owner_kind(flag))
+    return getattr(flag, _OWNER_KIND_ATTR)
+
+
 def _comparable(value: Any) -> str:
     """Encode a release condition value so that values flag evaluation tells apart compare unequal.
 
@@ -727,7 +741,7 @@ class UpdateFeatureFlagAction(BaseAction):
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
         new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
-        if cls._changed_paths(old_release, new_release, strict=True) and flag_owner_kind(flag) is None:
+        if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) is None:
             before["release_conditions"] = old_release
             after["release_conditions"] = new_release
 
