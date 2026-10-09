@@ -22,21 +22,27 @@ from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
-from products.review_hog.backend.automatic_reviews import enqueue_authored_pr_review
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
+    ReviewReport,
     ReviewRepository,
     ReviewRepositoryPerson,
     ReviewUserSettings,
 )
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
-from products.review_hog.backend.tasks import process_authored_pr_event
+from products.review_hog.backend.pull_request_events import accept_pull_request_event
+from products.review_hog.backend.tasks import process_authored_pr_event, process_label_event
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
+_LABEL_QUEUE = "products.review_hog.backend.tasks.process_label_event.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_BUSY = "products.review_hog.backend.temporal.client.workflow_running"
+_GITHUB = "products.review_hog.backend.label_reviews.github_api_request"
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -61,9 +67,19 @@ def _payload(
             "draft": draft,
             "merged": False,
             "user": {"login": login},
-            "head": {"sha": _HEAD_SHA, "repo": {"full_name": repository.lower()}},
+            "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
             "base": {"repo": {"full_name": repository}},
         },
+    }
+
+
+def _label_payload(
+    *, label: str = "reviewhog", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+) -> dict[str, object]:
+    return {
+        **_payload(action="labeled", login=login),
+        "label": {"name": label},
+        "sender": {"login": sender, "type": sender_type},
     }
 
 
@@ -191,6 +207,46 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
         assert enqueue.called == expected_enqueue
 
+    @parameterized.expand(
+        [
+            ("person_adds_the_label", "reviewhog", "OctoCat", "User", True),
+            ("label_name_ignores_case", "ReviewHog", "OctoCat", "User", True),
+            # The task explains the refusal on the pull request and removes the label.
+            ("bot_adds_the_label", "reviewhog", "renovate[bot]", "Bot", True),
+            ("another_label", "bug", "OctoCat", "User", False),
+        ]
+    )
+    @patch(_QUEUE)
+    @patch(_LABEL_QUEUE)
+    def test_the_reviewhog_label_queues_a_label_review(
+        self,
+        _name: str,
+        label: str,
+        sender: str,
+        sender_type: str,
+        expected_enqueue: bool,
+        label_enqueue: MagicMock,
+        enqueue: MagicMock,
+    ) -> None:
+        body = json.dumps(_label_payload(label=label, sender=sender, sender_type=sender_type)).encode()
+
+        assert self._post(body).status_code == 202
+
+        enqueue.assert_not_called()
+        if expected_enqueue:
+            label_enqueue.assert_called_once_with(
+                installation_id=_INSTALLATION_ID,
+                repository="PostHog/posthog",
+                github_repo_id=_REPO_ID,
+                pr_number=42,
+                author_login="octocat",
+                head_branch="feature",
+                labeler_login=sender,
+                labeled_by_bot=sender_type == "Bot",
+            )
+        else:
+            label_enqueue.assert_not_called()
+
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
         assert self.view(self.factory.get("/webhooks/github/")).status_code == 405
@@ -198,7 +254,6 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("label", ("action",), "labeled"),
             ("ready_for_review", ("action",), "ready_for_review"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
@@ -250,10 +305,11 @@ class TestAuthoredPRReviewTask(BaseTest):
         self.preferences = ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
+        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
 
     def _queued_event(self, login: str = "OctoCat") -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            enqueue_authored_pr_review(_payload(login=login))
+            accept_pull_request_event(_payload(login=login))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
@@ -304,6 +360,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("left_org", "bot_skipped"),
             ("unmapped", "bot_skipped"),
             ("missing_installation", "installation_mismatch"),
+            ("internal_flag_off", "internal_features_off"),
+            ("full_review_published", "full_review_published"),
         ]
     )
     @patch(_START)
@@ -323,6 +381,17 @@ class TestAuthoredPRReviewTask(BaseTest):
             OrganizationMembership.objects.filter(organization=self.organization, user=self.user).delete()
         elif change == "missing_installation":
             self.integration.delete()
+        elif change == "internal_flag_off":
+            self.internal_flag.return_value = False
+        elif change == "full_review_published":
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="PostHog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                published_heads_by_mode={"full": _HEAD_SHA},
+            )
         else:
             self.github_identity.delete()
         outcome_before = _dispatch_count(expected_outcome)
@@ -370,3 +439,91 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**self._queued_event())
 
         start.assert_called_once_with(**self._expected_start(team_id=other_team.id, user_id=self.user.id))
+
+
+class TestLabelReviewTask(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.connector = User.objects.create_and_join(self.organization, "connector@example.com", None)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id=_INSTALLATION_ID,
+            config={"installation_id": _INSTALLATION_ID, "account": {"name": "PostHog"}},
+            created_by=self.connector,
+        )
+        UserSocialAuth.objects.create(
+            user=self.user, provider="github", uid="review-author", extra_data={"login": "OctoCat"}
+        )
+        ReviewInstallationClaim.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=_INSTALLATION_ID, scope=ReviewInstallationClaim.Scope.SELECTED
+        )
+        self.repository = ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
+        )
+        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
+        self.enterContext(patch(_BUSY, return_value=False))
+        self.start = self.enterContext(patch(_START))
+        self.github = self.enterContext(patch(_GITHUB))
+        self.enterContext(patch("products.review_hog.backend.label_reviews.GitHubIntegration.get_access_token"))
+
+    def _queued_event(self, payload: dict[str, object]) -> Mapping[str, object]:
+        with patch(_LABEL_QUEUE) as enqueue:
+            accept_pull_request_event(payload)
+        enqueue.assert_called_once()
+        return enqueue.call_args.kwargs
+
+    def _run(self, payload: dict[str, object]) -> None:
+        process_label_event.run(**self._queued_event(payload))
+
+    @parameterized.expand([("the_author_owns_it", "OctoCat", "author"), ("no_owner", "stranger", "connector")])
+    def test_a_label_review_runs_as_the_owner_else_as_the_connector(
+        self, _name: str, author_login: str, run_as: str
+    ) -> None:
+        self._run(_label_payload(login=author_login))
+
+        self.start.assert_called_once_with(
+            pr_url="https://github.com/PostHog/posthog/pull/42",
+            team_id=self.team.id,
+            user_id=self.user.id if run_as == "author" else self.connector.id,
+            publish=True,
+            trigger_source="label",
+        )
+
+    @parameterized.expand([("another_bot", "renovate[bot]", False), ("stamphog_hands_off", "stamphog[bot]", True)])
+    def test_only_stamphog_may_label_as_a_bot(self, _name: str, sender: str, starts: bool) -> None:
+        self._run(_label_payload(sender=sender, sender_type="Bot"))
+
+        assert self.start.called == starts
+        calls = [(call.args[0], call.args[1]) for call in self.github.call_args_list]
+        if starts:
+            assert calls == []
+        else:
+            assert calls == [
+                ("POST", "/repos/PostHog/posthog/issues/42/comments"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+            ]
+
+    @parameterized.expand(
+        [
+            ("repository_not_added", "repository_not_added"),
+            ("internal_flag_off", "internal_features_off"),
+            ("no_run_user", "no_run_user"),
+        ]
+    )
+    def test_a_label_without_an_owning_internal_project_starts_nothing(self, change: str, outcome: str) -> None:
+        queued = self._queued_event(_label_payload(login="stranger"))
+        if change == "repository_not_added":
+            self.repository.delete()
+        elif change == "internal_flag_off":
+            self.internal_flag.return_value = False
+        else:
+            self.integration.created_by = None
+            self.integration.save(update_fields=["created_by"])
+        before = REGISTRY.get_sample_value("posthog_review_hog_label_review_total", {"outcome": outcome}) or 0.0
+
+        process_label_event.run(**queued)
+
+        self.start.assert_not_called()
+        after = REGISTRY.get_sample_value("posthog_review_hog_label_review_total", {"outcome": outcome}) or 0.0
+        assert after - before == 1.0
