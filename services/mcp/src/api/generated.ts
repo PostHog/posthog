@@ -13529,57 +13529,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `flash` - Flash
-     * * `full` - Full
-     * * `none` - No automatic review
+     * * `everyone` - Automatic Flash for everyone
+     * * `listed` - Automatic Flash for these people
+     * * `off` - Automatic Flash opt-in only
      */
-    export type AutomaticReviewModeEnum = typeof AutomaticReviewModeEnum[keyof typeof AutomaticReviewModeEnum];
+    export type AutomaticFlashForEnum = typeof AutomaticFlashForEnum[keyof typeof AutomaticFlashForEnum];
 
 
-    export const AutomaticReviewModeEnum = {
-      Flash: 'flash',
-      Full: 'full',
-      None: 'none',
+    export const AutomaticFlashForEnum = {
+      Everyone: 'everyone',
+      Listed: 'listed',
+      Off: 'off',
     } as const;
 
     /**
-     * * `bot_excluded` - Bots are excluded
      * * `own_repository_choice` - Own choice for this repository
      * * `own_default` - Own default
-     * * `everyone` - Repository reviews everyone
-     * * `excepted` - Excepted by the repository
-     * * `listed` - Listed by the repository
-     * * `not_listed` - Not listed by the repository
+     * * `repository_everyone` - The repository exception reviews everyone
+     * * `repository_excepted` - Excepted by the repository exception
+     * * `repository_listed` - Listed by the repository exception
+     * * `repository_not_listed` - Not listed by the repository exception
+     * * `repository_opt_in` - The repository exception reviews only people who opt in
+     * * `project_everyone` - The project reviews everyone
+     * * `project_excepted` - Excepted by the project
+     * * `project_listed` - Listed by the project
+     * * `project_not_listed` - Not listed by the project
+     * * `project_opt_in` - The project reviews only people who opt in
+     * * `bot_reviewed` - The project reviews bot pull requests
+     * * `bot_skipped` - The project does not review bot pull requests
+     * * `not_in_project` - This project does not review the repository
      */
     export type AutomaticReviewReasonEnum = typeof AutomaticReviewReasonEnum[keyof typeof AutomaticReviewReasonEnum];
 
 
     export const AutomaticReviewReasonEnum = {
-      BotExcluded: 'bot_excluded',
       OwnRepositoryChoice: 'own_repository_choice',
       OwnDefault: 'own_default',
-      Everyone: 'everyone',
-      Excepted: 'excepted',
-      Listed: 'listed',
-      NotListed: 'not_listed',
+      RepositoryEveryone: 'repository_everyone',
+      RepositoryExcepted: 'repository_excepted',
+      RepositoryListed: 'repository_listed',
+      RepositoryNotListed: 'repository_not_listed',
+      RepositoryOptIn: 'repository_opt_in',
+      ProjectEveryone: 'project_everyone',
+      ProjectExcepted: 'project_excepted',
+      ProjectListed: 'project_listed',
+      ProjectNotListed: 'project_not_listed',
+      ProjectOptIn: 'project_opt_in',
+      BotReviewed: 'bot_reviewed',
+      BotSkipped: 'bot_skipped',
+      NotInProject: 'not_in_project',
     } as const;
 
     export interface AutomaticReviewDecision {
-      /** The automatic review the requesting user's pull requests get in this repository: 'flash', 'full', or 'none'.
+      /** Whether the requesting user's own pull requests get automatic Flash reviews in this repository. */
+      flash: boolean;
+      /** Which rule decided: the user's own choice ('own_repository_choice', 'own_default'), the repository exception ('repository_*'), the project rule ('project_*'), or 'not_in_project' when this project does not review the repository.
        *
-       * * `flash` - Flash
-       * * `full` - Full
-       * * `none` - No automatic review */
-      mode: AutomaticReviewModeEnum;
-      /** Which rule decided the mode: 'own_repository_choice' and 'own_default' are the user's own choices; 'everyone', 'excepted', 'listed', and 'not_listed' come from the repository's rule; 'bot_excluded' applies to bot authors.
-       *
-       * * `bot_excluded` - Bots are excluded
        * * `own_repository_choice` - Own choice for this repository
        * * `own_default` - Own default
-       * * `everyone` - Repository reviews everyone
-       * * `excepted` - Excepted by the repository
-       * * `listed` - Listed by the repository
-       * * `not_listed` - Not listed by the repository */
+       * * `repository_everyone` - The repository exception reviews everyone
+       * * `repository_excepted` - Excepted by the repository exception
+       * * `repository_listed` - Listed by the repository exception
+       * * `repository_not_listed` - Not listed by the repository exception
+       * * `repository_opt_in` - The repository exception reviews only people who opt in
+       * * `project_everyone` - The project reviews everyone
+       * * `project_excepted` - Excepted by the project
+       * * `project_listed` - Listed by the project
+       * * `project_not_listed` - Not listed by the project
+       * * `project_opt_in` - The project reviews only people who opt in
+       * * `bot_reviewed` - The project reviews bot pull requests
+       * * `bot_skipped` - The project does not review bot pull requests
+       * * `not_in_project` - This project does not review the repository */
       reason: AutomaticReviewReasonEnum;
     }
 
@@ -34675,6 +34695,20 @@ export namespace Schemas {
       Preset: 'preset',
       Legacy: 'legacy',
       Default: 'default',
+    } as const;
+
+    /**
+     * * `follow` - Follow each repository
+     * * `flash` - Flash everywhere
+     * * `off` - Off everywhere
+     */
+    export type DefaultReviewModeEnum = typeof DefaultReviewModeEnum[keyof typeof DefaultReviewModeEnum];
+
+
+    export const DefaultReviewModeEnum = {
+      Follow: 'follow',
+      Flash: 'flash',
+      Off: 'off',
     } as const;
 
     export interface DeleteTileRequest {
@@ -82451,9 +82485,141 @@ export namespace Schemas {
       active?: boolean;
     }
 
+    /**
+     * * `all` - All repositories
+     * * `selected` - Only selected repositories
+     */
+    export type ReviewInstallationClaimScopeEnum = typeof ReviewInstallationClaimScopeEnum[keyof typeof ReviewInstallationClaimScopeEnum];
+
+
+    export const ReviewInstallationClaimScopeEnum = {
+      All: 'all',
+      Selected: 'selected',
+    } as const;
+
+    export interface PatchedReviewInstallationClaimUpdate {
+      /** 'all' or 'selected'. Switching to 'selected' removes the exceptions of the repositories that leave the project.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope?: ReviewInstallationClaimScopeEnum;
+    }
+
     export interface PatchedReviewPerspectiveConfigUpdate {
       /** Set true to run this perspective on the user's PR reviews, false to stop running it. */
       enabled?: boolean;
+    }
+
+    /**
+     * * `skip` - Not reviewed
+     * * `run` - Automatic Flash
+     */
+    export type ReviewProjectSettingsBotPullRequestsEnum = typeof ReviewProjectSettingsBotPullRequestsEnum[keyof typeof ReviewProjectSettingsBotPullRequestsEnum];
+
+
+    export const ReviewProjectSettingsBotPullRequestsEnum = {
+      Skip: 'skip',
+      Run: 'run',
+    } as const;
+
+    /**
+     * * `consider` - Consider (all)
+     * * `should_fix` - Should fix
+     * * `must_fix` - Must fix
+     */
+    export type UrgencyThresholdEnum = typeof UrgencyThresholdEnum[keyof typeof UrgencyThresholdEnum];
+
+
+    export const UrgencyThresholdEnum = {
+      Consider: 'consider',
+      ShouldFix: 'should_fix',
+      MustFix: 'must_fix',
+    } as const;
+
+    /**
+     * * `listed` - Listed
+     * * `excepted` - Excepted
+     */
+    export type ReviewRepositoryPersonKindEnum = typeof ReviewRepositoryPersonKindEnum[keyof typeof ReviewRepositoryPersonKindEnum];
+
+
+    export const ReviewRepositoryPersonKindEnum = {
+      Listed: 'listed',
+      Excepted: 'excepted',
+    } as const;
+
+    export interface ReviewRepositoryPerson {
+      /** Id of this list entry. Use it to remove the person. */
+      readonly id: string;
+      /** The project member on the list. */
+      readonly user: UserBasic;
+      /** Which list: 'listed' (gets Flash when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
+       *
+       * * `listed` - Listed
+       * * `excepted` - Excepted */
+      readonly kind: ReviewRepositoryPersonKindEnum;
+    }
+
+    export interface ReviewProjectRef {
+      /**
+         * Id of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      id: number | null;
+      /**
+         * Name of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface ReviewInstallation {
+      /** The GitHub App installation id. */
+      installation_id: string;
+      /** The GitHub account (organization or user) of the installation. */
+      account_name: string;
+      /** Who connected the installation to this project. Automatic Flash reviews of bot pull requests run as this user. */
+      connected_by: UserBasic | null;
+      /**
+         * Id of this project's claim. Null when the project reviews nothing there.
+         * @nullable
+         */
+      claim_id: string | null;
+      /** Which repositories this project reviews: 'all' (every repository no other project selected, including future ones), 'selected' (only the selected ones), or null (none).
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope: ReviewInstallationClaimScopeEnum | null;
+      /** Another project that takes all repositories of the installation, if any. */
+      all_taken_by_project: ReviewProjectRef | null;
+    }
+
+    export interface PatchedReviewProjectSettings {
+      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum;
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+       *
+       * * `skip` - Not reviewed
+       * * `run` - Automatic Flash */
+      bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
+      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      celebrate_clean_reviews?: boolean;
+      /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
+      readonly people?: readonly ReviewRepositoryPerson[];
+      /** Every GitHub installation connected to this project, and which of its repositories this project reviews. */
+      readonly installations?: readonly ReviewInstallation[];
+      /** Whether the requesting user is a project admin and can change these settings. */
+      readonly can_edit?: boolean;
     }
 
     export interface PatchedReviewQueueItemUpdate {
@@ -82469,108 +82635,100 @@ export namespace Schemas {
       name?: string;
     }
 
-    /**
-     * * `everyone` - Everyone
-     * * `listed` - Only listed people
-     */
-    export type ReviewRepositoryFlashForEnum = typeof ReviewRepositoryFlashForEnum[keyof typeof ReviewRepositoryFlashForEnum];
-
-
-    export const ReviewRepositoryFlashForEnum = {
-      Everyone: 'everyone',
-      Listed: 'listed',
-    } as const;
-
-    export interface PatchedReviewRepositoryUpdate {
-      /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people).
-       *
-       * * `everyone` - Everyone
-       * * `listed` - Only listed people */
-      flash_for?: ReviewRepositoryFlashForEnum;
-      /** Skip automatic reviews of pull requests that bots open. */
-      exclude_bots?: boolean;
-    }
-
     export interface PatchedReviewResolutionConfigSelect {
       /** Set true to make these the single resolution criteria applied on the user's PRs. Only true is accepted — resolution criteria are single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
     }
 
     /**
-     * * `follow` - Follow repositories
-     * * `flash` - Flash
-     * * `full` - Full
-     * * `off` - Off
+     * * `user` - Set by the user
+     * * `project` - Project default
+     * * `default` - Built-in default
      */
-    export type ReviewUserSettingsDefaultReviewModeEnum = typeof ReviewUserSettingsDefaultReviewModeEnum[keyof typeof ReviewUserSettingsDefaultReviewModeEnum];
+    export type PreferenceSourceEnum = typeof PreferenceSourceEnum[keyof typeof PreferenceSourceEnum];
 
 
-    export const ReviewUserSettingsDefaultReviewModeEnum = {
-      Follow: 'follow',
-      Flash: 'flash',
-      Full: 'full',
-      Off: 'off',
+    export const PreferenceSourceEnum = {
+      User: 'user',
+      Project: 'project',
+      Default: 'default',
     } as const;
 
-    /**
-     * * `medium` - Medium
-     * * `xhigh` - Extra high
-     */
-    export type ReviewUserSettingsFlashReasoningEffortEnum = typeof ReviewUserSettingsFlashReasoningEffortEnum[keyof typeof ReviewUserSettingsFlashReasoningEffortEnum];
+    export interface ReviewPreferenceSources {
+      /** Where the effective default_review_mode comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      default_review_mode: PreferenceSourceEnum;
+      /** Where the effective resolve_comments comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      resolve_comments: PreferenceSourceEnum;
+      /** Where the effective urgency_threshold comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      urgency_threshold: PreferenceSourceEnum;
+      /** Where the effective celebrate_clean_reviews comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      celebrate_clean_reviews: PreferenceSourceEnum;
+      /** Where the effective review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      review_inbox_prs: PreferenceSourceEnum;
+      /** Where the effective stamphog_review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      stamphog_review_inbox_prs: PreferenceSourceEnum;
+    }
 
-
-    export const ReviewUserSettingsFlashReasoningEffortEnum = {
-      Medium: 'medium',
-      Xhigh: 'xhigh',
-    } as const;
-
-    /**
-     * * `consider` - Consider
-     * * `should_fix` - Should Fix
-     * * `must_fix` - Must Fix
-     */
-    export type ReviewUserSettingsUrgencyThresholdEnum = typeof ReviewUserSettingsUrgencyThresholdEnum[keyof typeof ReviewUserSettingsUrgencyThresholdEnum];
-
-
-    export const ReviewUserSettingsUrgencyThresholdEnum = {
-      Consider: 'consider',
-      ShouldFix: 'should_fix',
-      MustFix: 'must_fix',
-    } as const;
+    export interface ReviewProjectDefaults {
+      /** The project's default for the minimum priority a Full review publishes.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold: UrgencyThresholdEnum;
+      /** The project's default for the image in a Full review that finds nothing to raise. */
+      celebrate_clean_reviews: boolean;
+    }
 
     export interface PatchedReviewUserSettings {
-      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+       *
+       * * `follow` - Follow each repository
+       * * `flash` - Flash everywhere
+       * * `off` - Off everywhere */
+      default_review_mode?: DefaultReviewModeEnum;
+      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      resolve_comments?: boolean;
+      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      celebrate_clean_reviews?: boolean;
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
-      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
-      review_labeled_prs?: boolean;
-      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
-      resolve_comments?: boolean;
-      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
-      celebrate_clean_reviews?: boolean;
-      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'off'. */
-      review_authored_prs?: boolean;
-      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
-       *
-       * * `follow` - Follow repositories
-       * * `flash` - Flash
-       * * `full` - Full
-       * * `off` - Off */
-      default_review_mode?: ReviewUserSettingsDefaultReviewModeEnum;
-      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
-       *
-       * * `medium` - Medium
-       * * `xhigh` - Extra high */
-      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
-      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
-       *
-       * * `consider` - Consider
-       * * `should_fix` - Should Fix
-       * * `must_fix` - Must Fix */
-      urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page. */
-      readonly can_trigger_reviews?: boolean;
+      /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
+      readonly sources?: ReviewPreferenceSources;
+      /** The project defaults the Full review preferences fall back to. */
+      readonly project_defaults?: ReviewProjectDefaults;
       /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
       readonly show_internal_features?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
@@ -93837,6 +93995,20 @@ export namespace Schemas {
       Readme: 'readme',
     } as const;
 
+    /**
+     * * `this_project` - This project
+     * * `other_project` - Another project
+     * * `none` - No project
+     */
+    export type RepositoryOwnerKindEnum = typeof RepositoryOwnerKindEnum[keyof typeof RepositoryOwnerKindEnum];
+
+
+    export const RepositoryOwnerKindEnum = {
+      ThisProject: 'this_project',
+      OtherProject: 'other_project',
+      None: 'none',
+    } as const;
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -94862,6 +95034,44 @@ export namespace Schemas {
       dismissed_findings: ReviewFinding[];
     }
 
+    export interface ReviewHogSettingsError {
+      /** Why the request was rejected. */
+      error: string;
+      /** The project that already holds the repository or the installation, if any. */
+      conflicting_project: ReviewProjectRef | null;
+    }
+
+    export interface ReviewInstallationClaim {
+      /** Id of the claim. */
+      readonly id: string;
+      /** The GitHub App installation id. */
+      readonly installation_id: string;
+      /** 'all' (every repository no other project selected, including future ones) or 'selected'.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      readonly scope: ReviewInstallationClaimScopeEnum;
+      /** The GitHub account (organization or user) of the installation. */
+      readonly account_name: string;
+      /** Who made the claim. */
+      readonly created_by: UserBasic | null;
+      /** When the claim was made. */
+      readonly created_at: string;
+    }
+
+    export interface ReviewInstallationClaimCreate {
+      /**
+         * The GitHub App installation id.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /** 'all' reviews every repository of the installation that no other project selected. At most one project per installation can choose it. 'selected' reviews only selected repositories.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope: ReviewInstallationClaimScopeEnum;
+    }
+
     export interface ReviewPerspectiveConfig {
       /** Name of the `review-hog-perspective-*` skill this row toggles (the perspective's identity). */
       skill_name: string;
@@ -94889,6 +95099,34 @@ export namespace Schemas {
       report_count: number;
       /** Per-skill effectiveness across those reviews, most kept findings first. */
       perspectives: ReviewPerspectiveStatItem[];
+    }
+
+    export interface ReviewProjectSettings {
+      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum;
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+       *
+       * * `skip` - Not reviewed
+       * * `run` - Automatic Flash */
+      bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
+      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      celebrate_clean_reviews?: boolean;
+      /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
+      readonly people: readonly ReviewRepositoryPerson[];
+      /** Every GitHub installation connected to this project, and which of its repositories this project reviews. */
+      readonly installations: readonly ReviewInstallation[];
+      /** Whether the requesting user is a project admin and can change these settings. */
+      readonly can_edit: boolean;
     }
 
     export interface ReviewQueueCreate {
@@ -95007,78 +95245,166 @@ export namespace Schemas {
       has_more: boolean;
     }
 
-    /**
-     * * `listed` - Listed
-     * * `excepted` - Excepted
-     */
-    export type ReviewRepositoryPersonKindEnum = typeof ReviewRepositoryPersonKindEnum[keyof typeof ReviewRepositoryPersonKindEnum];
-
-
-    export const ReviewRepositoryPersonKindEnum = {
-      Listed: 'listed',
-      Excepted: 'excepted',
-    } as const;
-
-    export interface ReviewRepositoryPerson {
-      /** Id of this list entry. Use it to remove the person. */
+    export interface ReviewRepository {
+      /** Id of the repository entry. */
       readonly id: string;
-      /** The project member on the list. */
-      readonly user: UserBasic;
-      /** Which list: 'listed' (gets Flash when the repository reviews only listed people) or 'excepted' (skipped when the repository reviews everyone).
+      /** The GitHub App installation that sees it. */
+      readonly installation_id: string;
+      /**
+         * GitHub's id of the repository. Null until it is first seen.
+         * @nullable
+         */
+      readonly github_repo_id: number | null;
+      /** GitHub repository in 'owner/name' form. */
+      readonly full_name: string;
+      /** Whether this project selected the repository. A selected repository belongs to this project even when another project takes all repositories of the installation. */
+      readonly selected: boolean;
+      /** The repository exception: 'everyone', 'listed', or 'off' (opt-in only). Null when the repository follows the project rule.
        *
-       * * `listed` - Listed
-       * * `excepted` - Excepted */
-      readonly kind: ReviewRepositoryPersonKindEnum;
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      readonly flash_for: AutomaticFlashForEnum | null;
+      /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
+      readonly people: readonly ReviewRepositoryPerson[];
+      /** Who added the repository. */
+      readonly created_by: UserBasic | null;
+      /** When the repository was added. */
+      readonly created_at: string;
     }
 
+    /**
+     * * `flash` - Flash
+     * * `off` - Off
+     */
     export type ReviewUserRepositoryChoiceModeEnum = typeof ReviewUserRepositoryChoiceModeEnum[keyof typeof ReviewUserRepositoryChoiceModeEnum];
 
 
     export const ReviewUserRepositoryChoiceModeEnum = {
       Flash: 'flash',
-      Full: 'full',
       Off: 'off',
     } as const;
 
-    export interface ReviewRepository {
-      /** Id of the repository entry. */
+    export interface ReviewRepositoryChoice {
+      /** Id of the choice. Use it to clear the choice. */
       readonly id: string;
+      /** The GitHub App installation. */
+      readonly installation_id: string;
       /**
-         * GitHub repository in 'owner/name' form, spelled as GitHub returns it (e.g. 'PostHog/posthog'). Compared case-insensitively; a repository can be added once per project.
+         * GitHub's repository id.
+         * @nullable
+         */
+      readonly github_repo_id: number | null;
+      /** GitHub repository in 'owner/name' form. */
+      readonly full_name: string;
+      /** 'flash' or 'off' for the user's own pull requests in this repository.
+       *
+       * * `flash` - Flash
+       * * `off` - Off */
+      readonly mode: ReviewUserRepositoryChoiceModeEnum;
+    }
+
+    export interface ReviewRepositoryChoiceWrite {
+      /**
+         * The GitHub App installation.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /**
+         * GitHub repository in 'owner/name' form.
          * @maxLength 200
          */
       full_name: string;
-      /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people, the default) or 'listed' (only the listed people). A person's own choice always wins.
-       *
-       * * `everyone` - Everyone
-       * * `listed` - Only listed people */
-      flash_for?: ReviewRepositoryFlashForEnum;
-      /** Skip automatic reviews of pull requests that bots open. On by default. */
-      exclude_bots?: boolean;
-      /** Who added the repository. Null for seeded repositories. */
-      readonly created_by: UserBasic | null;
-      /** When the repository was added. */
-      readonly created_at: string;
-      /** The people on the repository's two lists. Only the list that matches flash_for has an effect. */
-      readonly people: readonly ReviewRepositoryPerson[];
-      /** The requesting user's own choice for their pull requests in this repository: 'flash', 'full', 'off', or null when their default_review_mode applies. */
-      readonly my_choice: ReviewUserRepositoryChoiceModeEnum | null;
-      /** What the requesting user's own pull requests get in this repository, and the rule that decided it. */
-      readonly my_result: AutomaticReviewDecision;
-    }
-
-    export interface ReviewRepositoryChoiceRequest {
-      /** The requesting user's own automatic review for their pull requests in this repository: 'flash', 'full', or 'off'. Clear the choice with DELETE to follow default_review_mode again.
+      /**
+         * GitHub's repository id.
+         * @minimum 1
+         */
+      github_repo_id?: number;
+      /** The requesting user's own automatic review for their pull requests in this repository: 'flash' or 'off'. A value equal to what the user inherits clears the choice instead.
        *
        * * `flash` - Flash
-       * * `full` - Full
        * * `off` - Off */
       mode: ReviewUserRepositoryChoiceModeEnum;
     }
 
-    export interface ReviewRepositoryError {
-      /** Why the request was rejected. */
-      error: string;
+    export interface ReviewRepositoryChoiceWriteResponse {
+      /** The stored choice. Null when the value equals the inherited one. */
+      choice: ReviewRepositoryChoice | null;
+      /** What the requesting user's own pull requests get in this repository after the write. */
+      my_result: AutomaticReviewDecision;
+    }
+
+    export interface ReviewRepositoryException {
+      /** The exception's rule: 'everyone', 'listed', or 'off'.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for: AutomaticFlashForEnum;
+      /** The people on the exception's two lists. */
+      people: ReviewRepositoryPerson[];
+    }
+
+    export interface ReviewRepositoryOverviewEntry {
+      /** GitHub repository in 'owner/name' form. */
+      full_name: string;
+      /**
+         * GitHub's repository id.
+         * @nullable
+         */
+      github_repo_id: number | null;
+      /** Which project reviews the repository: 'this_project', 'other_project', or 'none'.
+       *
+       * * `this_project` - This project
+       * * `other_project` - Another project
+       * * `none` - No project */
+      owner: RepositoryOwnerKindEnum;
+      /** The other project that reviews the repository, when owner is 'other_project'. */
+      owner_project: ReviewProjectRef | null;
+      /** Whether this project reviews the repository. */
+      in_project: boolean;
+      /** Whether this project selected the repository explicitly. */
+      selected: boolean;
+      /**
+         * Id of this project's repository entry, for the people list endpoints.
+         * @nullable
+         */
+      repository_id: string | null;
+      /** This project's repository exception. Null when the repository follows the project. */
+      exception: ReviewRepositoryException | null;
+      /** The requesting user's own choice for this repository: 'flash', 'off', or null.
+       *
+       * * `flash` - Flash
+       * * `off` - Off */
+      my_choice: ReviewUserRepositoryChoiceModeEnum | null;
+      /**
+         * Id of that choice, to clear it.
+         * @nullable
+         */
+      my_choice_id: string | null;
+      /** What the requesting user's own pull requests get here, and the rule that decided it. */
+      my_result: AutomaticReviewDecision;
+    }
+
+    export interface ReviewRepositoryOverview {
+      /** The listed GitHub App installation. */
+      installation_id: string;
+      /** This project's claim on the installation: 'all', 'selected', or null.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      claim_scope: ReviewInstallationClaimScopeEnum | null;
+      /** One page of repositories. */
+      results: ReviewRepositoryOverviewEntry[];
+      /** Repositories that match the search and the view. */
+      total: number;
+      /** Whether more entries follow this page. */
+      has_more: boolean;
+      /**
+         * Offset of the next page, or null.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     export interface ReviewRepositoryPersonRequest {
@@ -95089,6 +95415,39 @@ export namespace Schemas {
        * * `listed` - Listed
        * * `excepted` - Excepted */
       kind: ReviewRepositoryPersonKindEnum;
+    }
+
+    export interface ReviewRepositoryWrite {
+      /**
+         * The GitHub App installation that sees the repository, from the overview.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /**
+         * GitHub repository in 'owner/name' form, spelled as GitHub returns it.
+         * @maxLength 200
+         */
+      full_name: string;
+      /**
+         * GitHub's id of the repository, from the overview. Keeps renames.
+         * @minimum 1
+         */
+      github_repo_id?: number;
+      /** True includes the repository into this project, also when another project takes all repositories of the installation. False removes it; with an 'only selected' claim its exception goes too. */
+      selected?: boolean;
+      /** The repository exception: 'everyone', 'listed', or 'off'. Null clears it, so the repository follows the project rule again. Omit it to keep the current value.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum | null;
+    }
+
+    export interface ReviewRepositoryWriteResponse {
+      /** The repository entry after the write. Null when nothing is left to store, so the entry was deleted and the repository follows the project rule or left the project. */
+      repository: ReviewRepository | null;
+      /** The project that took all repositories of the installation, when this write took the repository from it. */
+      taken_from_project: ReviewProjectRef | null;
     }
 
     /**
@@ -95173,38 +95532,30 @@ export namespace Schemas {
     }
 
     export interface ReviewUserSettings {
-      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+       *
+       * * `follow` - Follow each repository
+       * * `flash` - Flash everywhere
+       * * `off` - Off everywhere */
+      default_review_mode?: DefaultReviewModeEnum;
+      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      resolve_comments?: boolean;
+      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      celebrate_clean_reviews?: boolean;
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
-      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
-      review_labeled_prs?: boolean;
-      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
-      resolve_comments?: boolean;
-      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
-      celebrate_clean_reviews?: boolean;
-      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'off'. */
-      review_authored_prs?: boolean;
-      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
-       *
-       * * `follow` - Follow repositories
-       * * `flash` - Flash
-       * * `full` - Full
-       * * `off` - Off */
-      default_review_mode?: ReviewUserSettingsDefaultReviewModeEnum;
-      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
-       *
-       * * `medium` - Medium
-       * * `xhigh` - Extra high */
-      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
-      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
-       *
-       * * `consider` - Consider
-       * * `should_fix` - Should Fix
-       * * `must_fix` - Must Fix */
-      urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page. */
-      readonly can_trigger_reviews: boolean;
+      /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
+      readonly sources: ReviewPreferenceSources;
+      /** The project defaults the Full review preferences fall back to. */
+      readonly project_defaults: ReviewProjectDefaults;
       /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
       readonly show_internal_features: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
@@ -115846,6 +116197,8 @@ export namespace Schemas {
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -115953,6 +116306,8 @@ export namespace Schemas {
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
+      ReviewProjectSettings: 'ReviewProjectSettings',
+      ReviewInstallationClaim: 'ReviewInstallationClaim',
     } as const;
 
     /**
@@ -116046,6 +116401,8 @@ export namespace Schemas {
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -116141,6 +116498,8 @@ export namespace Schemas {
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
+      ReviewProjectSettings: 'ReviewProjectSettings',
+      ReviewInstallationClaim: 'ReviewInstallationClaim',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -125183,6 +125542,50 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type ReviewHogRepositoryOverviewRetrieveParams = {
+    /**
+     * The GitHub App installation to list.
+     * @minLength 1
+     * @maxLength 64
+     */
+    installation_id: string;
+    /**
+     * Entries per page (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only repositories whose name contains this text.
+     */
+    search?: string;
+    /**
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     *
+     * * `all` - All repositories
+     * * `in_project` - In this project
+     * * `exceptions` - With exceptions
+     * * `mine` - My choices
+     * @minLength 1
+     */
+    view?: ReviewHogRepositoryOverviewRetrieveView;
+    };
+
+    export type ReviewHogRepositoryOverviewRetrieveView = typeof ReviewHogRepositoryOverviewRetrieveView[keyof typeof ReviewHogRepositoryOverviewRetrieveView];
+
+
+    export const ReviewHogRepositoryOverviewRetrieveView = {
+      All: 'all',
+      InProject: 'in_project',
+      Exceptions: 'exceptions',
+      Mine: 'mine',
+    } as const;
 
     export type ReviewHogReviewsListParams = {
     /**

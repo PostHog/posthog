@@ -1,117 +1,248 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
-from products.review_hog.backend.models import ReviewRepository
+from products.review_hog.backend.models import (
+    ReviewInstallationClaim,
+    ReviewProjectSettings,
+    ReviewRepository,
+    ReviewUserRepositoryChoice,
+)
+
+INSTALLATION = "1001"
+WEB = {"installation_id": INSTALLATION, "full_name": "example-org/web", "github_repo_id": 501}
+CACHED_REPOSITORIES = [
+    {"id": 501, "name": "web", "full_name": "example-org/web"},
+    {"id": 502, "name": "api", "full_name": "example-org/api"},
+    {"id": 503, "name": "docs", "full_name": "example-org/docs"},
+]
 
 
-class TestReviewRepositoryAPI(APIBaseTest):
+class TestReviewRepositorySettingsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/repositories/"
-
-    def _activity(self, repository_id: str) -> list[ActivityLog]:
-        return list(
-            ActivityLog.objects.filter(team_id=self.team.id, scope="ReviewRepository", item_id=repository_id).order_by(
-                "created_at"
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        self.other_team = Team.objects.create(organization=self.organization, name="Other project")
+        for team in (self.team, self.other_team):
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=INSTALLATION,
+                config={"account": {"name": "example-org"}},
+                created_by=self.user,
             )
+
+    def _set_level(self, level: OrganizationMembership.Level) -> None:
+        OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(level=level)
+
+    def _url(self, path: str, team: Team | None = None) -> str:
+        return f"/api/projects/{(team or self.team).id}/review_hog/{path}"
+
+    def _claim(self, team: Team, scope: str) -> ReviewInstallationClaim:
+        return ReviewInstallationClaim.objects.for_team(team.id).create(
+            team=team, installation_id=INSTALLATION, scope=scope
         )
 
-    def test_add_change_and_remove_a_repository_are_logged(self) -> None:
-        created = self.client.post(self.url, {"full_name": "PostHog/posthog-js"}, format="json")
-
-        assert created.status_code == 201, created.json()
-        repository_id = created.json()["id"]
-        assert created.json()["flash_for"] == "everyone"
-        assert created.json()["my_result"] == {"mode": "flash", "reason": "everyone"}
-        duplicate = self.client.post(self.url, {"full_name": "posthog/POSTHOG-JS"}, format="json")
-        assert duplicate.status_code == 400
-
-        changed = self.client.patch(f"{self.url}{repository_id}/", {"flash_for": "listed"}, format="json")
-
-        assert changed.status_code == 200, changed.json()
-        assert changed.json()["my_result"] == {"mode": "none", "reason": "not_listed"}
-
-        assert self.client.delete(f"{self.url}{repository_id}/").status_code == 204
-
-        activity = self._activity(repository_id)
-        assert [(row.activity, row.user_id) for row in activity] == [
-            ("created", self.user.id),
-            ("updated", self.user.id),
-            ("deleted", self.user.id),
+    @parameterized.expand(
+        [
+            ("project_settings/", "patch", {"flash_for": "everyone"}),
+            ("installation_claims/", "post", {"installation_id": INSTALLATION, "scope": "all"}),
+            ("repositories/", "post", {**WEB, "selected": True}),
         ]
-        update_detail = activity[1].detail
-        assert update_detail is not None
-        changes = update_detail["changes"]
-        assert [(change["field"], change["before"], change["after"]) for change in changes] == [
-            ("flash_for", "everyone", "listed")
-        ]
+    )
+    def test_members_read_but_only_admins_change_project_settings(self, path: str, method: str, body: dict) -> None:
+        self._set_level(OrganizationMembership.Level.MEMBER)
 
-    def test_people_lists_drive_the_result_and_are_logged_on_the_repository(self) -> None:
-        repository = ReviewRepository.objects.for_team(self.team.id).create(
-            team=self.team, full_name="PostHog/posthog-js", flash_for=ReviewRepository.FlashFor.LISTED
+        assert self.client.get(self._url(path)).status_code == 200
+        assert getattr(self.client, method)(self._url(path), body, format="json").status_code == 403
+
+        self._set_level(OrganizationMembership.Level.ADMIN)
+
+        assert getattr(self.client, method)(self._url(path), body, format="json").status_code in (200, 201)
+
+    def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
+        res = self.client.patch(
+            self._url("project_settings/"),
+            {"flash_for": "listed", "bot_prs": "run", "urgency_threshold": "must_fix", "celebrate_clean_reviews": True},
+            format="json",
         )
-        people_url = f"{self.url}{repository.id}/people/"
 
-        added = self.client.post(people_url, {"user_id": self.user.id, "kind": "listed"}, format="json")
+        assert res.status_code == 200, res.json()
+        assert res.json()["urgency_threshold"] == "must_fix"
+        assert res.json()["can_edit"] is True
+        assert [installation["account_name"] for installation in res.json()["installations"]] == ["example-org"]
+        row = ReviewProjectSettings.objects.for_team(self.team.id).get()
+        assert (row.flash_for, row.bot_prs, row.preferences) == ("listed", "run", {"urgency_threshold": "must_fix"})
 
+        added = self.client.post(
+            self._url("project_settings/people/"), {"user_id": self.user.id, "kind": "listed"}, format="json"
+        )
         assert added.status_code == 201, added.json()
-        assert added.json()["my_result"] == {"mode": "flash", "reason": "listed"}
         person_id = added.json()["people"][0]["id"]
-        assert (
-            self.client.post(people_url, {"user_id": self.user.id, "kind": "listed"}, format="json").status_code == 200
+        assert self.client.delete(self._url(f"project_settings/people/{person_id}/")).status_code == 200
+
+        logged = ActivityLog.objects.filter(team_id=self.team.id, scope="ReviewProjectSettings", item_id=str(row.id))
+        fields = [change["field"] for entry in logged for change in (entry.detail or {}).get("changes") or []]
+        assert {"flash_for", "bot_prs", "listed_people"} <= set(fields)
+
+    def test_selecting_a_repository_takes_it_from_the_project_that_claims_all(self) -> None:
+        self._claim(self.other_team, ReviewInstallationClaim.Scope.ALL)
+
+        res = self.client.post(self._url("repositories/"), {**WEB, "selected": True}, format="json")
+
+        assert res.status_code == 200, res.json()
+        assert res.json()["taken_from_project"] == {"id": self.other_team.id, "name": "Other project"}
+        assert res.json()["repository"]["selected"] is True
+        # The first selection also claims the installation for "only selected repositories".
+        assert ReviewInstallationClaim.objects.for_team(self.team.id).get().scope == "selected"
+        taken = ActivityLog.objects.filter(
+            team_id=self.other_team.id, scope="ReviewInstallationClaim", activity="updated"
+        ).first()
+        assert taken is not None and taken.detail is not None
+        assert taken.detail["changes"][0]["before"] == "example-org/web"
+
+        # The repository now has a row in this project, so the other project cannot take it back.
+        conflict = self.client.post(
+            self._url("repositories/", self.other_team), {**WEB, "flash_for": "everyone"}, format="json"
         )
 
-        assert self.client.delete(f"{people_url}a/").status_code == 404
-        removed = self.client.delete(f"{people_url}{person_id}/")
+        assert conflict.status_code == 409
+        assert conflict.json()["conflicting_project"]["id"] == self.team.id
 
-        assert removed.status_code == 200, removed.json()
-        assert removed.json()["people"] == []
-        assert removed.json()["my_result"] == {"mode": "none", "reason": "not_listed"}
-        changes = [
-            (row.detail or {})["changes"][0] for row in self._activity(str(repository.id)) if row.activity == "updated"
+    def test_only_one_project_can_claim_all_repositories(self) -> None:
+        self._claim(self.other_team, ReviewInstallationClaim.Scope.ALL)
+
+        res = self.client.post(
+            self._url("installation_claims/"), {"installation_id": INSTALLATION, "scope": "all"}, format="json"
+        )
+
+        assert res.status_code == 409
+        assert res.json()["conflicting_project"] == {"id": self.other_team.id, "name": "Other project"}
+
+    def test_projects_of_other_organizations_stay_unnamed(self) -> None:
+        stranger_team = Team.objects.create(organization=Organization.objects.create(name="other"), name="Secret")
+        self._claim(stranger_team, ReviewInstallationClaim.Scope.ALL)
+
+        res = self.client.post(
+            self._url("installation_claims/"), {"installation_id": INSTALLATION, "scope": "all"}, format="json"
+        )
+
+        assert res.status_code == 409
+        assert res.json()["conflicting_project"] == {"id": None, "name": None}
+        assert "Secret" not in res.json()["error"]
+
+    def test_switching_to_selected_removes_the_exceptions_of_repositories_that_leave(self) -> None:
+        claim = self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        for body in (
+            {**WEB, "flash_for": "off"},
+            {**WEB, "full_name": "example-org/api", "github_repo_id": 502, "selected": True},
+        ):
+            assert self.client.post(self._url("repositories/"), body, format="json").status_code == 200
+
+        res = self.client.patch(self._url(f"installation_claims/{claim.id}/"), {"scope": "selected"}, format="json")
+
+        assert res.status_code == 200, res.json()
+        remaining = ReviewRepository.objects.for_team(self.team.id).values_list("full_name", flat=True)
+        assert list(remaining) == ["example-org/api"]
+
+    @parameterized.expand(
+        [
+            ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
+            ("nothing_to_store", {**WEB, "selected": False}, 200),
         ]
-        assert [(change["action"], change["field"]) for change in changes] == [
-            ("created", "listed_people"),
-            ("deleted", "listed_people"),
-        ]
+    )
+    def test_repository_writes_keep_rows_meaningful(self, _name: str, body: dict, expected_status: int) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.SELECTED)
 
-        outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@example.com", None)
-        rejected = self.client.post(people_url, {"user_id": outsider.id, "kind": "listed"}, format="json")
-        assert rejected.status_code == 400
+        res = self.client.post(self._url("repositories/"), body, format="json")
 
-    def test_my_choice_wins_over_the_repository_until_cleared(self) -> None:
-        repository = ReviewRepository.objects.for_team(self.team.id).create(
-            team=self.team, full_name="PostHog/posthog", flash_for=ReviewRepository.FlashFor.EVERYONE
+        assert res.status_code == expected_status, res.json()
+        assert not ReviewRepository.objects.for_team(self.team.id).exists()
+
+    def test_a_choice_equal_to_the_inherited_value_is_not_stored(self) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        url = self._url("repository_choices/")
+
+        flash = self.client.post(url, {**WEB, "mode": "flash"}, format="json")
+
+        assert flash.status_code == 200, flash.json()
+        assert flash.json()["my_result"] == {"flash": True, "reason": "own_repository_choice"}
+        assert flash.json()["choice"]["mode"] == "flash"
+
+        # The project rule is opt-in only, so "off" is what the user inherits: the choice clears.
+        off = self.client.post(url, {**WEB, "mode": "off"}, format="json")
+
+        assert off.json() == {"choice": None, "my_result": {"flash": False, "reason": "project_opt_in"}}
+        assert not ReviewUserRepositoryChoice.objects.for_team(self.team.id).exists()
+
+    def test_choices_need_a_repository_this_project_reviews(self) -> None:
+        res = self.client.post(self._url("repository_choices/"), {**WEB, "mode": "flash"}, format="json")
+
+        assert res.status_code == 400
+
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_overview_joins_the_cached_list_with_ownership_and_my_result(self, _cached: object) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        self._claim(self.other_team, ReviewInstallationClaim.Scope.SELECTED)
+        ReviewRepository.objects.for_team(self.other_team.id).create(
+            team=self.other_team, installation_id=INSTALLATION, full_name="example-org/api", selected=True
         )
-        choice_url = f"{self.url}{repository.id}/my_choice/"
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=INSTALLATION, full_name="example-org/docs", flash_for="everyone"
+        )
+        url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
-        set_off = self.client.put(choice_url, {"mode": "off"}, format="json")
+        everything = self.client.get(url)
 
-        assert set_off.status_code == 200, set_off.json()
-        assert set_off.json()["my_choice"] == "off"
-        assert set_off.json()["my_result"] == {"mode": "none", "reason": "own_repository_choice"}
+        assert everything.status_code == 200, everything.json()
+        assert everything.json()["claim_scope"] == "all"
+        entries = {entry["full_name"]: entry for entry in everything.json()["results"]}
+        assert entries["example-org/web"]["owner"] == "this_project"
+        assert entries["example-org/web"]["my_result"] == {"flash": False, "reason": "project_opt_in"}
+        assert entries["example-org/api"]["owner"] == "other_project"
+        assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
+        assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
+        assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
+        assert entries["example-org/docs"]["my_result"] == {"flash": True, "reason": "repository_everyone"}
 
-        cleared = self.client.delete(choice_url)
+        exceptions = self.client.get(f"{url}&view=exceptions").json()
+        assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]
+        page = self.client.get(f"{url}&view=in_project&limit=1").json()
+        assert (page["total"], page["has_more"], page["next_offset"]) == (2, True, 1)
+        searched = self.client.get(f"{url}&search=API").json()
+        assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
 
-        assert cleared.status_code == 200
-        assert cleared.json()["my_choice"] is None
-        assert cleared.json()["my_result"] == {"mode": "flash", "reason": "everyone"}
+    def test_overview_needs_a_connected_installation(self) -> None:
+        res = self.client.get(self._url("repository_overview/?installation_id=9999"))
 
-    def test_repositories_of_another_project_are_invisible(self) -> None:
-        other_team = Team.objects.create(organization=Organization.objects.create(name="other"))
-        other = ReviewRepository.objects.for_team(other_team.id).create(
-            team=other_team, full_name="Other/repo", flash_for=ReviewRepository.FlashFor.LISTED
+        assert res.status_code == 400
+
+    def test_settings_of_another_project_are_invisible(self) -> None:
+        other = ReviewRepository.objects.for_team(self.other_team.id).create(
+            team=self.other_team, installation_id=INSTALLATION, full_name="example-org/web", selected=True
         )
 
-        listed = self.client.get(self.url)
-        changed = self.client.patch(f"{self.url}{other.id}/", {"flash_for": "everyone"}, format="json")
+        listed = self.client.get(self._url("repositories/"))
+        removed = self.client.delete(self._url(f"repositories/{other.id}/"))
 
-        assert listed.status_code == 200
         assert listed.json() == []
-        assert changed.status_code == 404
-        other.refresh_from_db()
-        assert other.flash_for == ReviewRepository.FlashFor.LISTED
+        assert removed.status_code == 404
+        assert ReviewRepository.objects.for_team(self.other_team.id).filter(id=other.id).exists()
+
+    def test_people_must_be_active_members(self) -> None:
+        outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@example.com", None)
+
+        res = self.client.post(
+            self._url("project_settings/people/"), {"user_id": outsider.id, "kind": "listed"}, format="json"
+        )
+
+        assert res.status_code == 400

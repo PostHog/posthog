@@ -426,7 +426,6 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             resp = self.client.get(f"/api/projects/{self.team.id}/review_hog/settings/")
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIs(resp.json()["can_trigger_reviews"], True)
         self.assertEqual(resp.json()["show_internal_features"], is_automation_project)
         if is_automation_project:
             mock_stamphog.assert_called_once_with(self.team.id)

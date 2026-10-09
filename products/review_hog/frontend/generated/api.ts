@@ -10,21 +10,31 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PatchedReviewBlindSpotsConfigSelectApi,
+    PatchedReviewInstallationClaimUpdateApi,
     PatchedReviewPerspectiveConfigUpdateApi,
-    PatchedReviewRepositoryUpdateApi,
+    PatchedReviewProjectSettingsApi,
     PatchedReviewResolutionConfigSelectApi,
     PatchedReviewUserSettingsApi,
     PatchedReviewValidatorConfigSelectApi,
     ReviewBlindSpotsConfigApi,
     ReviewDetailApi,
+    ReviewHogRepositoryOverviewRetrieveParams,
     ReviewHogReviewsListParams,
     ReviewHogReviewsPerspectiveStatsRetrieveParams,
+    ReviewInstallationClaimApi,
+    ReviewInstallationClaimCreateApi,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
+    ReviewProjectSettingsApi,
     ReviewRecentReviewsPageApi,
     ReviewRepositoryApi,
-    ReviewRepositoryChoiceRequestApi,
+    ReviewRepositoryChoiceApi,
+    ReviewRepositoryChoiceWriteApi,
+    ReviewRepositoryChoiceWriteResponseApi,
+    ReviewRepositoryOverviewApi,
     ReviewRepositoryPersonRequestApi,
+    ReviewRepositoryWriteApi,
+    ReviewRepositoryWriteResponseApi,
     ReviewResolutionConfigApi,
     ReviewTriggerRequestApi,
     ReviewTriggerResponseApi,
@@ -89,6 +99,89 @@ export const reviewHogBlindSpotsPartialUpdate = async (
     })
 }
 
+export const getReviewHogInstallationClaimsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/installation_claims/`
+}
+
+/**
+ * Which repositories of each connected GitHub installation this project reviews.
+ *
+ * Project members can read the claims. Only project admins can change them, and every change goes
+ * to the activity log. The project settings response lists every connected installation, also the
+ * ones without a claim.
+ */
+export const reviewHogInstallationClaimsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewInstallationClaimApi[]> => {
+    return apiMutator<ReviewInstallationClaimApi[]>(getReviewHogInstallationClaimsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogInstallationClaimsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/installation_claims/`
+}
+
+/**
+ * Choose which repositories of a connected GitHub installation this project reviews.
+ * @summary Claim a GitHub installation
+ */
+export const reviewHogInstallationClaimsCreate = async (
+    projectId: string,
+    reviewInstallationClaimCreateApi: ReviewInstallationClaimCreateApi,
+    options?: RequestInit
+): Promise<ReviewInstallationClaimApi> => {
+    return apiMutator<ReviewInstallationClaimApi>(getReviewHogInstallationClaimsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewInstallationClaimCreateApi),
+    })
+}
+
+export const getReviewHogInstallationClaimsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/installation_claims/${id}/`
+}
+
+/**
+ * Switch between all repositories and only selected repositories. Switching to selected removes the exceptions of the repositories that leave this project. Personal choices stay.
+ * @summary Change a GitHub installation claim
+ */
+export const reviewHogInstallationClaimsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewInstallationClaimUpdateApi?: PatchedReviewInstallationClaimUpdateApi,
+    options?: RequestInit
+): Promise<ReviewInstallationClaimApi> => {
+    return apiMutator<ReviewInstallationClaimApi>(getReviewHogInstallationClaimsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewInstallationClaimUpdateApi),
+    })
+}
+
+export const getReviewHogInstallationClaimsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/installation_claims/${id}/`
+}
+
+/**
+ * Remove the claim, so this project reviews no repository of the installation. Its selected repositories and exceptions there are removed too. Personal choices stay.
+ * @summary Stop reviewing a GitHub installation
+ */
+export const reviewHogInstallationClaimsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getReviewHogInstallationClaimsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getReviewHogPerspectivesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/review_hog/perspectives/`
 }
@@ -129,16 +222,94 @@ export const reviewHogPerspectivesPartialUpdate = async (
     })
 }
 
+export const getReviewHogProjectSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/project_settings/`
+}
+
+/**
+ * The project rule for automatic Flash reviews, bot pull requests, the Full review defaults, and the connected GitHub installations.
+ * @summary Get the project's ReviewHog rule
+ */
+export const reviewHogProjectSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewProjectSettingsApi> => {
+    return apiMutator<ReviewProjectSettingsApi>(getReviewHogProjectSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogProjectSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/project_settings/`
+}
+
+/**
+ * Partially update the project rule. Only the provided fields change. Project admins only.
+ * @summary Update the project's ReviewHog rule
+ */
+export const reviewHogProjectSettingsPartialUpdate = async (
+    projectId: string,
+    patchedReviewProjectSettingsApi?: NonReadonly<PatchedReviewProjectSettingsApi>,
+    options?: RequestInit
+): Promise<ReviewProjectSettingsApi> => {
+    return apiMutator<ReviewProjectSettingsApi>(getReviewHogProjectSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewProjectSettingsApi),
+    })
+}
+
+export const getReviewHogProjectSettingsPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/project_settings/people/`
+}
+
+/**
+ * Add a project member to the project rule's 'listed' or 'excepted' list. Project admins only.
+ * @summary Add a person to a project rule list
+ */
+export const reviewHogProjectSettingsPeopleCreate = async (
+    projectId: string,
+    reviewRepositoryPersonRequestApi: ReviewRepositoryPersonRequestApi,
+    options?: RequestInit
+): Promise<ReviewProjectSettingsApi> => {
+    return apiMutator<ReviewProjectSettingsApi>(getReviewHogProjectSettingsPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRepositoryPersonRequestApi),
+    })
+}
+
+export const getReviewHogProjectSettingsPeopleDestroyUrl = (projectId: string, personId: string) => {
+    return `/api/projects/${projectId}/review_hog/project_settings/people/${personId}/`
+}
+
+/**
+ * Remove one entry from the project rule's 'listed' or 'excepted' list. Project admins only.
+ * @summary Remove a person from a project rule list
+ */
+export const reviewHogProjectSettingsPeopleDestroy = async (
+    projectId: string,
+    personId: string,
+    options?: RequestInit
+): Promise<ReviewProjectSettingsApi> => {
+    return apiMutator<ReviewProjectSettingsApi>(getReviewHogProjectSettingsPeopleDestroyUrl(projectId, personId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getReviewHogRepositoriesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/review_hog/repositories/`
 }
 
 /**
- * The repositories where PostHog Review runs automatic reviews for this project.
+ * The repositories this project has settings for: selected repositories and repository exceptions.
  *
- * Any project member can add a repository, change its rule, and change its lists. Every such change
- * goes to the activity log. The `my_choice` action stores the requesting user's own choice for their
- * pull requests in one repository.
+ * Project members can read them. Only project admins can change them, and every change goes to the
+ * activity log. A repository has settings in one project at most.
  */
 export const reviewHogRepositoriesList = async (
     projectId: string,
@@ -155,41 +326,19 @@ export const getReviewHogRepositoriesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Add a GitHub repository, so pull requests there can get automatic reviews. By default everyone gets Flash reviews there, except bots and excepted people. A person's own choice always wins.
- * @summary Add a repository
+ * Include a repository into this project, remove it, or set or clear its exception. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it.
+ * @summary Save a repository's settings
  */
 export const reviewHogRepositoriesCreate = async (
     projectId: string,
-    reviewRepositoryApi: NonReadonly<ReviewRepositoryApi>,
+    reviewRepositoryWriteApi: ReviewRepositoryWriteApi,
     options?: RequestInit
-): Promise<ReviewRepositoryApi> => {
-    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesCreateUrl(projectId), {
+): Promise<ReviewRepositoryWriteResponseApi> => {
+    return apiMutator<ReviewRepositoryWriteResponseApi>(getReviewHogRepositoriesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(reviewRepositoryApi),
-    })
-}
-
-export const getReviewHogRepositoriesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/review_hog/repositories/${id}/`
-}
-
-/**
- * Change who gets automatic Flash reviews in the repository, and whether bots are excluded. Only the provided fields change.
- * @summary Change a repository's rule
- */
-export const reviewHogRepositoriesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedReviewRepositoryUpdateApi?: PatchedReviewRepositoryUpdateApi,
-    options?: RequestInit
-): Promise<ReviewRepositoryApi> => {
-    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedReviewRepositoryUpdateApi),
+        body: JSON.stringify(reviewRepositoryWriteApi),
     })
 }
 
@@ -198,8 +347,8 @@ export const getReviewHogRepositoriesDestroyUrl = (projectId: string, id: string
 }
 
 /**
- * Remove the repository. Pull requests there stop getting automatic reviews, and its lists and everyone's own choices for it are deleted.
- * @summary Remove a repository
+ * Remove the repository from this project and clear its exception and lists. With an 'all repositories' claim the repository stays in the project and follows the project rule.
+ * @summary Remove a repository's settings
  */
 export const reviewHogRepositoriesDestroy = async (
     projectId: string,
@@ -212,54 +361,13 @@ export const reviewHogRepositoriesDestroy = async (
     })
 }
 
-export const getReviewHogRepositoriesMyChoiceUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/review_hog/repositories/${id}/my_choice/`
-}
-
-/**
- * Set the requesting user's own automatic review for their pull requests in this repository. It wins over their default_review_mode and over the repository's rule.
- * @summary Set my choice for a repository
- */
-export const reviewHogRepositoriesMyChoiceUpdate = async (
-    projectId: string,
-    id: string,
-    reviewRepositoryChoiceRequestApi: ReviewRepositoryChoiceRequestApi,
-    options?: RequestInit
-): Promise<ReviewRepositoryApi> => {
-    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesMyChoiceUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(reviewRepositoryChoiceRequestApi),
-    })
-}
-
-export const getReviewHogRepositoriesMyChoiceDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/review_hog/repositories/${id}/my_choice/`
-}
-
-/**
- * Clear the requesting user's own choice for this repository, so their default_review_mode applies again.
- * @summary Clear my choice for a repository
- */
-export const reviewHogRepositoriesMyChoiceDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ReviewRepositoryApi> => {
-    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesMyChoiceDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getReviewHogRepositoriesPeopleCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/review_hog/repositories/${id}/people/`
 }
 
 /**
- * Add a project member to the repository's 'listed' or 'excepted' list.
- * @summary Add a person to a repository list
+ * Add a project member to the 'listed' or 'excepted' list of the repository exception.
+ * @summary Add a person to a repository exception list
  */
 export const reviewHogRepositoriesPeopleCreate = async (
     projectId: string,
@@ -280,8 +388,8 @@ export const getReviewHogRepositoriesPeopleDestroyUrl = (projectId: string, id: 
 }
 
 /**
- * Remove one entry from the repository's 'listed' or 'excepted' list.
- * @summary Remove a person from a repository list
+ * Remove one entry from the 'listed' or 'excepted' list of the repository exception.
+ * @summary Remove a person from a repository exception list
  */
 export const reviewHogRepositoriesPeopleDestroy = async (
     projectId: string,
@@ -292,6 +400,100 @@ export const reviewHogRepositoriesPeopleDestroy = async (
     return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesPeopleDestroyUrl(projectId, id, personId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getReviewHogRepositoryChoicesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/repository_choices/`
+}
+
+/**
+ * The requesting user's own automatic review choices for repositories of this project.
+ *
+ * Any project member can manage their own choices. A choice stores only what differs from what the
+ * user inherits, so picking the inherited value clears it.
+ */
+export const reviewHogRepositoryChoicesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewRepositoryChoiceApi[]> => {
+    return apiMutator<ReviewRepositoryChoiceApi[]>(getReviewHogRepositoryChoicesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogRepositoryChoicesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/repository_choices/`
+}
+
+/**
+ * Set the requesting user's own automatic review for their pull requests in one repository. It wins over their default and over the repository and project rules.
+ * @summary Set my choice for a repository
+ */
+export const reviewHogRepositoryChoicesCreate = async (
+    projectId: string,
+    reviewRepositoryChoiceWriteApi: ReviewRepositoryChoiceWriteApi,
+    options?: RequestInit
+): Promise<ReviewRepositoryChoiceWriteResponseApi> => {
+    return apiMutator<ReviewRepositoryChoiceWriteResponseApi>(getReviewHogRepositoryChoicesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRepositoryChoiceWriteApi),
+    })
+}
+
+export const getReviewHogRepositoryChoicesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repository_choices/${id}/`
+}
+
+/**
+ * Clear the requesting user's own choice for one repository, so their default applies again.
+ * @summary Clear my choice for a repository
+ */
+export const reviewHogRepositoryChoicesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getReviewHogRepositoryChoicesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getReviewHogRepositoryOverviewRetrieveUrl = (
+    projectId: string,
+    params: ReviewHogRepositoryOverviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/repository_overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/repository_overview/`
+}
+
+/**
+ * Every repository the GitHub installation can see, with the project that reviews it, this project's settings, the requesting user's choice, and the automatic review the requesting user gets.
+ * @summary List the repositories of a GitHub installation with their review settings
+ */
+export const reviewHogRepositoryOverviewRetrieve = async (
+    projectId: string,
+    params: ReviewHogRepositoryOverviewRetrieveParams,
+    options?: RequestInit
+): Promise<ReviewRepositoryOverviewApi> => {
+    return apiMutator<ReviewRepositoryOverviewApi>(getReviewHogRepositoryOverviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -445,7 +647,7 @@ export const getReviewHogSettingsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Fetch the requesting user's ReviewHog settings for this project, creating the row with defaults on first read.
+ * Fetch the requesting user's effective ReviewHog preferences for this project, and where each value comes from.
  * @summary Get the user's ReviewHog settings
  */
 export const reviewHogSettingsRetrieve = async (
@@ -463,7 +665,7 @@ export const getReviewHogSettingsPartialUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Partially update the requesting user's ReviewHog settings for this project. Only the provided fields change.
+ * Partially update the requesting user's ReviewHog preferences for this project. Only the provided fields change. A value equal to the inherited one clears the user's own value.
  * @summary Update the user's ReviewHog settings
  */
 export const reviewHogSettingsPartialUpdate = async (
