@@ -119,6 +119,12 @@ _RESOLUTION_HEARTBEAT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
 # The activity's final-attempt turn fallback keys off the same constant — don't let them drift.
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
+# Ruleset rule types that never refuse a fix push. Fix commits are signed by GitHub, sit on top of
+# the head, and never force-push, create or delete the branch. Any other rule type, including types
+# GitHub adds later, holds the run.
+_RULES_FIX_PUSH_SATISFIES = frozenset(
+    {"required_signatures", "required_linear_history", "non_fast_forward", "creation", "deletion"}
+)
 
 
 @frozen
@@ -207,15 +213,39 @@ def _merge_queue_state(input: ResolveThreadsInput, github: GitHubIntegration) ->
 
 
 def _branch_protected(input: ResolveThreadsInput, github: GitHubIntegration, head_branch: str) -> bool:
-    """Whether GitHub protects the PR's head branch. A failed read raises, so the run never pushes blind."""
+    """Whether protection on the PR's head branch could refuse or restrict the fix push.
+
+    GitHub sets `protected` for classic protection and also for any ruleset that matches the branch,
+    so a branch whose only rule asks for signed commits reads as protected. Classic protection holds
+    the run; a ruleset match holds it only for a rule type outside `_RULES_FIX_PUSH_SATISFIES`.
+    A failed read raises, so the run never pushes blind.
+    """
+    token, installation_id = github.get_access_token(), github.github_installation_id
+    branch_path = quote(head_branch, safe="/")
     branch = github_api_request(
         "GET",
-        f"/repos/{input.owner}/{input.repo}/branches/{quote(head_branch, safe='/')}",
-        token=github.get_access_token(),
-        installation_id=github.github_installation_id,
+        f"/repos/{input.owner}/{input.repo}/branches/{branch_path}",
+        token=token,
+        installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/branches/{branch}",
     ).json()
-    return isinstance(branch, dict) and branch.get("protected") is True
+    if not isinstance(branch, dict) or branch.get("protected") is not True:
+        return False
+    protection = branch.get("protection")
+    # Without `protection.enabled` a classic protection cannot be told apart from a ruleset match.
+    if not isinstance(protection, dict) or protection.get("enabled") is not False:
+        return True
+    rules = github_api_request(
+        "GET",
+        f"/repos/{input.owner}/{input.repo}/rules/branches/{branch_path}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/rules/branches/{branch}",
+        params={"per_page": 100},
+    ).json()
+    if not isinstance(rules, list):
+        return True
+    return any(not isinstance(rule, dict) or rule.get("type") not in _RULES_FIX_PUSH_SATISFIES for rule in rules)
 
 
 def _commit_hold(
