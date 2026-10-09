@@ -342,7 +342,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
             repositories = [
                 repository for repository in repositories if search in str(repository["full_name"]).casefold()
             ]
-        overview = RepositoryOverview(self.effective_team, cast(User, request.user), installation_id)
+        overview = RepositoryOverview(self.effective_team, cast(User, request.user), installation_id, repositories)
         offset: int = query.validated_data["offset"]
         entries, total = overview.page(
             repositories, view=query.validated_data["view"], offset=offset, limit=query.validated_data["limit"]

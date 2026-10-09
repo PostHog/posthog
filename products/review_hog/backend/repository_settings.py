@@ -326,11 +326,14 @@ class RepositoryOverview:
     The decision comes from the same resolver as the automatic dispatch, so the UI never re-implements it.
     """
 
-    def __init__(self, team: Team, user: User, installation_id: str) -> None:
+    def __init__(self, team: Team, user: User, installation_id: str, repositories: Sequence[Mapping[str, Any]]) -> None:
         self.team = team
         self.user = user
         self.installation_id = installation_id
-        self.rows = list(ReviewRepository.objects.unscoped().filter(installation_id=installation_id))
+        self.rows = RepositoryOwnership.rows_for_listing(
+            (str(repository["full_name"]) for repository in repositories),
+            (repository["id"] for repository in repositories if isinstance(repository.get("id"), int)),
+        )
         self.all_claim = RepositoryOwnership.all_claim(installation_id)
         own_rows = [row for row in self.rows if row.team_id == team.id]
         self.rules = ProjectRuleContext.load(team.id, own_rows)

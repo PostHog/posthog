@@ -13,12 +13,13 @@ webhook handler drop events of repositories nobody reviews before it queues a ta
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.functions import Lower
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -87,6 +88,17 @@ class RepositoryOwnership:
         if ref.github_repo_id is not None:
             name_or_id |= Q(github_repo_id=ref.github_repo_id)
         return list(ReviewRepository.objects.unscoped().filter(name_or_id))
+
+    @staticmethod
+    def rows_for_listing(full_names: Iterable[str], github_repo_ids: Iterable[int]) -> list[ReviewRepository]:
+        """The rows of every repository in one listing, matched by name or id like `rows_for`."""
+        return list(
+            ReviewRepository.objects.unscoped()
+            .annotate(name_lower=Lower("full_name"))
+            .filter(
+                Q(name_lower__in={name.lower() for name in full_names}) | Q(github_repo_id__in=set(github_repo_ids))
+            )
+        )
 
     @staticmethod
     def all_claim(installation_id: str) -> ReviewInstallationClaim | None:

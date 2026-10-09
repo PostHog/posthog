@@ -275,8 +275,9 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
     def test_overview_joins_the_cached_list_with_ownership_and_my_result(self, _cached: object) -> None:
         self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
         self._claim(self.other_team, ReviewInstallationClaim.Scope.SELECTED)
+        # Stored before a reinstall of the GitHub App, so under an earlier installation id.
         ReviewRepository.objects.for_team(self.other_team.id).create(
-            team=self.other_team, installation_id=INSTALLATION, full_name="example-org/api", selected=True
+            team=self.other_team, installation_id="1000", full_name="example-org/api", selected=True
         )
         ReviewRepository.objects.for_team(self.team.id).create(
             team=self.team, installation_id=INSTALLATION, full_name="example-org/docs", flash_for="everyone"
