@@ -149,8 +149,13 @@ or `detail_filters` when the customer can't name the flag, then come back here f
 
 You rarely need this — §2 reproduces evaluation authoritatively. Reach for it only when you can't
 reach the instance (e.g. a cross-region block) and must recompute from an exported `distinct_id`.
-PostHog's flag hash, verified against `rust/feature-flags/src/flags/flag_matching.rs` and
-`flag_matching_utils.rs`:
+
+**Treat a result as a hypothesis, never as evidence in a reply.** This is prose restating what
+`rust/feature-flags/src/flags/flag_matching.rs` and `flag_matching_utils.rs` do, and no test binds the
+two together — a change to a hash input, comparison, aggregation, or bucketing rule leaves this
+returning a plausible wrong answer with nothing to flag it. Read those two files before you rely on it,
+use the result only to decide where to look next, and quote a value to a customer only once §2 or a
+`$feature_flag_called` event has confirmed it. PostHog's flag hash:
 
 - **Rollout gate** (is the user in the rolled-out slice): `h = sha1(f"{flag_key}.{identifier}")`,
   take the first 15 hex digits and divide by `0xfffffffffffffff`; the user is **in** if
@@ -176,9 +181,10 @@ so this runs outside the database.
 
 §2 reproduces the evaluation but not the **caller**, so on a flag scoped to `client` or `server` it
 can't tell you whether the customer's app receives the flag at all. This does. Replay the flags request
-twice against the customer's region, changing only the `User-Agent`, and compare whether the flag's key
-is **present** in the response — its value is beside the point, since an absent key is what a
-server-side SDK reports as `false`.
+against the customer's region three times, changing only the `User-Agent`, and compare whether the
+flag's key is **present** in each response. Presence is the signal, not the value: the response keeps
+the flags it evaluated to `false`, so an absent key means the flag never reached evaluation — which is
+also what a server-side SDK surfaces as `false`.
 
 **Keep the ticket's values out of the command text.** The `distinct_id` is whatever the SDK sent and
 it reaches you through the ticket, so a `'` in it closes a quoted shell string and the rest runs as
@@ -203,18 +209,27 @@ one you pick:
 ```bash
 URL='https://<region>.i.posthog.com/flags/?v=2'
 
-# A: as the customer's caller. `-A ''` sends no user agent, like older SDK builds and
-#    hand-rolled callers. B: as a recognized SDK (posthog-js/<version> to model a browser).
+# A — no verdict: `-A ''` sends no user agent, like an older SDK build, a hand-rolled
+#     caller, or a header-stripping proxy.
 curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+# B — client: posthog-js classifies as client-side (so does a browser Mozilla/… string).
+curl -s -X POST "$URL" -H 'User-Agent: posthog-js/<version>' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+# C — server: posthog-node classifies as server-side.
 curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
 ```
 
-A flag present in B and missing from A confirms runtime scoping.
+**Compare A against the arm matching the flag's own `evaluation_runtime`** — B for a `client` flag, C
+for a `server` one. A request with no verdict is held to `all` flags, so a runtime-scoped flag is
+missing from A whichever way it's scoped; only the matching arm shows it should have been there. Run
+one arm and you get the trap: a `client`-scoped flag is absent from C as well, so a C-vs-A comparison
+"clears" runtime scoping and sends you back to targeting. A flag present in its matching arm and
+missing from A confirms runtime scoping.
 
 **Set the header deliberately.** Bare `curl` sends `curl/<version>`, which is recognized as
-server-side, so an unadorned request reproduces arm B and passes while the customer's caller still
-fails. `<project_api_key>` is their public key, the one already in their client bundle. Older SDKs
-post to `/decide`, which runs the same classification.
+server-side, so an unadorned request quietly reproduces arm C rather than arm A. `<project_api_key>` is
+their public key, the one already in their client bundle. Older SDKs post to `/decide`, which runs the
+same classification — but its response shape returns only enabled flags, so run this against `/flags`
+where an evaluated `false` stays visible.
 
 ## Handing off
 
