@@ -26,6 +26,7 @@ from products.posthog_ai.eval_harness.engines.types import (
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
+from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
 from products.posthog_ai.evals.sql import eval_sql as sql_eval
@@ -131,6 +132,79 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "Braintrust: https://experiments.example/e" in output
     assert f"Agent logs: {tmp_path}" in output
     assert output.count("PASS") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stats, expected",
+    [
+        pytest.param(
+            ScorerTrialStats(
+                name="s",
+                cases=10,
+                trials=3,
+                mean=0.7,
+                ci_low=0.61,
+                ci_high=0.83,
+                complete_cases=9,
+                short_cases=1,
+                pass_all=0.4,
+                pass_any=0.85,
+                flaky_cases=4,
+            ),
+            "    s: 72.0% (95% CI 61.0-83.0%)\n"
+            "      pass^3 40.0% | pass@3 85.0% | 4/9 cases flaky | 1 cases short of 3 trials\n",
+            id="multiple_trials",
+        ),
+        pytest.param(
+            ScorerTrialStats(
+                name="s",
+                cases=10,
+                trials=1,
+                mean=0.7,
+                ci_low=0.61,
+                ci_high=0.83,
+                complete_cases=10,
+                short_cases=0,
+                pass_all=None,
+                pass_any=None,
+                flaky_cases=0,
+            ),
+            "    s: 72.0% (95% CI 61.0-83.0%)\n  PostHog",
+            id="single_trial",
+        ),
+        pytest.param(
+            ScorerTrialStats(
+                name="s",
+                cases=10,
+                trials=3,
+                mean=0.7,
+                ci_low=0.61,
+                ci_high=0.83,
+                complete_cases=0,
+                short_cases=10,
+                pass_all=None,
+                pass_any=None,
+                flaky_cases=0,
+            ),
+            "      pass^3 n/a | pass@3 n/a | 0/0 cases flaky | 10 cases short of 3 trials\n",
+            id="no_case_completed_every_trial",
+        ),
+    ],
+)
+async def test_reporter_shows_the_engine_score_with_trial_stats(
+    stats: ScorerTrialStats, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reporter = ProgressReporter(total_suites=1)
+    await reporter.record_summary(
+        "exp",
+        EvalSummary(engine_name="Braintrust", experiment_name="exp", scores={"s": AggregateScore("s", 0.72)}),
+        trial_stats=[stats],
+    )
+    await reporter.record_posthog_evaluations_url("exp", "bd8b7f0d-7cc3-4ea3-a3a6-53be0d9e6eb4")
+    reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=1.0)
+
+    assert expected in capsys.readouterr().out
 
 
 def test_tool_call_spans_carry_the_resolved_tool_and_its_arguments() -> None:
@@ -313,7 +387,10 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         agent_model="test-model",
         agent_runtime="claude",
         skill_delivery="bundled",
+        reasoning_effort=None,
         trials=1,
+        git_sha="test-sha",
+        git_dirty=False,
         engine=engine,
         reporter=reporter,
     )

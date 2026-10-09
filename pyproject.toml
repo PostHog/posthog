@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.63.0",
+    "posthoganalytics==7.66.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -117,7 +117,7 @@ dependencies = [
     "pymssql==2.3.8",
     "pymysql==1.1.1",
     "pymongo==4.15.2",
-    "pyroscope-io~=1.0.3",
+    "pyroscope-io~=1.2.4",
     "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-docx==1.2.0",
@@ -712,17 +712,6 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
-    # TODO: workflows presentation wave — the moved viewsets still reach in-product internals and
-    # sibling products (cdp, cohorts, feature_flags, messaging) directly. Thin each viewset to
-    # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
-    # this list is empty. Only delete entries here: a new import from these views goes through
-    # the facade.
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.workflow_proposal",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
@@ -804,10 +793,6 @@ ignore_imports = [
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.batch_imports",
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.support_batch_imports",
     "products.marketing_analytics.backend.routes -> products.marketing_analytics.backend.api",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_categories",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_preferences",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
     "products.product_tours.backend.routes -> products.product_tours.backend.api",
     "products.pulse.backend.routes -> products.pulse.backend.api.brief",
@@ -868,7 +853,6 @@ ignore_imports = [
     "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
-    "products.workflows.backend.facade.api -> products.workflows.backend.presentation.views.hog_flow",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
     "products.experiments.backend.facade.api -> rest_framework",

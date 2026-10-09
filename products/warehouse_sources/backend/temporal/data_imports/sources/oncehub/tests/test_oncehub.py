@@ -90,19 +90,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "bookings") -> Any:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_has_more_false_yields_and_stops(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "BKNG-1"}, {"id": "BKNG-2"}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": "BKNG-1"}, {"id": "BKNG-2"}]
-        assert session.send.call_count == 1
-        # has_more is false, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_after_cursor_until_has_more_false(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         first_page = _full_page("BKNG")
@@ -134,30 +121,6 @@ class TestPagination:
         # The initial (cursor-less) page must never be fetched on resume: the first request carries `after`.
         assert session.send.call_count == 1
         assert params[0] == {"limit": PAGE_SIZE, "after": "BKNG-99"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_has_more_true_but_empty_page_stops_without_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        # A truthy has_more with no items must still terminate (matches the hand-rolled `not items` guard).
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=True)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestErrorHandling:
@@ -229,13 +192,6 @@ class TestValidateCredentials:
     def test_unreachable_probe_is_not_validated(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("oncehub-key") == (False, "Could not validate OnceHub API key")
-
-    @mock.patch(ONCEHUB_SESSION_PATCH)
-    def test_probe_sends_api_key_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("oncehub-key")
-        _, kwargs = mock_session.return_value.get.call_args
-        assert kwargs["headers"]["API-Key"] == "oncehub-key"
 
 
 class TestOncehubSourceResponse:

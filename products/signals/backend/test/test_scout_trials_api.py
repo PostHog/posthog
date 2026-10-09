@@ -50,6 +50,7 @@ from products.signals.backend.test.test_scout_harness_api import _authenticate_a
 from products.signals.backend.test.test_scout_trial_judge import _reference_context
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
+from products.tasks.backend.models import TaskRun
 
 
 class TestScoutTrialAPI(APIBaseTest):
@@ -73,12 +74,14 @@ class TestScoutTrialAPI(APIBaseTest):
         _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.trial_run.task_run.task_id)
 
     def test_operator_run_reads_mark_only_trial_content(self) -> None:
+        ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
         for run, private in ((self.trial_run, True), (self.production, False)):
             run.task_run.task.created_by = self.user
             run.task_run.task.save(update_fields=["created_by"])
             response = self.client.get(f"{self.trial_runs_url}{run.id}/")
             assert response.status_code == 200, response.data
             assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
+            assert "trial_state" not in response.json()
 
     def test_memory_routes_from_credential_and_cannot_write_production_or_sibling(self) -> None:
         original = SignalScratchpad.objects.create(team=self.team, key="finding:shared", content="Production value")
@@ -118,6 +121,7 @@ class TestScoutTrialAPI(APIBaseTest):
         assert response.json() == []
 
     def test_ordinary_scout_cannot_read_trial_runs_and_own_detail_hides_labels(self) -> None:
+        ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=self.trial_run.skill_name)
         config.emit = False
         config.save(update_fields=["emit"])
@@ -125,11 +129,13 @@ class TestScoutTrialAPI(APIBaseTest):
         response = self.client.get(self.trial_runs_url)
         assert response.status_code == 200, response.data
         assert [row["run_id"] for row in response.json()] == [str(self.production.id)]
+        assert all("trial_state" not in row for row in response.json())
         assert self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/").status_code == 404
         self._as_trial()
         response = self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/")
         assert response.status_code == 200, response.data
         assert "scout_trial" not in response.json()["metadata"]
+        assert "trial_state" not in response.json()
         assert self.client.get(f"{self.trial_runs_url}{self.other.id}/").status_code == 404
         configs = self.client.get(f"/api/projects/{self.team.id}/signals/scout/configs/")
         assert configs.status_code == 200, configs.data
@@ -223,13 +229,32 @@ class TestScoutTrialAPI(APIBaseTest):
         assert response.status_code == 400, response.data
         assert response.json()["detail"] == f"report {own_id} not found"
 
-    def test_trial_scope_without_bound_run_fails_closed(self) -> None:
-        _authenticate_as_scout(
-            self, scopes="signals_scout_experiment", sandbox_task_id=self.production.task_run.task_id
-        )
+    @parameterized.expand(["ordinary_run", "unregistered_token", "wrong_token", "sibling_run"])
+    def test_trial_scope_without_bound_run_fails_closed(self, binding: str) -> None:
+        if binding == "ordinary_run":
+            _authenticate_as_scout(
+                self, scopes="signals_scout_experiment", sandbox_task_id=self.production.task_run.task_id
+            )
+        else:
+            self._as_trial()
+            run = self.trial_run.task_run
+            run.refresh_from_db()
+            if binding == "sibling_run":
+                TaskRun.objects.create(
+                    task=run.task,
+                    team=self.team,
+                    status=TaskRun.Status.IN_PROGRESS,
+                    state={"sandbox_oauth_token_ids": run.state["sandbox_oauth_token_ids"]},
+                )
+            TaskRun.update_state_atomic(
+                run.id, updates={"sandbox_oauth_token_ids": [str(uuid4())] if binding == "wrong_token" else []}
+            )
+        response = self.client.get(self.memory_url)
+        assert response.status_code == 403, response.data
         response = self.client.post(self.memory_url, {"key": "untrusted", "content": "Must not persist"})
         assert response.status_code == 403, response.data
         assert not SignalScratchpad.objects.filter(team=self.team, key="untrusted").exists()
+        assert ScoutTrialStore(self.trial_run).search_memory(key="untrusted") == []
 
 
 @override_settings(
@@ -427,14 +452,23 @@ class TestScoutTrialLaunch(APIBaseTest):
         valid.task_run.task.created_by = self.user
         valid.task_run.task.origin_key = f"scout-trial:{launch.id}"
         valid.task_run.task.save(update_fields=["created_by", "origin_key"])
-        valid.task_run.state = {"scout_trial": marker, "model": "Changed during execution"}
+        valid.task_run.state = {"model": "Changed during execution"}
         valid.task_run.save(update_fields=["state"])
-        other_operator = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        other_operator = _make_run(
+            self.team,
+            scout_config=self.config,
+            metadata={"scout_trial": {**marker, "launch_id": str(uuid4())}},
+        )
         other_operator.task_run.task.created_by = self._create_user("another-operator@example.com")
         other_operator.task_run.task.save(update_fields=["created_by"])
-        invalid = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        invalid = _make_run(
+            self.team,
+            scout_config=self.config,
+            metadata={"scout_trial": {**marker, "launch_id": str(uuid4())}},
+        )
         invalid.task_run.task.created_by = self.user
-        invalid.task_run.task.save(update_fields=["created_by"])
+        invalid.task_run.task.origin_key = "ordinary-task"
+        invalid.task_run.task.save(update_fields=["created_by", "origin_key"])
         _make_run(self.team, scout_config=self.config)
         self.trials_flag.return_value = False
         response = self.client.get(f"{base}trial_history/")
@@ -765,7 +799,6 @@ class TestScoutTrialLaunch(APIBaseTest):
         run.task_run.task.origin_key = f"scout-trial:{launch.id}"
         run.task_run.task.save(update_fields=["created_by", "origin_product", "origin_key"])
         run.task_run.state = {
-            "scout_trial": marker,
             "runtime_adapter": launch.runtime_adapter,
             "model": launch.model,
             "reasoning_effort": launch.reasoning_effort,

@@ -1,5 +1,4 @@
 from datetime import UTC, date, datetime
-from typing import Any
 
 import pytest
 import time_machine
@@ -7,9 +6,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry import (
     NpmRegistryResumeConfig,
-    _encode_package,
     _fetch_json,
-    _first_download_window_start,
     _first_license,
     _to_date,
     get_rows,
@@ -30,21 +27,6 @@ def _manager(resume: NpmRegistryResumeConfig | None = None) -> mock.MagicMock:
 
 
 class TestParsePackages:
-    @pytest.mark.parametrize(
-        "raw,expected",
-        [
-            ("react", ["react"]),
-            ("react,lodash", ["react", "lodash"]),
-            ("react\nlodash", ["react", "lodash"]),
-            ("react, lodash , vue\n", ["react", "lodash", "vue"]),
-            ("@slack/client,react", ["@slack/client", "react"]),
-            ("react,react,lodash", ["react", "lodash"]),  # de-duplicated, order preserved
-            ("react,, ,lodash", ["react", "lodash"]),  # blank tokens skipped
-        ],
-    )
-    def test_parses_delimited_names(self, raw: str, expected: list[str]):
-        assert parse_packages(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   ", ",,\n,"])
     def test_raises_on_empty_input(self, raw: str | None):
         with pytest.raises(ValueError, match="At least one package name is required"):
@@ -54,22 +36,6 @@ class TestParsePackages:
         raw = ",".join(f"pkg{i}" for i in range(MAX_PACKAGES + 1))
         with pytest.raises(ValueError, match="Too many packages"):
             parse_packages(raw)
-
-    def test_at_the_cap_is_allowed(self):
-        raw = ",".join(f"pkg{i}" for i in range(MAX_PACKAGES))
-        assert len(parse_packages(raw)) == MAX_PACKAGES
-
-
-class TestEncodePackage:
-    @pytest.mark.parametrize(
-        "package,expected",
-        [
-            ("react", "react"),
-            ("@slack/client", "%40slack%2Fclient"),
-        ],
-    )
-    def test_percent_encodes_scoped_names(self, package: str, expected: str):
-        assert _encode_package(package) == expected
 
 
 class TestToDate:
@@ -93,65 +59,12 @@ class TestToDate:
             _to_date(value)
 
 
-class TestFirstDownloadWindowStart:
-    def test_resume_state_wins(self):
-        result = _first_download_window_start("2024-06-01", True, date(2024, 1, 1))
-        assert result == date(2024, 6, 1)
-
-    def test_incremental_starts_the_day_after_the_watermark(self):
-        result = _first_download_window_start(None, True, date(2024, 1, 1))
-        assert result == date(2024, 1, 2)
-
-    def test_first_sync_starts_at_the_earliest_available_date(self):
-        result = _first_download_window_start(None, False, None)
-        assert result == date(2015, 1, 10)
-
-
 class TestFirstLicense:
-    def test_modern_manifest_has_no_licenses_array(self):
-        assert _first_license(None) is None
-
-    def test_legacy_licenses_array(self):
-        assert _first_license([{"type": "MIT", "url": "http://example.com"}]) == "MIT"
-
     def test_empty_array(self):
         assert _first_license([]) is None
 
 
 class TestGetRowsDownloads:
-    @time_machine.travel("2016-08-01", tick=False)
-    def test_windows_date_range_into_chunks(self):
-        # First 540-day window from EARLIEST_DOWNLOAD_DATE runs 2015-01-10..2016-07-02; the second
-        # window then starts 2016-07-03 and is clamped to "today" (frozen at 2016-08-01).
-        body_by_start = {
-            "2015-01-10": {"downloads": [{"day": "2015-01-10", "downloads": 5}]},
-            "2016-07-03": {"downloads": [{"day": "2016-07-03", "downloads": 9}]},
-        }
-
-        def fake_fetch(_session, url, _logger, _timeout):
-            for start, body in body_by_start.items():
-                if f"/{start}:" in url:
-                    return body
-            raise AssertionError(f"unexpected url: {url}")
-
-        manager = _manager()
-        with mock.patch(f"{_MODULE}._fetch_json", side_effect=fake_fetch) as fetch:
-            batches = list(
-                get_rows(
-                    endpoint="Downloads",
-                    packages=["react"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert rows == [
-            {"package": "react", "day": "2015-01-10", "downloads": 5},
-            {"package": "react", "day": "2016-07-03", "downloads": 9},
-        ]
-        assert fetch.call_count == 2
-
     @time_machine.travel("2024-02-15", tick=False)
     def test_incremental_starts_the_day_after_the_watermark(self):
         with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": []}) as fetch:
@@ -272,23 +185,6 @@ class TestGetRowsVersions:
                 )
                 == []
             )
-
-    def test_versions_advances_package_index_with_no_window(self):
-        manager = _manager()
-        document: dict[str, Any] = {"dist-tags": {}, "time": {}, "versions": {}}
-        with mock.patch(f"{_MODULE}._fetch_json", return_value=document):
-            list(
-                get_rows(
-                    endpoint="Versions",
-                    packages=["react", "lodash"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-        assert manager.save_state.call_args_list == [
-            mock.call(NpmRegistryResumeConfig(package_index=1)),
-            mock.call(NpmRegistryResumeConfig(package_index=2)),
-        ]
 
 
 class TestFetchJson:

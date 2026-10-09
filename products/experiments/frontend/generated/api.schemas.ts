@@ -2094,6 +2094,56 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
+export type ExperimentApiBreakdownAttributionTypeApi =
+    (typeof ExperimentApiBreakdownAttributionTypeApi)[keyof typeof ExperimentApiBreakdownAttributionTypeApi]
+
+export const ExperimentApiBreakdownAttributionTypeApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    Step: 'step',
+} as const
+
+export type ExperimentApiPropertyBreakdownTypeApi =
+    (typeof ExperimentApiPropertyBreakdownTypeApi)[keyof typeof ExperimentApiPropertyBreakdownTypeApi]
+
+export const ExperimentApiPropertyBreakdownTypeApi = {
+    Event: 'event',
+    Person: 'person',
+    Session: 'session',
+} as const
+
+export interface ExperimentApiPropertyBreakdownApi {
+    /** Property name to break down by. */
+    property: string
+    /** Where the property lives. Defaults to 'event'. */
+    type?: ExperimentApiPropertyBreakdownTypeApi | null
+}
+
+export type GroupTypeIndexApi = (typeof GroupTypeIndexApi)[keyof typeof GroupTypeIndexApi]
+
+export const GroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export interface ExperimentApiGroupBreakdownApi {
+    /** Which group type the property belongs to. */
+    group_type_index: GroupTypeIndexApi
+    /** Property name to break down by. */
+    property: string
+    type?: 'group'
+}
+
+export interface ExperimentApiBreakdownFilterApi {
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: number | null
+    /** Properties to break the metric results down by. */
+    breakdowns?: (ExperimentApiPropertyBreakdownApi | ExperimentApiGroupBreakdownApi)[] | null
+}
+
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
 export const Kind1Api = {
@@ -2156,6 +2206,12 @@ export interface ExperimentApiRetentionStartApi {
 }
 
 export interface ExperimentApiMetricApi {
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels. */
+    breakdownAttributionType?: ExperimentApiBreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilterApi | null
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
     /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
@@ -2204,6 +2260,112 @@ export interface ExperimentApiMetricApi {
  * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
  */
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
+
+/**
+ * * `flag_off_while_running` - Flag Off While Running
+ * * `variant_shipped_while_running` - Variant Shipped While Running
+ * * `flag_live_after_end` - Flag Live After End
+ * * `flag_live_before_launch` - Flag Live Before Launch
+ * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `no_metric` - No Metric
+ * * `srm` - Sample Ratio Mismatch
+ * * `zero_exposures` - Zero Exposures
+ */
+export type ExperimentHealthFindingCodeEnumApi =
+    (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
+
+export const ExperimentHealthFindingCodeEnumApi = {
+    FlagOffWhileRunning: 'flag_off_while_running',
+    VariantShippedWhileRunning: 'variant_shipped_while_running',
+    FlagLiveAfterEnd: 'flag_live_after_end',
+    FlagLiveBeforeLaunch: 'flag_live_before_launch',
+    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    NoMetric: 'no_metric',
+    Srm: 'srm',
+    ZeroExposures: 'zero_exposures',
+} as const
+
+/**
+ * * `critical` - Critical severity
+ * * `warning` - Warning severity
+ * * `info` - Info severity
+ */
+export type ExperimentHealthFindingSeverityEnumApi =
+    (typeof ExperimentHealthFindingSeverityEnumApi)[keyof typeof ExperimentHealthFindingSeverityEnumApi]
+
+export const ExperimentHealthFindingSeverityEnumApi = {
+    Critical: 'critical',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `open_feature_flag` - Open Feature Flag
+ * * `adjust_distribution` - Adjust Distribution
+ * * `use_first_seen_variant` - Use First Seen Variant
+ * * `add_primary_metric` - Add Primary Metric
+ * * `add_secondary_metric` - Add Secondary Metric
+ * * `edit_exposure_criteria` - Edit Exposure Criteria
+ */
+export type ExperimentHealthFindingActionKindEnumApi =
+    (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
+
+export const ExperimentHealthFindingActionKindEnumApi = {
+    OpenFeatureFlag: 'open_feature_flag',
+    AdjustDistribution: 'adjust_distribution',
+    UseFirstSeenVariant: 'use_first_seen_variant',
+    AddPrimaryMetric: 'add_primary_metric',
+    AddSecondaryMetric: 'add_secondary_metric',
+    EditExposureCriteria: 'edit_exposure_criteria',
+} as const
+
+/**
+ * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
+ */
+export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | null }
+
+export interface ExperimentHealthFindingApi {
+    /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+     *
+     * * `flag_off_while_running` - Flag Off While Running
+     * * `variant_shipped_while_running` - Variant Shipped While Running
+     * * `flag_live_after_end` - Flag Live After End
+     * * `flag_live_before_launch` - Flag Live Before Launch
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `no_metric` - No Metric
+     * * `srm` - Sample Ratio Mismatch
+     * * `zero_exposures` - Zero Exposures */
+    code: ExperimentHealthFindingCodeEnumApi
+    /**
+     * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
+     * @nullable
+     */
+    subcode: string | null
+    /** How much the problem affects the results: critical, warning, or info.
+     *
+     * * `critical` - Critical severity
+     * * `warning` - Warning severity
+     * * `info` - Info severity */
+    severity: ExperimentHealthFindingSeverityEnumApi
+    /** One-line summary of the problem. */
+    title: string
+    /** What is wrong, what it does to the experiment, and how to fix it. */
+    detail: string
+    /** The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code. */
+    evidence: ExperimentHealthFindingApiEvidence
+    /** The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'. */
+    actions: ExperimentHealthFindingActionKindEnumApi[]
+    /**
+     * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
+     * @nullable
+     */
+    diagnostic_ref: string | null
+}
+
+export interface ExperimentHealthApi {
+    /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+    findings: ExperimentHealthFindingApi[]
+}
 
 /**
  * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -2333,6 +2495,8 @@ export interface ExperimentWriteApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
+    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2484,6 +2648,8 @@ export interface ExperimentApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
+    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2631,6 +2797,8 @@ export interface PatchedExperimentWriteApi {
     readonly can_freeze_exposure?: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
+    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    readonly health?: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -4507,7 +4675,7 @@ export type ExperimentsListParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**
@@ -4586,7 +4754,7 @@ export type ExperimentsMatchingIdsRetrieveParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**

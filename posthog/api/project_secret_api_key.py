@@ -5,7 +5,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-import posthoganalytics
+import structlog
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -15,6 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.models import User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
@@ -31,6 +32,13 @@ from posthog.scopes import (
     scopes_not_covered,
 )
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
+from posthog.utils import get_trusted_client_ip
+
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
+logger = structlog.get_logger(__name__)
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
@@ -47,6 +55,35 @@ def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> Non
             "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
             f"Use a key or token that has these scopes: {', '.join(missing)}."
         )
+
+
+def _enforce_gateway_bans(request: Request, team) -> None:
+    """A phs_ key reaches the gateway with no user attached, so the user bans that
+    other gateway credential paths enforce run here, when the scope is granted."""
+    user = cast(User, request.user)
+    try:
+        refused = security_access_refused(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(str(team.organization_id),),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="project_secret_api_key",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="project_secret_api_key")
+        refused = False
+    if refused or wizard_identity_blocked(
+        distinct_id=str(user.distinct_id or ""),
+        email=user.email,
+        user_uuid=str(user.uuid),
+        organization_ids=[str(team.organization_id)],
+        team_ids=[team.id],
+        surface="project_secret_api_key",
+    ):
+        raise PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
 
 class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
@@ -89,9 +126,9 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
-        # Allow llm_gateway:read only when the flag is on or the key already has it, so a flag
-        # rollback can't make an existing key unsaveable. Flag is evaluated only when requested.
-        if any(s.startswith("llm_gateway:") for s in scopes) and self._llm_gateway_grantable():
+        # Staff grant llm_gateway:read; a key that already holds it stays saveable by any admin.
+        holds_gateway_scope = self.instance is not None and "llm_gateway:read" in (self.instance.scopes or [])
+        if holds_gateway_scope or self.context["request"].user.is_staff:
             allowed.add(("llm_gateway", "read"))
 
         for scope in scopes:
@@ -109,10 +146,6 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
             if (scope_parts[0], scope_parts[1]) not in allowed:
-                if (scope_parts[0], scope_parts[1]) == ("llm_gateway", "read"):
-                    raise serializers.ValidationError(
-                        "LLM gateway scope is not available for this project. Contact support to enable this feature."
-                    )
                 allowed_scopes = ", ".join(f"{obj}:{action}" for obj, action in sorted(allowed))
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
@@ -120,28 +153,11 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
         # An update may keep or remove a scope the caller lacks, because only an added scope widens the key.
         existing = set(self.instance.scopes or []) if self.instance is not None else set()
-        _enforce_caller_holds_scopes(self.context["request"], [scope for scope in scopes if scope not in existing])
+        added = [scope for scope in scopes if scope not in existing]
+        _enforce_caller_holds_scopes(self.context["request"], added)
+        if "llm_gateway:read" in added:
+            _enforce_gateway_bans(self.context["request"], self.context["view"].team)
         return scopes
-
-    def _llm_gateway_grantable(self) -> bool:
-        existing_has_llm_gateway = self.instance is not None and any(
-            s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
-        )
-        return existing_has_llm_gateway or self._ai_gateway_enabled()
-
-    def _ai_gateway_enabled(self) -> bool:
-        team = self.context["view"].team
-        user = self.context["request"].user
-        return bool(
-            posthoganalytics.feature_enabled(
-                "ai-gateway",
-                str(user.distinct_id),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)

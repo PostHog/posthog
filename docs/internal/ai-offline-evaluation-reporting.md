@@ -4,6 +4,7 @@ The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports 
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
 The SQL suite can also publish those results to the offline experiment API while retaining both existing destinations.
 Reporting does not run the agent or scorers again.
+Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
 ## Capture settings
 
@@ -19,8 +20,7 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 ## Result contents and scope
 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
-Result reporting uses the existing event schema.
-The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
+Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
 
 ## SQL offline experiment pilot
 

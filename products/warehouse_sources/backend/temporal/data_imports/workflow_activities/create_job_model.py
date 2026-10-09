@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NoActiveDestinationsError,
     destination_ids_for_run,
     is_multi_destination_enabled,
 )
@@ -46,7 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    retry_internal_db_operation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     billing_limit_reached,
 )
@@ -325,6 +329,11 @@ class CreateExternalDataJobModelActivityOutputs:
     # recorded with this activity's result, so a replay takes the same branch. Defaults False so a
     # payload that predates the field keeps the single import execution its history recorded.
     import_handoffs_are_free: bool = False
+    # Runs of this schema that failed since its last completed run, this one excluded. The workflow
+    # turns it into the import's retry cap (`retry_limits.import_retry_budget`). Read here because a
+    # workflow must not read the DB, and recorded with this activity's result so a replay picks the
+    # same cap. Defaults to 0 so a payload that predates the field keeps the full cap.
+    failed_runs_in_a_row: int = 0
 
 
 @activity.defn
@@ -357,7 +366,13 @@ def create_external_data_job_model_activity(
 
         destination_ids: list[str] = []
         if is_multi_destination_enabled(inputs.team_id, source.source_type):
-            destination_ids = destination_ids_for_run(schema)
+            try:
+                destination_ids = destination_ids_for_run(schema)
+            except NoActiveDestinationsError as e:
+                # Fails before the job exists and before anything is extracted, so a paused
+                # destination costs the source no reads.
+                logger.info("Every destination of this table is paused, not running the sync")
+                raise NonRetryableException() from e
         # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
         # the import. A refresh while the import is held never wipes the table or restarts the clock,
         # so the refresh waits until the repartition resolves.
@@ -444,6 +459,9 @@ def create_external_data_job_model_activity(
             lambda: billing_limit_reached(job, source, inputs.team_id, logger)
         )
 
+        # Read before this run's own outcome can move it, so it is not counted against itself.
+        failed_runs_in_a_row = schema.failed_runs_in_a_row
+
         source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
             ExternalDataJob.objects.filter(
                 team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
@@ -469,7 +487,11 @@ def create_external_data_job_model_activity(
             hit_billing_limit=hit_billing_limit,
             source_templates_needed=source_templates_needed,
             import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,
+            failed_runs_in_a_row=failed_runs_in_a_row,
         )
+    except NonRetryableException:
+        # Already classified and logged where it was raised.
+        raise
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's
         # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
