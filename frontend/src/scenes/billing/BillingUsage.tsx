@@ -48,7 +48,6 @@ export function BillingUsage(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
-        reportedProjectIdsLoading,
         teamOptions,
         billingPeriodMarkers,
         usageExportUrl,
@@ -114,7 +113,6 @@ export function BillingUsage(): JSX.Element {
                             placeholder="All projects"
                             options={teamOptions}
                             allowCustomValues={false}
-                            loading={reportedProjectIdsLoading}
                             data-attr="billing-usage-projects"
                         />
                     </div>

@@ -58,7 +58,6 @@ export function BillingSpendView(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
-        reportedProjectIdsLoading,
         teamOptions,
         billingPeriodMarkers,
     } = useValues(logic)
@@ -122,7 +121,6 @@ export function BillingSpendView(): JSX.Element {
                             placeholder="All projects"
                             options={teamOptions}
                             allowCustomValues={false}
-                            loading={reportedProjectIdsLoading}
                             data-attr="billing-spend-projects"
                         />
                     </div>
