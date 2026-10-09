@@ -257,6 +257,23 @@ def pytest_collection_finish() -> None:
     _end_gc_boot_window()
 
 
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    from posthog.test import authentication_checks  # noqa: PLC0415
+
+    authentication_checks.start_test()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
+    from posthog.test import authentication_checks  # noqa: PLC0415
+
+    result = yield
+    marker = item.get_closest_marker("covers_authentication")
+    if problems := authentication_checks.finish_test(marker.args if marker else ()):
+        pytest.fail("\n".join(problems))
+    return result
+
+
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None]:
     outcome = yield
@@ -359,14 +376,3 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
 
     monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
     monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())
-
-
-@pytest.fixture(autouse=True)
-def _check_authentication(request):
-    from posthog.test import authentication_checks  # noqa: PLC0415
-
-    authentication_checks.start_test()
-    yield
-    marker = request.node.get_closest_marker("covers_authentication")
-    if problems := authentication_checks.finish_test(marker.args if marker else ()):
-        pytest.fail("\n".join(problems))
