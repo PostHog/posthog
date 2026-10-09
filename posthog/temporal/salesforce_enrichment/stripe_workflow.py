@@ -230,8 +230,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
             for org_id in all_org_ids
             if org_id in org_to_account_id
         ]
-        # A row whose Stripe customer has no warehouse row yields an Id-only record. It changes no field,
-        # but patching it still touches the Account and runs its automation.
+        # An Id-only record changes no field, but patching it still touches the Account and runs its automation.
         update_records = [record for record in prepared_records if len(record) > 1]
         skipped_no_stripe_data = len(prepared_records) - len(update_records)
 

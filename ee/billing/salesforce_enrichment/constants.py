@@ -156,8 +156,7 @@ SALESFORCE_MOMENTUM_MAX = 99_999.99
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 
 
-# Account.Name is deliberately absent. The billing customer's name is the PostHog organization's name,
-# which often names a team or a project rather than the company the Account stands for.
+# Account.Name is not mapped, because the billing customer's name is the organization's name and not the company's.
 STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
     "stripe_customer_id": "Stripe_id__c",
     "address_city": "BillingCity",
