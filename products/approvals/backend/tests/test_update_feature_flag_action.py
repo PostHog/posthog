@@ -1091,16 +1091,27 @@ class TestReleaseConditionGating(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("someone_else_changed_targeting", 1, "a", "a", "b", {}, [], "b"),
-            ("caller_changed_targeting_nobody_else_did", 1, "a", "c", "a", {}, ["feature_flag.update"], "a"),
-            ("both_changed_targeting", 1, "a", "c", "b", {}, [], "b"),
-            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", {}, [], "a"),
-            ("current_caller_claims_the_edit_was_loaded", 2, "c", "c", "a", {}, ["feature_flag.update"], "a"),
-            ("stale_claim_while_enabling", 1, "c", "c", "a", {"active": True}, [], "a"),
-            ("stale_claim_while_changing_rollout", 1, "c", "c", "a", {"rollout": 60}, ["feature_flag.update"], "a"),
+            ("someone_else_changed_targeting", 1, "a", "a", "b", {}, (409, "conflict"), [], "b"),
+            ("caller_changed_targeting", 1, "a", "c", "a", {}, (409, "conflict"), [], "a"),
+            ("both_changed_targeting", 1, "a", "c", "b", {}, (409, "conflict"), [], "b"),
+            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", {}, (409, "conflict"), [], "a"),
+            ("stale_claim_while_changing_rollout", 1, "c", "c", "a", {"rollout": 60}, (409, "conflict"), [], "a"),
+            (
+                "current_caller_claims_the_edit_was_loaded",
+                2,
+                "c",
+                "c",
+                "a",
+                {},
+                (409, "approval_required"),
+                ["feature_flag.update"],
+                "a",
+            ),
+            ("stale_claim_while_enabling", 1, "c", "c", "a", {"active": True}, (400, "policy_conflict"), [], "a"),
+            ("stale_save_without_a_release_condition_change", 1, "a", "a", "a", {}, (200, None), [], "a"),
         ]
     )
-    def test_stale_save_gates_only_the_targeting_the_serializer_would_write(
+    def test_stale_editor_save_that_changes_release_conditions_is_refused(
         self,
         _mock_enabled: MagicMock,
         _name: str,
@@ -1109,6 +1120,7 @@ class TestReleaseConditionGating(APIBaseTest):
         submitted: str,
         stored: str,
         also: dict[str, Any],
+        expected_response: tuple[int, str | None],
         expected_change_requests: list[str],
         expected_stored: str,
     ):
@@ -1131,16 +1143,24 @@ class TestReleaseConditionGating(APIBaseTest):
         if enabling:
             body["active"] = True
 
-        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
 
+        expected_status, expected_code = expected_response
+        assert response.status_code == expected_status, response.json()
+        assert response.json().get("code") == expected_code
         assert self._change_request_keys() == expected_change_requests
-        for change_request in ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update"):
-            # Any request this write opens must show the targeting it would write.
-            assert "release_conditions" in change_request.intent["gated_changes"]
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
 
-    def test_stale_save_of_a_value_python_counts_as_equal_is_gated(self, _mock_enabled: MagicMock):
+    @parameterized.expand(
+        [
+            ("description_edit_with_a_python_equal_value", 1, 1, "edited"),
+            ("python_equal_value_after_another_loaded_value", 2, 1, ""),
+        ]
+    )
+    def test_stale_editor_save_of_a_typed_value_is_refused(
+        self, _mock_enabled: MagicMock, _name: str, loaded: Any, submitted: Any, description: str
+    ):
         def filters(value: Any, description: str = "") -> dict[str, Any]:
             prop = {"key": "beta", "type": "person", "operator": "exact", "value": [value]}
             return {"groups": [{"properties": [prop], "rollout_percentage": 100, "description": description}]}
@@ -1150,13 +1170,14 @@ class TestReleaseConditionGating(APIBaseTest):
         )
         self._create_policies([("feature_flag.update", {})])
 
-        self.client.patch(
+        response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {"filters": filters(1, "edited"), "version": 1, "original_flag": {"filters": filters(1)}},
+            {"filters": filters(submitted, description), "version": 1, "original_flag": {"filters": filters(loaded)}},
             format="json",
         )
 
-        assert self._change_request_keys() == ["feature_flag.update"]
+        assert response.status_code == 409, response.json()
+        assert self._change_request_keys() == []
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["properties"][0]["value"] == [True]
 

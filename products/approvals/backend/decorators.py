@@ -339,6 +339,10 @@ def _evaluate_gate(
         logger.warning("Policy denied request", extra={"action": action_class.key, "reason": decision.reason})
         return GateResult(action="deny", error_message=decision.reason)
 
+    refusal = action_class.refuse_change_request(request, intent_data)
+    if refusal is not None:
+        raise refusal
+
     # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
 

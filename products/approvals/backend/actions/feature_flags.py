@@ -6,12 +6,15 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Model
 
+from rest_framework.exceptions import APIException
+
 from posthog.dataclasses import frozen
+from posthog.exceptions import Conflict
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, flag_version_conflict_message
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import flag_owner_kind
@@ -322,17 +325,13 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
     return results
 
 
-def _stale_caller_original_flag(request, flag: FeatureFlag) -> Optional[dict[str, Any]]:
-    """Return the flag the caller loaded, when FeatureFlagSerializer.update treats the write as stale.
+def _stale_editor_version(request, stored_version: Optional[int]) -> Optional[int]:
+    """Return the version a stale editor loaded, or None when the write is not a stale editor save.
 
     The flag editor sends back every field it loaded, with `version` and `original_flag`. When that
-    version is older than the stored one, the serializer writes a field only if the caller changed it
-    from `original_flag` and nobody else changed it since. Otherwise it drops the field or refuses the
-    write as a conflict. The gate runs before that logic, so it must skip the same fields, or a stale
-    save opens a change request that would revert the newer edit.
-
-    The checks mirror the serializer. A version newer than the stored one is not stale here, because a
-    concurrent write can make it current before the serializer takes the row lock.
+    version is older than the stored one, the save resends release conditions that someone may have
+    changed since, and FeatureFlagSerializer.update decides field by field which ones land. A version
+    newer than the stored one is not stale here, because a concurrent write can make it current.
     """
     if getattr(request, "strict_version_precondition", False) is True:
         return None
@@ -343,9 +342,9 @@ def _stale_caller_original_flag(request, flag: FeatureFlag) -> Optional[dict[str
     original_flag = request_data.get("original_flag")
     if not isinstance(version, int) or isinstance(version, bool) or version == -1:
         return None
-    if version >= (flag.version or 0) or not isinstance(original_flag, dict) or not original_flag:
+    if version >= (stored_version or 0) or not isinstance(original_flag, dict) or not original_flag:
         return None
-    return original_flag
+    return version
 
 
 @frozen
@@ -709,46 +708,7 @@ class UpdateFeatureFlagAction(BaseAction):
         return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
-    def _new_release_conditions(
-        cls,
-        request,
-        flag: FeatureFlag,
-        change: dict[str, Any],
-        new_filters: dict[str, Any],
-        *,
-        other_gated_change: bool,
-    ) -> list[dict[str, Any]]:
-        """Return the release conditions the flag gets from this write.
-
-        For a stale caller this keeps each stored field that FeatureFlagSerializer.update would not
-        write: one the caller did not change from what they loaded, or one somebody else changed
-        since. The serializer drops the first and refuses the second as a conflict, field by field.
-        Both checks use the serializer's own comparison, Python `!=` on the whole field, so the gate
-        and the write always agree on which fields land.
-
-        That holds only when the write reaches the serializer directly. When the same write also
-        changes `active` or a rollout, it can open a change request, and the approved request replays
-        the whole payload without the stale-write checks. So the stored conditions are the baseline
-        then, and the request shows every release condition it would write.
-        """
-        release_filters = new_filters
-        release_bucketing = change.get("bucketing_identifier", flag.bucketing_identifier)
-
-        original_flag = None if other_gated_change else _stale_caller_original_flag(request, flag)
-        if original_flag is not None and "filters" in original_flag:
-            original_filters = original_flag["filters"]
-            if original_filters == new_filters or original_filters != flag.filters:
-                release_filters = flag.filters or {}
-
-        if original_flag is not None and "bucketing_identifier" in original_flag and "bucketing_identifier" in change:
-            original_bucketing = original_flag["bucketing_identifier"]
-            if original_bucketing == release_bucketing or original_bucketing != flag.bucketing_identifier:
-                release_bucketing = flag.bucketing_identifier
-
-        return _release_conditions(release_filters, release_bucketing)
-
-    @classmethod
-    def _gated_values(cls, request, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
+    def _gated_values(cls, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
         """Return the values of each gated field before and after the change.
 
         `release_conditions` is present only when the release conditions of a standalone flag
@@ -764,13 +724,8 @@ class UpdateFeatureFlagAction(BaseAction):
         if flag is None:
             return _GatedValues(before=before, after=after)
 
-        other_gated_change = bool(cls._changed_paths(before["rollout_percentage"], after["rollout_percentage"])) or (
-            change.get("active", flag.active) != flag.active
-        )
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
-        new_release = cls._new_release_conditions(
-            request, flag, change, new_filters, other_gated_change=other_gated_change
-        )
+        new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
         if cls._changed_paths(old_release, new_release, strict=True) and flag_owner_kind(flag) is None:
             before["release_conditions"] = old_release
@@ -797,7 +752,7 @@ class UpdateFeatureFlagAction(BaseAction):
 
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        if not cls._triggered_paths(cls._gated_values(request, flag, change)):
+        if not cls._triggered_paths(cls._gated_values(flag, change)):
             return False
 
         team = cls._get_team(view)
@@ -811,7 +766,7 @@ class UpdateFeatureFlagAction(BaseAction):
         flag = _get_flag_instance(view, *args, **kwargs)
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        values = cls._gated_values(request, flag, change)
+        values = cls._gated_values(flag, change)
 
         # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
         # the approved change replays, the way the lifecycle base records it. Without this an
@@ -831,6 +786,22 @@ class UpdateFeatureFlagAction(BaseAction):
             },
             "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
+
+    @classmethod
+    def refuse_change_request(cls, request, intent_data: dict[str, Any]) -> Optional[APIException]:
+        """Refuse a stale editor's save that would change release conditions.
+
+        The save may resend conditions that someone changed since the editor loaded the flag, and an
+        approved change request replays the payload without the serializer's stale-write checks, so
+        approving it would revert the newer edit. The editor reloads and saves again instead.
+        """
+        if "release_conditions" not in intent_data.get("gated_changes", {}):
+            return None
+        stored_version = intent_data.get("preconditions", {}).get("version")
+        caller_version = _stale_editor_version(request, stored_version)
+        if caller_version is None:
+            return None
+        return Conflict(flag_version_conflict_message(caller_version, stored_version or 0))
 
     @classmethod
     def validate_intent(
