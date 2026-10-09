@@ -112,3 +112,32 @@ class MetricRangeFunction(LabeledStrEnum):
 
     RATE = "rate", "rate"
     INCREASE = "increase", "increase"
+
+
+class DashboardImportSource(LabeledStrEnum):
+    """What a dashboard import reads: a Grafana dashboard JSON model, or a screenshot of a dashboard."""
+
+    GRAFANA = "grafana"
+    SCREENSHOT = "screenshot"
+
+
+class DashboardImportState(LabeledStrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PanelImportOutcome(LabeledStrEnum):
+    """What happened to one panel. APPROXIMATED means the panel imported, but what it shows changed."""
+
+    IMPORTED = "imported"
+    APPROXIMATED = "approximated"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class PanelQueryLanguage(LabeledStrEnum):
+    PROMQL = "promql"
+    BUILDER = "builder"
+    HISTOGRAM = "histogram"
+    HOGQL = "hogql"
