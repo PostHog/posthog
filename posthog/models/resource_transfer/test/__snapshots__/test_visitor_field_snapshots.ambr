@@ -844,6 +844,7 @@
     'conditions',
     'created_by_id',
     'deleted',
+    'early_exit',
     'evaluation_tag_names',
     'experiment_set',
     'featureflagdashboards_set',
