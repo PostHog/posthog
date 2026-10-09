@@ -208,25 +208,34 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             assert response.json()["count"] == len(expected)
             assert [row["id"] for row in response.json()["results"]] == [str(ids[name]) for name in expected]
 
+    def _token(self, scopes: list[str]) -> dict[str, str]:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
     @parameterized.expand(
         [
-            ("view_scope", ["warehouse_view:write"], {"view"}),
-            ("table_scope", ["warehouse_table:write"], {"table"}),
-            ("umbrella_scope", ["warehouse_objects:write"], {"view", "table"}),
-            ("no_warehouse_scope", ["insight:write"], None),
+            ("view_scope", ["warehouse_view:write"], {"view": True}, {"view": 200, "table": 404}),
+            ("table_scope", ["warehouse_table:write"], {"table": True}, {"view": 404, "table": 200}),
+            ("umbrella_scope", ["warehouse_objects:write"], {"view": True, "table": True}, {"view": 200, "table": 200}),
+            (
+                "view_read_and_table_write",
+                ["warehouse_view:read", "warehouse_table:write"],
+                {"view": False, "table": True},
+                {"view": 403, "table": 200},
+            ),
+            ("no_warehouse_scope", ["insight:write"], None, {"view": 403, "table": 403}),
         ]
     )
     def test_a_token_reaches_only_the_subject_kinds_its_scopes_name(
-        self, _name: str, scopes: list[str], expected: set[str] | None
+        self, _name: str, scopes: list[str], expected_can_act: dict[str, bool] | None, expected_dismiss: dict[str, int]
     ) -> None:
         ids = {
             "view": self._suggest(self.view.id).id,
             "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
         }
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
-        self.client.logout()
-        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        auth = self._token(scopes)
 
         listed = self.client.get(f"{self.url}/", **auth)
         dismissed = {
@@ -236,14 +245,25 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             for name, suggestion_id in ids.items()
         }
 
-        if expected is None:
+        if expected_can_act is None:
             assert listed.status_code == status.HTTP_403_FORBIDDEN, listed.json()
-            assert set(dismissed.values()) == {status.HTTP_403_FORBIDDEN}
-            return
-        assert {row["id"] for row in listed.json()["results"]} == {str(ids[name]) for name in expected}
-        assert dismissed == {
-            name: status.HTTP_200_OK if name in expected else status.HTTP_404_NOT_FOUND for name in ids
-        }
+        else:
+            names_by_id = {str(suggestion_id): name for name, suggestion_id in ids.items()}
+            listed_can_act = {names_by_id[row["id"]]: row["can_act"] for row in listed.json()["results"]}
+            assert listed_can_act == expected_can_act
+        assert dismissed == expected_dismiss
+
+    def test_a_token_without_a_write_scope_is_told_which_one_to_add(self) -> None:
+        suggestion = self._suggest(self.view.id)
+
+        response = self.client.post(
+            f"{self.url}/{suggestion.id}/dismiss/",
+            {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
+            **self._token(["warehouse_view:read"]),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "warehouse_view:write" in response.json()["detail"]
 
     def test_the_flag_off_forbids_the_endpoint(self) -> None:
         with patch(FLAG, return_value=False):

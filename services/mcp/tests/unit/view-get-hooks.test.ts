@@ -1,18 +1,21 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import viewGetHooks from '@/tools/dataWarehouse/viewGetHooks'
+import viewGetHooks, { SUGGESTIONS_TIMEOUT_MS } from '@/tools/dataWarehouse/viewGetHooks'
 import type { Context } from '@/tools/types'
 
 const VIEW = { id: 'view-1', name: 'orders' }
-const SUGGESTION = {
-    id: 'suggestion-1',
-    kind: 'materialize',
-    subject_kind: 'saved_query',
-    subject_id: 'view-1',
-    payload: { subject_name: 'orders' },
-    status: 'proposed',
-    score: 3,
-    can_act: true,
+
+function suggestion(canAct: boolean): Record<string, unknown> {
+    return {
+        id: 'suggestion-1',
+        kind: 'materialize',
+        subject_kind: 'saved_query',
+        subject_id: 'view-1',
+        payload: { subject_name: 'orders' },
+        status: 'proposed',
+        score: 3,
+        can_act: canAct,
+    }
 }
 
 function contextWith(request: () => Promise<unknown>): { context: Context; request: ReturnType<typeof vi.fn> } {
@@ -25,8 +28,15 @@ function contextWith(request: () => Promise<unknown>): { context: Context; reque
 }
 
 describe('viewGetHooks.afterResponse', () => {
-    it('attaches the open suggestions of the view', async () => {
-        const { context, request } = contextWith(async () => ({ count: 1, results: [SUGGESTION] }))
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it.each([
+        { name: 'one the caller can act on', canAct: true, note: 'warehouse-suggestions-accept-prepare' },
+        { name: 'none the caller can act on', canAct: false, note: 'edit access' },
+    ])('attaches the open suggestions of the view, with $name', async ({ canAct, note }) => {
+        const { context, request } = contextWith(async () => ({ count: 1, results: [suggestion(canAct)] }))
 
         const result = await viewGetHooks.afterResponse(context, { id: VIEW.id }, VIEW)
 
@@ -38,9 +48,9 @@ describe('viewGetHooks.afterResponse', () => {
         expect(result).toEqual({
             ...VIEW,
             open_suggestions: [
-                { id: 'suggestion-1', kind: 'materialize', payload: { subject_name: 'orders' }, can_act: true },
+                { id: 'suggestion-1', kind: 'materialize', payload: { subject_name: 'orders' }, can_act: canAct },
             ],
-            open_suggestions_note: expect.stringContaining('warehouse-suggestions-accept'),
+            open_suggestions_note: expect.stringContaining(note),
         })
     })
 
@@ -56,5 +66,15 @@ describe('viewGetHooks.afterResponse', () => {
         const { context } = contextWith(request)
 
         await expect(viewGetHooks.afterResponse(context, { id: VIEW.id }, VIEW)).resolves.toBe(VIEW)
+    })
+
+    it('returns the view unchanged when the suggestions request outlasts the timeout', async () => {
+        vi.useFakeTimers()
+        const { context } = contextWith(() => new Promise(() => {}))
+
+        const result = viewGetHooks.afterResponse(context, { id: VIEW.id }, VIEW)
+        await vi.advanceTimersByTimeAsync(SUGGESTIONS_TIMEOUT_MS)
+
+        await expect(result).resolves.toBe(VIEW)
     })
 })

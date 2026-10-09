@@ -77,8 +77,9 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    whether the row asks to certify the source or to deprecate it.
 
    If the `warehouse-suggestions-*` tools are available, also call `warehouse-suggestions-list` with
-   `status=proposed`. Its `certify` and `deprecate` suggestions name views and tables that read usage says
-   to certify or deprecate. They are not in `certifications` until someone accepts one: accept with
+   `status=proposed`. A `certify` suggestion names a view or table that read usage says to certify. A
+   `deprecate` suggestion names a materialized view that nobody reads. Neither is in `certifications` until
+   someone accepts it: accept with
    `posthog:warehouse-suggestions-accept-prepare` / `-execute`, or dismiss with
    `posthog:warehouse-suggestions-dismiss`.
 

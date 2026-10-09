@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from datetime import timedelta
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -33,6 +33,7 @@ from ..facade.contracts import (
     RefreshIntervalRefusedError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
+    SubjectKinds,
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
@@ -65,6 +66,7 @@ ALREADY_CERTIFIED = {
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
 ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
+ScopeLevel = Literal["read", "write"]
 SUBJECT_SCOPE_OBJECTS = {
     WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
     WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
@@ -106,30 +108,34 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied("Warehouse suggestions are not enabled for this project.")
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
-        subject_scope = next(iter(self._subject_scopes_on_token.values()), f"{self.scope_object}:{self._scope_level}")
+        level = self._scope_level
+        fallback = f"{SUBJECT_SCOPE_OBJECTS[WarehouseSuggestionSubjectKind.SAVED_QUERY]}:{level}"
+        subject_scope = next(iter(self._token_scopes_by_kind(level).values()), fallback)
         return [subject_scope, *ACCEPT_SCOPES] if self.action == "accept" else [subject_scope]
 
     @property
-    def _scope_level(self) -> str:
+    def _scope_level(self) -> ScopeLevel:
         return "write" if self.action in self.scope_object_write_actions else "read"
 
-    @cached_property
-    def _subject_scopes_on_token(self) -> dict[WarehouseSuggestionSubjectKind, str]:
+    def _token_scopes_by_kind(self, level: ScopeLevel) -> dict[WarehouseSuggestionSubjectKind, str]:
         held = get_authenticator_scopes(self.request.successful_authenticator) or ()
         reaching: dict[WarehouseSuggestionSubjectKind, str] = {}
         for subject_kind, scope_object in SUBJECT_SCOPE_OBJECTS.items():
-            candidates = (f"{self.scope_object}:{self._scope_level}", f"{scope_object}:{self._scope_level}")
+            candidates = (f"{self.scope_object}:{level}", f"{scope_object}:{level}")
             held_scope = next((scope for scope in candidates if not scopes_not_covered(held, [scope])), None)
             if held_scope is not None:
                 reaching[subject_kind] = held_scope
         return reaching
 
-    @cached_property
-    def _subject_kinds(self) -> frozenset[WarehouseSuggestionSubjectKind]:
+    def _kinds_reached(self, level: ScopeLevel) -> frozenset[WarehouseSuggestionSubjectKind]:
         held = get_authenticator_scopes(self.request.successful_authenticator)
         if held is None or "*" in held:
             return frozenset(WarehouseSuggestionSubjectKind)
-        return frozenset(self._subject_scopes_on_token)
+        return frozenset(self._token_scopes_by_kind(level))
+
+    @cached_property
+    def _subject_kinds(self) -> SubjectKinds:
+        return SubjectKinds(readable=self._kinds_reached("read"), actionable=self._kinds_reached("write"))
 
     @validated_request(
         query_serializer=WarehouseSuggestionListQuerySerializer,

@@ -1,6 +1,6 @@
 """Facade for warehouse_suggestions."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -15,6 +15,7 @@ from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
     CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
+    SubjectKinds,
     Suggestion,
     SuggestionDraft,
     SuggestionNotFoundError,
@@ -61,7 +62,7 @@ def list_suggestions(
     kind: WarehouseSuggestionKind | None,
     status: WarehouseSuggestionStatus | None,
     subject_id: UUID | None,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
     limit: int,
     offset: int,
 ) -> SuggestionPage:
@@ -89,7 +90,7 @@ def get_suggestion(
     user_access_control: "UserAccessControl",
     suggestion_id: UUID,
     *,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
     row, access = _visible_suggestion(team_id, user_access_control, suggestion_id, subject_kinds)
     return _single_contract(team_id, user_access_control, row, access)
@@ -103,7 +104,7 @@ def dismiss_suggestion(
     user: "User",
     reason: WarehouseSuggestionDismissalReason,
     note: str | None,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
@@ -125,7 +126,7 @@ def resume_suggestion(
     suggestion_id: UUID,
     *,
     user: "User",
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     resumed = suggestions.transition_to(
@@ -143,7 +144,7 @@ def accept_suggestion(
     user: "User",
     refresh_interval: timedelta | None,
     was_impersonated: bool,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     _require_catalog_edit_access(row, user_access_control)
@@ -163,7 +164,7 @@ def _actionable_suggestion(
     team_id: int,
     user_access_control: "UserAccessControl",
     suggestion_id: UUID,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> tuple[WarehouseSuggestion, SubjectAccess]:
     row, access = _visible_suggestion(team_id, user_access_control, suggestion_id, subject_kinds)
     if not access.can_act_on(row):
@@ -189,7 +190,7 @@ def _visible_suggestion(
     team_id: int,
     user_access_control: "UserAccessControl",
     suggestion_id: UUID,
-    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
+    subject_kinds: SubjectKinds,
 ) -> tuple[WarehouseSuggestion, SubjectAccess]:
     visible, access = visible_suggestions(
         team_id, user_access_control, suggestion_id=suggestion_id, subject_kinds=subject_kinds
