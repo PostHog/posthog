@@ -4,6 +4,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -30,6 +32,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.subscription import Subscription
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
 
@@ -341,6 +344,40 @@ class TestUpsertDashboardTool(BaseTest):
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0].insight_id, insight.id)
+
+    @parameterized.expand([("new_tile",), ("restored_tile",)])
+    @patch("products.exports.backend.facade.api.blocked_access_for_user", return_value=["restricted_table"])
+    async def test_update_dashboard_enforces_subscribed_dashboard_access(
+        self, source: str, _mock_blocked: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        await OrganizationMembership.objects.filter(user=self.user, organization=self.organization).aupdate(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        await Subscription.objects.acreate(
+            team=self.team,
+            dashboard=dashboard,
+            created_by=self.user,
+            target_type="email",
+            target_value="reader@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+        )
+        restricted = await self._create_insight("Restricted")
+        if source == "restored_tile":
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=restricted, deleted=True)
+        tool = self._create_tool()
+
+        with self.assertRaisesRegex(MaxToolRetryableError, "a subscription delivers this dashboard"):
+            await tool._arun_impl(
+                UpdateDashboardToolArgs(dashboard_id=str(dashboard.id), insight_ids=[restricted.short_id])
+            )
+
+        self.assertEqual(await DashboardTile.objects.filter(dashboard=dashboard, deleted=False).acount(), 0)
 
     async def test_update_dashboard_permission_denied_for_restricted_dashboard(self):
         dashboard = await Dashboard.objects.acreate(
