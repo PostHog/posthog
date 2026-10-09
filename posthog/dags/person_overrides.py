@@ -135,7 +135,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
     @property
     def update_commands(self):
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
         }
 
     @property
