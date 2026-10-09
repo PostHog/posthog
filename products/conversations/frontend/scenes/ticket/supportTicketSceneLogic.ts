@@ -25,6 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
@@ -43,7 +44,15 @@ import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    AvailableFeature,
+    PropertyFilterType,
+    PropertyOperator,
+    Region,
+} from '~/types'
 
 import {
     conversationsTicketsAiFeedbackCreate,
@@ -237,6 +246,7 @@ export interface supportTicketSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
     aiDraftApplying: boolean
     assignee: TicketAssignee
@@ -244,6 +254,7 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     composerPrefillAt: number
+    deleteDisabledReason: string | undefined
     deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
     discussionsEnabled: boolean
     draftContent: string | JSONContent | null
@@ -318,9 +329,6 @@ export interface supportTicketSceneLogicActions {
     }
     deleteTicket: () => {
         value: true
-    }
-    setTicketDeleting: (deleting: boolean) => {
-        deleting: boolean
     }
     incrementUnreadCustomerCount: () => {
         value: true
@@ -483,6 +491,9 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
+    setTicketDeleting: (deleting: boolean) => {
+        deleting: boolean
+    }
     setTicketLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -530,6 +541,7 @@ export interface supportTicketSceneLogicMeta {
         discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
         sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
+        deleteDisabledReason: (ticket: Ticket | null, hasAvailableFeature: any) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
             assignee: TicketAssignee,
@@ -581,7 +593,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             tagsModel,
             ['tags as availableTags'],
             userLogic,
-            ['user'],
+            ['user', 'hasAvailableFeature'],
         ],
     })),
     actions({
@@ -1023,6 +1035,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return 'the customer'
                 }
             },
+        ],
+        // Without the access control add-on there is no manager role, so the backend lets editors delete.
+        deleteDisabledReason: [
+            (s) => [s.ticket, s.hasAvailableFeature],
+            (ticket: Ticket | null, hasAvailableFeature): string | undefined =>
+                hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+                    ? (getAccessControlDisabledReason(
+                          AccessControlResourceType.Ticket,
+                          AccessControlLevel.Manager,
+                          ticket?.user_access_level
+                      ) ?? undefined)
+                    : undefined,
         ],
         // Human-readable list of unsaved edits other than status, shown in the send-and-set-status
         // confirmation. Status is excluded because that action overrides it anyway.

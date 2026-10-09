@@ -7,6 +7,7 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
+from .team_conversations_ticket_config import TeamConversationsTicketConfig
 
 # Soft-deleted tickets stay this long so a mistaken delete can still be recovered
 # operationally, and so the hard purge finishes inside a one-month erasure window.
@@ -43,19 +44,33 @@ class TicketManager(models.Manager):
                 [_TICKET_NUMBER_LOCK_NAMESPACE, team_id],
             )
 
+    def highest_used_ticket_number(self, team_id: int) -> int:
+        """Highest number any ticket of this team holds or held. Call under the allocation lock.
+
+        Soft-deleted rows count, because their number is still in unique_ticket_number_per_team.
+        Purged rows count through the retired number, so an old link never opens a new ticket.
+        """
+        max_num = (
+            Ticket.all_objects.filter(team_id=team_id).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
+        )
+        retired = (
+            TeamConversationsTicketConfig.objects.filter(team_id=team_id)
+            .values_list("retired_ticket_number", flat=True)
+            .first()
+            or 0
+        )
+        return max(max_num, retired)
+
     def create_with_number(self, **kwargs):
         """Create a ticket with the next ticket_number for its team."""
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
-        # Number allocation must see soft-deleted rows. The live manager hides them,
-        # and reusing a deleted ticket's number collides with unique_ticket_number_per_team.
         allocation = Ticket.all_objects
         with transaction.atomic(using=allocation.db):
             allocation.lock_ticket_number_allocation(team.id)
-            max_num = allocation.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
-            kwargs["ticket_number"] = max_num + 1
+            kwargs["ticket_number"] = allocation.highest_used_ticket_number(team.id) + 1
             return allocation.create(**kwargs)
 
 

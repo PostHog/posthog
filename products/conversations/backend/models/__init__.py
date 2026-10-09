@@ -27,6 +27,7 @@ from .team_conversations_email_config import EmailChannel, EmailChannelConnectio
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
+from .team_conversations_ticket_config import TeamConversationsTicketConfig
 from .ticket import Ticket
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
@@ -66,6 +67,7 @@ __all__ = [
     "TeamConversationsSlackConfig",
     "TeamConversationsTeamsChannelSync",
     "TeamConversationsTeamsConfig",
+    "TeamConversationsTicketConfig",
     "Ticket",
     "TicketAssignment",
     "TicketView",

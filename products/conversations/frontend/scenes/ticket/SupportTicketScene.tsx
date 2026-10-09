@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -102,6 +102,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         unsavedTicketChanges,
         ticketUpdating,
         ticketDeleting,
+        deleteDisabledReason,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -146,7 +147,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         applyAiDraft,
     } = useActions(logic)
 
-    const { user, hasAvailableFeature } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -172,14 +173,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                   </>
               ),
           }[emailReplyBlockedReason]
-        : undefined
-
-    const deleteDisabledReason = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
-        ? (getAccessControlDisabledReason(
-              AccessControlResourceType.Ticket,
-              AccessControlLevel.Manager,
-              ticket?.user_access_level
-          ) ?? undefined)
         : undefined
 
     const canEditTicket = accessLevelSatisfied(

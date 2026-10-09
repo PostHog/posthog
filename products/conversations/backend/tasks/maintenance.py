@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -19,16 +20,19 @@ from posthog.models.data_deletion_request import (
     RequestType,
     compile_hogql_predicate,
 )
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.business_knowledge.backend.facade.api import purge_ticket_derived_rows
 from products.conversations.backend.events import CONVERSATION_ANALYTICS_EVENTS, capture_ticket_status_changed
-from products.conversations.backend.models import ConversationDelivery, ConversationInboundEvent
+from products.conversations.backend.models import (
+    ConversationDelivery,
+    ConversationInboundEvent,
+    TeamConversationsTicketConfig,
+)
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTER, Ticket
-from products.signals.backend.facade.api import retract_source_signals
 
 logger = structlog.get_logger(__name__)
 
@@ -131,20 +135,49 @@ def _comment_media_ids(comments: list[Comment]) -> set[str]:
     return found
 
 
-def _delete_uploaded_media(*, team_id: int, media_ids: set[str]) -> None:
+def _ticket_owned_media(*, team_id: int, ticket_id: str, media_ids: set[str]) -> list[UploadedMedia]:
+    """Media that this ticket's comments reference and nothing else can claim.
+
+    Inbound channels re-host customer files with no created_by. A person's own upload
+    has created_by set and can be linked from anywhere, so a ticket comment that names
+    it must not delete it. Media that another comment also references stays too.
+    """
     if not media_ids:
-        return
-    for media in UploadedMedia.objects.filter(team_id=team_id, id__in=media_ids):
-        if media.media_location:
-            try:
-                object_storage.delete(media.media_location)
-            except ObjectStorageError:
-                logger.warning(
-                    "purge_ticket_media_object_failed",
-                    team_id=team_id,
-                    uploaded_media_id=str(media.id),
-                )
-        media.delete()
+        return []
+    candidates = list(UploadedMedia.objects.filter(team_id=team_id, id__in=media_ids, created_by__isnull=True))
+    if not candidates:
+        return []
+    mentions_candidate = Q()
+    for media in candidates:
+        mentions_candidate |= Q(content__contains=str(media.id))
+    other_comments = (
+        Comment.objects.filter(team_id=team_id)
+        .filter(mentions_candidate)
+        .exclude(item_id=ticket_id, scope__in=_TICKET_COMMENT_SCOPES)
+        .values_list("content", flat=True)
+    )
+    shared: set[str] = set()
+    for content in other_comments:
+        shared.update(media_id.lower() for media_id in _UPLOADED_MEDIA_RE.findall(content or ""))
+    return [media for media in candidates if str(media.id) not in shared]
+
+
+def _delete_uploaded_media(media: list[UploadedMedia]) -> None:
+    # A storage failure raises. The purge then rolls back and keeps the ticket, so the
+    # next run can find the object again from the comment that references it.
+    for item in media:
+        if item.media_location:
+            object_storage.delete(item.media_location)
+        item.delete()
+
+
+def _retire_ticket_number(*, ticket: Ticket) -> None:
+    """Keep a purged ticket's number taken, so a link to it never opens a newer ticket."""
+    Ticket.all_objects.lock_ticket_number_allocation(ticket.team_id)
+    get_or_create_team_extension(ticket.team, TeamConversationsTicketConfig)
+    TeamConversationsTicketConfig.objects.filter(
+        team_id=ticket.team_id, retired_ticket_number__lt=ticket.ticket_number
+    ).update(retired_ticket_number=ticket.ticket_number)
 
 
 def _file_ticket_event_deletion(ticket: Ticket) -> None:
@@ -214,6 +247,10 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
                 scope__in=_TICKET_COMMENT_SCOPES,
             )
         )
+        from products.signals.backend.facade.api import (
+            retract_source_signals,  # noqa: PLC0415 — keeps signals and HogQL off the django.setup() path
+        )
+
         # External copies go first, while the row is locked, so a ticket that is no
         # longer due cannot lose its files. A failure raises and leaves the row for retry.
         retract_source_signals(
@@ -222,7 +259,11 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
             source_type="ticket",
             source_id=str(locked.id),
         )
-        _delete_uploaded_media(team_id=locked.team_id, media_ids=_comment_media_ids(comments))
+        _delete_uploaded_media(
+            _ticket_owned_media(
+                team_id=locked.team_id, ticket_id=str(locked.id), media_ids=_comment_media_ids(comments)
+            )
+        )
         _file_ticket_event_deletion(locked)
 
         Comment.objects.filter(
@@ -237,6 +278,7 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
         organization_id = locked.team.organization_id
         team_id = locked.team_id
         item_id = str(locked.id)
+        _retire_ticket_number(ticket=locked)
         locked.delete()
         log_activity(
             organization_id=organization_id,
