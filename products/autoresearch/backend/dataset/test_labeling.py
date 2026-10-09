@@ -830,7 +830,6 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
             query=HogQLQuery(query=coverage_sql, values=coverage_values, modifiers=LABELER_QUERY_MODIFIERS),
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         )
-        # never_scored is the three people the first selection ranks ahead of everyone scored.
         assert (population, with_score, age_avg, age_p50, age_max) == (5, 2, 6.0, 6.0, 10.0)
 
         selections: list[list[str]] = []

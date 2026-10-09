@@ -178,6 +178,22 @@ def _live_training_run(run: AutoresearchTrainingRun, iterations: list[Autoresear
     )
 
 
+def _newest_completed_inference(team_id: int, pipeline_ids: list[UUID], field: str, **filters: Any) -> dict[UUID, Any]:
+    """``field`` of the newest completed inference run per pipeline that matches ``filters``."""
+    return dict(
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            pipeline_id__in=pipeline_ids,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.COMPLETED,
+            **filters,
+        )
+        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
+        .distinct("pipeline_id")
+        .values_list("pipeline_id", field)
+    )
+
+
 def _pipeline_activity(
     team_id: int, pipeline_ids: list[UUID], champions: dict[UUID, AutoresearchModel]
 ) -> dict[UUID, _PipelineActivity]:
@@ -198,30 +214,8 @@ def _pipeline_activity(
         .annotate(n=Count("id"))
         .values_list("pipeline_id", "n")
     )
-    people_scored = dict(
-        AutoresearchRun.objects.for_team(team_id)
-        .filter(
-            pipeline_id__in=pipeline_ids,
-            run_type=AutoresearchRun.RunType.INFERENCE,
-            status=AutoresearchRun.Status.COMPLETED,
-            rows_scored__isnull=False,
-        )
-        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
-        .distinct("pipeline_id")
-        .values_list("pipeline_id", "rows_scored")
-    )
-    coverage = dict(
-        AutoresearchRun.objects.for_team(team_id)
-        .filter(
-            pipeline_id__in=pipeline_ids,
-            run_type=AutoresearchRun.RunType.INFERENCE,
-            status=AutoresearchRun.Status.COMPLETED,
-            metrics__has_key="coverage",
-        )
-        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
-        .distinct("pipeline_id")
-        .values_list("pipeline_id", "metrics__coverage")
-    )
+    people_scored = _newest_completed_inference(team_id, pipeline_ids, "rows_scored", rows_scored__isnull=False)
+    coverage = _newest_completed_inference(team_id, pipeline_ids, "metrics__coverage", metrics__has_key="coverage")
     live_runs = {
         run.pipeline_id: run
         for run in AutoresearchTrainingRun.objects.for_team(team_id)

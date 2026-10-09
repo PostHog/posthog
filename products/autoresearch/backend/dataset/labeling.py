@@ -1140,9 +1140,7 @@ def build_prediction_coverage_sql(
             quantileIf(0.9)(age_days, scored) AS age_days_p90,
             maxIf(age_days, scored) AS age_days_max
         FROM (
-            SELECT
-                ifNull(s.last_scored_ts, 0) > 0 AS scored,
-                (a.cutoff_ts - ifNull(s.last_scored_ts, 0)) / 86400 AS age_days
+            SELECT ifNull(s.last_scored_ts, 0) AS last_scored_ts, last_scored_ts > 0 AS scored, (a.cutoff_ts - last_scored_ts) / 86400 AS age_days
             FROM ({anchors_sql}) AS a
             LEFT JOIN ({_last_scored_sql("fromUnixTimestamp({cutoff_ts})")}) AS s ON a.person_id = s.person_id
         )
