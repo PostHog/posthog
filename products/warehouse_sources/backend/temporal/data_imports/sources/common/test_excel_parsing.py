@@ -115,7 +115,10 @@ class TestExcelParsing:
 
         assert normalize_chunk(rows) == [{"value": value} for value in expected]
         assert rows == [{"value": value} for value in values]
-        sheet_rows: list[list[object]] = [["value", "id"], *[[value, index] for index, value in enumerate(values)]]
+        sheet_rows: list[list[object]] = [["value", "id"]]
+        for index, value in enumerate(values):
+            row: list[object] = [value, index]
+            sheet_rows.append(row)
         stream = workbook_stream(sheet_rows)
         parsed = list(iter_worksheet_rows(stream, "report.xlsx", "Sheet"))
         assert [row["value"] for chunk in parsed for row in chunk] == expected
