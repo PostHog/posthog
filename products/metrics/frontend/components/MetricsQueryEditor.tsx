@@ -1,19 +1,27 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { setPromQLCompletionProvider } from 'lib/monaco/languages/promqlCompletionRegistry'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { MetricsDisplayType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import {
+    type MetricsDisplayType,
+    type MetricsQuery,
+    type MetricsQueryLanguage,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from '~/types'
 
 import { METRICS_PANELS } from '../panels/registry'
 import { getPromQLCompletions } from '../queryLanguages/promqlCompletion'
@@ -22,10 +30,43 @@ import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
 import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { METRICS_QUERY_LANGUAGE_LABELS } from './metricsQueryLanguageSwitch'
-import { METRICS_DATE_OPTIONS, MetricsFormulaInput } from './MetricsViewer'
-import { MAX_CLAUSES, metricsViewerLogic } from './metricsViewerLogic'
+import { MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
 
-// The heatmap saves a different query kind, so the insight editor leaves it out.
+// Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
+export const METRICS_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    {
+        key: 'Last 5 minutes',
+        values: ['-5M'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(5, 'minute').format(DATE_TIME_FORMAT),
+        defaultInterval: 'minute',
+    },
+    {
+        key: 'Last 30 minutes',
+        values: ['-30M'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(30, 'minute').format(DATE_TIME_FORMAT),
+        defaultInterval: 'minute',
+    },
+    {
+        key: 'Last 1 hour',
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 24 hours',
+        values: ['-24h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 7 days',
+        values: ['-7d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+]
+
 const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
 const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table']
 
@@ -86,9 +127,10 @@ export function MetricsQueryEditor({
 
     return (
         <BindLogic logic={metricsViewerLogic} props={logicProps}>
-            <MetricsQueryEditorControls
-                query={query}
-                setQuery={setQuery}
+            <MetricsQuerySync query={query} setQuery={setQuery} />
+            <MetricsQueryControls
+                dataAttrPrefix="metrics-query-editor"
+                fallbackQuery={query}
                 onSwitchLanguage={onSwitchLanguage}
                 onRerun={onRerun}
             />
@@ -152,36 +194,9 @@ function MetricsQueryTextEditor({
     )
 }
 
-function MetricsQueryEditorControls({
-    query,
-    setQuery,
-    onSwitchLanguage,
-    onRerun,
-}: {
-    query: MetricsQuery
-    setQuery: (query: MetricsQuery) => void
-    onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
-    onRerun?: () => void
-}): JSX.Element {
-    const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval } =
-        useValues(metricsViewerLogic)
-    const { displayType, metricsQueryNode, language, queryDraft } = useValues(metricsViewerLogic)
-    const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType, runQueryText } =
-        useActions(metricsViewerLogic)
-    const logic = useMountedLogic(metricsViewerLogic)
-    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
-    const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
-
-    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
-    const runQuery = (): void => (logic.values.queryTextChanged ? runQueryText() : onRerun?.())
-
-    const switchLanguage = (to: MetricsQueryLanguage): void => {
-        // Read the logic at click time, so a draft the user has not run yet still converts.
-        const { metricsQueryNode: node, queryDraft } = logic.values
-        const current = node ?? query
-        onSwitchLanguage?.(language === 'builder' ? current : { ...current, [language]: queryDraft.trim() }, to)
-    }
-
+/** Writes the builder's query back to the insight as it changes. */
+function MetricsQuerySync({ query, setQuery }: { query: MetricsQuery; setQuery: (query: MetricsQuery) => void }): null {
+    const { metricsQueryNode } = useValues(metricsViewerLogic)
     // The node the saved query maps to. Until the first edit, a node equal to it is not written back,
     // so opening the editor does not mark the insight as changed.
     const seedNode = useRef(metricsQueryNode)
@@ -203,21 +218,81 @@ function MetricsQueryEditorControls({
         } = query
         setQuery({ ...rest, ...metricsQueryNode })
     }, [metricsQueryNode]) // eslint-disable-line react-hooks/exhaustive-deps
+    return null
+}
+
+export interface MetricsQueryControlsProps {
+    /** Prefix of the `data-attr` of each control, so each surface keeps its own analytics names. */
+    dataAttrPrefix: 'metrics-viewer' | 'metrics-query-editor'
+    /** The query a language switch converts while the builder has no metric yet. */
+    fallbackQuery?: MetricsQuery
+    /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
+    onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
+    /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
+    onRerun?: () => void
+    /** Whether the result has labels. Without it, the builder's group-bys decide. */
+    resultIsGrouped?: boolean
+    /** Offers the heatmap display, which saves a histogram query instead of a time series. */
+    heatmap?: { eligible: boolean }
+    /** Controls after the date range and interval. */
+    toolbarExtras?: ReactNode
+    /** Controls after the display settings. */
+    displayExtras?: ReactNode
+    /** Buttons on the right of the display row. */
+    actions?: ReactNode
+}
+
+/** The metrics query controls of the `/metrics` viewer and the metrics insight editor. */
+export function MetricsQueryControls({
+    dataAttrPrefix,
+    fallbackQuery,
+    onSwitchLanguage,
+    onRerun,
+    resultIsGrouped: resultIsGroupedProp,
+    heatmap,
+    toolbarExtras,
+    displayExtras,
+    actions,
+}: MetricsQueryControlsProps): JSX.Element {
+    const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval } =
+        useValues(metricsViewerLogic)
+    const { displayType, language, queryDraft } = useValues(metricsViewerLogic)
+    const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType, runQueryText } =
+        useActions(metricsViewerLogic)
+    const logic = useMountedLogic(metricsViewerLogic)
+    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
+    const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
+
+    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
+    const runQuery = (): void => (logic.values.queryTextChanged ? runQueryText() : onRerun?.())
+
+    const switchLanguage = (to: MetricsQueryLanguage): void => {
+        // Read the logic at click time, so a draft the user has not run yet still converts.
+        const { metricsQueryNode: node, queryDraft } = logic.values
+        const current = node ?? fallbackQuery ?? { kind: NodeKind.MetricsQuery, clauses: [] }
+        onSwitchLanguage?.(language === 'builder' ? current : { ...current, [language]: queryDraft.trim() }, to)
+    }
 
     // A formula result is ungrouped even when its input clauses group. PromQL and SQL results can have any labels.
     const resultIsGrouped =
-        language !== 'builder' || (!formula && namedClauses.some((clause) => clause.groupByKeys.length > 0))
+        resultIsGroupedProp ??
+        (language !== 'builder' || (!formula && namedClauses.some((clause) => clause.groupByKeys.length > 0)))
     const displayTypeOptions = useMemo(() => {
-        const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
+        const types: MetricsDisplayType[] = dashboardPanelsEnabled
+            ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES, ...(heatmap ? (['heatmap'] as const) : [])]
+            : BASE_DISPLAY_TYPES
         return types.map((value) => {
             const def = METRICS_PANELS[value]
-            return {
-                value,
-                label: def.label,
-                disabledReason: def.needsGroupBy && !resultIsGrouped ? 'Add a group-by to use this panel' : undefined,
-            }
+            const reason = def.needsGroupBy
+                ? !resultIsGrouped
+                    ? 'Add a group-by to use this panel'
+                    : undefined
+                : def.needsHistogram && !heatmap?.eligible
+                  ? 'Pick a single histogram metric (no formula) to use this panel'
+                  : undefined
+            return { value, label: def.label, disabledReason: reason }
         })
-    }, [dashboardPanelsEnabled, resultIsGrouped])
+    }, [dashboardPanelsEnabled, resultIsGrouped, heatmap])
 
     const showFormulaInput = viewerClauses.length > 1 || formula !== ''
 
@@ -239,6 +314,7 @@ function MetricsQueryEditorControls({
                 disabledReason={disabledReason}
             />
             <MetricsIntervalPicker value={interval} onChange={setInterval} disabledReason={disabledReason} />
+            {toolbarExtras}
         </div>
     )
 
@@ -266,7 +342,7 @@ function MetricsQueryEditorControls({
                             ? `A query can have at most ${MAX_CLAUSES} series`
                             : undefined)
                     }
-                    data-attr="metrics-query-editor-add-series"
+                    data-attr={`${dataAttrPrefix}-add-series`}
                 >
                     Add series
                 </LemonButton>
@@ -276,7 +352,7 @@ function MetricsQueryEditorControls({
     )
 
     return (
-        <div className="flex flex-col gap-2" data-attr="metrics-query-editor">
+        <div className="flex flex-col gap-2" data-attr={dataAttrPrefix}>
             {onSwitchLanguage ? (
                 <>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -306,23 +382,63 @@ function MetricsQueryEditorControls({
                         value={displayType}
                         options={displayTypeOptions}
                         onChange={setDisplayType}
-                        data-attr="metrics-query-editor-display-type"
+                        data-attr={`${dataAttrPrefix}-display-type`}
                         disabledReason={disabledReason}
                     />
                     <MetricsChartSettings />
+                    {displayExtras}
                 </div>
-                {language !== 'builder' && (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={runQuery}
-                        disabledReason={disabledReason ?? (queryDraft.trim() ? undefined : 'Write a query first')}
-                        data-attr={`metrics-query-editor-run-${language}`}
-                    >
-                        Run
-                    </LemonButton>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                    {actions}
+                    {language !== 'builder' && (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={runQuery}
+                            disabledReason={disabledReason ?? (queryDraft.trim() ? undefined : 'Write a query first')}
+                            data-attr={`metrics-query-editor-run-${language}`}
+                        >
+                            Run
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </div>
+    )
+}
+
+// Committed on blur/Enter (mirroring TrendsFormula) so a half-typed formula doesn't fire
+// a query per keystroke. Input is lowercased — clause aliases are lowercase and the
+// backend parser is case-sensitive.
+export const MetricsFormulaInput = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
+    const { formula } = useValues(metricsViewerLogic)
+    const { setFormula } = useActions(metricsViewerLogic)
+    const [draft, setDraft] = useState(formula)
+
+    // An external change (URL restore, clause reset) replaces the local draft.
+    useEffect(() => {
+        setDraft(formula)
+    }, [formula])
+
+    const commit = (): void => {
+        if (draft !== formula) {
+            setFormula(draft)
+        }
+    }
+
+    return (
+        <Tooltip title="Arithmetic over the series letters, with + - * / and parentheses. Only the formula result is charted.">
+            <LemonInput
+                size="small"
+                className="min-w-48"
+                value={draft}
+                onChange={(value) => setDraft(sanitizeFormulaInput(value))}
+                onBlur={commit}
+                onPressEnter={commit}
+                placeholder="Formula, e.g. (a - b) / a"
+                data-attr="metrics-viewer-formula"
+                disabledReason={disabledReason}
+            />
+        </Tooltip>
     )
 }

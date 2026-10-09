@@ -20,6 +20,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { performQuery } from '~/queries/query'
 import {
     GoalLine,
     MetricsAttributeScope,
@@ -61,7 +62,7 @@ import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames, metricsFilterGroup } from '../metricsLinks'
 import { METRICS_PANELS, resolveReducer } from '../panels/registry'
-import { metricsQueryText } from '../queryLanguages/convert'
+import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -476,6 +477,7 @@ export interface metricsViewerLogicValues {
     groupByKeys: string[]
     groupBySearch: string
     hasMetricName: boolean
+    hasQuery: boolean
     hasResults: boolean
     heatmapEligible: boolean
     histogramQueryNode: MetricsHistogramQuery | null
@@ -504,6 +506,7 @@ export interface metricsViewerLogicValues {
     reduce: MetricsReducer
     queryText: string
     queryTextChanged: boolean
+    rangeFunction: MetricRangeFunction | null
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -547,6 +550,9 @@ export interface metricsViewerLogicActions {
     }
     addToDashboard: () => {
         value: true
+    }
+    applyQuery: (query: MetricsQuery) => {
+        query: MetricsQuery
     }
     backfillClauses: (updates: MetricsViewerClauseBackfill[]) => {
         updates: MetricsViewerClauseBackfill[]
@@ -768,12 +774,18 @@ export interface metricsViewerLogicMeta {
         filterGroup: (activeClause: MetricsViewerClause) => UniversalFiltersGroup
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
+        hasQuery: (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string) => boolean
         queryPayload: (
             namedClauses: MetricsViewerClause[],
             formula: string,
             interval: string | null
         ) => MetricsQueryRequestBody | null
-        queryFingerprint: (queryPayload: MetricsQueryRequestBody | null) => string
+        queryFingerprint: (
+            queryPayload: MetricsQueryRequestBody | null,
+            language: MetricsQueryLanguage,
+            queryText: string,
+            interval: string | null
+        ) => string
         anomalyQuery: (namedClauses: MetricsViewerClause[], formula: string) => MetricsAnomalyRequestBody | null
         anomalyFingerprint: (anomalyQuery: MetricsAnomalyRequestBody | null) => string
         metricsDisplay: (
@@ -912,6 +924,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setQueryDraft: (queryDraft: string) => ({ queryDraft }),
         setQueryText: (queryText: string) => ({ queryText }),
         runQueryText: true,
+        // Replaces the whole query, as a language switch does.
+        applyQuery: (query: MetricsQuery) => ({ query }),
     }),
     reducers(({ props }) => ({
         // The clause list, active index, and formula live in one reducer so the
@@ -922,6 +936,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 ? queryStateFromNode(props.initialQuery)
                 : DEFAULT_QUERY_STATE) as MetricsViewerQueryState,
             {
+                applyQuery: (_, { query }) => queryStateFromNode(query),
                 setMetricName: (state, { metricName }) =>
                     withActiveClause(state, (clause) => ({ ...clause, metricName })),
                 // The picked metric's type, latched at pick time (and backfilled if the
@@ -1012,17 +1027,23 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         : state,
             },
         ],
-        // A language switch remounts the editor with the converted query, so nothing sets this.
-        language: [(props.initialQuery?.language ?? 'builder') as MetricsQueryLanguage, {}],
+        language: [
+            (props.initialQuery?.language ?? 'builder') as MetricsQueryLanguage,
+            { applyQuery: (_, { query }) => queryLanguage(query) },
+        ],
         queryText: [
             props.initialQuery ? metricsQueryText(props.initialQuery) : '',
-            { setQueryText: (_, { queryText }) => queryText },
+            {
+                setQueryText: (_, { queryText }) => queryText,
+                applyQuery: (_, { query }) => metricsQueryText(query),
+            },
         ],
         queryDraft: [
             props.initialQuery ? metricsQueryText(props.initialQuery) : '',
             {
                 setQueryDraft: (_, { queryDraft }) => queryDraft,
                 setQueryText: (_, { queryText }) => queryText,
+                applyQuery: (_, { query }) => metricsQueryText(query),
             },
         ],
         dateFrom: [
@@ -1365,6 +1386,25 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     if (!canViewMetrics()) {
                         return []
                     }
+                    if (values.language !== 'builder') {
+                        // PromQL and SQL run through the same query runner as a saved metrics insight.
+                        const node = values.metricsQueryNode
+                        if (!node || !values.queryText.trim()) {
+                            return []
+                        }
+                        await breakpoint(300)
+                        const controller = new AbortController()
+                        actions.cancelInProgressQuery(controller)
+                        const response = await performQuery(node, { signal: controller.signal })
+                        breakpoint()
+                        actions.setQueryAbortController(null)
+                        return response.results.map((series) => ({
+                            labels: series.labels,
+                            points: series.points,
+                            metric_name: series.metricName ?? null,
+                            clause: series.clause ?? null,
+                        }))
+                    }
                     const queryPayload = values.queryPayload
                     if (!queryPayload) {
                         return []
@@ -1512,6 +1552,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 clauses.filter((clause) => clause.metricName.trim().length > 0),
         ],
         hasMetricName: [(s) => [s.namedClauses], (namedClauses: MetricsViewerClause[]) => namedClauses.length > 0],
+        // Whether there is anything to run: a picked metric, or PromQL or SQL text.
+        hasQuery: [
+            (s) => [s.language, s.hasMetricName, s.queryText],
+            (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string): boolean =>
+                language === 'builder' ? hasMetricName : queryText.trim() !== '',
+        ],
         // The chart request minus the date range (resolved at fetch time). The fetch
         // loader sends this object verbatim, so the fingerprint below can't drift from
         // the real payload. Null when nothing queries anything yet.
@@ -1534,8 +1580,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // and a blank-row add/remove (which changes `viewerClauses` but not the request)
         // doesn't refetch the chart and cascade into samples/exemplar reloads.
         queryFingerprint: [
-            (s) => [s.queryPayload],
-            (queryPayload: MetricsQueryRequestBody | null): string => JSON.stringify(queryPayload),
+            (s) => [s.queryPayload, s.language, s.queryText, s.interval],
+            (
+                queryPayload: MetricsQueryRequestBody | null,
+                language: MetricsQueryLanguage,
+                queryText: string,
+                interval: string | null
+            ): string => JSON.stringify(language === 'builder' ? queryPayload : { language, queryText, interval }),
         ],
         // The characterize request minus the anomaly window, null when the badge is
         // suppressed: with several clauses (or a formula result) there is no single

@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
+import { performQuery } from '~/queries/query'
 import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -35,6 +36,11 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
+}))
+
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn(),
 }))
 
 jest.mock('scenes/insights/utils/api', () => ({
@@ -366,6 +372,28 @@ describe('metricsViewerLogic', () => {
             expect.objectContaining({ name: 'a', metricName: 'requests_total' }),
         ])
         expect(requestBody.query).not.toHaveProperty('formula')
+    })
+
+    it('runs a PromQL query through the query runner and charts its series', async () => {
+        jest.mocked(performQuery).mockResolvedValue({
+            results: [{ labels: { job: 'api' }, points: [{ time: '2026-01-01T00:00:00Z', value: 1 }], clause: 'a' }],
+        })
+        logic.actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(up)' })
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+
+        expect(jest.mocked(performQuery).mock.calls[0][0]).toMatchObject({ language: 'promql', promql: 'sum(up)' })
+        expect(metricsQueryCreate).not.toHaveBeenCalled()
+        expect(logic.values.chartSeries).toEqual([
+            {
+                labels: { job: 'api' },
+                points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
+                metricName: null,
+                clause: 'a',
+            },
+        ])
     })
 
     // A "vs baseline" badge computed from one input clause would be attributed to the
