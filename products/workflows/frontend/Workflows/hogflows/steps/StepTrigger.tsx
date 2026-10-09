@@ -240,19 +240,15 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 value: 'webhook',
                 icon: <IconWebhooks />,
             },
-            ...(type === 'manual'
-                ? [
-                      {
-                          label: 'Manual',
-                          description: 'Trigger your workflow manually... with a button!',
-                          value: 'manual',
-                          icon: <IconButton />,
-                      },
-                  ]
-                : []),
+            {
+                label: 'Manual',
+                description: 'Run your workflow when you click the trigger button',
+                value: 'manual',
+                icon: <IconButton />,
+            },
             {
                 label: 'Schedule',
-                description: 'Run your workflow on a recurring schedule, without a person or event',
+                description: 'Run your workflow once or on a recurring schedule, without a person or event',
                 value: 'schedule',
                 icon: <IconClock />,
             },
@@ -279,7 +275,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 })),
         ]
         return items
-    }, [type, featureFlags])
+    }, [featureFlags])
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
 
