@@ -1,3 +1,5 @@
+import { AccessControlLevel } from '~/types'
+
 import { AccessControlExportInput, AccessControlRule, generateAccessControlHCL } from './accessControlHclExporter'
 
 const ROLE_ID = '01a12045-1f02-0000-85fd-48fdffc811d0'
@@ -8,11 +10,11 @@ function rule(overrides: Partial<AccessControlRule>): AccessControlRule {
     return {
         resource: 'feature_flag',
         resource_id: null,
-        access_level: 'viewer',
+        access_level: AccessControlLevel.Viewer,
         role: null,
         organization_member: null,
         ...overrides,
-    } as AccessControlRule
+    }
 }
 
 function exportRules(rules: Pick<AccessControlExportInput, 'projectRules' | 'resourceRules'>): string {
@@ -35,10 +37,17 @@ describe('generateAccessControlHCL', () => {
         {
             name: 'role project access',
             input: {
-                projectRules: [rule({ resource: 'project', resource_id: '73', access_level: 'admin', role: ROLE_ID })],
+                projectRules: [
+                    rule({
+                        resource: 'project',
+                        resource_id: '73',
+                        access_level: AccessControlLevel.Admin,
+                        role: ROLE_ID,
+                    }),
+                ],
                 resourceRules: [],
             },
-            expected: [`id = "73/role/${ROLE_ID}"`, 'role         = posthog_role.role_flag_editors.id'],
+            expected: [`id = "73/role/${ROLE_ID}"`, 'role = posthog_role.role_flag_editors.id'],
         },
         {
             name: 'member project access',
@@ -54,15 +63,18 @@ describe('generateAccessControlHCL', () => {
         {
             name: 'resource default',
             input: { projectRules: [], resourceRules: [rule({})] },
-            expected: ['id = "73/feature_flag/default"', 'resource     = "feature_flag"'],
+            expected: ['id = "73/feature_flag/default"', 'resource = "feature_flag"'],
         },
         {
             name: 'role resource rule',
-            input: { projectRules: [], resourceRules: [rule({ access_level: 'editor', role: ROLE_ID })] },
+            input: {
+                projectRules: [],
+                resourceRules: [rule({ access_level: AccessControlLevel.Editor, role: ROLE_ID })],
+            },
             expected: [
                 `id = "${ORGANIZATION_ID}/${ROLE_ID}"`,
                 `id = "73/feature_flag/role/${ROLE_ID}"`,
-                'role         = posthog_role.role_flag_editors.id',
+                'role = posthog_role.role_flag_editors.id',
             ],
         },
         {
@@ -79,6 +91,18 @@ describe('generateAccessControlHCL', () => {
         for (const line of expected) {
             expect(hcl).toContain(line)
         }
+    })
+
+    it('escapes template markers in a role name', () => {
+        const hcl = generateAccessControlHCL({
+            projectId: 73,
+            organizationId: ORGANIZATION_ID,
+            roles: [{ id: ROLE_ID, name: 'Q3 ${budget} %{if x}' }],
+            members: [],
+            projectRules: [],
+            resourceRules: [rule({ role: ROLE_ID })],
+        }).hcl
+        expect(hcl).toContain('name = "Q3 $${budget} %%{if x}"')
     })
 
     it('skips cleared rules and keeps unused roles out of the file', () => {
