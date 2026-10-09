@@ -273,12 +273,8 @@ export function VisualReviewSettingsScene(): JSX.Element {
                             {githubIntegrations.map((integration) => (
                                 <AddRepoDropdown
                                     key={integration.id}
-                                    integrationId={integration.id}
-                                    placeholder={
-                                        githubIntegrations.length > 1
-                                            ? `Add from ${integration.display_name}...`
-                                            : undefined
-                                    }
+                                    integration={integration}
+                                    showAccountName={githubIntegrations.length > 1}
                                 />
                             ))}
                         </div>

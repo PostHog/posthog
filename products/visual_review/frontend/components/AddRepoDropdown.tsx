@@ -2,19 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSearchableSelect } from '@posthog/lemon-ui'
 
+import { manageInstallationUrl } from 'lib/integrations/githubInstallationUrl'
 import { githubRepositorySearchLogic } from 'lib/integrations/githubRepositorySearchLogic'
 import { urls } from 'scenes/urls'
 
-import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { IntegrationType } from '~/types'
 
 import { visualReviewSettingsSceneLogic } from '../scenes/visualReviewSettingsSceneLogic'
 
 const HINT_VALUE = '__hint__'
-
-interface Hint {
-    label: string
-    reason: string
-}
 
 function getHint({
     loading,
@@ -28,50 +24,53 @@ function getHint({
     hasMore: boolean
     searchQuery: string
     unaddedCount: number
-}): Hint | null {
+}): string | null {
     if (loading) {
-        return { label: 'Loading repositories...', reason: 'Repositories are loading' }
+        return 'Loading repositories...'
     }
     if (error) {
-        return { label: error, reason: 'Search again or refresh the page' }
+        return error
     }
     // Only the first page of results loads, so point people at search to reach the rest.
     if (hasMore) {
-        return { label: 'Search to find more repositories', reason: 'Only the first results are shown' }
+        return 'Search to find more repositories'
     }
     if (unaddedCount === 0) {
-        return searchQuery.trim()
-            ? { label: 'No matching repositories to add', reason: 'Try a different search' }
-            : { label: 'No more repositories', reason: 'All repositories have been added' }
+        return searchQuery.trim() ? 'No matching repositories to add' : 'All repositories have been added'
     }
     return null
 }
 
 export interface AddRepoDropdownProps {
-    integrationId: number
-    placeholder?: string
+    integration: IntegrationType
+    /** Names the integration in the placeholder, so several pickers can be told apart. */
+    showAccountName?: boolean
 }
 
 /** Searches the integration's repositories on the server, so installations with many repositories are not cut off. */
-export function AddRepoDropdown({ integrationId, placeholder }: AddRepoDropdownProps): JSX.Element {
-    const { existingRepoNames, saving, githubManageAccessUrl } = useValues(visualReviewSettingsSceneLogic)
+export function AddRepoDropdown({ integration, showAccountName }: AddRepoDropdownProps): JSX.Element {
+    const { existingRepoIds, saving } = useValues(visualReviewSettingsSceneLogic)
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
-    const searchLogic = githubRepositorySearchLogic({ id: integrationId })
+    const searchLogic = githubRepositorySearchLogic({ id: integration.id })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(searchLogic)
     const { setSearchQuery } = useActions(searchLogic)
 
-    const unaddedRepos = repositories.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
-    const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
+    const unaddedRepos = repositories.filter((r) => !existingRepoIds.has(r.id))
+    const installationId = integration.config?.installation_id
+    const installationUrl = installationId
+        ? manageInstallationUrl(installationId, integration.config?.account?.type, integration.config?.account?.name)
+        : null
+    const manageAccessUrl = installationUrl ?? urls.settings('environment-integrations')
 
     const hint = getHint({ loading, error, hasMore, searchQuery, unaddedCount: unaddedRepos.length })
     const options = [
-        ...unaddedRepos.map((repo: GitHubRepoApi) => ({ value: repo.full_name, label: repo.full_name })),
-        ...(hint ? [{ value: HINT_VALUE, label: hint.label, disabledReason: hint.reason }] : []),
+        ...unaddedRepos.map((repo) => ({ value: repo.full_name, label: repo.full_name })),
+        ...(hint ? [{ value: HINT_VALUE, label: hint, disabledReason: hint }] : []),
     ]
 
     return (
         <LemonSearchableSelect
-            placeholder={placeholder ?? 'Add a repository...'}
+            placeholder={showAccountName ? `Add from ${integration.display_name}...` : 'Add a repository...'}
             searchPlaceholder="Search repositories"
             data-attr="visual-review-add-repo"
             searchInputDataAttr="visual-review-add-repo-search"
@@ -88,7 +87,7 @@ export function AddRepoDropdown({ integrationId, placeholder }: AddRepoDropdownP
                             size="xsmall"
                             fullWidth
                             to={manageAccessUrl}
-                            targetBlank={!!githubManageAccessUrl}
+                            targetBlank={!!installationUrl}
                             className="text-muted"
                         >
                             Manage access
@@ -97,7 +96,7 @@ export function AddRepoDropdown({ integrationId, placeholder }: AddRepoDropdownP
                 },
             ]}
             onChange={(fullName) => {
-                const repo = repositories.find((r: GitHubRepoApi) => r.full_name === fullName)
+                const repo = repositories.find((r) => r.full_name === fullName)
                 if (repo) {
                     addRepo(repo)
                 }
