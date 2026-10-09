@@ -76,12 +76,12 @@ tools:
         title: Update batch export
         description: >
             Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day,
-            offset_hour, incremental_mode) work for any destination type. incremental_mode accepts APPEND or MERGE;
-            omit it to preserve the saved mode. For the hogql model, hogql_query, hogql_modifiers, primary_key, and
-            version_key can also change; send hogql_modifiers as null to remove them. Keys use query output column
-            names or aliases, and MERGE requires a primary_key. Typed destination config updates are available for
-            Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination
-            type cannot be changed. Do not change the model field on an existing batch export.
+            offset_hour, incremental_mode) work for any destination type. incremental_mode accepts APPEND or MERGE; omit
+            it to preserve the saved mode. For the hogql model, hogql_query, hogql_modifiers, primary_key, and
+            version_key can also change; send hogql_modifiers as null to remove them. Keys use query output column names
+            or aliases, and MERGE requires a primary_key. Typed destination config updates are available for Databricks,
+            AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination type cannot be
+            changed. Do not change the model field on an existing batch export.
         exclude_params:
             - id
             - team_id
@@ -105,8 +105,8 @@ tools:
         description: >
             List batch exports in the project. Batch exports send event, person, session data, or HogQL query results to
             destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns
-            destination type, incremental_mode, interval, paused state, and non-sensitive config; credentials are never exposed. Use
-            batch-export-get with the ID for full details including latest runs, query, and filters.
+            destination type, incremental_mode, interval, paused state, and non-sensitive config; credentials are never
+            exposed. Use batch-export-get with the ID for full details including latest runs, query, and filters.
         response:
             include:
                 - id
