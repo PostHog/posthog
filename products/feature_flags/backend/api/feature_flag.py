@@ -5765,11 +5765,11 @@ class FeatureFlagViewSet(
                 {"repository": "No GitHub repository could be determined. Connect GitHub or choose a repository."}
             )
 
-        title, description = build_archived_flag_cleanup_prompt(feature_flag.key, variant_keys, keep, variant_key)
+        prompt = build_archived_flag_cleanup_prompt(feature_flag.key, variant_keys, keep, variant_key)
         created = tasks_facade.create_and_run_task(
             team=self.team,
-            title=title,
-            description=description,
+            title=prompt.title,
+            description=prompt.description,
             origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
             user_id=cast(User, request.user).id,
             repository=repository,
@@ -5779,7 +5779,9 @@ class FeatureFlagViewSet(
             # Opening a PR needs repository access only, so the run gets no write access to PostHog data.
             posthog_mcp_scopes="read_only",
         )
-        return Response({"task_id": created.task_id, "repository": repository})
+        return Response(
+            FeatureFlagCleanupPrResponseSerializer({"task_id": created.task_id, "repository": repository}).data
+        )
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

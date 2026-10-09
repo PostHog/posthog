@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from django.db import models
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -156,10 +158,16 @@ def output_line(title: str) -> str:
     return f"Open a draft pull request titled {quote(title)}. In the description, summarise what you removed and anything you left for manual review."
 
 
+@frozen
+class ArchivedFlagCleanupPrompt:
+    title: str
+    description: str
+
+
 def build_archived_flag_cleanup_prompt(
     flag_key: str, variant_keys: list[str], keep: FlagCleanupKeep, keep_variant: str | None
-) -> tuple[str, str]:
-    """Return (title, description) for the agent that removes an archived flag's code."""
+) -> ArchivedFlagCleanupPrompt:
+    """The task title and the agent's instructions for removing an archived flag's code."""
     title = f"Clean up feature flag {flag_key}"
     flag = quote(flag_key)
     if keep == FlagCleanupKeep.VARIANT:
@@ -200,4 +208,4 @@ def build_archived_flag_cleanup_prompt(
             output_line(title),
         ]
     )
-    return title, description
+    return ArchivedFlagCleanupPrompt(title=title, description=description)
