@@ -1,5 +1,5 @@
 import type { TurnSuggestion } from '../types/streamTypes'
-import { BASE, INCIDENT_NOTEBOOK, INSIGHT, SCOUT, SUGGESTION_FRAMES } from './turnSuggestionFixtures'
+import { BASE, INCIDENT_NOTEBOOK, INSIGHT, SCOUT, SUGGESTION_FRAMES, WORKFLOW } from './turnSuggestionFixtures'
 import { parseTurnSuggestionParams } from './turnSuggestions'
 
 describe('turnSuggestions', () => {
@@ -29,6 +29,8 @@ describe('turnSuggestions', () => {
         ],
         ['a subscription without a cadence', { ...SUGGESTION_FRAMES.subscription, subscription: INSIGHT }],
         ['an error alert without an issue', { ...SUGGESTION_FRAMES.error_alert, errorAlert: { issueName: 'x' } }],
+        ['an empty workflow brief', { ...SUGGESTION_FRAMES.workflow, workflow: { prompt: ' ' } }],
+        ['an oversized workflow brief', { ...SUGGESTION_FRAMES.workflow, workflow: { prompt: 'x'.repeat(4001) } }],
         ['a non-object frame', 'scout'],
     ])('parseTurnSuggestionParams drops a frame with %s', (_label, params) => {
         expect(parseTurnSuggestionParams(params)).toBeNull()
@@ -40,6 +42,7 @@ describe('turnSuggestions', () => {
         ['alert', { alert: { ...INSIGHT, direction: 'decrease', changePercent: 20 } }],
         ['subscription', { subscription: { ...INSIGHT, cadence: 'weekly' } }],
         ['error_alert', { errorAlert: { issueId: 'issue-1', issueName: 'Checkout error' } }],
+        ['workflow', { workflow: WORKFLOW }],
     ])('parseTurnSuggestionParams keeps a %s frame with its draft', (kind, draft) => {
         expect(parseTurnSuggestionParams(SUGGESTION_FRAMES[kind])).toEqual({ ...BASE, kind, ...draft })
     })

@@ -10,7 +10,7 @@ import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
 
-type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert'
+type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert' | 'workflow'
 
 interface StoryArgs {
     kind: Kind
@@ -235,6 +235,27 @@ const FRAMES_BY_KIND: Record<Kind, Record<string, unknown>[]> = {
     alert: ALERT_TURN_FRAMES,
     subscription: SUBSCRIPTION_TURN_FRAMES,
     error_alert: ERROR_ALERT_TURN_FRAMES,
+    workflow: [
+        notification('_posthog/run_started', {}),
+        notification('_posthog/user_message', { content: 'Can we remind new signups to finish onboarding?' }),
+        sessionUpdate({
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'story-workflow-answer',
+            content: { type: 'text', text: 'A workflow can wait one day after `signed_up` and send a reminder.' },
+        }),
+        notification('_posthog/turn_complete', { stopReason: 'end_turn' }),
+        notification('_posthog/turn_suggestion', {
+            turnIndex: 0,
+            kind: 'workflow',
+            intent: 'action',
+            confidence: 0.93,
+            title: 'Turn this into a workflow',
+            description: 'Review the brief in the workflow builder, then ask PostHog AI to create a draft.',
+            workflow: {
+                prompt: 'Draft a disabled workflow triggered by signed_up. Wait one day, then send an onboarding reminder. Ask which channel and message to use before drafting the action. Test the draft and leave it disabled.',
+            },
+        }),
+    ],
 }
 
 function TurnSuggestionStory({ kind, narrow }: StoryArgs): JSX.Element {
@@ -332,3 +353,7 @@ export const AlertSuggestion: Story = { args: { kind: 'alert' } }
 export const SubscriptionSuggestion: Story = { args: { kind: 'subscription' } }
 
 export const ErrorAlertSuggestion: Story = { args: { kind: 'error_alert' } }
+
+export const WorkflowSuggestion: Story = { args: { kind: 'workflow' } }
+
+export const WorkflowSuggestionNarrow: Story = { args: { kind: 'workflow', narrow: true } }

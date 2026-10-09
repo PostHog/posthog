@@ -71,7 +71,23 @@ describe('aiFirstHandoffLogic', () => {
         logic?.unmount()
     })
 
-    // Otherwise the composer and the side panel show the same empty chat side by side.
+    it.each([undefined, 'Draft an onboarding reminder workflow.'])(
+        'opens the composer with the initial brief %s without submitting it',
+        async (initialPrompt) => {
+            logic.unmount()
+            logic = aiFirstHandoffLogic({ ...handoff(), getInitialPrompt: () => initialPrompt ?? null })
+            logic.mount()
+            const seeds = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID })
+            seeds.mount()
+            seeds.actions.setSeed({ prompt: 'Unrelated unsent prompt', autoSubmit: false })
+
+            await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+
+            expect(seeds.values.seed).toMatchObject({ prompt: initialPrompt ?? '', autoSubmit: false })
+            seeds.unmount()
+        }
+    )
+
     it('closes an open PostHog AI panel when the composer is shown', async () => {
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
 

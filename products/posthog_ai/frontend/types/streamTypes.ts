@@ -367,9 +367,15 @@ export interface ErrorAlertTurnSuggestion extends TurnSuggestionBase {
     errorAlert: ErrorAlertSuggestionDraft
 }
 
+export interface WorkflowTurnSuggestion extends TurnSuggestionBase {
+    kind: 'workflow'
+    workflow: { prompt: string }
+}
+
 export type TurnSuggestion =
     | ScoutTurnSuggestion
     | NotebookTurnSuggestion
     | AlertTurnSuggestion
     | SubscriptionTurnSuggestion
     | ErrorAlertTurnSuggestion
+    | WorkflowTurnSuggestion

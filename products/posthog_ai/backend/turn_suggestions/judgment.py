@@ -70,13 +70,14 @@ _SHOW_OFFER = NoulQuestion(
         "context": (
             "PostHog AI is the analytics agent inside PostHog. A follow-up offer is a small card under its answer "
             "that turns the answer into something lasting: a scheduled report in Slack, an alert, a chart "
-            "subscription, or a saved notebook. An offer at the wrong moment interrupts the user, so show one "
+            "subscription, a saved notebook, or a workflow draft. An offer at the wrong moment interrupts the user, so show one "
             "only when it clearly helps."
         ),
         "show_when": [
             "The turn ran PostHog tools that completed, and the answer gives a real result.",
             "The user digs into something specific: a segment, filter, flow or feature, often compared with an earlier period, a review of what changed on a dashboard, a worry about a number, or a request to keep track of it.",
             "The turn investigated a problem and found its cause.",
+            "The tool-backed analysis identifies a repeatable action for a specific event or person, such as a reminder after signup when onboarding is incomplete, and gives a concrete trigger and action.",
             "The question is about one area of the product, such as a flow, page or feature, which the user will likely check again. This counts for more than a question about the whole product.",
             "The answer is complete and does not wait for the user to reply.",
         ],
@@ -111,6 +112,11 @@ _INTENT = ChoiceQuestion(
 )
 
 _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
+    OfferKind.WORKFLOW: {
+        "what": "An editable brief handed to the workflow builder, which can create and test a disabled draft.",
+        "fits": "The tool-backed answer identifies a specific event-triggered automation with a concrete action, condition or delay, such as following up after signup or notifying a team when an event occurs. The conversation supplies enough detail to draft it, and no existing workflow already covers it.",
+        "not_for": "A question about a metric or signup rate alone. Prefer an alert for a saved metric threshold, a subscription for a chart, or a scout for repeated analysis. Workflows have no native aggregate metric-threshold trigger or analytics-query action. Do not offer another workflow when this turn already created or changed one, or when the user explicitly asked to create one and the assistant can act directly.",
+    },
     OfferKind.SCOUT: {
         "what": "A scheduled agent that reruns this analysis with the same PostHog tools and posts a short report to Slack.",
         "fits": "The user asks how a metric is doing now, today, this week, or over a recent window, and will ask again next period. A metric the user digs into with specific filters, segments or a flow and will follow over time, a concern about a number, a check on one area of the product for a period (such as errors or drop-off in onboarding this week) that the user will want every period, a review of what changed on a dashboard or metric this period, several metrics from this conversation, or an investigation worth repeating when the metric dips.",

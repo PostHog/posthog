@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none, ph_scoped_capture
 
 from products.posthog_ai.backend.turn_suggestions.classifier import card_copy, classify_turn
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL
@@ -49,7 +49,7 @@ TURN_SUGGESTION_RESOLVED_METHOD = "_posthog/turn_suggestion_resolved"
 MAX_TRANSCRIPT_LOG_BYTES = 16 * 1024 * 1024
 
 # The offers whose text a language model writes after the judgment picks them.
-_DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK})
+_DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK, OfferKind.WORKFLOW})
 
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
 
@@ -85,6 +85,24 @@ def _history_is_whole(task_run: TaskRun) -> bool:
     return not (oldest.state or {}).get("resume_from_run_id")
 
 
+def _workflow_builder_available(task_run: TaskRun, user: "User") -> bool:
+    organization_id = str(task_run.team.organization_id)
+    variant = get_feature_flag_or_none(
+        "workflows-ai-first-new",
+        str(user.distinct_id),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+    return (variant is True or variant == "test") and feature_enabled_or_false(
+        "phai-scene-auto-open",
+        str(user.distinct_id),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+
+
 def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
     """Fold the whole resume chain, because the thread counts turns across it. Returns ``None``
     when the logs are over ``MAX_TRANSCRIPT_LOG_BYTES``."""
@@ -97,11 +115,15 @@ def _turn_has_substance(transcript: TurnTranscript) -> bool:
     return bool(transcript.tool_calls) and bool(transcript.assistant_text)
 
 
-def available_offers(transcript: TurnTranscript, *, scouts_available: bool) -> frozenset[OfferKind]:
+def available_offers(
+    transcript: TurnTranscript, *, scouts_available: bool, workflows_available: bool = False
+) -> frozenset[OfferKind]:
     """The offers this turn and project can act on. The classifier picks one of these, or shows nothing."""
     offers = set()
     if _turn_has_substance(transcript):
         offers.add(OfferKind.NOTEBOOK)
+        if workflows_available:
+            offers.add(OfferKind.WORKFLOW)
     if transcript.saved_insights:
         offers.add(OfferKind.SUBSCRIPTION)
         if any(ref.alertable for ref in transcript.saved_insights):
@@ -208,7 +230,9 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if refusal is not None:
         return _skipped(refusal.value)
     available = available_offers(
-        transcript, scouts_available=scout_creation_available(team_id=task_run.team_id, user_id=user.id)
+        transcript,
+        scouts_available=scout_creation_available(team_id=task_run.team_id, user_id=user.id),
+        workflows_available=_workflow_builder_available(task_run, user),
     )
     if not available:
         return _skipped("no_offers_available")
