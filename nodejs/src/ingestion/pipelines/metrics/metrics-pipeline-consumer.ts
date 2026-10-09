@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface } from '~/common/kafka/consumer'
+import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
@@ -31,6 +32,32 @@ export interface MetricsPipelineConsumerDeps {
 }
 
 /**
+ * Remembers the first rejected side effect. `PromiseScheduler` forgets a
+ * promise when it settles, so a side effect that rejects before the batch
+ * calls `waitForAll()` would go unseen and its offsets would be committed.
+ */
+class FailureLatchingPromiseScheduler extends PromiseScheduler {
+    private failure: { error: unknown } | undefined
+
+    public override schedule(...promises: Promise<unknown>[]): Promise<any> {
+        for (const promise of promises) {
+            promise.catch((error: unknown) => {
+                this.failure ??= { error }
+            })
+        }
+        return super.schedule(...(promises as [Promise<unknown>]))
+    }
+
+    /** Waits for all scheduled work, then rejects if any side effect has ever rejected. */
+    public async waitForAllOrFail(): Promise<void> {
+        await this.waitForAll()
+        if (this.failure) {
+            throw this.failure.error
+        }
+    }
+}
+
+/**
  * Metrics ingestion consumer on the pipeline framework: owns the Kafka
  * consumer, the promise scheduler and the rate limiter's Redis, and drives
  * one `MetricsIngestionPipeline` batch per Kafka batch.
@@ -39,15 +66,18 @@ export class MetricsPipelineConsumer {
     // Same id as the pre-framework consumer so health-check output does not change with the switch.
     protected name = 'MetricsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
-    private promiseScheduler: PromiseScheduler
+    private promiseScheduler: FailureLatchingPromiseScheduler
     private pipeline: MetricsIngestionPipeline
 
     constructor(config: MetricsIngestionConsumerConfig, deps: MetricsPipelineConsumerDeps) {
-        this.kafkaConsumer = createKafkaConsumer({
+        // Always v2: consumer-v1 stores a batch's offsets even when its background
+        // task rejects, so a failed produce and DLQ write would lose the batch.
+        // v2 stores nothing after a rejection, and the batch replays.
+        this.kafkaConsumer = new KafkaConsumerV2({
             groupId: config.METRICS_INGESTION_CONSUMER_GROUP_ID,
             topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
         })
-        this.promiseScheduler = new PromiseScheduler()
+        this.promiseScheduler = new FailureLatchingPromiseScheduler()
         this.pipeline = createMetricsIngestionPipeline({
             outputs: deps.outputs,
             promiseScheduler: this.promiseScheduler,
@@ -94,9 +124,11 @@ export class MetricsPipelineConsumer {
         // Scheduled produces (DLQ, usage rows) are the slow tail of a batch, so
         // hand them to the consumer as a background task: it fetches the next
         // batch meanwhile and only stores this batch's offsets once they settle.
+        // After a side effect rejects, every later background task rejects too,
+        // so no offsets are stored past the lost message.
         return {
             backgroundTask: instrumentFn('metricsIngestionConsumer.awaitScheduledWork', () =>
-                this.promiseScheduler.waitForAll()
+                this.promiseScheduler.waitForAllOrFail()
             ),
         }
     }

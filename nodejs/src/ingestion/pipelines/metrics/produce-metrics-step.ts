@@ -2,7 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { produceMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
+import { logger } from '~/common/utils/logger'
+import { sendMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
@@ -31,9 +32,10 @@ const PRODUCE_RETRY = { tries: 5, sleepMs: 100, softDeadlineMs: 10_000, name: 'p
  *
  * The produce is a side effect, so the consumer reads the next batch while
  * the acks are pending. An error not marked `isRetriable: false` gets retries.
- * When the produce still fails, the message goes to the DLQ. The side effect must not reject:
- * consumer-v1 stores the batch's offsets even when its background task
- * rejects, so a rejection would lose the message instead of replaying it.
+ * When the produce still fails, the message goes to the DLQ. If the DLQ
+ * produce fails too, the side effect rejects. `MetricsPipelineConsumer` runs
+ * on consumer-v2, which then stores no offsets, so the batch replays and the
+ * message is not lost.
  */
 export function createProduceMetricsStep<T extends ProduceMetricsInput>(
     outputs: IngestionOutputs<MetricsOutput | DlqOutput>
@@ -73,7 +75,15 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
                         ...Object.entries(headers).map(([k, v]) => ({ [k]: v })),
                     ],
                 }
-                await produceMessageToDLQ(outputs, dlqMessage, error, 'produceMetricsStep')
+                try {
+                    await sendMessageToDLQ(outputs, dlqMessage, error, 'produceMetricsStep')
+                } catch (dlqError) {
+                    logger.error('Failed to send metrics message to DLQ, failing the batch so it replays', {
+                        team_id: teamIdLabel,
+                        error: dlqError,
+                    })
+                    throw dlqError
+                }
             }
         )
 

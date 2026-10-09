@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '~/tests/helpers/team'
 
@@ -10,9 +11,8 @@ import { MetricsPipelineConsumer, MetricsPipelineConsumerDeps } from './metrics-
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
-jest.mock('~/common/kafka/consumer', () => ({
-    ...jest.requireActual('~/common/kafka/consumer'),
-    createKafkaConsumer: jest.fn(() => ({
+jest.mock('~/common/kafka/consumer/consumer-v2', () => ({
+    KafkaConsumerV2: jest.fn().mockImplementation(() => ({
         connect: jest.fn().mockResolvedValue(undefined),
         disconnect: jest.fn().mockResolvedValue(undefined),
         isHealthy: jest.fn().mockReturnValue({ status: 'ok' }),
@@ -65,6 +65,24 @@ describe('MetricsPipelineConsumer', () => {
         ack()
         await backgroundTask
         expect(outputs.produce).toHaveBeenCalledTimes(1)
+    })
+
+    it('runs on consumer-v2, which stores no offsets when the background task rejects', () => {
+        const config = getDefaultMetricsIngestionConsumerConfig()
+        expect(KafkaConsumerV2).toHaveBeenCalledWith({
+            groupId: config.METRICS_INGESTION_CONSUMER_GROUP_ID,
+            topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
+        })
+    })
+
+    it('rejects the background task when the produce and the DLQ write both fail', async () => {
+        const error = new MessageSizeTooLarge('too large', new Error('too large'))
+        outputs.produce.mockRejectedValue(error)
+
+        const { backgroundTask } = await consumer.handleKafkaBatch([message])
+
+        await expect(backgroundTask).rejects.toBe(error)
+        expect(outputs.produce).toHaveBeenCalledTimes(2)
     })
 
     it('fails the batch when the team lookup keeps failing with a retriable error', async () => {
