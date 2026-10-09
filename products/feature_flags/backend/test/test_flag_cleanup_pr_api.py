@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.team import Team
 from posthog.tasks.integrations import refresh_github_repository_cache
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
@@ -388,6 +389,18 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["repository"] == "example/app"
         assert response.json()["source"] == "single_repo"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_background_cache_refresh_does_not_cross_teams(self, mock_list_repositories):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="456", config={})
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        refresh_github_repository_cache.run(integration.id, other_team.id)
+
+        mock_list_repositories.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.repository_cache == []
+        assert integration.repository_cache_updated_at is None
 
     @parameterized.expand(
         [

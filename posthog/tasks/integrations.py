@@ -9,6 +9,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     refresh_backoff_active,
 )
+from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -23,6 +24,7 @@ from products.workflows.backend.facade.api import delete_ses_identity
     max_retries=3,
     time_limit=120,
 )
+@with_team_scope()
 def refresh_github_repository_cache(integration_id: int, team_id: int) -> None:
     integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
     if integration is None:
