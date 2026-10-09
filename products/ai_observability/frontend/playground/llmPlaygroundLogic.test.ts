@@ -609,6 +609,29 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
         })
 
+        it('should swap a message with its neighbor and ignore moves past the edges', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                { role: 'user', content: 'first' },
+                { role: 'assistant', content: 'second' },
+                { role: 'user', content: 'third' },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.moveMessage(2, 'up')
+            expect(llmPlaygroundPromptsLogic.values.messages.map((m) => m.content)).toEqual([
+                'first',
+                'third',
+                'second',
+            ])
+
+            llmPlaygroundPromptsLogic.actions.moveMessage(0, 'up')
+            llmPlaygroundPromptsLogic.actions.moveMessage(2, 'down')
+            expect(llmPlaygroundPromptsLogic.values.messages.map((m) => m.content)).toEqual([
+                'first',
+                'third',
+                'second',
+            ])
+        })
+
         it('should append a result as an assistant message and start the next user turn', () => {
             llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hello' }])
 

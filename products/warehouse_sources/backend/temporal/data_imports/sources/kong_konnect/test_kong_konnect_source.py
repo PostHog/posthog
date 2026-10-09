@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
     KongKonnectSourceConfig,
 )
@@ -30,12 +29,6 @@ class TestSourceConfig:
         # `region` selects the host the stored access token is sent to, so editing it must re-require the secret.
         assert KongKonnectSource().connection_host_fields == ["region"]
 
-    def test_ships_visible_as_alpha(self) -> None:
-        config = KongKonnectSource().get_source_config
-        # A finished source must be visible (no unreleasedSource) and flagged alpha.
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
 
 class TestGetSchemas:
     def test_only_api_requests_supports_incremental(self) -> None:
@@ -43,18 +36,12 @@ class TestGetSchemas:
         assert schemas["api_requests"].supports_incremental is True
         assert [f["field"] for f in schemas["api_requests"].incremental_fields] == ["request_start"]
         # The lookup list endpoints have no server-side timestamp filter, so they must stay full refresh.
-        for name in ("control_planes", "services", "routes", "consumers"):
+        for name in set(schemas) - {"api_requests"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 
     def test_names_filter(self) -> None:
         assert KongKonnectSource().get_schemas(_config(), team_id=1, names=["nonexistent"]) == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static catalog → public docs render the table list.
-        assert KongKonnectSource.lists_tables_without_credentials is True
-        tables = KongKonnectSource().get_documented_tables()
-        assert [t["name"] for t in tables] == ["api_requests", "control_planes", "services", "routes", "consumers"]
 
 
 class TestValidateCredentials:

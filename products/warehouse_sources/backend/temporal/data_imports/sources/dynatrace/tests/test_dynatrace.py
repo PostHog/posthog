@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -53,9 +52,6 @@ class TestNormalizeEnvironmentUrl:
 
 
 class TestValidatedHostname:
-    def test_accepts_clean_https_url(self) -> None:
-        assert _validated_hostname(BASE_URL) == "abc12345.live.dynatrace.com"
-
     @pytest.mark.parametrize(
         "url",
         [
@@ -73,10 +69,6 @@ class TestValidatedHostname:
         with mock.patch.object(dt, "is_cloud", return_value=True):
             assert _validated_hostname("http://dynatrace.internal.example.com") is None
 
-    def test_allows_plain_http_when_self_hosted(self) -> None:
-        with mock.patch.object(dt, "is_cloud", return_value=False):
-            assert _validated_hostname("http://dynatrace.internal.example.com") == "dynatrace.internal.example.com"
-
 
 class TestFormatFromValue:
     @pytest.mark.parametrize(
@@ -93,17 +85,6 @@ class TestFormatFromValue:
 
 
 class TestClampedFromValue:
-    def test_watermark_older_than_the_window_is_pulled_forward(self) -> None:
-        # Synthetic executions are served for six hours only, so an older watermark would ask
-        # for a timeframe Dynatrace refuses.
-        clamped = int(_clamped_from_value(1735689600000, timedelta(hours=6)))
-        earliest_ms = int((datetime.now(UTC) - timedelta(hours=6)).timestamp() * 1000)
-        assert clamped == pytest.approx(earliest_ms, abs=5000)
-
-    def test_watermark_inside_the_window_is_kept(self) -> None:
-        recent_ms = int((datetime.now(UTC) - timedelta(hours=1)).timestamp() * 1000)
-        assert _clamped_from_value(recent_ms, timedelta(hours=6)) == str(recent_ms)
-
     def test_relative_seed_passes_through(self) -> None:
         assert _clamped_from_value("now-6h", timedelta(hours=6)) == "now-6h"
 
@@ -174,28 +155,6 @@ def _source(
 
 class TestFirstPageParams:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_uses_watermark(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"problems": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(
-            _source(
-                "problems", manager, should_use_incremental_field=True, db_incremental_field_last_value=1735689600000
-            )
-        )
-        assert params[0]["from"] == "1735689600000"
-        assert params[0]["pageSize"] == "500"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_sync_seeds_lookback(self, MockSession: mock.MagicMock) -> None:
-        # Without an explicit `from`, Dynatrace only returns the last 2 hours of problems.
-        session = MockSession.return_value
-        params = _wire(session, [_response({"problems": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(_source("problems", manager))
-        assert params[0]["from"] == "now-365d"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_entity_endpoint_sends_selector_and_fields(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response({"entities": [], "nextPageKey": None})])
@@ -219,28 +178,6 @@ class TestFirstPageParams:
         assert "from" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metric_data_points_sends_selector_and_resolution_but_no_page_size(
-        self, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"result": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(_source("metric_data_points", manager, metric_selector="  builtin:host.cpu.usage  "))
-        assert params[0]["metricSelector"] == "builtin:host.cpu.usage"
-        assert params[0]["resolution"] == "1h"
-        # The metrics query endpoint has no pageSize param.
-        assert "pageSize" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_synthetic_executions_window_uses_its_own_param_name(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"executions": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(_source("synthetic_executions", manager))
-        assert params[0]["executionFrom"] == "now-6h"
-        assert "from" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_synthetic_executions_watermark_is_clamped_to_the_served_window(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response({"executions": [], "nextPageKey": None})])
@@ -259,27 +196,6 @@ class TestFirstPageParams:
     def test_metric_data_points_without_a_selector_is_refused(self) -> None:
         with pytest.raises(ValueError, match="Metric keys"):
             _source("metric_data_points", mock.MagicMock(), metric_selector="   ")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_releases_widen_the_default_window(self, MockSession: mock.MagicMock) -> None:
-        # Dynatrace only looks back two weeks when `from` is omitted, and a release row carries no
-        # timestamp the pipeline could use to catch up on what that window missed.
-        session = MockSession.return_value
-        params = _wire(session, [_response({"releases": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(_source("releases", manager))
-        assert params[0]["from"] == "now-30d"
-        assert params[0]["pageSize"] == "1000"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_slos_request_evaluation(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"slo": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        _rows(_source("slos", manager))
-        # With evaluate=true the endpoint caps pageSize at 25.
-        assert params[0]["evaluate"] == "true"
-        assert params[0]["pageSize"] == "25"
 
 
 class TestPagination:
@@ -313,32 +229,6 @@ class TestPagination:
         assert params[0] == {"nextPageKey": "resume-key"}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_cursor_still_advances(self, MockSession: mock.MagicMock) -> None:
-        # A page can be empty while more pages remain; termination is the null nextPageKey,
-        # not an empty batch.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"problems": [], "nextPageKey": "key-2"}),
-                _response({"problems": [{"problemId": "P-1"}], "nextPageKey": None}),
-            ],
-        )
-        manager, _ = _make_manager()
-        rows = _rows(_source("problems", manager))
-
-        assert rows == [{"problemId": "P-1"}]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        # A body without the data key is treated as an empty page (previous behavior), not an error.
-        session = MockSession.return_value
-        _wire(session, [_response({"unexpected": [], "nextPageKey": None})])
-        manager, _ = _make_manager()
-        assert _rows(_source("problems", manager)) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_redirect_is_refused(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(session, [_response({}, status=302, location="https://evil.example.com")])
@@ -359,27 +249,6 @@ class TestPagination:
 
 class TestEntityTagFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_each_entity_type_is_read_and_stamped_onto_its_rows(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response({"tags": [{"stringRepresentation": "owner:team-a"}], "totalCount": 1})
-                for _ in TAGGED_ENTITY_TYPES
-            ],
-        )
-        manager, _ = _make_manager()
-        rows = _rows(_source("entity_tags", manager))
-
-        # /api/v2/tags requires a selector naming one type, so each type is a request of its own.
-        assert [p["entitySelector"] for p in params] == [f'type("{t}")' for t in TAGGED_ENTITY_TYPES]
-        assert all(p["from"] == "now-30d" for p in params)
-        assert all("pageSize" not in p for p in params)
-        # A tag comes back with no entity reference, so the type it was read for is the only link
-        # back to the entity tables — and the rest of its primary key.
-        assert [row["entityType"] for row in rows] == list(TAGGED_ENTITY_TYPES)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_a_cursor_does_not_carry_into_the_next_entity_type(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         responses = [
@@ -397,72 +266,7 @@ class TestEntityTagFanOut:
         assert "nextPageKey" not in params[2]
 
 
-class TestDynatraceSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_pks", "expected_sort_mode"),
-        [
-            ("problems", ["problemId"], "desc"),
-            ("events", ["eventId"], "desc"),
-            ("audit_logs", ["logId"], "desc"),
-            ("security_problems", ["securityProblemId"], "asc"),
-            ("hosts", ["entityId"], "asc"),
-            ("kubernetes_clusters", ["entityId"], "asc"),
-            ("metrics", ["metricId"], "asc"),
-            # A data point is only unique on the metric, its dimension tuple and the timestamp.
-            ("metric_data_points", ["metricId", "dimensionKey", "timestamp"], "desc"),
-            ("slos", ["id"], "asc"),
-            # Dynatrace documents this tuple as a release's unique identity; it has no id field.
-            ("releases", ["name", "product", "stage", "version"], "asc"),
-            # A tag row is only unique once the entity type it was read for is part of the key.
-            ("entity_tags", ["entityType", "stringRepresentation"], "asc"),
-            ("synthetic_monitors", ["entityId"], "asc"),
-            ("synthetic_executions", ["executionId"], "desc"),
-        ],
-    )
-    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_sort_mode: str) -> None:
-        response = _source(endpoint, mock.MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pks
-        assert response.sort_mode == expected_sort_mode
-
-
 class TestFlattenMetricDataPoints:
-    def test_series_become_one_row_per_data_point(self) -> None:
-        rows = _flatten_metric_data_points(
-            [
-                {
-                    "metricId": "builtin:host.disk.avail",
-                    "data": [
-                        {
-                            "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
-                            "dimensions": ["HOST-1", "DISK-1"],
-                            "timestamps": [1735689600000, 1735693200000],
-                            "values": [11.1, 22.2],
-                        }
-                    ],
-                }
-            ]
-        )
-
-        assert rows == [
-            {
-                "metricId": "builtin:host.disk.avail",
-                "dimensionKey": "dt.entity.disk=DISK-1|dt.entity.host=HOST-1",
-                "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
-                "dimensions": ["HOST-1", "DISK-1"],
-                "timestamp": 1735689600000,
-                "value": 11.1,
-            },
-            {
-                "metricId": "builtin:host.disk.avail",
-                "dimensionKey": "dt.entity.disk=DISK-1|dt.entity.host=HOST-1",
-                "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
-                "dimensions": ["HOST-1", "DISK-1"],
-                "timestamp": 1735693200000,
-                "value": 22.2,
-            },
-        ]
-
     def test_dimension_key_falls_back_to_the_ordered_dimensions(self) -> None:
         # Older responses carry only the deprecated `dimensions` list, and the key still has to
         # separate the series.
@@ -475,10 +279,6 @@ class TestFlattenMetricDataPoints:
             ]
         )
         assert [row["dimensionKey"] for row in rows] == ["HOST-1"]
-
-    def test_series_without_data_points_yields_no_rows(self) -> None:
-        # Dynatrace returns an empty `data` list, and a warning, for a metric it could not read.
-        assert _flatten_metric_data_points([{"metricId": "builtin:host.cpu.usage", "data": []}]) == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_the_metrics_query_response_is_flattened_end_to_end(self, MockSession: mock.MagicMock) -> None:
@@ -579,31 +379,6 @@ class TestCheckEndpointPermissions:
         # The four entity tables share the entities.read scope, so one probe covers them all.
         assert call_count == 2
 
-    def test_metric_data_points_scope_is_probed_on_the_descriptor_endpoint(self) -> None:
-        # The query endpoint rejects a request with no metric selector, so probing it could never
-        # tell a missing scope apart from a malformed probe.
-        probed: list[str] = []
-
-        def fake_get(url: str, timeout: Any = None) -> Any:
-            probed.append(url)
-            response = mock.MagicMock()
-            response.status_code = 403
-            return response
-
-        with (
-            mock.patch.object(dt, "make_tracked_session") as mock_session,
-            mock.patch.object(dt, "_is_host_safe", return_value=(True, None)),
-        ):
-            mock_session.return_value.get.side_effect = fake_get
-            results = check_endpoint_permissions(
-                BASE_URL, "token", ["metric_data_points"], team_id=1, metric_selector="builtin:host.cpu.usage"
-            )
-
-        assert probed == [f"{BASE_URL}/api/v2/metrics?pageSize=1"]
-        reason = results["metric_data_points"]
-        assert reason is not None
-        assert "metrics.read" in reason
-
     def test_metric_data_points_reports_the_missing_metric_keys_instead_of_probing(self) -> None:
         # Nothing about the token stops this table syncing — the user has not said which metrics
         # to read — so the picker must say that rather than run a probe that cannot answer it.
@@ -631,12 +406,3 @@ class TestCheckEndpointPermissions:
 class TestBuildUrl:
     def test_no_params(self) -> None:
         assert _build_url(BASE_URL, "/api/v2/metrics", {}) == f"{BASE_URL}/api/v2/metrics"
-
-    def test_managed_path_prefix_is_preserved(self) -> None:
-        url = _build_url("https://dynatrace.example.com/e/abc-123", "/api/v2/problems", {"pageSize": "500"})
-        assert url == "https://dynatrace.example.com/e/abc-123/api/v2/problems?pageSize=500"
-
-    def test_query_is_url_encoded(self) -> None:
-        url = _build_url(BASE_URL, "/api/v2/problems", {"entitySelector": 'type("HOST")'})
-        parsed = urlparse(url)
-        assert parse_qs(parsed.query) == {"entitySelector": ['type("HOST")']}

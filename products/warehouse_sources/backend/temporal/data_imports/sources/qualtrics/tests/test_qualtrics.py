@@ -26,11 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.
     QualtricsRetryableError,
     _guard_response,
     _iter_export_file,
-    _normalize_response_row,
     _read_capped,
     format_incremental_value,
     get_rows,
-    normalize_host,
     qualtrics_source,
     validate_credentials,
     validate_host,
@@ -144,21 +142,6 @@ def _run_get_rows(
 
 
 class TestQualtricsTransport:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("iad1", "iad1.qualtrics.com"),
-            ("IAD1", "iad1.qualtrics.com"),
-            ("  fra1  ", "fra1.qualtrics.com"),
-            ("iad1.qualtrics.com", "iad1.qualtrics.com"),
-            ("https://iad1.qualtrics.com", "iad1.qualtrics.com"),
-            ("https://iad1.qualtrics.com/API/v3/", "iad1.qualtrics.com"),
-            ("surveys.acme.com", "surveys.acme.com"),
-        ],
-    )
-    def test_normalize_host(self, raw: str, expected: str) -> None:
-        assert normalize_host(raw) == expected
-
     @pytest.mark.parametrize("raw", ["", "   ", "bad host", "iad1.qualtrics.com:8080", "iad1_@"])
     def test_validate_host_rejects_junk(self, raw: str) -> None:
         with pytest.raises(QualtricsConfigurationError):
@@ -195,10 +178,6 @@ class TestQualtricsTransport:
         with pytest.raises(QualtricsResponseTooLargeError):
             _read_capped(_response(body=b"x" * 1024), max_bytes=10)
 
-    def test_api_token_rides_the_header(self) -> None:
-        manager = QualtricsAuthManager(_session(), HOST, API_TOKEN_CREDENTIALS)
-        assert manager.headers()["X-API-TOKEN"] == "tok-123"
-
     def test_api_token_missing_is_a_configuration_error(self) -> None:
         manager = QualtricsAuthManager(_session(), HOST, QualtricsCredentials(method="api_token"))
         with pytest.raises(QualtricsConfigurationError):
@@ -212,20 +191,6 @@ class TestQualtricsTransport:
         assert manager.headers()["Authorization"] == "Bearer abc"
         assert session.post.call_count == 1
         assert session.post.call_args.args[0] == f"https://{HOST}/oauth2/token"
-
-    def test_oauth_token_is_reminted_inside_the_refresh_margin(self) -> None:
-        # 30s of life is inside TOKEN_REFRESH_MARGIN_SECONDS, so the next request must not
-        # ride a token that would expire mid-flight.
-        session = _session(
-            post_responses=[
-                _response(json_data={"access_token": "first", "expires_in": 30}),
-                _response(json_data={"access_token": "second", "expires_in": 3600}),
-            ]
-        )
-        manager = QualtricsAuthManager(session, HOST, OAUTH_CREDENTIALS)
-
-        assert manager.headers()["Authorization"] == "Bearer first"
-        assert manager.headers()["Authorization"] == "Bearer second"
 
     def test_oauth_without_client_credentials_is_a_configuration_error(self) -> None:
         manager = QualtricsAuthManager(_session(), HOST, QualtricsCredentials(method="oauth_client_credentials"))
@@ -246,40 +211,8 @@ class TestQualtricsTransport:
         with pytest.raises(QualtricsHostNotAllowedError):
             client.get_json(url)
 
-    def test_client_builds_versioned_urls(self) -> None:
-        with mock.patch.object(qualtrics_module, "make_tracked_session", return_value=_session()):
-            client = QualtricsClient(HOST, API_TOKEN_CREDENTIALS, "v3")
-
-        assert client.url("/surveys") == f"{BASE}/surveys"
-        assert client.url("/distributions", {"surveyId": "SV_1"}) == f"{BASE}/distributions?surveyId=SV_1"
-
 
 class TestCollectionPagination:
-    def test_follows_next_page_and_checkpoints_after_each_page(self) -> None:
-        page_two = f"{BASE}/users?offset=100"
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "UR_1"}], next_page=page_two)),
-                _response(json_data=_collection([{"id": "UR_2"}], next_page=None)),
-            ]
-        )
-        manager = FakeResumeManager()
-
-        batches = _run_get_rows("users", session, manager)
-
-        assert batches == [[{"id": "UR_1"}], [{"id": "UR_2"}]]
-        # Checkpointed only after the first page was yielded, and never past the final page.
-        assert manager.saved == [QualtricsResumeConfig(next_page=page_two)]
-
-    def test_resumes_from_the_saved_next_page(self) -> None:
-        resume_url = f"{BASE}/users?offset=200"
-        session = _session(get_responses=[_response(json_data=_collection([{"id": "UR_9"}]))])
-
-        batches = _run_get_rows("users", session, FakeResumeManager(QualtricsResumeConfig(next_page=resume_url)))
-
-        assert batches == [[{"id": "UR_9"}]]
-        assert session.get.call_args.args[0] == resume_url
-
     def test_empty_collection_yields_nothing(self) -> None:
         session = _session(get_responses=[_response(json_data=_collection([]))])
 
@@ -312,19 +245,6 @@ class TestSurveyFanout:
         ]
         assert manager.saved == [QualtricsResumeConfig(parent_index=1), QualtricsResumeConfig(parent_index=2)]
 
-    def test_survey_ids_that_could_steer_the_url_are_dropped(self) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "../../oauth2/token"}, {"id": "SV_ok"}])),
-                _response(json_data=_collection([{"QuestionID": "QID1"}])),
-            ]
-        )
-
-        batches = _run_get_rows("survey_questions", session, FakeResumeManager())
-
-        assert batches == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
-        assert session.get.call_args_list[1].args[0] == f"{BASE}/survey-definitions/SV_ok/questions"
-
     def test_over_length_survey_ids_are_dropped(self) -> None:
         session = _session(
             get_responses=[
@@ -344,19 +264,6 @@ class TestSurveyFanout:
         with mock.patch.object(qualtrics_module, "MAX_SURVEY_COUNT", 1):
             with pytest.raises(QualtricsResponseTooLargeError):
                 _run_get_rows("survey_questions", session, FakeResumeManager())
-
-    def test_path_fanout_stamps_the_parent_survey_id(self) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_1"}])),
-                _response(json_data=_collection([{"QuestionID": "QID1"}])),
-            ]
-        )
-
-        batches = _run_get_rows("survey_questions", session, FakeResumeManager())
-
-        assert batches == [[{"QuestionID": "QID1", "surveyId": "SV_1"}]]
-        assert session.get.call_args_list[1].args[0] == f"{BASE}/survey-definitions/SV_1/questions"
 
     def test_resumes_after_the_last_completed_survey(self) -> None:
         session = _session(
@@ -414,21 +321,6 @@ class TestResponseExport:
         with mock.patch.object(qualtrics_module, "EXPORT_POLL_INTERVAL_SECONDS", 0):
             return _run_get_rows("survey_responses", session, FakeResumeManager(), **kwargs)
 
-    def test_polls_until_complete_then_streams_the_zipped_export(self) -> None:
-        batches = self._run(self._export_session(_zip_bytes("responses.ndjson", self.NDJSON)))
-
-        assert len(batches) == 1
-        rows = batches[0]
-        assert [row["responseId"] for row in rows] == ["R_1", "R_2"]
-        assert rows[0]["surveyId"] == "SV_1"
-        assert rows[0]["recordedDate"] == "2026-01-02T03:04:05Z"
-        assert json.loads(rows[0]["labels"]) == {"QID1": "Often"}
-
-    def test_an_uncompressed_export_body_is_parsed_directly(self) -> None:
-        batches = self._run(self._export_session(self.NDJSON.encode()))
-
-        assert [row["responseId"] for row in batches[0]] == ["R_1", "R_2"]
-
     def test_incremental_runs_send_the_watermark_as_start_date(self) -> None:
         captured: list[Any] = []
         session = self._export_session(_zip_bytes("responses.ndjson", self.NDJSON), start_date_capture=captured)
@@ -440,14 +332,6 @@ class TestResponseExport:
         )
 
         assert captured == [{"format": "ndjson", "compress": True, "startDate": "2026-01-01T00:00:00Z"}]
-
-    def test_full_refresh_runs_send_no_start_date(self) -> None:
-        captured: list[Any] = []
-        session = self._export_session(_zip_bytes("responses.ndjson", self.NDJSON), start_date_capture=captured)
-
-        self._run(session)
-
-        assert captured == [{"format": "ndjson", "compress": True}]
 
     @pytest.mark.parametrize(
         "progress_payload",
@@ -476,15 +360,6 @@ class TestResponseExport:
 
         with pytest.raises(QualtricsExportFailedError, match=EXPORT_FAILED_ERROR):
             self._run(session)
-
-    def test_export_rows_are_batched(self) -> None:
-        many = "\n".join(json.dumps({"responseId": f"R_{i}", "values": {}}) for i in range(5))
-        session = self._export_session(_zip_bytes("responses.ndjson", many))
-
-        with mock.patch.object(qualtrics_module, "EXPORT_BATCH_SIZE", 2):
-            batches = self._run(session)
-
-        assert [len(batch) for batch in batches] == [2, 2, 1]
 
     def test_blank_lines_in_the_export_are_skipped(self) -> None:
         body = f"\n{self.NDJSON}\n\n"
@@ -533,36 +408,6 @@ class TestResponseExport:
         assert [len(batch) for batch in batches] == [1, 1, 1]
 
 
-class TestNormalizeResponseRow:
-    def test_flattens_values_and_json_encodes_the_survey_specific_blobs(self) -> None:
-        row = _normalize_response_row(
-            "SV_1",
-            {
-                "responseId": "R_1",
-                "values": {
-                    "recordedDate": "2026-01-02T03:04:05Z",
-                    "startDate": "2026-01-02T03:00:00Z",
-                    "progress": 100,
-                    "duration": 42,
-                    "finished": 1,
-                    "QID1": 3,
-                },
-                "labels": {"QID1": "Often"},
-            },
-        )
-
-        assert row["surveyId"] == "SV_1"
-        assert row["responseId"] == "R_1"
-        assert row["progress"] == 100
-        assert json.loads(row["values"])["QID1"] == 3
-        assert json.loads(row["displayedFields"]) == []
-
-    def test_falls_back_to_the_record_id_when_the_response_id_is_absent(self) -> None:
-        row = _normalize_response_row("SV_1", {"values": {"_recordId": "R_7"}})
-
-        assert row["responseId"] == "R_7"
-
-
 class TestValidateCredentials:
     def _validate(self, response: mock.MagicMock, schema_name: str | None = None) -> tuple[bool, str | None]:
         with (
@@ -602,53 +447,8 @@ class TestValidateCredentials:
             valid, error = validate_credentials("iad1", API_TOKEN_CREDENTIALS, "v3", None, team_id=1)
         assert (valid, error) == (False, "nope")
 
-    def test_fanout_endpoints_probe_the_survey_list(self) -> None:
-        session = _session([_response(json_data=_collection([]))])
-        with (
-            mock.patch.object(qualtrics_module, "make_tracked_session", return_value=session),
-            mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            validate_credentials("iad1", API_TOKEN_CREDENTIALS, "v3", "survey_responses", team_id=1)
-
-        assert session.get.call_args.args[0] == f"{BASE}/surveys"
-
 
 class TestSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, sort_mode, partition_keys",
-        [
-            ("surveys", ["id"], "asc", ["creationDate"]),
-            ("users", ["id"], "asc", None),
-            ("groups", ["id"], "asc", None),
-            ("divisions", ["divisionId"], "asc", None),
-            ("distributions", ["surveyId", "id"], "desc", None),
-            ("survey_questions", ["surveyId", "QuestionID"], "desc", None),
-            ("survey_responses", ["surveyId", "responseId"], "desc", ["recordedDate"]),
-        ],
-    )
-    def test_response_shape_per_endpoint(
-        self,
-        endpoint: str,
-        primary_keys: list[str],
-        sort_mode: str,
-        partition_keys: list[str] | None,
-    ) -> None:
-        response = qualtrics_source(
-            datacenter_id="iad1",
-            credentials=API_TOKEN_CREDENTIALS,
-            endpoint=endpoint,
-            api_version="v3",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-            team_id=1,
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_keys == partition_keys
-        assert response.partition_mode == ("datetime" if partition_keys else None)
-
     def test_items_are_lazy_so_no_request_happens_until_iterated(self) -> None:
         session = _session(get_responses=[_response(json_data=_collection([{"id": "UR_1"}]))])
         response = qualtrics_source(

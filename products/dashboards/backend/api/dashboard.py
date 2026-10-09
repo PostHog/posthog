@@ -52,9 +52,10 @@ from posthog.schema import InsightVizNode
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -165,7 +166,10 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.exports.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
+from products.exports.backend.facade.api import (
+    blocked_access_for_subscribed_dashboard_tile,
+    dashboard_has_active_full_subscription,
+)
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -1973,6 +1977,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
+            self._check_restored_tiles_access(instance, cast(User, self.context["request"].user))
             self._undo_delete_related_tiles(instance)
 
         # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
@@ -2006,6 +2011,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         request_filters = initial_data.get("filters")
         if request_filters is not None:
             instance.filters = self._validated_filters(request_filters)
+            self._check_delivered_dashboard_filters_access(
+                cast(User, self.context["request"].user), instance, instance.filters
+            )
 
         request_variables = initial_data.get("variables")
         # An empty dict is a real value here: it clears the last remaining variable override.
@@ -2098,6 +2106,25 @@ class DashboardSerializer(DashboardMetadataSerializer):
         "transparent_background",
         "deleted",
     }
+
+    @staticmethod
+    def _check_delivered_dashboard_filters_access(user: User, dashboard: Dashboard, filters: dict) -> None:
+        """Dashboard filters and tile overrides apply to every tile at render time, on the public
+        link and in a subscription that delivers the whole dashboard, so a filter the editor cannot
+        run must not reach a dashboard delivered either way."""
+        properties = filters.get("properties")
+        if not isinstance(properties, list):
+            return
+        if is_publicly_shared(dashboard):
+            exposure = "publicly shared"
+        elif dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
+            exposure = "delivered by a subscription"
+        else:
+            return
+        if table := table_blocking_property_filters(user, dashboard.team, properties):
+            raise serializers.ValidationError(
+                f"Can't save these filters: you don't have access to `{table}`, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _extract_display_defaults(tile_data: dict, existing_layouts: dict | None = None) -> dict:
@@ -2242,6 +2269,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data, existing.layouts)
         if not tile_defaults:
             return None, False
+        if tile_defaults.get("filters_overrides"):
+            DashboardSerializer._check_delivered_dashboard_filters_access(
+                user, instance, tile_defaults["filters_overrides"]
+            )
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value
@@ -2460,6 +2491,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
+
+    @staticmethod
+    def _check_restored_tiles_access(instance: Dashboard, user: User) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the checks that
+        gate a single tile restore run here for each insight the restore shows again. An insight
+        can be edited while its dashboard is deleted, so its query may have changed since."""
+        queries = (
+            Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
+            )
+            .distinct()
+            .values_list("query", flat=True)
+        )
+        for query in queries:
+            check_can_add_insight_to_shared_dashboard(user, instance, query)
+            if error := blocked_access_for_subscribed_dashboard_tile(user, instance, query):
+                raise serializers.ValidationError(error)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:

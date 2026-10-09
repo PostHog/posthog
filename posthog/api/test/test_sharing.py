@@ -32,6 +32,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.insight_queries import browser_filtered_pageview_query
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -2518,6 +2519,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    def test_restoring_shared_dashboard_blocked_when_a_hidden_insight_changed(self):
+        self._deny_editor()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        dashboard_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}"
+        assert self.client.patch(dashboard_url, {"deleted": True}).status_code == status.HTTP_200_OK
+
+        # The tiles are hidden with the dashboard, so the insight is not shared at this moment.
+        assert self._patch_insight_query().status_code == status.HTTP_200_OK
+
+        response = self.client.patch(dashboard_url, {"deleted": False})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        dashboard.refresh_from_db()
+        assert dashboard.deleted is True
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+
     @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
     def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
         self._deny_editor()
@@ -2543,6 +2563,44 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 "kind": "DataTableNode",
                 "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
             }
+
+    @parameterized.expand(
+        [
+            ("dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "subscription", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "none", status.HTTP_200_OK),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_filters_through_denied_table_on_delivered_dashboard(
+        self, target: str, exposure: str, expected: int, _flag
+    ):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        if exposure == "shared":
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif exposure == "subscription":
+            self._subscription(dashboard=dashboard)
+        filters = {"properties": [denied_filter]}
+        payload = (
+            {"filters": filters}
+            if target == "dashboard_filters"
+            else {"tiles": [{"id": tile.id, "filters_overrides": filters}]}
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", payload)
+
+        assert response.status_code == expected, response.content
+        dashboard.refresh_from_db()
+        tile.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.filters == {}
+            assert not tile.filters_overrides
+        else:
+            assert dashboard.filters == filters
 
     @parameterized.expand(
         [

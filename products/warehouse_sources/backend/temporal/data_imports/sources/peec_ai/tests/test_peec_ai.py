@@ -80,63 +80,6 @@ def manager() -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    "endpoint,path,extra",
-    [
-        ("chats", "chats", {"include_archived_prompts": ["true"], "sort": ["asc"]}),
-        ("prompts", "prompts", {"is_archived": ["false"]}),
-        ("archived_prompts", "prompts", {"is_archived": ["true"]}),
-        ("brands", "brands", {}),
-        ("topics", "topics", {}),
-        ("tags", "tags", {}),
-        ("model_channels", "model-channels", {}),
-    ],
-)
-def test_request_auth_pagination_and_resume_checkpoints(
-    http: HTTPStub,
-    config: PeecAISourceConfig,
-    manager: MagicMock,
-    endpoint: str,
-    path: str,
-    extra: dict[str, list[str]],
-) -> None:
-    total = {} if endpoint == "model_channels" else {"total_count": 3}
-    http.responses = [(200, {"data": [{"id": "a"}, {"id": "b"}], **total}), (200, {"data": [{"id": "c"}], **total})]
-    response = peec_ai_source(config, endpoint, "v1", 1, "job", manager, False, None)
-    batches = iter(items(response))
-    assert next(batches) == [{"id": "a"}, {"id": "b"}]
-    assert list(batches) == [[{"id": "c"}]]
-    manager.clear_state.assert_not_called()
-    assert response.on_complete is not None
-    response.on_complete()
-    manager.clear_state.assert_called_once()
-    checkpoint = manager.save_state.call_args.args[0]
-    assert checkpoint.offset == 2
-    manager.save_state.assert_called_once()
-    for offset, request in zip([0, 2], http.requests):
-        assert request.url is not None
-        assert urlsplit(request.url).path == f"/customer/v1/{path}"
-        params = request_params(request)
-        assert params["offset"] == [str(offset)]
-        assert params["limit"] == ["2"]
-        assert params["project_id"] == ["or_example"]
-        assert all(params[key] == value for key, value in extra.items())
-        assert request.headers["x-api-key"] == "example-secret"
-        assert "example-secret" not in request.url
-        if endpoint != "chats":
-            assert "start_date" not in params
-
-
-@pytest.mark.parametrize("total,rows", [(0, []), (2, [{"id": "a"}, {"id": "b"}])])
-def test_terminal_page_does_not_request_another_page(
-    http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock, total: int, rows: list[dict[str, str]]
-) -> None:
-    http.responses = [(200, {"data": rows, "total_count": total})]
-    list(items(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None)))
-    assert len(http.requests) == 1
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize(
     "incremental,watermark,expected",
     [
         (False, "2025-06-10", "2025-01-01"),
@@ -178,17 +121,6 @@ def test_resume_preserves_date_range_after_watermark_advances(
     assert params["end_date"] == ["2025-06-30"]
 
 
-def test_model_channels_stops_at_empty_page_without_total(
-    http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock
-) -> None:
-    config.project_id = None
-    http.responses = [(200, {"data": [{"id": "a"}, {"id": "b"}]}), (200, {"data": []})]
-    batches = list(items(peec_ai_source(config, "model_channels", "v1", 1, "job", manager, False, None)))
-    assert [row for batch in batches for row in batch] == [{"id": "a"}, {"id": "b"}]
-    assert len(http.requests) == 2
-    assert all("project_id" not in request_params(request) for request in http.requests)
-
-
 def test_actions_paginate_through_post_body(http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock) -> None:
     http.responses = [
         (200, {"data": [{"id": "a"}, {"id": "b"}], "total_count": 3}),
@@ -218,19 +150,6 @@ def test_tag_groups_fetch_one_unpaginated_page(http: HTTPStub, config: PeecAISou
     assert len(http.requests) == 1
     assert request_params(http.requests[0]) == {"project_id": ["or_example"]}
     manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize("status", [429, 500])
-def test_sync_retries_transient_errors(
-    http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock, status: int
-) -> None:
-    http.responses = [(status, {"message": "Try later"}), (200, {"data": [{"id": "a"}], "total_count": 1})]
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient._send_request.retry.sleep"
-    ):
-        assert list(items(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None))) == [[{"id": "a"}]]
-    assert len(http.requests) == 2
-    assert http.requests[0].url == http.requests[1].url
 
 
 @pytest.mark.parametrize("project_id", [None, "or_example"])

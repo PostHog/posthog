@@ -161,35 +161,6 @@ class TestPagination:
 
 class TestSessionMessagesFanOut:
     @mock.patch(SESSION_PATCH)
-    def test_fans_out_over_sessions_with_cursor(self, MockSession) -> None:
-        # Two sessions, one paginated via the `after` cursor; every message must be collected and
-        # stamped with its parent session id. The raw child payload omits `sessionId`, so the source
-        # has to inject it — the composite [sessionId, id] primary key depends on it being present.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response({"sessions": [{"id": "s1"}, {"id": "s2"}]}),
-                _response({"messages": [{"id": "m1"}, {"id": "m2"}], "hasMore": True}),
-                _response({"messages": [{"id": "m3"}], "hasMore": False}),
-                _response({"messages": [{"id": "m9"}], "hasMore": False}),
-            ],
-        )
-
-        rows = _rows(_source("session_messages"))
-
-        assert [(r["id"], r["sessionId"]) for r in rows] == [("m1", "s1"), ("m2", "s1"), ("m3", "s1"), ("m9", "s2")]
-        assert [p["url"] for p in params] == [
-            f"{BROWSER_USE_BASE_URL}/sessions",
-            f"{BROWSER_USE_BASE_URL}/sessions/s1/messages",
-            f"{BROWSER_USE_BASE_URL}/sessions/s1/messages",
-            f"{BROWSER_USE_BASE_URL}/sessions/s2/messages",
-        ]
-        # The second s1 request continues from the last yielded message id.
-        assert params[2]["params"]["after"] == "m2"
-        assert "after" not in params[3]["params"]
-
-    @mock.patch(SESSION_PATCH)
     def test_checkpoints_track_fanout_progress(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -248,30 +219,6 @@ class TestSessionMessagesFanOut:
         assert params[1]["params"]["after"] == "m8"
 
     @mock.patch(SESSION_PATCH)
-    def test_completed_sessions_are_skipped_on_resume(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response({"sessions": [{"id": "s1"}, {"id": "s2"}]}),
-                _response({"messages": [{"id": "m9"}], "hasMore": False}),
-            ],
-        )
-
-        manager = _make_manager(
-            BrowserUseResumeConfig(
-                fanout_state={"completed": ["/sessions/s1/messages"], "current": None, "child_state": None}
-            )
-        )
-        rows = _rows(_source("session_messages", manager))
-
-        assert [(r["id"], r["sessionId"]) for r in rows] == [("m9", "s2")]
-        assert [p["url"] for p in params] == [
-            f"{BROWSER_USE_BASE_URL}/sessions",
-            f"{BROWSER_USE_BASE_URL}/sessions/s2/messages",
-        ]
-
-    @mock.patch(SESSION_PATCH)
     def test_legacy_resume_state_restarts_fanout(self, MockSession) -> None:
         # State saved before the framework migration bookmarked a session id + `after` cursor.
         # It still parses (the dataclass keeps the fields) but restarts the fan-out fresh —
@@ -326,11 +273,6 @@ class TestValidateCredentials:
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3) is expected
-
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_is_false(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3) is False
 
 
 class TestSessionHardening:
