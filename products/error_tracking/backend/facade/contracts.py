@@ -161,6 +161,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ingestion_enabled: bool
 
 
 @dataclass(frozen=True)

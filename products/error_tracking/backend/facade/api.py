@@ -203,6 +203,7 @@ def _to_settings(settings) -> contracts.ErrorTrackingSettings:
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ingestion_enabled=settings.ingestion_enabled,
     )
 
 
@@ -210,8 +211,12 @@ def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id))
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
+
+
+def list_ingestion_disabled_api_tokens() -> list[str]:
+    return logic.list_ingestion_disabled_api_tokens()
 
 
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:

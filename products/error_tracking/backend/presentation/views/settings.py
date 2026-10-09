@@ -33,6 +33,13 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         required=False,
         help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
     )
+    ingestion_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the project ingests exception events. When false, capture drops every $exception event "
+            "for this project before it is stored, and the events cannot be recovered."
+        ),
+    )
 
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
