@@ -546,6 +546,10 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
         help_text="True when a rule or Blocked team ceiling leaves no editable state."
     )
     decided_by = serializers.SerializerMethodField(help_text="Policy layer that decided the effective state.")
+    is_read_only = serializers.SerializerMethodField(
+        help_text="True when the server declared this tool read-only via the MCP readOnlyHint annotation. "
+        "Tools without that hint are treated as write/delete-capable."
+    )
 
     class Meta:
         model = MCPServerInstallationTool
@@ -559,6 +563,7 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
             "team_state",
             "locked",
             "decided_by",
+            "is_read_only",
             "last_seen_at",
             "removed_at",
             "created_at",
@@ -603,6 +608,12 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
     def get_decided_by(self, obj: MCPServerInstallationTool) -> str:
         resolved = self._resolved_policy(obj)
         return resolved.decided_by if resolved is not None else "legacy"
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_read_only(self, obj: MCPServerInstallationTool) -> bool:
+        # The server-reported hint is unverified, so anything other than an explicit
+        # True (missing, false, or malformed) is treated as write/delete-capable.
+        return obj.annotations.get("readOnlyHint") is True
 
 
 class ToolApprovalUpdateSerializer(serializers.Serializer):

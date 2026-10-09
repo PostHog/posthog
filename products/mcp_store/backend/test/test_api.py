@@ -4602,7 +4602,7 @@ class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         defaults.update(kwargs)
         return MCPServerInstallation.objects.create(**defaults)
 
-    def _tool(self, installation, name, approval_state="needs_approval", removed=False):
+    def _tool(self, installation, name, approval_state="needs_approval", removed=False, annotations=None):
         from django.utils import timezone
 
         from products.mcp_store.backend.models import MCPServerInstallationTool
@@ -4613,6 +4613,7 @@ class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             approval_state=approval_state,
             last_seen_at=timezone.now(),
             removed_at=timezone.now() if removed else None,
+            annotations=annotations or {},
         )
 
     def test_list_tools_returns_only_active_by_default(self):
@@ -4702,6 +4703,23 @@ class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/tools/refresh/"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_tools_reports_is_read_only_from_annotations(self):
+        installation = self._installation()
+        self._tool(installation, "list_issues", annotations={"readOnlyHint": True})
+        self._tool(installation, "delete_issue", annotations={"readOnlyHint": False})
+        self._tool(installation, "create_issue")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/tools/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        is_read_only_by_name = {t["tool_name"]: t["is_read_only"] for t in response.json()["results"]}
+        assert is_read_only_by_name == {
+            "list_issues": True,
+            "delete_issue": False,
+            "create_issue": False,
+        }
 
 
 class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

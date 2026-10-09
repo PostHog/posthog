@@ -16315,6 +16315,10 @@ export namespace Schemas {
          * Policy layer that decided the effective state.
          */
         decided_by: string;
+        /**
+         * True when the server declared this tool read-only via the MCP readOnlyHint annotation. Tools without that hint are treated as write/delete-capable.
+         */
+        is_read_only: boolean;
         last_seen_at: string;
         removed_at: string | null;
         created_at: string;
