@@ -7,6 +7,8 @@ import type { SubscriptionApi, SubscriptionSummaryApi } from 'products/subscript
 
 import { TARGET_TYPE_LABEL } from '../../scenes/components/subscriptionLabels'
 
+const TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'h:mm A', timestampStyle: 'absolute' } as const
+
 export function SubscriptionSummaryEntry({ summary }: { summary: SubscriptionSummaryApi }): JSX.Element {
     const channel = TARGET_TYPE_LABEL[summary.target_type as SubscriptionApi['target_type']] ?? summary.target_type
     return (
@@ -24,12 +26,12 @@ export function SubscriptionSummaryEntry({ summary }: { summary: SubscriptionSum
                 <span>·</span>
                 {summary.period_start ? (
                     <span>
-                        Changes from <TZLabel time={summary.period_start} timestampStyle="absolute" /> to{' '}
-                        <TZLabel time={summary.created_at} timestampStyle="absolute" />
+                        Changes from <TZLabel time={summary.period_start} {...TIME_FORMAT} /> to{' '}
+                        <TZLabel time={summary.created_at} {...TIME_FORMAT} />
                     </span>
                 ) : (
                     <span>
-                        Sent <TZLabel time={summary.created_at} timestampStyle="absolute" />
+                        Sent <TZLabel time={summary.created_at} {...TIME_FORMAT} />
                     </span>
                 )}
             </div>
