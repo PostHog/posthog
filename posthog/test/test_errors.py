@@ -80,6 +80,12 @@ class TestWrapClickhouseQueryError:
                 "Cannot parse an array. Check the format of the values converted to arrays.",
             ),
             (
+                170,
+                "BAD_GET",
+                "A function parameter has the wrong type, for example a decimal where a whole number is "
+                "necessary. Check the constant parameters of your functions, such as topK(10) instead of topK(10.0).",
+            ),
+            (
                 190,
                 "SIZES_OF_ARRAYS_DONT_MATCH",
                 "Array sizes do not match. Make sure arrays used together have the same number of elements.",

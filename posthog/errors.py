@@ -534,7 +534,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     167: ErrorCodeMeta("TOO_DEEP_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     168: ErrorCodeMeta("TOO_BIG_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     169: ErrorCodeMeta("BAD_TYPE_OF_FIELD"),
-    170: ErrorCodeMeta("BAD_GET"),
+    170: ErrorCodeMeta(
+        "BAD_GET",
+        user_safe="A function parameter has the wrong type, for example a decimal where a whole number is "
+        "necessary. Check the constant parameters of your functions, such as topK(10) instead of topK(10.0).",
+    ),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     174: ErrorCodeMeta("CYCLIC_ALIASES", user_safe=True),
