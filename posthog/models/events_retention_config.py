@@ -95,7 +95,7 @@ class OrganizationEventsRetentionConfig(models.Model):
             for team_id, months in TeamEventsRetentionConfig.objects.filter(
                 team__organization_id=self.organization_id, events_retention_months__isnull=False
             ).values_list("team_id", "events_retention_months")
-            if not _within(months, low, high)
+            if months is not None and not _within(months, low, high)
         )
         if out_of_range:
             raise ValidationError(
