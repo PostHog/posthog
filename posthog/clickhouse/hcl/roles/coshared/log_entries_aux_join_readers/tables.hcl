@@ -1,6 +1,6 @@
 # Aux-only deltas for the Distributed readers the aux nodes carry for tables that log_entries
 # queries join. log_entries reads aux, so ClickHouse runs such a JOIN on the aux nodes and the
-# right-hand table must resolve there. Created by migration 0351
+# right-hand table must resolve there. Created by migration 0352
 # (posthog/clickhouse/log_entries_aux_readers.py). The readers shared with other roles come from
 # roles/coshared/{main_join_readers,person_shims,main_proxies}; roles/auxiliary/prod points
 # raw_sessions at the sessions satellite. The cloud data clusters' mat_ columns are not declared

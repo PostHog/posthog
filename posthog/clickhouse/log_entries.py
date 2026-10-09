@@ -239,7 +239,7 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL():
 # local disk, days older than LOG_ENTRIES_AUX_HOT_DAYS on the `cold` (S3) volume, 90 day delete.
 # It is fed by a dedicated Kafka consumer (kafka_log_entries_aux + log_entries_aux_mv ->
 # writable_log_entries_aux) that runs alongside the main-cluster consumer during the dual-write
-# phase. After the read cutover (0351), `log_entries` is the reader over the aux data on the aux
+# phase. After the read cutover (0352), `log_entries` is the reader over the aux data on the aux
 # and main clusters. On the main cluster `log_entries_distributed` reads the old
 # `sharded_log_entries` and is the rollback handle; on the aux cluster it is an alias of the aux reader.
 #
