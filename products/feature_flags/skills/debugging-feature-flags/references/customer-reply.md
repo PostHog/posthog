@@ -115,6 +115,8 @@ organization still sees it off.
 Once the call includes the organization, that user will match the organization's release condition
 and get the flag.
 
+Here's the flag: https://us.posthog.com/project/1234/feature_flags/5678
+
 Happy to take another look once the change is out if the value doesn't move.
 ```
 
