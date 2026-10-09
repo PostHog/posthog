@@ -1,12 +1,12 @@
 import './AddPersonToCohortModalBody.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useMemo, useState } from 'react'
+import { CSSProperties, ClipboardEvent, useMemo, useState } from 'react'
 import { List } from 'react-window'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -19,7 +19,15 @@ import { ActorsQuery } from '~/queries/schema/schema-general'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
+import {
+    MAX_PASTED_VALUES,
+    PastedPersonsLookupResult,
+    parsePastedPersonValues,
+    pastedPersonsLookupLogic,
+} from './pastedPersonsLookupLogic'
+
 const ROW_HEIGHT = 44
+const MAX_UNMATCHED_SHOWN = 10
 
 interface PersonRowData {
     id: string
@@ -106,6 +114,51 @@ const PersonRowComponent = ({
     )
 }
 
+function describeSelection(selectedCount: number, alreadyInCohortCount: number): string {
+    if (selectedCount > 0 && alreadyInCohortCount === 0) {
+        return ' They are selected.'
+    }
+    if (selectedCount > 0) {
+        const alreadyInCohort = alreadyInCohortCount === 1 ? '1 is already' : `${alreadyInCohortCount} are already`
+        return ` Selected ${selectedCount} of them. ${alreadyInCohort} in the cohort.`
+    }
+    return alreadyInCohortCount > 0 ? ' They are already in the cohort.' : ''
+}
+
+function PastedPersonsLookupBanner({
+    lookupResult,
+    onClose,
+}: {
+    lookupResult: PastedPersonsLookupResult
+    onClose: () => void
+}): JSX.Element {
+    const { matches, unmatched, alreadyInCohortCount, truncated } = lookupResult
+    const shownUnmatched = unmatched.slice(0, MAX_UNMATCHED_SHOWN).join(', ')
+    const hiddenUnmatchedCount = unmatched.length - MAX_UNMATCHED_SHOWN
+    const found = matches.length === 1 ? 'Found 1 person' : `Found ${matches.length} people`
+    return (
+        <LemonBanner
+            type={unmatched.length > 0 || truncated ? 'warning' : 'success'}
+            onClose={onClose}
+            className="mb-2"
+        >
+            <div data-attr="cohort-pasted-persons-result">
+                <div>{`${found} from your pasted list.${describeSelection(matches.length - alreadyInCohortCount, alreadyInCohortCount)}`}</div>
+                {unmatched.length > 0 && (
+                    <div className="mt-1">
+                        {`No person matches these values: ${shownUnmatched}${hiddenUnmatchedCount > 0 ? ` and ${hiddenUnmatchedCount} more` : ''}. Check them for typos, or search for these people by name.`}
+                    </div>
+                )}
+                {truncated && (
+                    <div className="mt-1">
+                        {`Only the first ${MAX_PASTED_VALUES} values were checked. Upload a CSV file for longer lists.`}
+                    </div>
+                )}
+            </div>
+        </LemonBanner>
+    )
+}
+
 export interface PersonSelectListProps {
     query: ActorsQuery
     setQuery: (query: ActorsQuery) => void
@@ -147,6 +200,22 @@ export function PersonSelectList({
         setQuery({ ...query, search: value || undefined })
     }, 300)
 
+    const pastedLookupLogic = pastedPersonsLookupLogic({ dataNodeKey, onAddPerson, existingPersonsSet })
+    const { lookupResult, lookupResultLoading } = useValues(pastedLookupLogic)
+    const { lookupPastedValues, dismissLookupResult } = useActions(pastedLookupLogic)
+
+    const handlePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
+        const values = parsePastedPersonValues(event.clipboardData.getData('text'))
+        if (!values) {
+            return
+        }
+        event.preventDefault()
+        debouncedSetSearch.cancel()
+        setSearchValue('')
+        setQuery({ ...query, search: undefined })
+        lookupPastedValues(values)
+    }
+
     const rowProps: PersonRowProps = useMemo(
         () => ({
             persons,
@@ -163,15 +232,20 @@ export function PersonSelectList({
             <LemonInput
                 type="search"
                 value={searchValue}
-                placeholder="Search by name, email, Person ID or Distinct ID"
+                placeholder="Search by name, email, Person ID or Distinct ID, or paste a list of emails"
                 data-attr="persons-search"
                 onChange={(value: string) => {
                     setSearchValue(value)
                     debouncedSetSearch(value)
                 }}
+                onPaste={handlePaste}
                 fullWidth
                 autoFocus={autoFocus}
+                suffix={lookupResultLoading ? <Spinner /> : undefined}
             />
+            {lookupResult && !lookupResultLoading && (
+                <PastedPersonsLookupBanner lookupResult={lookupResult} onClose={dismissLookupResult} />
+            )}
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="AddPersonToCohortModalBody__list">
                     {responseError ? (
