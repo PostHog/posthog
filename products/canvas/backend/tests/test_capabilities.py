@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.canvas.backend.capabilities import ConnectorGrant, capability_widening
+from products.canvas.backend.capabilities import ConnectorGrant, capability_widening, without_granted_capabilities
 
 BASE = {
     "posthog": {
@@ -71,3 +71,22 @@ class TestCapabilityWidening(TestCase):
     def test_inline_queries_already_enabled_is_not_a_widening(self):
         enabled = {"posthog": {"inlineQueries": True}}
         assert capability_widening(enabled, enabled).widens is False
+
+
+class TestWithoutGrantedCapabilities(TestCase):
+    def test_empties_every_grant_capability_widening_reports(self):
+        stripped = without_granted_capabilities(WIDER)
+        assert capability_widening(None, stripped).widens is False
+        assert stripped["network"]["origins"] == []
+        assert stripped["connectors"] == []
+        assert stripped["posthog"]["inlineQueries"] is False
+
+    def test_keeps_what_describes_the_canvas(self):
+        stripped = without_granted_capabilities({"posthog": {"notebookFrames": ["revenue"], "state": ["user"]}})
+        assert stripped == {"posthog": {"notebookFrames": ["revenue"], "state": []}}
+
+    def test_declares_nothing_a_manifest_left_out(self):
+        assert without_granted_capabilities(None) == {}
+        assert without_granted_capabilities({"posthog": {"inlineQueries": True}}) == {
+            "posthog": {"inlineQueries": False}
+        }

@@ -3234,6 +3234,7 @@ class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowForking: bool | None = None
     detailed: bool | None = None
     hideExtraDetails: bool | None = None
     legend: bool | None = None

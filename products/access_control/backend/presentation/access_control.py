@@ -386,6 +386,34 @@ class AccessControlViewSetMixin(_GenericViewSet):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
 
+    def _access_control_object(self) -> Model | ObjectAccessRef:
+        return self.get_object()
+
+    @staticmethod
+    def _access_level(user_access_control: UserAccessControl, obj: Model | ObjectAccessRef):
+        if isinstance(obj, ObjectAccessRef):
+            return user_access_control.access_level_for_ref(obj)
+        return user_access_control.get_user_access_level(obj)
+
+    def _can_modify_access_levels(
+        self, user_access_control: UserAccessControl, obj: Model | ObjectAccessRef, team: Team
+    ) -> bool:
+        if not isinstance(obj, ObjectAccessRef):
+            return user_access_control.check_can_modify_access_levels_for_object(obj)
+        if obj.created_by_id == getattr(self.request.user, "id", None):
+            return True
+        project_admin = user_access_control.check_access_level_for_object(team, "admin", explicit=True)
+        return project_admin or user_access_control.access_level_for_ref(obj, explicit=True) == "manager"
+
+    def _access_source(
+        self, user_access_control: UserAccessControl, obj: Model | ObjectAccessRef, resource: str
+    ) -> AccessSource:
+        if not isinstance(obj, ObjectAccessRef):
+            return user_access_control.get_access_source_for_object(obj, cast(Any, resource)) or AccessSource.DEFAULT
+        if user_access_control.is_organization_admin:
+            return AccessSource.ORGANIZATION_ADMIN
+        return AccessSource.DEFAULT
+
     def _get_access_controls(self, request: Request, is_resource_level=False):
         resource = cast(APIScopeObjectOrNotSupported, getattr(self, "scope_object", None))
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
@@ -400,7 +428,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if is_resource_level and resource != "project":
             raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
 
-        obj = self.get_object()
+        obj = self._access_control_object()
         resource_id = obj.id
 
         if is_resource_level:
@@ -411,7 +439,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = user_access_control.get_user_access_level(obj)
+        user_access_level = self._access_level(user_access_control, obj)
 
         payload: dict[str, Any] = {
             "access_controls": serializer.data,
@@ -423,7 +451,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            "user_can_edit_access_levels": self._can_modify_access_levels(user_access_control, obj, team),
         }
 
         if not is_resource_level:
@@ -437,7 +465,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited = SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
+            inherited = (
+                None
+                if isinstance(obj, ObjectAccessRef)
+                else SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
+            )
             payload["inherited_access"] = (
                 InheritedAccessSerializer(
                     {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}
@@ -458,7 +490,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if not resource or resource == "INTERNAL":
             raise exceptions.NotFound("User access information is not available for this resource.")
 
-        obj = self.get_object()
+        obj = self._access_control_object()
 
         org_memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
@@ -477,11 +509,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             if not project_access:
                 continue
 
-            access_level = user_uac.get_user_access_level(obj)
+            access_level = self._access_level(user_uac, obj)
             if access_level is None or access_level == "none":
                 continue
 
-            access_source = user_uac.get_access_source_for_object(obj, resource) or AccessSource.DEFAULT
+            access_source = self._access_source(user_uac, obj, resource)
 
             users_with_access.append(
                 {
@@ -527,7 +559,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "Cannot modify access controls for a resource different from the URL target."
             )
 
-        obj = self.get_object()
+        obj = self._access_control_object()
         resource_id = str(obj.id)
         team = cast(Team, self.team)  # type: ignore
 

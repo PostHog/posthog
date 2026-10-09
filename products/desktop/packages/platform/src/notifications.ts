@@ -3,7 +3,13 @@
 // capability it describes, because @posthog/platform must not import internal
 // packages — so core, host-router, and ui all import the type from here.
 export type NotificationTarget =
-  | { kind: "task"; taskId: string; taskRunId?: string }
+  | {
+      kind: "task";
+      taskId: string;
+      taskRunId?: string;
+      /** An artifact tab to open once the task is showing. */
+      artifact?: { itemId: string };
+    }
   | { kind: "canvas"; channelId: string; dashboardId: string };
 
 export interface NotificationOptions {

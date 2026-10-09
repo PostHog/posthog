@@ -2,9 +2,11 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskActivity, TaskCommentActivity, TaskRun
@@ -116,6 +118,37 @@ class TestCommentActivity(CommentActivityTestCase):
             assert row.task_title == "Launch canvas"
             assert row.channel_id == channel.id
             assert row.channel_name == channel.name
+
+    def test_canvas_comment_activity_is_hidden_after_canvas_access_is_revoked(self):
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=self.channel.id,
+            name="Restricted canvas",
+            created_by_id=self.peer.id,
+            generation_task_id=self.task.id,
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas_id), content="private discussion")
+        self._record_activity(comment, [self.author.id])
+        assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, comment=comment).exists()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = OrganizationMembership.objects.get(user=self.author, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=str(canvas_id),
+            organization_member=membership,
+            access_level="none",
+        )
+
+        page = tasks_facade.list_task_activity(self.team.id, self.author.id)
+
+        assert all(row.latest_comment_id != comment.id for row in page.results)
 
     @parameterized.expand([("with_task", True), ("without_task", False)])
     def test_canvas_comment_resolves_its_owner_when_the_caller_passes_none(self, _name: str, with_task: bool):
