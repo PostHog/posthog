@@ -2012,6 +2012,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         user: User,
         *,
         append_copy_suffix: bool = True,
+        keep_group_key: bool = True,
     ) -> DashboardTile:
         if source_tile.widget is None:
             raise serializers.ValidationError("Tile is not a widget tile.")
@@ -2043,7 +2044,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             filters_overrides=source_tile.filters_overrides,
             show_description=source_tile.show_description,
             transparent_background=source_tile.transparent_background,
-            group_key=source_tile.group_key,
+            group_key=source_tile.group_key if keep_group_key else None,
             badge=source_tile.badge,
         )
 
@@ -3241,7 +3242,9 @@ class DashboardsViewSet(
                 tile.dashboard_id = to_dashboard
                 # Destination is scoped to the current project; align team_id when moving within it.
                 tile.team_id = to_dashboard_obj.team_id
-                tile.save(update_fields=["dashboard_id", "team_id"])
+                if to_dashboard_obj.pk != from_dashboard.pk:
+                    tile.group_key = None
+                tile.save(update_fields=["dashboard_id", "team_id", "group_key"])
         except DjangoValidationError:
             logger.exception("validation_error_while_moving_dashboard_tile")
             raise exceptions.ValidationError("Invalid request data for moving tile.")
@@ -3288,7 +3291,9 @@ class DashboardsViewSet(
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
             try:
                 with transaction.atomic():
-                    DashboardSerializer._clone_widget_tile_to_dashboard(tile, destination, cast(User, request.user))
+                    DashboardSerializer._clone_widget_tile_to_dashboard(
+                        tile, destination, cast(User, request.user), keep_group_key=False
+                    )
             except DjangoValidationError:
                 logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
                 raise exceptions.ValidationError("Unable to copy tile due to invalid data.")
@@ -3319,7 +3324,7 @@ class DashboardsViewSet(
 
         try:
             with transaction.atomic():
-                tile.copy_to_dashboard(destination)
+                tile.copy_to_dashboard(destination, keep_group_key=False)
         except DjangoValidationError:
             logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
             raise exceptions.ValidationError("Unable to copy tile due to invalid data.")

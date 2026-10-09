@@ -227,7 +227,7 @@ class DashboardTile(models.Model):
                 raise ValidationError("This content is already on the destination dashboard.")
             stale.delete()
 
-    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+    def copy_to_dashboard(self, dashboard: Dashboard, *, keep_group_key: bool = True) -> None:
         """
         Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
         row for the same insight, text, or button (unique constraint would block a second insert otherwise).
@@ -259,7 +259,7 @@ class DashboardTile(models.Model):
             existing.color = self.color
             existing.show_description = self.show_description
             existing.transparent_background = self.transparent_background
-            existing.group_key = self.group_key
+            existing.group_key = self.group_key if keep_group_key else None
             existing.badge = self.badge
             existing.filters_overrides = self.filters_overrides
             existing.save()
@@ -275,7 +275,7 @@ class DashboardTile(models.Model):
             layouts=self.layouts,
             show_description=self.show_description,
             transparent_background=self.transparent_background,
-            group_key=self.group_key,
+            group_key=self.group_key if keep_group_key else None,
             badge=self.badge,
             filters_overrides=self.filters_overrides,
         )
