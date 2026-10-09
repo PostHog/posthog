@@ -1657,7 +1657,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
-    def test_restricted_property_in_select_raises_error(self, _name, property_type, property_name, select):
+    def test_restricted_property_in_select_raises_error(
+        self, _name: str, property_type: int, property_name: str, select: str
+    ) -> None:
         from posthog.hogql.errors import ResolutionError
 
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
