@@ -309,8 +309,8 @@ def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
 def _flag_called_announcement_url(payload: object) -> str | None:
     """Only an https URL with a host passes, because the SQL editor turns the URL into a link.
 
-    The result is the URL that urlparse checked. urlparse ignores surrounding whitespace, and the
-    editor's URI parser rejects it.
+    The result is the URL that urlparse checked. urlparse ignores surrounding whitespace.
+    The editor's URI parser rejects that whitespace.
     """
     url = payload.get("url") if isinstance(payload, dict) else None
     if url is None:
