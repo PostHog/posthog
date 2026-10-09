@@ -231,20 +231,18 @@ def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
     return terraform_user_id is None or terraform_user_id == user_id
 
 
-def terraform_managed_team_name_with_role_rules(*, role_id: UUID, user_id: int) -> str | None:
-    """The name of a Terraform-managed team where the role has rules and `user_id` is not the
-    Terraform account, else None. AccessControl.role cascades, so deleting the role would remove
-    those rules without any rule endpoint running."""
-    config = (
+def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
+    """False when the role has rules in a project that Terraform manages and the user is not the
+    Terraform account. AccessControl.role cascades, so the delete would remove those rules without
+    any rule endpoint running."""
+    return not (
         TeamAccessControlConfig.objects.filter(
             managed_by__isnull=False,
             team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
         )
         .exclude(managed_by__user_id=user_id)
-        .select_related("team")
-        .first()
+        .exists()
     )
-    return config.team.name if config else None
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

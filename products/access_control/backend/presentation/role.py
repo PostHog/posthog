@@ -148,13 +148,8 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         return context
 
     def perform_destroy(self, instance: Role) -> None:
-        team_name = access_control_api.terraform_managed_team_name_with_role_rules(
-            role_id=instance.id, user_id=cast(User, self.request.user).id
-        )
-        if team_name is not None:
-            raise PermissionDenied(
-                f"Access control for {team_name} is managed with Terraform and this role has rules there."
-            )
+        if not access_control_api.can_delete_role(role_id=instance.id, user_id=cast(User, self.request.user).id):
+            raise PermissionDenied("This role has rules in a project where access control is managed with Terraform.")
         super().perform_destroy(instance)
 
 
