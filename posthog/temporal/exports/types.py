@@ -20,7 +20,7 @@ class ExportFailureMetadata(TypedDict):
     slo_failure_details: ExportFailureDetails
 
 
-@dataclasses.dataclass
+@frozen
 class ExportAssetActivityInputs:
     exported_asset_id: int
     source: Optional[str] = None
