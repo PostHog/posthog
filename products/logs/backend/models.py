@@ -151,7 +151,7 @@ class TeamLogsConfig(models.Model):
 
     # Ordered list of top-level JSON keys whose value is the message text that log patterns are
     # derived from. Matched literally, so `log.message` names one key and never descends. The
-    # first key in order whose value is a non-empty string wins. An empty list
+    # first key in order whose value is a string wins, even an empty one. An empty list
     # turns extraction off. Read by the logs ingestion consumer, so this only shapes the
     # stored `pattern` column and never rewrites the log body.
     logs_pattern_message_keys = ArrayField(
