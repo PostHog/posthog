@@ -3111,7 +3111,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 1
+            payload["property_access_control_version"] = 2
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
