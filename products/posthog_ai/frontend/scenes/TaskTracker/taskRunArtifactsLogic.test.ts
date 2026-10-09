@@ -43,6 +43,18 @@ describe('taskRunArtifactsLogic', () => {
             if (url.includes('/artifacts/download/')) {
                 return Promise.resolve(new Response('# Report'))
             }
+            if (url.includes('/artifacts/') && url.includes('/preview/')) {
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            url: 'https://usercontent.example/canvas-artifacts/task-preview/token/index.html',
+                        }),
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                        }
+                    )
+                )
+            }
             const payload = /\/runs\/(\?.*)?$/.test(url)
                 ? { results: runArtifacts.length ? [{ id: RUN_ID }] : [] }
                 : url.includes('/living_artifacts/')
@@ -131,6 +143,96 @@ describe('taskRunArtifactsLogic', () => {
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 
+    it('loads the selected HTML preview once and retries failures only on request', async () => {
+        runArtifacts = ['interactive.html', 'second.html'].map((name, index) => ({
+            id: `html-${index + 1}`,
+            name,
+            type: 'output',
+            source: 'agent_output',
+            content_type: 'text/html',
+            storage_path: `tasks/artifacts/html-${index + 1}`,
+            uploaded_at: '2026-09-28T18:00:00Z',
+        }))
+        const fetch = global.fetch
+        const pending: Array<(response: Response) => void> = []
+        global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) =>
+            String(input).includes('/preview/')
+                ? new Promise<Response>((resolve) => pending.push(resolve))
+                : fetch(input, init)
+        )
+        const respond = (index: number, path: string, status = 200): void => {
+            pending[index](
+                new Response(
+                    JSON.stringify({
+                        url: `https://usercontent.example/canvas-artifacts/task-preview/${path}/index.html`,
+                        scripts_available: true,
+                    }),
+                    { status, headers: { 'Content-Type': 'application/json' } }
+                )
+            )
+        }
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toMatchValues({ htmlPreviewLoading: true })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(1)
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/html-1/preview/`),
+            expect.anything()
+        )
+
+        logic.actions.selectArtifact('second.html')
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(2)
+        await expectLogic(logic, () => respond(1, 'second'))
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ artifactId: 'html-2' }),
+            })
+        respond(0, 'first')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.artifactId).toBe('html-2')
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/second/')
+
+        const secondArtifact = logic.values.selectedArtifact as RunArtifact
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(2, 'failed', 503))
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ url: null, error: expect.any(String) }),
+            })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(3)
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(3, 'retry')).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/retry/')
+
+        logic.actions.runHtmlPreviewScripts(secondArtifact)
+        expect(global.fetch).toHaveBeenLastCalledWith(expect.stringContaining('scripts=true'), expect.anything())
+        await expectLogic(logic, () => respond(4, 'denied', 403)).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({
+            url: expect.stringContaining('/task-preview/retry/'),
+            scriptsEnabled: false,
+            scriptsError: expect.any(String),
+        })
+
+        logic.actions.runHtmlPreviewScripts(secondArtifact)
+        await expectLogic(logic, () => respond(5, 'scripts')).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({
+            scriptsEnabled: true,
+            scriptsAvailable: true,
+            scriptsError: null,
+        })
+
+        logic.actions.leaveHtmlPreview()
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(6)
+        expect(logic.values.htmlPreview).toMatchObject({ url: null, left: true })
+    })
+
     it.each([
         [
             'a stored Slack file version streams from its version URL',
@@ -149,6 +251,32 @@ describe('taskRunArtifactsLogic', () => {
             living: { artifactId: 'doc-1', version: 3, adapter: 'slack_file', text: null, stored },
         }
         expect(artifactDownloadUrl(1, TASK_ID, version)).toBe(expected)
+    })
+
+    it('keeps a crafted artifact id inside one preview path segment', async () => {
+        const craftedId = 'html-1/../html-2/preview/?scripts=true#'
+        runArtifacts = [
+            {
+                id: craftedId,
+                name: 'crafted.html',
+                type: 'output',
+                source: 'agent_output',
+                content_type: 'text/html',
+                storage_path: 'tasks/artifacts/crafted',
+                uploaded_at: '2026-09-28T18:00:00Z',
+            },
+        ]
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toFinishAllListeners()
+
+        const previewUrl = jest
+            .mocked(global.fetch)
+            .mock.calls.map(([input]) => String(input))
+            .find((url) => url.includes('/preview/'))
+        expect(previewUrl).toContain(`/artifacts/${encodeURIComponent(craftedId)}/preview/`)
+        expect(previewUrl).not.toContain('scripts=true')
     })
 
     it('asks before a save replaces a version the agent wrote during the edit', async () => {

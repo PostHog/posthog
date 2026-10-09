@@ -74,6 +74,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+    ARTIFACT_SCRIPT_SHA256_KEY as ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
@@ -337,6 +338,8 @@ __all__ = [
     "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
     "read_task_run_living_artifact_version",
+    "sandbox_token_has_open_network",
+    "is_html_artifact",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -2652,6 +2655,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "sandbox_environment_id",
         "scout_trial",
         "scout_trial_judge",
         "scout_trial_private",
@@ -4067,6 +4071,7 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
+    script_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
@@ -4079,6 +4084,8 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if script_sha256 is not None:
+        entry[ARTIFACT_SCRIPT_SHA256_KEY] = script_sha256
     if metadata:
         entry["metadata"] = metadata
     return entry
@@ -4103,6 +4110,7 @@ def upload_task_run_artifacts(
     *,
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"] | None = None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -4146,6 +4154,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                script_sha256=hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -4341,6 +4350,7 @@ def finalize_task_run_artifact_uploads(
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"],
     uploaded_by_user_id: int | None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -4395,6 +4405,11 @@ def finalize_task_run_artifact_uploads(
         if content_length > max_size_bytes:
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
 
+        script_sha256 = None
+        if written_with_open_network and is_html_artifact(safe_name, content_type):
+            uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+            script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
+
         entry = _build_artifact_manifest_entry(
             artifact_id=artifact_id,
             name=safe_name,
@@ -4404,6 +4419,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            script_sha256=script_sha256,
             metadata=artifact.get("metadata"),
         )
         entry["uploaded_by"] = uploaded_by
@@ -4567,6 +4583,7 @@ def create_task_run_living_artifact(
     *,
     artifact: dict,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -4577,7 +4594,7 @@ def create_task_run_living_artifact(
     if run is None:
         return None, None
     try:
-        created = create_living_artifact(run=run, **artifact)
+        created = create_living_artifact(run=run, written_with_open_network=written_with_open_network, **artifact)
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
@@ -4593,6 +4610,7 @@ def edit_task_run_living_artifact(
     team_id: int,
     *,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -4625,6 +4643,7 @@ def edit_task_run_living_artifact(
             source_storage_path=source_storage_path,
             name=name,
             metadata=metadata,
+            written_with_open_network=written_with_open_network,
         )
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
@@ -4729,6 +4748,54 @@ def presign_task_run_artifact_download(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def _run_has_open_network(run: TaskRun) -> bool:
+    if not (run.state or {}).get("sandbox_environment_id"):
+        return True
+    environment = run.get_sandbox_environment()
+    return (
+        environment is not None
+        and environment.network_access_level == SandboxNetworkAccessLevel.FULL
+        and environment.updated_at <= run.created_at
+    )
+
+
+def sandbox_token_has_open_network(team_id: int, token_id: UUID | int | str) -> bool:
+    runs = TaskRun.objects.filter(team_id=team_id, state__sandbox_oauth_token_ids__contains=[str(token_id)])
+    checked = False
+    for run in runs.select_related("task"):
+        if not _run_has_open_network(run):
+            return False
+        checked = True
+    return checked
+
+
+def is_html_artifact(name: str, content_type: str) -> bool:
+    mime_type = content_type.split(";", 1)[0].strip().lower()
+    return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
+
+
+def task_run_artifact_entry(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> dict[str, Any] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in run.artifacts or []
+            if entry.get("id") == artifact_id
+            and entry.get("storage_path")
+            and not entry.get("dismissed_at")
+            and (
+                (entry.get("type") == "output" and entry.get("uploaded_by") == "user")
+                or (entry.get("type") in ("output", "artifact") and entry.get("source") == "agent_output")
+            )
+        ),
+        None,
+    )
 
 
 def read_task_run_artifact(

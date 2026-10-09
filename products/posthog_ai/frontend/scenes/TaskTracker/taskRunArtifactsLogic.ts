@@ -27,6 +27,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsArtifactsPreviewRetrieve,
     tasksRunsArtifactsDismissCreate,
     getTasksRunsLivingArtifactsVersionContentUrl,
     tasksRunsLivingArtifactsList,
@@ -72,6 +73,17 @@ export interface ArtifactText {
     artifactId: string
     text: string | null
     error: string | null
+}
+
+export interface ArtifactHtmlPreview {
+    artifactId: string
+    url: string | null
+    error: string | null
+    expiresAt: number
+    scriptsEnabled: boolean
+    scriptsAvailable: boolean
+    scriptsError: string | null
+    left: boolean
 }
 
 /** The file version an edit started from, and the text it had then. */
@@ -122,6 +134,8 @@ export interface taskRunArtifactsLogicValues {
     editSaving: boolean
     editSession: ArtifactEditSession | null
     files: ArtifactFile[]
+    htmlPreview: ArtifactHtmlPreview | null
+    htmlPreviewLoading: boolean
     isEditing: boolean
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -174,6 +188,9 @@ export interface taskRunArtifactsLogicActions {
     ensureSelectedText: () => {
         value: true
     }
+    leaveHtmlPreview: () => {
+        value: true
+    }
     loadArtifactMedia: (artifact: RunArtifact) => RunArtifact
     loadArtifactMediaFailure: (
         error: string,
@@ -219,6 +236,21 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
+    loadHtmlPreview: (artifact: RunArtifact) => RunArtifact
+    loadHtmlPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHtmlPreviewSuccess: (
+        htmlPreview: ArtifactHtmlPreview,
+        payload?: RunArtifact
+    ) => {
+        htmlPreview: ArtifactHtmlPreview
+        payload?: RunArtifact
+    }
     loadLivingArtifacts: (runId: string) => string
     loadLivingArtifactsFailure: (
         error: string,
@@ -255,6 +287,21 @@ export interface taskRunArtifactsLogicActions {
     }
     restoreFile: (file: ArtifactFile) => {
         file: ArtifactFile
+    }
+    runHtmlPreviewScripts: (artifact: RunArtifact) => RunArtifact
+    runHtmlPreviewScriptsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    runHtmlPreviewScriptsSuccess: (
+        htmlPreview: ArtifactHtmlPreview,
+        payload?: RunArtifact
+    ) => {
+        htmlPreview: ArtifactHtmlPreview
+        payload?: RunArtifact
     }
     saveEdit: () => {
         value: true
@@ -359,6 +406,48 @@ export type taskRunArtifactsLogicType = MakeLogicType<
     taskRunArtifactsLogicMeta
 >
 
+function emptyHtmlPreview(artifactId: string): ArtifactHtmlPreview {
+    return {
+        artifactId,
+        url: null,
+        error: null,
+        expiresAt: 0,
+        scriptsEnabled: false,
+        scriptsAvailable: false,
+        scriptsError: null,
+        left: false,
+    }
+}
+
+async function requestHtmlPreview(
+    projectId: number | null,
+    taskId: string,
+    artifact: RunArtifact,
+    scripts: boolean
+): Promise<ArtifactHtmlPreview> {
+    if (projectId === null || !artifact.id) {
+        return { ...emptyHtmlPreview(artifact.id ?? ''), error: 'Preview is unavailable.' }
+    }
+    try {
+        const result = await tasksRunsArtifactsPreviewRetrieve(
+            String(projectId),
+            taskId,
+            artifact.runId,
+            encodeURIComponent(artifact.living?.artifactId ?? artifact.id),
+            { ...(artifact.living ? { version: artifact.living.version } : {}), ...(scripts ? { scripts } : {}) }
+        )
+        return {
+            ...emptyHtmlPreview(artifact.id),
+            url: result.url,
+            expiresAt: Date.now() + 4 * 60 * 1000,
+            scriptsEnabled: scripts,
+            scriptsAvailable: result.scripts_available,
+        }
+    } catch {
+        return { ...emptyHtmlPreview(artifact.id), error: 'This HTML preview did not load. Try again.' }
+    }
+}
+
 // A long-lived task can have many runs. Older runs past this cap keep their files out of the list.
 const MAX_CHAIN_RUNS = 20
 
@@ -440,6 +529,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
+        leaveHtmlPreview: true,
         openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
@@ -564,8 +654,43 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 },
             },
         ],
+        htmlPreview: [
+            null as ArtifactHtmlPreview | null,
+            {
+                loadHtmlPreview: async (artifact: RunArtifact, breakpoint): Promise<ArtifactHtmlPreview> => {
+                    const preview = await requestHtmlPreview(values.currentProjectId, props.taskId, artifact, false)
+                    breakpoint()
+                    return preview
+                },
+                runHtmlPreviewScripts: async (artifact: RunArtifact, breakpoint): Promise<ArtifactHtmlPreview> => {
+                    const previous = values.htmlPreview
+                    const preview = await requestHtmlPreview(values.currentProjectId, props.taskId, artifact, true)
+                    breakpoint()
+                    if (
+                        preview.url === null &&
+                        previous !== null &&
+                        previous.artifactId === artifact.id &&
+                        previous.url
+                    ) {
+                        return {
+                            ...previous,
+                            scriptsError: "Scripts didn't start. Try again, or keep using the page with scripts off.",
+                        }
+                    }
+                    return preview
+                },
+            },
+        ],
     })),
     reducers({
+        htmlPreview: {
+            loadHtmlPreview: (_, artifact: RunArtifact): ArtifactHtmlPreview => emptyHtmlPreview(artifact.id ?? ''),
+            runHtmlPreviewScripts: (state, artifact: RunArtifact): ArtifactHtmlPreview =>
+                state !== null && state.artifactId === artifact.id && state.url
+                    ? { ...state, scriptsError: null }
+                    : emptyHtmlPreview(artifact.id ?? ''),
+            leaveHtmlPreview: (state) => (state ? { ...state, url: null, left: true } : state),
+        },
         activeTab: [
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
@@ -851,6 +976,16 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             if (values.activeTab !== 'artifacts' || !artifact || !kind) {
                 return
             }
+            if (
+                kind === 'html' &&
+                (values.htmlPreview?.artifactId !== artifact.id ||
+                    (!values.htmlPreviewLoading &&
+                        !values.htmlPreview?.error &&
+                        !values.htmlPreview?.left &&
+                        (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
+            ) {
+                actions.loadHtmlPreview(artifact)
+            }
             if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)
             } else if (kind === 'video' && !artifact.living && !values.selectedMedia) {
@@ -915,6 +1050,14 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 })
             },
             ensureSelectedText: loadSelectedText,
+            runHtmlPreviewScripts: () => {
+                posthog.capture('task artifact scripts run', { living: !!values.selectedArtifact?.living })
+            },
+            leaveHtmlPreview: () => {
+                posthog.capture('task artifact preview left', {
+                    scripts_enabled: values.htmlPreview?.scriptsEnabled ?? false,
+                })
+            },
             loadChainRuns: (runIds) => {
                 if (runIds[0]) {
                     actions.loadLivingArtifacts(runIds[0])

@@ -1968,6 +1968,16 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
+    scripts_available = serializers.BooleanField(
+        help_text=(
+            "Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact "
+            "version had limited network access, or when the version has no record of it."
+        )
+    )
+
+
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
     artifact_ids = serializers.ListField(
         child=serializers.CharField(max_length=128),

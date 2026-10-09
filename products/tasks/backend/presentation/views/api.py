@@ -80,6 +80,7 @@ from products.tasks.backend.facade.access import (
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
+    get_oauth_access_token,
     get_task_client_provenance,
     is_sandbox_oauth_request,
     is_sandbox_origin_request,
@@ -166,6 +167,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactPreviewResponseSerializer,
     TaskRunArtifactsDismissRequestSerializer,
     TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
@@ -224,6 +226,7 @@ from products.tasks.backend.presentation.serializers import (
     WizardCloudRunSerializer,
 )
 from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
+from products.tasks.backend.presentation.views.artifact_preview import create_artifact_preview_url
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1731,6 +1734,13 @@ def _sandbox_bound_task_id(request) -> UUID | None:
     return request.successful_authenticator.access_token.sandbox_task_id
 
 
+def _writer_has_open_network(request: Request, team_id: int) -> bool:
+    if not is_sandbox_oauth_request(request):
+        return True
+    token_id = getattr(get_oauth_access_token(request), "id", None)
+    return token_id is not None and tasks_facade.sandbox_token_has_open_network(team_id, token_id)
+
+
 def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
     if is_sandbox_oauth_request(request):
         return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
@@ -1919,6 +1929,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_presign",
         "artifacts_download",
         "artifacts_download_by_id",
+        "artifacts_preview",
     )
     _VISIBILITY_ONLY_ACTIONS = ("analyze",)
 
@@ -2694,6 +2705,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             artifacts=request.validated_data["artifacts"],
             uploaded_by="agent" if self._is_sandbox_agent_request(task_id) else "user",
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if result is None:
             raise NotFound()
@@ -2805,6 +2817,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             artifacts=request.validated_data["artifacts"],
             uploaded_by="agent" if is_agent_upload else "user",
             uploaded_by_user_id=None if is_agent_upload else self._user_id(),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if finalized_entries is None and error is None:
             raise NotFound()
@@ -2990,6 +3003,100 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("artifact_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Artifact id"),
+            OpenApiParameter(
+                "version",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                description="Living artifact version",
+                required=False,
+            ),
+            OpenApiParameter(
+                "scripts",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Return a URL whose page runs its scripts. Without it the page renders with scripts off. "
+                    "Refused when scripts_available is false."
+                ),
+                required=False,
+            ),
+        ],
+        responses={
+            200: TaskRunArtifactPreviewResponseSerializer,
+            400: OpenApiResponse(description="Invalid version or scripts value"),
+            403: OpenApiResponse(description="Scripts or analytics data are not available to the caller"),
+            404: OpenApiResponse(description="HTML artifact not found"),
+            503: OpenApiResponse(description="Artifact preview origin unavailable"),
+        },
+        summary="Open an isolated HTML artifact preview",
+        description=(
+            "Returns a short-lived URL for one HTML artifact version on the artifact origin. "
+            "The page runs its scripts only when scripts=true."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/]+)/preview",
+        required_scopes=["task:read"],
+    )
+    def artifacts_preview(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        raw_version = request.query_params.get("version")
+        if raw_version is not None and (
+            len(raw_version) > 20 or not raw_version.isascii() or not raw_version.isdecimal() or int(raw_version) < 1
+        ):
+            raise ValidationError({"version": "Enter a positive version number."})
+        version = int(raw_version) if raw_version is not None else None
+        raw_scripts = request.query_params.get("scripts", "false")
+        if raw_scripts not in ("true", "false"):
+            raise ValidationError({"scripts": "Enter true or false."})
+        run_scripts = raw_scripts == "true"
+        if version is not None and not run_context.may_read_task_run_context(
+            request=request, team_id=self.team_id, task_id=task_id, run_id=None
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
+        if version is None:
+            artifact = tasks_facade.task_run_artifact_entry(pk, task_id, self.team_id, artifact_id=artifact_id)
+            if artifact is None or not tasks_facade.is_html_artifact(
+                str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
+            ):
+                raise NotFound()
+            stored_sha256 = artifact.get(tasks_facade.ARTIFACT_SCRIPT_SHA256_KEY)
+            script_digest = stored_sha256 if isinstance(stored_sha256, str) else None
+        else:
+            content, error = tasks_facade.read_task_run_living_artifact_version(
+                pk, task_id, self.team_id, artifact_id=artifact_id, version=version
+            )
+            if (
+                error is not None
+                or content is None
+                or not tasks_facade.is_html_artifact(content.name, content.content_type)
+            ):
+                raise NotFound()
+            script_digest = content.script_sha256
+        scripts_available = script_digest is not None
+        if run_scripts and not scripts_available:
+            raise PermissionDenied(
+                "Scripts can't run in this artifact because its task run has limited network access."
+            )
+        url = create_artifact_preview_url(
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=str(pk),
+            artifact_id=artifact_id,
+            version=version,
+            script_digest=script_digest if run_scripts else None,
+        )
+        if url is None:
+            return Response({"error": "Artifact preview is unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(
+            TaskRunArtifactPreviewResponseSerializer({"url": url, "scripts_available": scripts_available}).data
+        )
 
     def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
         if outcome == "ended":
@@ -4523,6 +4630,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             self.team_id,
             artifact=request.validated_data,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if artifact is None and error is None:
             raise NotFound()
@@ -4656,6 +4764,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             task_id,
             self.team_id,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
             artifact={
                 "name": self._with_png_extension(name),
                 "artifact_type": TaskArtifactType.FILE,
@@ -4738,6 +4847,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             task_id,
             self.team_id,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
             artifact_id=pk,
             content=request.validated_data.get("content"),
             content_bytes=request.validated_data.get("content_bytes"),
