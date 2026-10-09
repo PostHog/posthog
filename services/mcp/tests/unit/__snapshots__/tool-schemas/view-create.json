@@ -96,6 +96,27 @@
             "required": ["query"],
             "type": "object"
         },
+        "snapshot": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "unique_key": {
+                            "description": "Output columns that identify an entity. Every key column must be present, non-null, and unique.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["unique_key"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Keep a history of changes observed each time this query runs."
+        },
         "sync_frequency": {
             "anyOf": [
                 {

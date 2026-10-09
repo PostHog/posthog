@@ -1330,6 +1330,47 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    async def test_serves_a_snapshot_generation_in_place_without_copying(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        generation_uri = (
+            f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}"
+            "/snapshot-generations/1791000000_job"
+        )
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[f"{generation_uri}/part-0.parquet"],
+            row_count=3,
+            snapshot_generation_uri=generation_uri,
+            snapshot_state={"generation_uri": generation_uri},
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_snapshot_table", format="Delta"
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+            ) as mock_prepare,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+            ) as mock_create_table,
+        ):
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+            mock_prepare.assert_not_called()
+            mock_create_table.assert_called_once_with(
+                str(ajob.id),
+                str(asaved_query.id),
+                ateam.pk,
+                f"{asaved_query.normalized_name}/snapshot-generations/1791000000_job",
+            )
+        await database_sync_to_async(warehouse_table.delete)()
+
     async def test_passes_refresh_file_uris_that_re_reads_the_delta_table(
         self, activity_environment, ateam, asaved_query, ajob
     ):
@@ -2385,3 +2426,23 @@ class TestAwsStorageOptions:
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
         assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
         assert options["AWS_S3_ALLOW_UNSAFE_RENAME"] == "true"
+
+
+def test_prepare_queryable_table_inputs_survive_the_temporal_payload_round_trip():
+    from temporalio.converter import DataConverter
+
+    inputs = PrepareQueryableTableInputs(
+        team_id=1,
+        job_id="job",
+        saved_query_id="query",
+        table_uri="s3://bucket/table",
+        file_uris=["s3://bucket/table/part-0.parquet"],
+        row_count=3,
+        snapshot_generation_uri="s3://bucket/table/snapshot-generations/job",
+        snapshot_state={"generation_uri": "s3://bucket/table/snapshot-generations/job", "inserted": 3},
+    )
+
+    converter = DataConverter.default.payload_converter
+    [decoded] = converter.from_payloads(converter.to_payloads([inputs]), [PrepareQueryableTableInputs])
+
+    assert decoded == inputs

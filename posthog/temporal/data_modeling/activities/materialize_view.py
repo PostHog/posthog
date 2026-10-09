@@ -1,10 +1,13 @@
 import uuid
 import typing
 import asyncio
+import tempfile
 import dataclasses
+from pathlib import Path
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import pyarrow as pa
 import deltalake
@@ -53,16 +56,26 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     upsert_batch,
     upsert_stats_fields,
 )
+from posthog.temporal.data_modeling.activities.snapshot import (
+    SnapshotCandidateBuilder,
+    cleanup_snapshot_generations,
+    snapshot_generation_uri,
+)
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
+    SNAPSHOT_RESERVED_COLUMNS,
     IncrementalFilterError,
+    SnapshotConfig,
+    SnapshotValidationError,
     WritePlan,
     clear_incremental_state,
     inject_incremental_filter,
+    next_observation_time,
     record_incremental_history,
     resolve_write_plan,
     set_incremental_state,
+    snapshot_definition_fingerprint,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -349,6 +362,8 @@ class MaterializeViewResult:
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
+    snapshot_generation_uri: str | None = None
+    snapshot_state: dict[str, typing.Any] | None = None
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -447,6 +462,14 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     )
 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+def prepare_batch_for_delta(batch: pa.RecordBatch, ch_types: list[tuple[str, str]]) -> pa.RecordBatch:
+    """Convert a ClickHouse batch to the types Delta Lake stores, so later reads compare equal."""
+    batch = _transform_unsupported_decimals(batch)
+    batch = _transform_date_and_datetimes(batch, ch_types)
+    batch = _transform_unsigned_integers(batch)
+    return _force_nullable(batch)
 
 
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
@@ -981,10 +1004,7 @@ async def _materialize_fully(
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
     async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-        batch = _transform_unsupported_decimals(batch)
-        batch = _transform_date_and_datetimes(batch, ch_types)
-        batch = _transform_unsigned_integers(batch)
-        batch = _force_nullable(batch)
+        batch = prepare_batch_for_delta(batch, ch_types)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
         await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
@@ -1077,10 +1097,7 @@ async def _materialize_incrementally(
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _transform_unsigned_integers(batch)
-            batch = _force_nullable(batch)
+            batch = prepare_batch_for_delta(batch, ch_types)
 
             if batch.num_rows == 0:
                 # A quiet window is normal. Nothing to upsert, and no watermark to advance.
@@ -1136,6 +1153,102 @@ async def _materialize_incrementally(
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
     return row_count, delta_table.file_uris()
+
+
+@frozen
+class _SnapshotCandidate:
+    row_count: int
+    file_uris: list[str]
+    generation_uri: str
+    state: dict[str, typing.Any]
+
+
+@database_sync_to_async_pool
+def _active_snapshot_run_ids(team_id: int, saved_query_id: uuid.UUID) -> set[str]:
+    run_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        status=DataModelingJob.Status.RUNNING,
+    ).values_list("id", flat=True)
+    return {str(run_id) for run_id in run_ids}
+
+
+async def _materialize_snapshot(
+    objects: MatviewInputObjects,
+    hogql_query: str,
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> _SnapshotCandidate:
+    """Build an immutable snapshot candidate without deleting the published Delta path."""
+    snapshot_config = objects.saved_query.snapshot_config
+    if not isinstance(snapshot_config, dict):
+        raise SnapshotValidationError("Snapshot materialization needs a snapshot configuration.")
+    config = SnapshotConfig(unique_key=tuple(snapshot_config["unique_key"]))
+    output_columns = objects.saved_query.columns if isinstance(objects.saved_query.columns, dict) else {}
+    if SNAPSHOT_RESERVED_COLUMNS.intersection(output_columns):
+        raise SnapshotValidationError("Query output uses a reserved snapshot column.")
+    previous_state = objects.saved_query.snapshot_state if isinstance(objects.saved_query.snapshot_state, dict) else {}
+    parent_uri_value = previous_state.get("generation_uri")
+    parent_uri = parent_uri_value if isinstance(parent_uri_value, str) else None
+    run_id = str(objects.job.id)
+    generation_uri = snapshot_generation_uri(table_uri, objects.job.created_at, run_id)
+    with tempfile.TemporaryDirectory(prefix="posthog-snapshot-") as temp_dir:
+        with SnapshotCandidateBuilder(Path(temp_dir) / "observation.sqlite", config) as builder:
+            async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+                batch = prepare_batch_for_delta(batch, ch_types)
+                await asyncio.to_thread(builder.add_batch, batch)
+
+            last_observation = previous_state.get("last_observation_at")
+            observed_at = next_observation_time(
+                timezone.now(), last_observation if isinstance(last_observation, str) else None
+            )
+            try:
+                active_run_ids = await _active_snapshot_run_ids(objects.team.pk, objects.saved_query.id)
+                deleted = await asyncio.to_thread(
+                    cleanup_snapshot_generations,
+                    get_s3_client(),
+                    table_uri=table_uri,
+                    current_generation_uri=parent_uri,
+                    candidate_generation_uri=generation_uri,
+                    active_run_ids=active_run_ids,
+                    now=observed_at,
+                )
+                if deleted:
+                    await logger.ainfo(f"Deleted {len(deleted)} old snapshot generations")
+            except Exception as error:
+                await logger.awarning(f"Could not clean old snapshot generations: {error}")
+                capture_exception(error)
+
+            result = await asyncio.to_thread(
+                builder.write,
+                parent_uri=parent_uri,
+                generation_uri=generation_uri,
+                storage_options=storage_options,
+                observed_at=observed_at,
+                generation=str(objects.saved_query.id),
+                run_id=run_id,
+            )
+    state = {
+        "generation_uri": generation_uri,
+        "parent_generation_uri": parent_uri,
+        "generation": str(objects.saved_query.id),
+        "definition_fingerprint": snapshot_definition_fingerprint(objects.saved_query.query, config),
+        "last_run_id": run_id,
+        "last_observation_at": observed_at.isoformat(),
+        "first_observation_at": previous_state.get("first_observation_at") or observed_at.isoformat(),
+        "inserted": result.stats.inserted,
+        "changed": result.stats.changed,
+        "removed": result.stats.removed,
+        "unchanged": result.stats.unchanged,
+        "rows_scanned": result.stats.rows_scanned,
+    }
+    return _SnapshotCandidate(
+        row_count=result.row_count,
+        file_uris=result.file_uris,
+        generation_uri=generation_uri,
+        state=state,
+    )
 
 
 async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> None:
@@ -1219,7 +1332,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
     # from an incremental run's (only the rows synced in its window).
     objects.job.run_mode = (
-        DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
+        DataModelingJob.RunMode.SNAPSHOT
+        if plan.snapshot
+        else DataModelingJob.RunMode.INCREMENTAL
+        if plan.incremental
+        else DataModelingJob.RunMode.FULL_REFRESH
     )
     objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
@@ -1255,11 +1372,17 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     # inner write-loop level below is safe to double up on.
     published = False
     try:
+        snapshot_generation_uri: str | None = None
+        snapshot_state: dict[str, typing.Any] | None = None
         async with Heartbeater():
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
+                if plan.snapshot:
+                    candidate = await _materialize_snapshot(objects, hogql_query, table_uri, storage_options, logger)
+                    row_count, file_uris = candidate.row_count, candidate.file_uris
+                    snapshot_generation_uri, snapshot_state = candidate.generation_uri, candidate.state
+                elif plan.incremental:
                     row_count, file_uris = await _materialize_incrementally(
                         objects,
                         plan,
@@ -1318,6 +1441,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             account_property_sync_enabled=account_property_sync_enabled,
             delta_version=delta_version,
             should_trigger_cdp_producer=cdp_sink.enabled,
+            snapshot_generation_uri=snapshot_generation_uri,
+            snapshot_state=snapshot_state,
         )
         published = True
         return result

@@ -22,6 +22,8 @@ from products.data_modeling.backend.logic.incremental import (
     get_incremental_state,
     window_start,
 )
+from products.data_modeling.backend.logic.snapshot import SnapshotValidationError
+from products.data_modeling.backend.logic.snapshot_rollout import snapshot_materialization_enabled
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 LOGGER = structlog.get_logger(__name__)
@@ -59,6 +61,7 @@ class WritePlan:
 
     incremental: bool
     reason: str
+    snapshot: bool = False
     since: Any = None
     fingerprint: str | None = None
     config: IncrementalConfig | None = None
@@ -66,6 +69,13 @@ class WritePlan:
 
 def resolve_write_plan(team_id: int, saved_query_id: UUID | str, *, scope: str | None = None) -> WritePlan:
     saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
+    snapshot = saved_query.snapshot_config
+    if snapshot is not None:
+        if not isinstance(snapshot, dict) or not snapshot.get("unique_key"):
+            raise SnapshotValidationError("Snapshot configuration must include a non-empty unique_key.")
+        if not snapshot_materialization_enabled(team_id):
+            raise SnapshotValidationError("Snapshot materialization is not enabled for this project.")
+        return WritePlan(snapshot=True, incremental=False, reason="snapshot materialization")
     config = get_incremental_config(saved_query)
     if config is None:
         return WritePlan(incremental=False, reason="not configured for incremental materialization")

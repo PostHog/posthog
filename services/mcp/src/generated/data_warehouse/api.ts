@@ -377,6 +377,19 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -496,6 +509,19 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -652,6 +678,19 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
