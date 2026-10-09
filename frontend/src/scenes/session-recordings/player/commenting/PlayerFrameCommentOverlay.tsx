@@ -53,7 +53,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                     <div>
                         <LemonField name="content">
                             <LemonRichContentEditor
-                                logicKey="recording-comment"
+                                surface="recording-comment"
                                 placeholder="Comment on this recording? Use @ to mention team members"
                                 data-attr="create-recording-comment-input"
                                 onPressCmdEnter={submitRecordingComment}

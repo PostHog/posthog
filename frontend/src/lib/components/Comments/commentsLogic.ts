@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -18,9 +18,7 @@ import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/pan
 import { CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 
-import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
-
-import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+import { sendCommentToSlack, sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
@@ -43,7 +41,7 @@ export type CommentContext = {
 
 /** Draft slot for the footer composer; thread composers use their thread id (a UUID, so no collision) */
 const FOOTER_COMPOSER_TARGET = 'footer'
-// The editor inserts uploaded images as markdown image text
+// Comment text renders as markdown, so an attached image is a markdown image
 const MARKDOWN_IMAGE_REGEX = /!\[[^\]]*\]\([^)]+\)/
 
 /** Shared by `loadComments` and `refreshComments`, which differ only in what happens after they land. */
@@ -612,6 +610,8 @@ export const commentsLogic = kea<commentsLogicType>([
                         composerAnchor && (composerAnchor.type === 'mark' || composerAnchor.type === 'node')
 
                     const isReply = !isNewAnchoredThread && !!values.replyingCommentId
+                    const isTask = asTask && !isReply
+                    const sendsToSlack = values.composerSendToSlack && !isReply && !asTask
 
                     // The composer can remount or retarget while the request is in flight -
                     // the success listener must act on what was true at send time
@@ -630,15 +630,14 @@ export const commentsLogic = kea<commentsLogicType>([
                         source_comment: isNewAnchoredThread ? undefined : (values.replyingCommentId ?? undefined),
                         mentions,
                         slug: discussionsSlug(props.scope, props.item_id),
-                        is_task: asTask && !isReply,
+                        is_task: isTask,
                     })
-                    const sendsToSlack = values.composerSendToSlack && !isReply && !asTask
                     posthog.capture('comment created', {
                         scope: props.scope,
                         item_id: props.item_id,
                         is_reply: isReply,
                         is_emoji: false,
-                        as_task: asTask && !isReply,
+                        as_task: isTask,
                         send_to_slack: sendsToSlack,
                         mention_count: mentions.length,
                         character_count: textContent.length,
@@ -659,32 +658,20 @@ export const commentsLogic = kea<commentsLogicType>([
                         composerChannelId &&
                         values.currentProjectId
                     ) {
-                        let sentToSlack = false
-                        try {
-                            // The comments API is project-scoped — currentTeamId diverges from the
-                            // project id for non-default environments and 404s.
-                            await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
-                                integration_id: values.composerSlackIntegrationId,
-                                channel_id: composerChannelId,
-                            })
-                            sentToSlack = true
-                            lemonToast.success('Discussion sent to Slack')
-                        } catch (e) {
-                            // Surface the backend's actionable detail (bot not in channel, integration
-                            // missing…) rather than a blanket failure.
-                            const detail = e instanceof ApiError ? e.detail : null
+                        const { sent, detail } = await sendCommentToSlack(
+                            values.currentProjectId,
+                            newComment,
+                            { integrationId: values.composerSlackIntegrationId, channelId: composerChannelId },
+                            'composer'
+                        )
+                        if (!sent) {
                             lemonToast.error(
                                 detail
                                     ? `Comment added, but sending to Slack failed: ${detail}`
                                     : 'Comment added, but sending to Slack failed'
                             )
-                        }
-                        posthog.capture('comment sent to slack', {
-                            scope: props.scope,
-                            source: 'composer',
-                            success: sentToSlack,
-                        })
-                        if (sentToSlack) {
+                        } else {
+                            lemonToast.success('Discussion sent to Slack')
                             // Refetch and return the fresh list so the new comment shows its tracked-in-Slack
                             // state. We can't dispatch loadComments() here — it writes the same `comments`
                             // loader value this handler returns, and our return would supersede its result.

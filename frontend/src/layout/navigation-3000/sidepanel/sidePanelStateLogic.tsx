@@ -69,8 +69,9 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         selectedTabOptions: [
             null as string | null,
             {
-                openSidePanel: (_, { options }) => options ?? null,
-                setSidePanelOptions: (_, { options }) => options ?? null,
+                // '' and null both mean "no options". Store one value so the URL hash compares equal.
+                openSidePanel: (_, { options }) => options || null,
+                setSidePanelOptions: (_, { options }) => options || null,
                 closeSidePanel: () => null,
             },
         ],
@@ -120,16 +121,13 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
 
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
+                const options = panelOptions.join(':') || null
 
-                // A tab opened without options stores null, but its URL hash yields ''. Treat both as the
-                // same, or the URL update from actionToUrl opens the panel (and captures the event) again.
                 if (
                     panel &&
-                    (panel !== values.selectedTab ||
-                        !values.sidePanelOpen ||
-                        panelOptions.join(':') !== (values.selectedTabOptions ?? ''))
+                    (panel !== values.selectedTab || !values.sidePanelOpen || options !== values.selectedTabOptions)
                 ) {
-                    actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
+                    actions.openSidePanel(panel as SidePanelTab, options ?? undefined)
                 }
             }
         },

@@ -30,8 +30,8 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 
 export type LemonRichContentEditorProps = {
-    /** Also sent as the `editor` property on usage events, so they can be split by surface */
-    logicKey?: string
+    /** Names where the editor is, as the `editor` property on usage events */
+    surface?: string
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
@@ -101,7 +101,7 @@ export function RichContentPreview({
 }
 
 export function LemonRichContentEditor({
-    logicKey,
+    surface,
     initialContent,
     placeholder,
     onCreate,
@@ -140,7 +140,7 @@ export function LemonRichContentEditor({
 
     const setPreviewShown = (preview: boolean): void => {
         if (preview !== isPreviewShown) {
-            posthog.capture('rich text preview toggled', { editor: logicKey, preview })
+            posthog.capture('rich text preview toggled', { editor: surface, preview })
         }
         setIsPreviewShown(preview)
     }
@@ -150,10 +150,10 @@ export function LemonRichContentEditor({
             if (ttEditor) {
                 ttEditor.commands.insertContent(`\n\n![${fileName}](${url})`)
             }
-            posthog.capture('rich text image uploaded', { name: fileName, editor: logicKey })
+            posthog.capture('rich text image uploaded', { name: fileName, editor: surface })
         },
         onError: (detail) => {
-            posthog.capture('rich text image upload failed', { error: detail, editor: logicKey })
+            posthog.capture('rich text image upload failed', { error: detail, editor: surface })
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
@@ -208,12 +208,12 @@ export function LemonRichContentEditor({
                         <EmojiPickerPopover
                             key="emoj-picker"
                             data-attr="lemon-rich-text-editor-emoji-popover"
-                            onOpen={() => posthog.capture('rich text emoji picker opened', { editor: logicKey })}
+                            onOpen={() => posthog.capture('rich text emoji picker opened', { editor: surface })}
                             onSelect={(emoji: string) => {
                                 if (ttEditor) {
                                     ttEditor.commands.insertContent(emoji)
                                     emojiUsed(emoji)
-                                    posthog.capture('rich text emoji inserted', { editor: logicKey, emoji })
+                                    posthog.capture('rich text emoji inserted', { editor: surface, emoji })
                                 }
                             }}
                         />
