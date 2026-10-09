@@ -95,7 +95,6 @@ export function SendMenu({
         },
         ...choices.map(
             (option, i): LemonMenuItem => ({
-                key: option.value,
                 label: `${verb} and set ${option.statusLabel}`,
                 keyboardShortcut: [DIGITS[i]],
                 onClick: () => onSend(option.value),
