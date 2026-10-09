@@ -791,12 +791,40 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_library": None,
             # ingestion just happened in this test, so the session still counts as ongoing
             "ongoing": True,
-            "activity_score": None,
+            "activity_score": 0.0,
             "external_references": [],
             "matches_filters": True,
             "total_size": 0,
             "event_count": 0,
         }
+
+    def test_single_session_recording_activity_score_matches_list(self):
+        create_person(team=self.team, distinct_ids=["d1"], properties={"email": "bob@bob.com"})
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=60)).isoformat(),
+            distinct_id="d1",
+            click_count=7,
+            keypress_count=11,
+            mouse_activity_count=40,
+            active_milliseconds=25 * 1000,
+            console_log_count=3,
+            console_warn_count=2,
+            console_error_count=1,
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+        assert list_response.status_code == status.HTTP_200_OK
+        assert detail_response.status_code == status.HTTP_200_OK
+
+        (list_row,) = list_response.json()["results"]
+        assert list_row["activity_score"] == 41.51
+        assert detail_response.json()["activity_score"] == list_row["activity_score"]
 
     def test_single_session_recording_clamps_negative_inactive_seconds(self):
         create_person(team=self.team, distinct_ids=["d1"], properties={"email": "bob@bob.com"})

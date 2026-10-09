@@ -102,6 +102,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "ongoing": True,
             "total_size": 0,
             "event_count": 0,
+            "activity_score": 100.0,
         }
 
     def test_get_metadata_with_block(self) -> None:
@@ -130,6 +131,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "ongoing": True,
             "total_size": 0,
             "event_count": 0,
+            "activity_score": 99.75,
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
@@ -164,6 +166,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "ongoing": True,
             "total_size": 0,
             "event_count": 0,
+            "activity_score": 100.0,
         }
 
     def test_get_nonexistent_metadata(self) -> None:
@@ -213,6 +216,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "ongoing": True,
             "total_size": 0,
             "event_count": 0,
+            "activity_score": 100.0,
         }
         assert metadata_dict["2"] == {
             "active_seconds": 1.234,
@@ -238,6 +242,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "ongoing": True,
             "total_size": 0,
             "event_count": 0,
+            "activity_score": 99.75,
         }
 
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
