@@ -233,6 +233,101 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
     confirmed: zod.boolean(),
 })
 
+/**
+ * @summary Create a personal account view
+ */
+export const accountViewsCreateBodyNameMax = 400
+
+export const accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsCreateBodyContentOneContentMax = 1
+
+export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountViewsCreateBodyNameMax).describe('View name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsCreateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .describe('Initial account view components.'),
+})
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsPartialUpdateBodyContentOneContentMax = 1
+
+export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(accountViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New view name. Omit to keep the current name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsPartialUpdateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .optional()
+        .describe('Replacement account view components. Omit to keep current content.'),
+    visibility: zod
+        .enum(['private', 'team'])
+        .describe('\* `private` - Personal\n\* `team` - Team')
+        .optional()
+        .describe(
+            'New visibility. Only the creator or a project admin can change it.\n\n\* `private` - Personal\n\* `team` - Team'
+        ),
+    version: zod.number().min(1).describe('Version returned by the last read.'),
+})
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -295,6 +390,12 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -393,6 +494,12 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -462,6 +569,12 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -481,8 +594,17 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -1809,4 +1931,15 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .describe(
             'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
+    account_detail_tabs: zod
+        .object({
+            ordered_tab_ids: zod.array(zod.string()).describe("Tab identifiers in the user's preferred order."),
+            hidden_tab_ids: zod.array(zod.string()).describe('Tab identifiers hidden from the tab strip.'),
+            default_tab_id: zod
+                .string()
+                .nullable()
+                .describe('Tab identifier opened by default. Null uses the first available system tab.'),
+        })
+        .optional()
+        .describe('Complete personal account tab configuration. Omit to keep it unchanged.'),
 })

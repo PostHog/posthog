@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     emitted_rows_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_read,
     aretry_staged_write,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
@@ -180,8 +181,10 @@ class CDPProducer:
                     id=self.table.id, team_id=self.team_id
                 )
 
-            schema = ExternalDataSchema.objects.get(id=self.table.id, team_id=self.team_id)
-            raw_table_name = build_table_name(schema.source, schema.name)
+            schema = ExternalDataSchema.objects.select_related("source", "table").get(
+                id=self.table.id, team_id=self.team_id
+            )
+            raw_table_name = schema.table.name if schema.table else build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
         self._table_name_cache = await _resolve()
@@ -341,8 +344,12 @@ class CDPProducer:
 
                 row_index = 0
 
+                async def _open_staged_file(path: str = file_path) -> pa.NativeFile:
+                    return await asyncio.to_thread(fs.open_input_file, path)
+
                 try:
-                    with fs.open_input_file(file_path) as f:
+                    input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
+                    with input_file as f:
                         pf = pq.ParquetFile(f)
 
                         for batch in pf.iter_batches(batch_size=10_000):

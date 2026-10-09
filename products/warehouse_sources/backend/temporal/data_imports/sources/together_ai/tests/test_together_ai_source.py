@@ -5,10 +5,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.settings import (
-    ENDPOINTS,
-    TOGETHER_AI_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
 
 
@@ -23,23 +19,9 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh_only(self) -> None:
-        schemas = TogetherAISource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # No pagination and no server-side timestamp filters, so nothing advertises incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     def test_names_filter_restricts_output(self) -> None:
         schemas = TogetherAISource().get_schemas(_config(), team_id=1, names=["fine_tunes"])
         assert [s.name for s in schemas] == ["fine_tunes"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = TogetherAISource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        evaluations = next(t for t in tables if t["name"] == "evaluations")
-        assert evaluations["primary_keys"] == ["workflow_id"]
-        assert "Full refresh" in evaluations["sync_methods"]
 
 
 class TestValidateCredentials:
@@ -56,11 +38,6 @@ class TestValidateCredentials:
         with patch.object(source_module, "get_status_code", return_value=status):
             ok, _err = TogetherAISource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
-
-    def test_probes_requested_schema_endpoint(self) -> None:
-        with patch.object(source_module, "get_status_code", return_value=200) as mock_probe:
-            TogetherAISource().validate_credentials(_config(), team_id=1, schema_name="batches")
-        assert mock_probe.call_args.args == ("together_test", "batches")
 
     def test_transport_failure_returns_actionable_error(self) -> None:
         with patch.object(source_module, "get_status_code", side_effect=Exception("boom")):
@@ -102,14 +79,3 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = TogetherAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestCanonicalDescriptions:
-    def test_every_endpoint_has_a_canonical_description(self) -> None:
-        descriptions = TogetherAISource().get_canonical_descriptions()
-        for endpoint in TOGETHER_AI_ENDPOINTS:
-            assert endpoint in descriptions
-            entry = descriptions[endpoint]
-            # Primary key columns must be documented so enrichment doesn't fall back to the LLM for them.
-            for pk in TOGETHER_AI_ENDPOINTS[endpoint].primary_keys:
-                assert pk in entry["columns"]

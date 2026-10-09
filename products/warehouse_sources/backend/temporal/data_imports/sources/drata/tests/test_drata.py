@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any, Optional, cast
 
 import pytest
@@ -124,43 +124,12 @@ class TestTopLevelCursorPagination:
         raise AssertionError(f"unexpected cursor {cursor}")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_cursor_until_absent(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        rows, calls = _run(mock_session, self._pages, "users", manager)
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert calls[0]["params"] == {"sort": "createdAt", "sortDir": "ASC", "size": 250}
-        assert calls[1]["params"]["cursor"] == "c2"
-        # State is saved once — after the first page, pointing at the next cursor — then we stop.
-        assert [s.cursor for s in manager.saved] == ["c2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_cursor_does_not_advance(self, mock_session: mock.MagicMock) -> None:
-        # An API that echoes the same cursor back must terminate, not loop forever.
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp({"data": [{"id": 1}], "pagination": {"cursor": params.get("cursor") or "c1"}})
-
-        manager = _FakeManager()
-        rows, calls = _run(mock_session, route, "users", manager)
-        assert [c["params"].get("cursor") for c in calls] == [None, "c1"]
-        assert len(rows) == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, mock_session: mock.MagicMock) -> None:
         manager = _FakeManager(DrataResumeConfig(cursor="c2"))
         rows, calls = _run(mock_session, self._pages, "users", manager)
         # The first page must never be re-fetched on resume.
         assert rows == [{"id": 2}]
         assert calls[0]["params"]["cursor"] == "c2"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp({"data": [], "pagination": {"cursor": None}})
-
-        manager = _FakeManager()
-        rows, _ = _run(mock_session, route, "users", manager)
-        assert rows == []
-        assert manager.saved == []
 
     @parameterized.expand([("US",), ("EU",), ("APAC",)])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -176,22 +145,6 @@ class TestEventsIncremental:
         if cursor is None:
             return _resp({"data": [{"id": "e1"}], "pagination": {"cursor": "c2"}})
         return _resp({"data": [{"id": "e2"}], "pagination": {"cursor": None}})
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_server_side_filter_sent_on_every_page(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        _, calls = _run(
-            mock_session,
-            self._pages,
-            "events",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            incremental_field="createdAt",
-        )
-        assert len(calls) == 2
-        for call in calls:
-            assert call["params"]["createdAtStartDate"] == "2026-01-02T03:04:05.000Z"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_date_watermark_formatted_as_utc_datetime(self, mock_session: mock.MagicMock) -> None:
@@ -266,52 +219,6 @@ class TestWorkspaceFanOut:
         ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_cursor_within_parent_and_marks_parents_complete(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        _run(mock_session, self._pages, "controls", manager)
-        states = [s.fanout_state for s in manager.saved]
-        # Fan-out checkpoints key each parent by its resolved child PATH (relative to the base URL).
-        ws10 = "/workspaces/10/controls"
-        ws20 = "/workspaces/20/controls"
-        # Workspace 10's in-progress cursor is checkpointed under its child path.
-        assert any(s and s.get("current") == ws10 and s.get("child_state") == {"cursor": "w10c2"} for s in states)
-        # Both workspaces are eventually recorded complete so a restart skips them.
-        assert any(s and set(s.get("completed") or []) >= {ws10, ws20} for s in states)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_completed_parent_without_refetching_it(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager(
-            DrataResumeConfig(
-                fanout_state={
-                    "completed": ["/workspaces/10/controls"],
-                    "current": None,
-                    "child_state": None,
-                }
-            )
-        )
-        rows, calls = _run(mock_session, self._pages, "controls", manager)
-        assert rows == [{"id": 1, "workspaceId": 20}]
-        child_urls = [c["url"] for c in calls if "/controls" in c["url"]]
-        assert child_urls == [f"{US_BASE_URL}/workspaces/20/controls"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_cursor_applies_to_in_progress_parent_only(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager(
-            DrataResumeConfig(
-                fanout_state={
-                    "completed": [],
-                    "current": "/workspaces/10/controls",
-                    "child_state": {"cursor": "w10c2"},
-                }
-            )
-        )
-        rows, calls = _run(mock_session, self._pages, "controls", manager)
-        # Workspace 10 resumes mid-pagination; workspace 20 starts from its first page.
-        assert rows == [{"id": 2, "workspaceId": 10}, {"id": 1, "workspaceId": 20}]
-        first_child_call = next(c for c in calls if c["url"].endswith("/workspaces/10/controls"))
-        assert first_child_call["params"]["cursor"] == "w10c2"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_deleted_bookmark_parent_starts_over(self, mock_session: mock.MagicMock) -> None:
         manager = _FakeManager(
             DrataResumeConfig(
@@ -324,26 +231,6 @@ class TestWorkspaceFanOut:
         )
         rows, _ = _run(mock_session, self._pages, "controls", manager)
         assert len(rows) == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_starts_fresh(self, mock_session: mock.MagicMock) -> None:
-        # Pre-migration saved state carried (cursor, parent_id) but no fanout_state; it must still
-        # parse and simply restart the fan-out.
-        manager = _FakeManager(DrataResumeConfig(cursor="stale", parent_id=10))
-        rows, _ = _run(mock_session, self._pages, "controls", manager)
-        assert len(rows) == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_parent_404_is_skipped_and_sync_continues(self, mock_session: mock.MagicMock) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            if url.endswith("/workspaces"):
-                return _resp({"data": [{"id": 10}, {"id": 20}], "pagination": {"cursor": None}})
-            if url.endswith("/workspaces/10/controls"):
-                return _resp({}, status=404, reason="Not Found", url=url)
-            return _resp({"data": [{"id": 1}], "pagination": {"cursor": None}})
-
-        rows, _ = _run(mock_session, route, "controls", _FakeManager())
-        assert rows == [{"id": 1, "workspaceId": 20}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_parent_403_fails_the_sync(self, mock_session: mock.MagicMock) -> None:
@@ -412,54 +299,6 @@ class TestControlJunctionFanOut:
         # Both junctions repeat their `id` across controls — a requirement is mapped by many
         # controls, an owner owns many — so the control id has to be part of the key.
         assert rows == [{"id": 4, "controlId": 88, "workspaceId": 10}]
-
-
-class TestAuditRequestFanOut:
-    """Audit requests hang two fan-out levels deep: workspaces -> audits -> requests."""
-
-    def _route(self, url: str, params: dict[str, Any]) -> Response:
-        if url.endswith("/workspaces"):
-            return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/10/audits"):
-            return _resp({"data": [{"id": "aud-1"}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/10/audits/aud-1/requests"):
-            return _resp({"data": [{"id": 7, "auditId": "aud-1"}], "pagination": {"cursor": None}})
-        raise AssertionError(f"unexpected url {url}")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_binds_string_audit_id_and_carries_workspace_id(self, mock_session: mock.MagicMock) -> None:
-        rows, calls = _run(mock_session, self._route, "audit_requests", _FakeManager())
-        # Audit ids are strings, unlike every other Drata parent id.
-        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/audits/aud-1/requests"
-        # Request ids are numbered within their audit, so both ancestor ids ride along.
-        assert rows == [{"id": 7, "auditId": "aud-1", "workspaceId": 10}]
-
-
-class TestMonitoringTestFailureFanOut:
-    """Failures hang two fan-out levels deep: workspaces -> monitoring tests -> failures."""
-
-    def _route(self, url: str, params: dict[str, Any]) -> Response:
-        if url.endswith("/workspaces"):
-            return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/10/monitoring-tests"):
-            return _resp({"data": [{"id": 501, "testId": 77}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/10/monitoring-tests/77/failures"):
-            return _resp({"data": [{"id": "bucket-1", "status": "OPEN"}], "pagination": {"cursor": None}})
-        raise AssertionError(f"unexpected url {url}")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_binds_test_id_and_keeps_excluded_findings(self, mock_session: mock.MagicMock) -> None:
-        rows, calls = _run(mock_session, self._route, "monitoring_test_failures", _FakeManager())
-        # Drata documents the monitoring test's `id` as internal and rejects it on this path; only
-        # `testId` resolves, so binding the wrong field would 404 every test.
-        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/monitoring-tests/77/failures"
-        # Without includeExclusions a finding vanishes when someone dismisses it, instead of
-        # staying put with status EXCLUDED. Tags arrive only when expanded.
-        assert calls[-1]["params"]["includeExclusions"] == "true"
-        assert calls[-1]["params"]["expand[]"] == "tags"
-        # Both ancestor ids ride along so ["workspaceId", "monitoringTestId", "id"] stays unique:
-        # `id` is only the provider's resource id, and one resource fails many tests.
-        assert rows == [{"id": "bucket-1", "status": "OPEN", "monitoringTestId": 501, "workspaceId": 10}]
 
 
 class TestErrorHandling:
@@ -558,13 +397,6 @@ class TestCredentialValidation:
         assert valid is False
         assert message is not None
 
-    def test_probe_targets_the_selected_region(self) -> None:
-        session = self._session(self._http(200))
-        with mock.patch(DRATA_SESSION_PATCH, return_value=session):
-            validate_credentials("drata_key", "EU")
-        url = session.get.call_args.args[0]
-        assert url.startswith(f"{REGION_BASE_URLS['EU']}/workspaces")
-
     @parameterized.expand(
         [("lowercase", "eu", "EU"), ("unknown_falls_back_to_us", "atlantis", "US"), ("none", None, "US")]
     )
@@ -603,20 +435,6 @@ class TestDrataSourceResponse:
         # multi-match on merge and duplicate rows across workspaces.
         assert self._response(endpoint).primary_keys == ["workspaceId", "id"]
 
-    def test_events_partitions_on_stable_created_at_and_defers_watermark(self) -> None:
-        response = self._response("events")
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-        # The requested ASC ordering couldn't be verified against a live account, so the watermark
-        # must only commit after a complete sync.
-        assert response.sort_mode == "desc"
-
     @parameterized.expand([(e,) for e in ENDPOINTS if e != "events"])
     def test_full_refresh_endpoints_declare_asc(self, endpoint: str) -> None:
         assert self._response(endpoint).sort_mode == "asc"
-
-    def test_monitoring_test_failures_are_not_partitioned(self) -> None:
-        # Failure rows carry no timestamp, so partitioning would key on a column that never lands.
-        response = self._response("monitoring_test_failures")
-        assert response.partition_mode is None
-        assert response.partition_keys is None

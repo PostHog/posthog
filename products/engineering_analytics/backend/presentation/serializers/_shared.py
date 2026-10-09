@@ -1,11 +1,11 @@
 """Serializers shared across domain modules, and their own leaves."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import CIFailureLogLine, CIJobFailureLog, RepoRef
 
 
-class RepoRefSerializer(DataclassSerializer):
+class RepoRefSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = RepoRef
         extra_kwargs = {
@@ -15,7 +15,7 @@ class RepoRefSerializer(DataclassSerializer):
         }
 
 
-class CIFailureLogLineSerializer(DataclassSerializer):
+class CIFailureLogLineSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CIFailureLogLine
         extra_kwargs = {
@@ -28,7 +28,7 @@ class CIFailureLogLineSerializer(DataclassSerializer):
         }
 
 
-class CIJobFailureLogSerializer(DataclassSerializer):
+class CIJobFailureLogSerializer(LabeledChoicesDataclassSerializer):
     lines = CIFailureLogLineSerializer(
         many=True, help_text="The thinned failure-log lines in original order, with omission markers."
     )
@@ -36,7 +36,8 @@ class CIJobFailureLogSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIJobFailureLog
         extra_kwargs = {
-            "job_id": {"help_text": "GitHub Actions job id of the failed job."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "job_id": {"help_text": "Integer job id of the failed job; unique only together with ci_engine."},
             "run_id": {"help_text": "Workflow run id the job belongs to."},
             "conclusion": {
                 "help_text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",

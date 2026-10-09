@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from django.utils.functional import Promise
 
+from posthog.enums import LabeledStrEnum
+
 # Source-of-truth taxonomy for signals. Django-free (plain StrEnum) so it stays cheap to import
 # from contracts.py, the model layer, and the frontend-types codegen alike. StrEnum members compare
 # equal to their string value, so they drop into `==` checks and ORM filters unchanged.
@@ -18,16 +20,26 @@ class ReportPriority(StrEnum):
     P4 = "P4"
 
 
-class ReportLinkKind(StrEnum):
+class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
     # specs a stack of dependent pull requests needs the direction recorded, which the older
     # symmetric `related_to` artefact cannot express.
-    DEPENDS_ON = "depends_on"
-    PART_OF = "part_of"
-    FOLLOW_UP_OF = "follow_up_of"
-    DUPLICATE_OF = "duplicate_of"
-    RECURRENCE_OF = "recurrence_of"
+    DEPENDS_ON = "depends_on", "Depends on"
+    PART_OF = "part_of", "Part of"
+    FOLLOW_UP_OF = "follow_up_of", "Follow-up of"
+    DUPLICATE_OF = "duplicate_of", "Duplicate of"
+    RECURRENCE_OF = "recurrence_of", "Recurrence of"
+
+
+class SuggestedSourceProduct(LabeledStrEnum):
+    # Products a report can suggest the team turn on because the report would have had better
+    # evidence with them. Each value must equal a `ProductKey` whose data freshness spec says
+    # whether the team already uses the product (see `source_suggestions.py`).
+    LOGS = "logs", "Logs"
+    SESSION_REPLAY = "session_replay", "Session replay"
+    ERROR_TRACKING = "error_tracking", "Error tracking"
+    LLM_ANALYTICS = "llm_analytics", "AI observability"
 
 
 class ReportLinkWritePath(StrEnum):
@@ -36,21 +48,6 @@ class ReportLinkWritePath(StrEnum):
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
-
-
-REPORT_LINK_KIND_LABELS: dict[ReportLinkKind, str] = {
-    ReportLinkKind.DEPENDS_ON: "Depends on",
-    ReportLinkKind.PART_OF: "Part of",
-    ReportLinkKind.FOLLOW_UP_OF: "Follow-up of",
-    ReportLinkKind.DUPLICATE_OF: "Duplicate of",
-    ReportLinkKind.RECURRENCE_OF: "Recurrence of",
-}
-
-
-def report_link_kind_choices() -> list[tuple[str, str | Promise]]:
-    # drf-spectacular matches an ENUM_NAME_OVERRIDES entry by a hash of the exact (value, label)
-    # pairs, so the serializer's ChoiceField and the override must both read this one callable.
-    return [(kind.value, label) for kind, label in REPORT_LINK_KIND_LABELS.items()]
 
 
 class SignalSourceProduct(StrEnum):

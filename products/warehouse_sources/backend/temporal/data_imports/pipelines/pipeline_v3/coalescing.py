@@ -17,9 +17,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
         ExportSignalMessage,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-        PendingBatch,
-    )
+    from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 
 # CDC batches resolve positions against the table between writes, and a batch bound for external
 # destinations is delivered per batch, so neither is folded into a set.
@@ -46,7 +44,10 @@ class LoadShape:
     partition_format: str | None
     is_first_ever_sync: bool
     cdc_write_mode: str | None
-    has_destinations: bool
+    # The external destinations the batch is delivered to, as a key rather than a flag: two
+    # batches bound for different destinations are written under different configurations and
+    # must never share a set, the same as two batches with different primary keys.
+    external_destination_ids: tuple[str, ...]
 
 
 @frozen
@@ -86,7 +87,7 @@ class CoalesceMember:
                 partition_format=metadata.get("partition_format"),
                 is_first_ever_sync=batch.is_first_ever_sync,
                 cdc_write_mode=metadata.get("cdc_write_mode"),
-                has_destinations=bool(batch.destination_ids),
+                external_destination_ids=_external_ids(metadata.get("external_destination_ids"), batch.destination_ids),
             ),
         )
 
@@ -112,7 +113,7 @@ class CoalesceMember:
                 partition_format=signal.partition_format,
                 is_first_ever_sync=signal.is_first_ever_sync,
                 cdc_write_mode=signal.cdc_write_mode,
-                has_destinations=bool(signal.destination_ids),
+                external_destination_ids=_external_ids(signal.external_destination_ids, signal.destination_ids),
             ),
         )
 
@@ -124,7 +125,6 @@ class CoalesceCaps:
     max_batches: int
     max_rows: int
     max_bytes: int
-    across_runs: bool
 
     @classmethod
     def from_settings(cls) -> CoalesceCaps:
@@ -132,7 +132,6 @@ class CoalesceCaps:
             max_batches=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES,
             max_rows=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS,
             max_bytes=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES,
-            across_runs=settings.DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS,
         )
 
 
@@ -140,8 +139,23 @@ def _key_tuple(keys: Sequence[str] | None) -> tuple[str, ...] | None:
     return None if keys is None else tuple(keys)
 
 
+def _external_ids(external: Sequence[str] | None, snapshot: Sequence[str] | None) -> tuple[str, ...]:
+    """The batch's external destinations, from the run's whole set when it carries no subset.
+
+    A batch queued before the producer started recording the subset has no way to say which of
+    its ids is the warehouse, so every id counts. That keeps such a batch out of every set,
+    exactly as it was before, rather than guessing it has none and folding it into a write that
+    would skip its per-batch delivery.
+    """
+    return tuple(snapshot or ()) if external is None else tuple(external)
+
+
 def loadable_in_set(shape: LoadShape) -> bool:
-    return shape.sync_type in COALESCABLE_SYNC_TYPES and shape.cdc_write_mode is None and not shape.has_destinations
+    return (
+        shape.sync_type in COALESCABLE_SYNC_TYPES
+        and shape.cdc_write_mode is None
+        and not shape.external_destination_ids
+    )
 
 
 def join_violation(current: Sequence[CoalesceMember], candidate: CoalesceMember) -> str | None:
@@ -175,8 +189,6 @@ def join_violation(current: Sequence[CoalesceMember], candidate: CoalesceMember)
 
 def extends_set(current: Sequence[CoalesceMember], candidate: CoalesceMember, caps: CoalesceCaps) -> bool:
     if join_violation(current, candidate) is not None:
-        return False
-    if candidate.run_uuid != current[-1].run_uuid and not caps.across_runs:
         return False
     if len(current) >= caps.max_batches:
         return False

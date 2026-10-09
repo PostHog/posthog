@@ -265,7 +265,7 @@ const Value = ({
 const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'>): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
 
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -277,6 +277,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    endpointFilters={endpointFilters}
                     enableKeywordShortcuts
                 />
             }
@@ -310,7 +311,7 @@ const PureTaxonomicFilter = ({
     searchQuery?: string
     taxonomicFilterLogicKey?: string
 }): JSX.Element => {
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -322,6 +323,7 @@ const PureTaxonomicFilter = ({
                 addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            endpointFilters={endpointFilters}
             initialSearchQuery={initialSearchQuery}
             hideSearchInput={hideSearchInput}
             searchQuery={searchQuery}

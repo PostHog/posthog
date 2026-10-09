@@ -17,8 +17,6 @@ import type {
   TurnContext,
 } from "../packages/ui/src/features/sessions/components/buildConversationItems";
 import { mergeConversationItems } from "../packages/ui/src/features/sessions/components/mergeConversationItems";
-import { buildThreadGroups } from "../packages/ui/src/features/sessions/components/new-thread/buildThreadGroups";
-import { createIncrementalThreadGrouper } from "../packages/ui/src/features/sessions/components/new-thread/incrementalThreadGrouping";
 
 const COMPLETED_TURNS = readPositiveInt("SESSION_COMPLETED_TURNS", 2_000);
 const STREAM_EVENTS = readPositiveInt("SESSION_STREAM_EVENTS", 500);
@@ -303,24 +301,6 @@ function runConversationMergeBenchmark(): Measurement[] {
   ];
 }
 
-function runThreadGroupingBenchmark(): Measurement[] {
-  const sequences = buildThreadSequences();
-  const overrides = {};
-  return [
-    measure("thread grouping full rebuild", () => {
-      for (const items of sequences) {
-        buildThreadGroups(items, "partial", overrides);
-      }
-    }),
-    measure("thread grouping append tracker", () => {
-      const grouper = createIncrementalThreadGrouper();
-      for (const items of sequences) {
-        grouper.update(items, "partial", overrides);
-      }
-    }),
-  ];
-}
-
 function format(ms: number): string {
   return `${ms.toFixed(2)}ms`;
 }
@@ -342,4 +322,3 @@ printPair(runContextUsageBenchmark());
 printPair(runSessionResourcesBenchmark());
 printPair(runLatestPlanBenchmark());
 printPair(runConversationMergeBenchmark());
-printPair(runThreadGroupingBenchmark());

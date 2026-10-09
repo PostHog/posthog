@@ -69,7 +69,7 @@ export function NewMetricModal(): JSX.Element {
                     <LemonField.Pure
                         label={METRIC_FIELD_COPY.description.label}
                         error={descriptionError}
-                        info="1-3 sentences: what the metric means and what it serves."
+                        info="One or two short sentences: what the number is and what it counts."
                     >
                         <LemonTextArea
                             value={newMetricForm.description}

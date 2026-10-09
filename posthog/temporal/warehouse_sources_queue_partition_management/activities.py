@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -12,12 +12,29 @@ import structlog
 import temporalio.activity
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.warehouse_sources_queue_partition_management.schedule import SCHEDULE_ID
+
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
+PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
+
+# Rows in these tables change state in place two or three times, and each change leaves a dead
+# entry in the partial indexes on latest_state. A scale factor waits for 10% of a partition to be
+# dead, which late in the day is ~150k rows, and the claim query then reads through those entries.
+# A fixed threshold keeps the dead count low and about constant as the daily partition grows.
+_IN_PLACE_UPDATE_TABLES = ("sourcebatch", "queuejob")
+_PARTITION_AUTOVACUUM_OPTIONS = (
+    "autovacuum_vacuum_scale_factor=0",
+    "autovacuum_vacuum_threshold=10000",
+    "autovacuum_analyze_scale_factor=0.02",
+    "autovacuum_vacuum_cost_delay=2",
+    "autovacuum_vacuum_cost_limit=2000",
+)
 
 # Deliberately not the lock-takeover sentinel — that string has special
 # downstream semantics in the dead-job gate.
@@ -33,22 +50,57 @@ class PartitionResult:
     ensured: list[str]
     dropped: list[str]
     errors: list[str]
-    s3_deleted: list[str] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
         return len(self.errors) == 0
 
 
+@frozen
+class _PartitionChanges:
+    ensured: list[str]
+    dropped: list[str]
+    alerts: list[str]
+
+
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
+    errors: list[str] = []
+    today = datetime.now(UTC).date()
+
+    # The connection sets no lock_timeout, so partition DDL can wait on a lock for an unbounded time.
+    # Run the database work on the general thread pool so that the wait blocks neither the worker's
+    # event loop nor the single thread shared by all thread-sensitive work in the process.
+    changes = await database_sync_to_async_pool(_manage_database_partitions)(today, errors)
+
+    result = PartitionResult(ensured=changes.ensured, dropped=changes.dropped, errors=errors)
+
+    logger.info(
+        "Partition management completed",
+        ensured_count=len(result.ensured),
+        dropped_count=len(result.dropped),
+        error_count=len(errors),
+        success=result.success,
+        alerts=changes.alerts,
+    )
+
+    if changes.alerts:
+        await sync_to_async(_send_slack_alert, thread_sensitive=False)(changes.alerts)
+
+    return {
+        "ensured": result.ensured,
+        "dropped": result.dropped,
+        "errors": result.errors,
+        "alerts": changes.alerts,
+        "success": result.success,
+    }
+
+
+def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionChanges:
     ensured: list[str] = []
     dropped: list[str] = []
-    errors: list[str] = []
 
     with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
-        today = datetime.now(UTC).date()
-
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):
                 d = today + timedelta(days=offset)
@@ -63,34 +115,28 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 except Exception as e:
                     errors.append(f"Failed to create {partition_name}: {e}")
                     logger.exception("Failed to create partition", partition=partition_name)
+                    continue
+                if table in _IN_PLACE_UPDATE_TABLES:
+                    _tune_partition_autovacuum(conn, partition_name, errors)
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
+        failed_default_expiries: set[str] = set()
         for table in PARTITIONED_TABLES:
-            for row in conn.execute(
-                """
-                SELECT inhrelid::regclass::text AS partition_name
-                FROM pg_inherits
-                WHERE inhparent = %s::regclass
-                ORDER BY inhrelid::regclass::text
-                """,
-                [table],
-            ).fetchall():
-                partition_name = row[0]
+            for partition_name in _list_partitions(conn, table):
                 if partition_name.endswith("_default"):
-                    await sync_to_async(_expire_default_partition_rows)(conn, table, partition_name, cutoff, errors)
+                    if not _expire_default_partition_rows(conn, table, partition_name, cutoff, errors):
+                        failed_default_expiries.add(partition_name)
                     continue
-                suffix = partition_name.rsplit("_", 1)[-1]
-                try:
-                    partition_date = date(int(suffix[:4]), int(suffix[4:6]), int(suffix[6:8]))
-                except (ValueError, IndexError):
+                partition_date = _partition_date(partition_name)
+                if partition_date is None:
                     continue
                 if partition_date < cutoff:
                     if table == "sourcebatch":
                         try:
-                            await sync_to_async(_terminalize_stranded_runs)(conn, partition_name)
+                            _terminalize_stranded_runs(conn, partition_name)
                         except Exception as e:
-                            # Keep the partition as evidence while the alert is live;
-                            # partitions are daily and small, so retrying tomorrow is cheap.
+                            # Keep the partition as evidence. Partitions are daily and small,
+                            # so retrying tomorrow is cheap.
                             errors.append(f"Failed to terminalize stranded runs in {partition_name}: {e}")
                             logger.exception(
                                 "Failed to terminalize stranded runs before partition drop",
@@ -98,42 +144,60 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                             )
                             continue
                     try:
-                        await sync_to_async(_drop_partition)(conn, partition_name)
+                        _drop_partition(conn, partition_name)
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
                         logger.exception("Failed to drop partition", partition=partition_name)
 
-        _verify_partitions(conn, today, errors)
+        alerts = _find_partition_alerts(conn, today, failed_default_expiries)
 
-    s3_deleted = _cleanup_old_s3_extractions(today, errors)
+    return _PartitionChanges(ensured=ensured, dropped=dropped, alerts=alerts)
 
-    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors, s3_deleted=s3_deleted)
 
-    logger.info(
-        "Partition management completed",
-        ensured_count=len(ensured),
-        dropped_count=len(dropped),
-        s3_deleted_count=len(s3_deleted),
-        error_count=len(errors),
-        success=result.success,
-    )
-
-    if not result.success:
-        _send_slack_failure(errors)
-
-    return {
-        "ensured": result.ensured,
-        "dropped": result.dropped,
-        "s3_deleted": result.s3_deleted,
-        "errors": result.errors,
-        "success": result.success,
-    }
+def _tune_partition_autovacuum(conn: psycopg.Connection, partition_name: str, errors: list[str]) -> None:
+    row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition_name]).fetchone()
+    current = set(row[0] or []) if row else set()
+    if current.issuperset(_PARTITION_AUTOVACUUM_OPTIONS):
+        return
+    # ALTER takes a lock that conflicts with a running autovacuum, so skip it when the options
+    # are already set, and give up quickly rather than queue behind one.
+    try:
+        conn.execute("SET lock_timeout = '5s'")
+        conn.execute(f"ALTER TABLE {partition_name} SET ({', '.join(_PARTITION_AUTOVACUUM_OPTIONS)})")
+    except Exception as e:
+        errors.append(f"Failed to tune autovacuum on {partition_name}: {e}")
+        logger.exception("Failed to tune partition autovacuum", partition=partition_name)
+    finally:
+        conn.execute("RESET lock_timeout")
 
 
 def _partition_ddl_database_url() -> str:
     # Only the owner of a partitioned table can create its partitions, and the migration role owns the queue tables.
     return settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL or settings.WAREHOUSE_SOURCES_DATABASE_URL
+
+
+def _list_partitions(conn: psycopg.Connection, table: str) -> list[str]:
+    return [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT inhrelid::regclass::text AS partition_name
+            FROM pg_inherits
+            WHERE inhparent = %s::regclass
+            ORDER BY inhrelid::regclass::text
+            """,
+            [table],
+        ).fetchall()
+    ]
+
+
+def _partition_date(partition_name: str) -> date | None:
+    suffix = partition_name.rsplit("_", 1)[-1]
+    try:
+        return date(int(suffix[:4]), int(suffix[4:6]), int(suffix[6:8]))
+    except (ValueError, IndexError):
+        return None
 
 
 def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
@@ -150,8 +214,8 @@ def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
 
 def _expire_default_partition_rows(
     conn: psycopg.Connection, table: str, partition_name: str, cutoff: date, errors: list[str]
-) -> None:
-    """Apply retention to rows in the default partition.
+) -> bool:
+    """Apply retention to rows in the default partition, and return whether it finished.
 
     Rows land in the default partition only for days that had no daily partition. Retention
     removes data by dropping daily partitions, so without this step those rows stay forever.
@@ -180,9 +244,10 @@ def _expire_default_partition_rows(
     except Exception as e:
         errors.append(f"Failed to expire old rows in {partition_name}: {e}")
         logger.exception("Failed to expire old default partition rows", partition=partition_name)
-        return
+        return False
     if deleted:
         logger.warning("Expired old default partition rows", partition=partition_name, deleted=deleted)
+    return True
 
 
 def _terminalize_stranded_runs(
@@ -267,88 +332,78 @@ def _terminalize_stranded_runs(
     )
 
 
-def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
-    """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS."""
-    from products.data_warehouse.backend.facade.api import get_s3_client
+def _find_partition_alerts(conn: psycopg.Connection, today: date, failed_default_expiries: set[str]) -> list[str]:
+    """Return one Slack message for each problem that needs someone to act.
 
-    s3 = get_s3_client()
-    base_prefix = f"{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract"
-    cutoff = today - timedelta(days=RETENTION_DAYS)
-    deleted: list[str] = []
-
-    try:
-        entries = s3.ls(base_prefix)
-    except FileNotFoundError:
-        logger.debug("s3_extraction_prefix_not_found", prefix=base_prefix)
-        return deleted
-    except Exception as e:
-        # Record instead of raising, because a raise here skips the Slack alert for every error so far.
-        errors.append(f"Failed to list S3 extraction partitions: {e}")
-        logger.exception("Failed to list S3 extraction partitions", prefix=base_prefix)
-        return deleted
-
-    for entry in entries:
-        name = entry.rstrip("/").rsplit("/", 1)[-1]
-        if not name.startswith("dt="):
-            continue
-        try:
-            partition_date = date.fromisoformat(name[3:])
-        except ValueError:
-            continue
-        if partition_date < cutoff:
-            try:
-                s3.delete(entry, recursive=True)
-                deleted.append(name)
-                logger.debug("s3_extraction_partition_deleted", partition=name)
-            except Exception as e:
-                errors.append(f"Failed to delete S3 partition {name}: {e}")
-                logger.exception("Failed to delete S3 extraction partition", partition=name)
-
-    return deleted
-
-
-def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str]) -> None:
+    A missing partition for today does not alert. After rows for today land in the default
+    partition, Postgres refuses to create today's partition, and retention deletes those rows
+    later. A cause that also blocks tomorrow's partition still alerts through the upcoming check.
+    """
+    # The newest partition is the only one a run creates for the first time. Leaving it out gives a
+    # failed create one retry before it alerts, like the retention check below.
+    upcoming = [today + timedelta(days=offset) for offset in range(1, PARTITIONS_AHEAD - 1)]
+    # Data this old was due for removal in at least two daily runs, so one transient failure does not alert.
+    stuck_before = today - timedelta(days=RETENTION_DAYS + 1)
+    stuck_before_at = datetime.combine(stuck_before, datetime.min.time(), tzinfo=UTC)
+    missing: dict[str, list[date]] = {}
+    stuck: list[str] = []
     for table in PARTITIONED_TABLES:
-        existing = set()
-        for row in conn.execute(
-            """
-            SELECT inhrelid::regclass::text AS partition_name
-            FROM pg_inherits
-            WHERE inhparent = %s::regclass
-            """,
-            [table],
-        ).fetchall():
-            existing.add(row[0])
+        existing: set[date] = set()
+        for partition_name in _list_partitions(conn, table):
+            if partition_name.endswith("_default"):
+                # A finished expiry leaves no row this old, so scan the partition only when this run's expiry
+                # failed. The scan has no created_at index to use, and a default partition can hold days of rows.
+                if partition_name in failed_default_expiries:
+                    row = conn.execute(
+                        f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
+                    ).fetchone()
+                    if row and row[0]:
+                        stuck.append(f"• `{partition_name}`: rows created before {stuck_before.isoformat()}")
+                continue
+            partition_date = _partition_date(partition_name)
+            if partition_date is not None:
+                existing.add(partition_date)
+        if table_missing := [d for d in upcoming if d not in existing]:
+            missing[table] = table_missing
+        if table_stuck := sorted(d for d in existing if d < stuck_before):
+            stuck.append(f"• `{table}`: oldest {table_stuck[0].isoformat()} ({len(table_stuck)} in total)")
 
-        for offset in range(PARTITIONS_AHEAD):
-            d = today + timedelta(days=offset)
-            expected = f"{table}_{d.strftime('%Y%m%d')}"
-            if expected not in existing:
-                errors.append(f"Partition {expected} missing after creation attempt")
+    alerts: list[str] = []
+    if missing:
+        first_missing = min(dates[0] for dates in missing.values())
+        lines = "\n".join(f"• `{table}`: {', '.join(d.isoformat() for d in dates)}" for table, dates in missing.items())
+        alerts.append(
+            f"*Upcoming partitions are missing.* From {first_missing.isoformat()} 00:00 UTC, new rows land in "
+            f"the default partition. Once that happens, Postgres can't create the partition for that day.\n{lines}\n"
+            "Find the cause in the worker logs under `Failed to create partition`. Check that "
+            "`WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL` logs in as the role that owns the queue tables, "
+            f"then trigger the `{SCHEDULE_ID}` schedule."
+        )
+    if stuck:
+        lines = "\n".join(stuck)
+        alerts.append(
+            f"*Retention is stuck.* This data should have been removed at least a day ago:\n{lines}\n"
+            "Find the cause in the worker logs under `Failed to drop partition`, "
+            "`Failed to terminalize stranded runs`, or `Failed to expire old default partition rows`."
+        )
+    return alerts
 
 
-def _send_slack_failure(errors: list[str]) -> None:
+def _send_slack_alert(alerts: list[str]) -> None:
     webhook_url = settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL
     if not webhook_url:
         logger.warning("No Slack webhook configured for partition management alerts")
         return
 
-    error_text = "\n".join(f"- {e}" for e in errors[:10])
     blocks = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": ":rotating_light: *Warehouse sources queue partition management failed*",
+                "text": ":rotating_light: *Warehouse sources queue partitions need attention*",
             },
         },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"```{error_text}```",
-            },
-        },
+        *({"type": "section", "text": {"type": "mrkdwn", "text": alert}} for alert in alerts),
     ]
 
     try:

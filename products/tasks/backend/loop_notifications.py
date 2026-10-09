@@ -23,7 +23,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
-from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.formatting import escape_slack_mrkdwn, markdown_links_to_labels
 from posthog.tasks.push_notifications import send_user_push
 
 from products.notifications.backend.facade.api import (
@@ -37,7 +37,7 @@ from products.tasks.backend.models import Loop
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog Desktop"
+PUSH_TITLE = "posthog"
 
 _COOLDOWN_EVENTS = frozenset({"run_failed", "needs_attention"})
 _COOLDOWN_TTL_SECONDS = 300
@@ -200,7 +200,10 @@ def _send_slack(
             return
         report = payload.get("report")
         slack_body = str(report) if report else body
-        text = _truncate(f"*{escape_slack_mrkdwn(title)}*\n{escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
+        text = f"*{escape_slack_mrkdwn(title)}*\n{escape_slack_mrkdwn(slack_body)}"
+        if len(text) > _SLACK_BODY_MAX_CHARS:
+            text = f"*{escape_slack_mrkdwn(title)}*\n{escape_slack_mrkdwn(markdown_links_to_labels(slack_body))}"
+        text = _truncate(text, _SLACK_BODY_MAX_CHARS)
         SlackIntegration(integration, source="loop_notifications").client.chat_postMessage(
             channel=channel, text=text, unfurl_links=False, unfurl_media=False
         )

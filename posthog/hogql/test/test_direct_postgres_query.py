@@ -32,6 +32,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.models import Team
 
@@ -1095,10 +1096,14 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+        with (
+            patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution,
+            query_stats_scope() as stats,
+        ):
             response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
+        self.assertEqual(stats.direct_source_ids, {str(source.id)})
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)

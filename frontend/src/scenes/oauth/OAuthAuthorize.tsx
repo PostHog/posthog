@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react'
 
 import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
+import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -25,8 +27,6 @@ import { AvailableFeature } from '~/types'
 import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
-import { OAuthScopeGroupControl } from './OAuthScopeGroupControl'
-import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
@@ -466,13 +466,12 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 {scopeRowsGrouped ? (
                                     <div className="flex flex-col">
                                         {scopeGroups.map((group) => (
-                                            <OAuthScopeGroupControl
+                                            <ScopeAccessGroup
                                                 key={group.label}
-                                                label={group.label}
-                                                rows={group.rows}
-                                                appName={appName}
+                                                group={group}
                                                 onChangeRow={setScopeAccess}
                                                 onChangeGroup={setScopeGroupAccess}
+                                                dataAttrPrefix="oauth-scope-group"
                                             />
                                         ))}
                                     </div>
@@ -480,12 +479,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     adjustableScopeRows.length > 0 && (
                                         <div className="flex flex-col">
                                             {adjustableScopeRows.map((row) => (
-                                                <OAuthScopeRowControl
-                                                    key={row.key}
-                                                    row={row}
-                                                    appName={appName}
-                                                    onChange={setScopeAccess}
-                                                />
+                                                <ScopeAccessRow key={row.key} row={row} onChange={setScopeAccess} />
                                             ))}
                                         </div>
                                     )

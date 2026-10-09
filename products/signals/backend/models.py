@@ -1,11 +1,12 @@
 import json
 import uuid
 import logging
+import builtins
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -15,7 +16,7 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.migration_helpers import deprecate_field
@@ -37,6 +38,7 @@ from products.signals.backend.artefact_schemas import (
     StatusArtefactContent,
     TaskRunArtefact,
     artefact_type_for,
+    artefact_type_for_model,
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
@@ -454,6 +456,21 @@ class SignalReport(UUIDModel):
             return self.signals_researched
         return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
 
+    def selected_repository(self) -> str | None:
+        """The repository the report's research selected, from the latest repo_selection artefact."""
+        content = (
+            self.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        try:
+            data = json.loads(content or "")
+        except (TypeError, ValueError):
+            return None
+        repository = data.get("repository") if isinstance(data, dict) else None
+        return repository.strip() if isinstance(repository, str) and repository.strip() else None
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -510,13 +527,19 @@ class SignalReport(UUIDModel):
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
 
+            # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
+            # repository selected) does not erase the content the report is searched and deduplicated by.
             case (S.IN_PROGRESS, S.PENDING_INPUT):
-                if title is None or summary is None or error is None:
-                    raise ValueError("title, summary, and error are required for in_progress -> pending_input")
-                self.title = title
-                self.summary = summary
+                if error is None:
+                    raise ValueError("error is required for in_progress -> pending_input")
+                if title is not None:
+                    self.title = title
+                    updated_fields.add("title")
+                if summary is not None:
+                    self.summary = summary
+                    updated_fields.add("summary")
                 self.error = error
-                updated_fields.update(["title", "summary", "error"])
+                updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
             case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
@@ -1196,6 +1219,9 @@ def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalReportArtefact.ArtefactType.choices)
 
 
+_ContentT = TypeVar("_ContentT", bound=BaseModel)
+
+
 @frozen
 class LatestActionability:
     """The `actionability` and `already_addressed` of a report's newest parseable judgment.
@@ -1245,6 +1271,7 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_HANDOVER = "implementation_handover"
         RANKING_SCORE = "ranking_score"
         IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
+        SOURCE_SUGGESTION = "source_suggestion"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1269,6 +1296,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
             ArtefactType.RANKING_SCORE,
+            ArtefactType.SOURCE_SUGGESTION,
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
@@ -1514,6 +1542,75 @@ class SignalReportArtefact(UUIDModel):
         if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
+
+    @classmethod
+    def _latest_of(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[BaseModel],
+        created_before: datetime | None,
+        created_after: datetime | None,
+    ) -> "models.QuerySet[SignalReportArtefact]":
+        artefacts = cls.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type_for_model(model))
+        if created_before is not None:
+            artefacts = artefacts.filter(created_at__lte=created_before)
+        if created_after is not None:
+            artefacts = artefacts.filter(created_at__gte=created_after)
+        # `id` breaks a `created_at` tie, so two readers never disagree on which row is the latest.
+        return artefacts.order_by("-created_at", "-id").only("content")
+
+    @staticmethod
+    def _parse_as(artefact: "SignalReportArtefact | None", model: builtins.type[_ContentT]) -> _ContentT | None:
+        if artefact is None:
+            return None
+        try:
+            return model.model_validate_json(artefact.content)
+        except ValidationError:
+            return None
+
+    @classmethod
+    def latest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type on the report, parsed, or None when there is none or
+        it doesn't parse. The read side of `append_status`: a status type's current value is its
+        newest row. `created_before` / `created_after` bound the rows considered, inclusively."""
+        artefact = cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).first()
+        return cls._parse_as(artefact, model)
+
+    @classmethod
+    async def alatest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """Async `latest_content`."""
+        artefact = await cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).afirst()
+        return cls._parse_as(artefact, model)
 
     @classmethod
     def append_finding(
@@ -2045,6 +2142,10 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+def signal_report_action_choices() -> Sequence[tuple[str, str | Promise]]:
+    return SignalReportAction.ActionType.choices
+
+
 class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     """One row per (report, user, action type): a person's lightweight interaction with a report.
 
@@ -2068,6 +2169,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
         SLACK_DISCUSSION = "slack_discussion"
+        READ = "read"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -2079,7 +2181,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
     # interacted, so with the person gone it proves nothing and can go with them.
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    type = models.CharField(max_length=20, choices=ActionType)
+    type = models.CharField(max_length=20, choices=signal_report_action_choices)
     # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
     # sentiment). Never required by readers — the row's existence is the fact that matters.
     metadata = models.JSONField(default=dict, blank=True)
@@ -2225,11 +2327,14 @@ class SignalReportCheck(UUIDModel):
     kind = models.CharField(max_length=30, choices=Kind)
     # Validated against the kind's pydantic model at every write (see `report_checks.parse_check_config`).
     config = models.JSONField(default=dict, db_default={})
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
+    )
 
     next_run_at = models.DateTimeField()
-    # How long after the report resolves a PENDING check waits before its first run. Null on a check
-    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
-    # reader can see what window the verdict was measured over.
+    measurement_start_at = models.DateTimeField(null=True, blank=True)
+    # Minimum wait after resolution, separate from the query window a metric check must fill.
     soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.
@@ -2347,6 +2452,20 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # no longer exists, and the roster has a state to render instead of a row that looks
         # healthy and never runs.
         RETIRED = "retired", "Retired"
+        # The background lane stopped managing this scout and paused it. Owned by the background
+        # coordinator alone, so no other system writer resumes a scout nobody set up.
+        BACKGROUND_REMOVED = "background_removed", "Background removed"
+
+    class ManagedBy(models.TextChoices):
+        """Who controls this scout now.
+
+        `background` marks a row the background lane created without a person asking, so the
+        background coordinator may still change or pause it. Any human edit through the config API
+        moves the row to `team`, and from then on only the team changes it.
+        """
+
+        TEAM = "team", "Team"
+        BACKGROUND = "background", "Background"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
@@ -2439,6 +2558,17 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=Status.ACTIVE,
         db_default=Status.ACTIVE,
     )
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column populated for
+    # writers that don't know about it yet.
+    managed_by = models.CharField(
+        max_length=20,
+        choices=ManagedBy.choices,
+        default=ManagedBy.TEAM,
+        db_default=ManagedBy.TEAM,
+    )
+    # The activity band that sampled this project into the background lane. `None` for a
+    # hand-picked `team_ids` project and for every `team`-managed row that the band lane never made.
+    background_band = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
         max_length=20,
@@ -2940,6 +3070,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
+    trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
@@ -3369,4 +3501,32 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
     class Meta:
         verbose_name = "Signal scout suggestion set"
         verbose_name_plural = "Signal scout suggestion sets"
+        default_manager_name = "all_teams"
+
+
+class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
+    """The activity band of one project that can get a background scout, one row per team.
+
+    A nightly job (`scout_harness/background_bands.py`) writes the full set and deletes every row
+    for a project that is no longer eligible. The coordinator samples a percentage of each band
+    from the `background.bands` block of the `signals-scout` flag payload.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and has
+    # blocked deploys (same as SignalScoutSuggestionSet); app-level enforcement only.
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="+",
+    )
+    band = models.PositiveSmallIntegerField()
+    computed_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout background band"
+        verbose_name_plural = "Signal scout background bands"
         default_manager_name = "all_teams"

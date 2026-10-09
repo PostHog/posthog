@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ResendSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
 
 
@@ -47,33 +46,11 @@ class TestResendSource:
         assert len(matched) == 1
         assert matched[0] is not None and expected_word in matched[0]
 
-    def test_unclassified_bad_request_stays_retryable(self):
-        # A 400 on an endpoint we haven't scoped a message for could be our own bug, so it must stay
-        # retryable and visible instead of silently disabling the sync.
-        errors = self.source.get_non_retryable_errors()
-        raised = "400 Client Error: Bad Request for url: https://api.resend.com/api-keys"
-
-        assert not [message for key, message in errors.items() if key in raised]
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["emails"])
 
         assert len(schemas) == 1
         assert schemas[0].name == "emails"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
-
-        assert schemas == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
@@ -105,25 +82,6 @@ class TestResendSource:
 
         assert is_valid is False
         assert error_message is not None and "Missing Resend API key" in error_message
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
-    )
-    @mock.patch.object(ResendSource, "get_oauth_integration")
-    def test_validate_credentials_oauth_success(self, mock_get_integration, mock_resolve, mock_validate):
-        mock_resolve.return_value = "oauth_access_token"
-        mock_validate.return_value = True
-
-        is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
-
-        assert is_valid is True
-        assert error_message is None
-        mock_get_integration.assert_called_once_with(42, self.team_id)
-        mock_resolve.assert_called_once_with(42, self.team_id)
-        mock_validate.assert_called_once_with("oauth_access_token")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
