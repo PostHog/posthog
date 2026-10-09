@@ -266,6 +266,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
+    "products.messaging.backend.presentation.views.message_categories.MessageCategoryViewSet",
 }
 
 
