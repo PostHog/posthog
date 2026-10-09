@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     QUOTA_MAX_RETRIES,
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
+    GoogleSearchConsoleServerError,
     _credentials,
     _get_integration,
     _initial_start_date,
@@ -777,4 +778,28 @@ def test_property_listing_separates_quota_from_permission_denial(
     )
 
     with pytest.raises(expected_error, match=expected_match):
+        list(response.items())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
+def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name):
+    # `list_sites`/`list_sitemaps` have no inline retry budget, so a bare Google-side 5xx used to
+    # reach `get_non_retryable_errors` as an unmarked HTTPError and get reported as an exception
+    # even though Temporal retries it anyway.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(500)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    with pytest.raises(GoogleSearchConsoleServerError, match=r"\(retryable\)"):
         list(response.items())  # type: ignore[arg-type]

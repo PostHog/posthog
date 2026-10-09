@@ -1,10 +1,13 @@
+import dataclasses
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -13,6 +16,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
     CI_SIGNAL_SOURCE_TYPES,
 )
+from products.engineering_analytics.backend.logic.job_logs.fetcher import FetchedJobLog
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
 from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -20,6 +24,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_github_source,
 )
 from products.signals.backend.models import SignalSourceConfig
+from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
 
 
 class TestScopeEnrollment(SimpleTestCase):
@@ -228,6 +233,11 @@ def _workflow_job() -> contracts.WorkflowJob:
         runner_label="16-core",
         estimated_cost_usd=0.05,
     )
+
+
+_LOG_INSIGHTS = "products.engineering_analytics.backend.logic.job_log_insights"
+_PAT = GitHubSourceCredential(personal_access_token="invented-token")
+_TIMING_PARAMS = {"repo": "PostHog/posthog", "ci_engine": "github_actions", "run_id": "9100", "run_attempt": "1"}
 
 
 class TestEngineeringAnalyticsAPI(APIBaseTest):
@@ -591,6 +601,100 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("fetch_fails", contracts.CIEngine.GITHUB_ACTIONS, _PAT, requests.ConnectionError("unreachable"), 1),
+            ("log_expired", contracts.CIEngine.GITHUB_ACTIONS, _PAT, None, 1),
+            ("depot_job", contracts.CIEngine.DEPOT_CI, _PAT, None, 0),
+            # The team's other GitHub credentials belong to sources this reader may not be allowed to use.
+            ("source_without_a_credential", contracts.CIEngine.GITHUB_ACTIONS, None, None, 0),
+        ]
+    )
+    def test_job_log_insights_reports_log_not_read(
+        self,
+        _name: str,
+        engine: contracts.CIEngine,
+        credential: GitHubSourceCredential | None,
+        fetched: Exception | None,
+        fetches: int,
+    ) -> None:
+        job = dataclasses.replace(_workflow_job(), ci_engine=engine)
+        with (
+            mock.patch(f"{_LOG_INSIGHTS}.query_workflow_job", return_value=job),
+            mock.patch(f"{_LOG_INSIGHTS}.warehouse_sources.github_source_credential", return_value=credential),
+            mock.patch(f"{_LOG_INSIGHTS}.fetch_bounded_job_log", side_effect=[fetched]) as fetch,
+            mock.patch(f"{_LOG_INSIGHTS}.GitHubIntegration.first_for_team_repository") as other_credential,
+        ):
+            response = self.client.get(
+                self._url("job_log_insights"), {"repo": "PostHog/posthog", "run_id": "9100", "job_id": "91000"}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "log_read": False,
+            "attributed_to_steps": False,
+            "job": [],
+            "steps": [],
+            "log_truncated": False,
+        }
+        assert fetch.call_count == fetches
+        other_credential.assert_not_called()
+
+    @parameterized.expand([("whole_log", False), ("part_of_the_log", True)])
+    def test_job_log_insights_serves_a_completed_job_from_one_fetch(self, _name: str, truncated: bool) -> None:
+        cache.clear()
+        steps = [
+            contracts.WorkflowJobStep(
+                number=number,
+                name=name,
+                status="completed",
+                conclusion="success",
+                started_at=None,
+                completed_at=None,
+                duration_seconds=None,
+            )
+            for number, name in enumerate(["Set up job", "Restore packages", "Complete job"], start=1)
+        ]
+        job = dataclasses.replace(_workflow_job(), ci_engine=contracts.CIEngine.GITHUB_ACTIONS, steps=steps)
+        log = FetchedJobLog(text="##[group]Run example/restore@v1\nCache hit for: packages-a1\n", truncated=truncated)
+        with (
+            mock.patch(f"{_LOG_INSIGHTS}.query_workflow_job", return_value=job),
+            mock.patch(f"{_LOG_INSIGHTS}.warehouse_sources.github_source_credential", return_value=_PAT),
+            mock.patch(f"{_LOG_INSIGHTS}.fetch_bounded_job_log", return_value=log) as fetch,
+        ):
+            params = {"repo": "PostHog/posthog", "run_id": "9100", "job_id": "91000"}
+            first = self.client.get(self._url("job_log_insights"), params).json()
+            second = self.client.get(self._url("job_log_insights"), params).json()
+
+        hit = {"kind": "cache", "state": "hit", "count": 1, "detail": ["packages-a1"]}
+        assert first == {
+            "log_read": True,
+            "attributed_to_steps": True,
+            "job": [hit],
+            "steps": [{"number": 2, "badges": [hit]}],
+            "log_truncated": truncated,
+        }
+        assert second == first
+        assert fetch.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("job_log_insights_job_id_missing", "job_log_insights", {"repo": "PostHog/posthog", "run_id": "9100"}),
+            ("ci_data_freshness_repo_missing", "ci_data_freshness", {}),
+            ("ci_timing_context_job_without_job_ids", "ci_timing_context", {**_TIMING_PARAMS, "kind": "job"}),
+            (
+                "ci_timing_context_job_with_two_job_ids",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "job", "job_ids": "1,2"},
+            ),
+            (
+                "ci_timing_context_step_without_step_number",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "step", "job_ids": "1"},
+            ),
+            (
+                "ci_timing_context_run_attempt_zero",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "workflow", "run_attempt": "0"},
+            ),
             ("pr_lifecycle_pr_number_invalid", "pr_lifecycle", {"pr_number": "not-a-number"}),
             # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
             ("pr_lifecycle_repo_missing", "pr_lifecycle", {"pr_number": "10"}),

@@ -23,14 +23,18 @@ MAX_JUDGED_PER_SCANNER = 100
 # since every sweep over an active scanner refreshes the TTL. Environmental failures (an outage,
 # a rate limit, a misconfigured gateway) charge no attempt, so a bad hour parks nothing.
 MAX_JUDGE_ATTEMPTS = 3
-# TODO: Team 2 is PostHog's own team, pinned first while the jev ranker runs as an internal shadow
-# test, so it can never fall past the team cap. When the experiment opens to other teams: remove the
-# pin and give the caps fair rotation. Enrollment is team-targeted until then.
+# Team 2 is PostHog's own team, swept first so the internal arm never waits behind the experiment.
 PINNED_TEAM_IDS = (2,)
-# Bound one sweep. The flag gates per team, so at experiment scale these caps are slack; they exist
-# so a misconfigured flag rollout cannot turn the sweep into an unbounded flag-check or Jev fan-out.
-MAX_TEAMS_PER_SWEEP = 2000
-MAX_SCANNERS_PER_SWEEP = 500
+# Bound one sweep, so a misconfigured flag rollout cannot turn it into an unbounded flag-check or Jev
+# fan-out. Sized above every team with a scanner and every scanner in a half rollout, so at
+# experiment scale the time budget, not these counts, decides how far a run gets.
+MAX_TEAMS_PER_SWEEP = 50_000
+MAX_SCANNERS_PER_SWEEP = 20_000
+# Scanners judged at once. A turn mostly waits on Jev, so this multiplies throughput. Eight at once
+# kept hitting the gateway's rate limit, which every product's Jev calls share, so it stays low.
+JUDGE_CONCURRENCY = 2
+# Rate-limited scanner turns after which the rest of the run waits for the next sweep.
+RATE_LIMIT_BACKOFF_AFTER = 3
 # Judging stops here even under the caps: worst-case chunks x the 30s request timeout run far past
 # any reasonable activity timeout, so the wall clock is the binding limit, not the counts. Scanners
 # cut off by the budget wait for the next hourly run, where already-judged rows cost nothing.

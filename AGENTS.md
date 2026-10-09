@@ -142,7 +142,11 @@ Examples:
 
 ## Security
 
-**Security fixes never land in this public repo.** Open them against `PostHog/posthog-private` on a `security/` branch; see [Routing security fixes](.agents/security.md#routing-security-fixes).
+Route security-related changes by merge status and disclosure risk: fix problems introduced by an open public PR in that PR, keep fixes that would disclose an existing exploitable weakness private until deployment, and make safe, non-secret fixes in `PostHog/posthog`. See [Routing security fixes](.agents/security.md#routing-security-fixes).
+**Every other change lands in `PostHog/posthog`, also when the session starts in a `PostHog/posthog-private` checkout.**
+The private mirror carries this file, and its `origin` points at the private repo, so a default push or `gh pr create` opens the PR there.
+Before the first push of a branch, run `git remote get-url origin`.
+If it names `posthog-private` and the change is not a security fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.

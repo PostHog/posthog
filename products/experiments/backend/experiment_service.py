@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -51,6 +51,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1365,6 +1370,8 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
+            # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
+            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1374,6 +1381,8 @@ class ExperimentService:
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
                     "flag_age_seconds": int(flag_age.total_seconds()),
+                    "health_finding_codes": [finding.code.value for finding in findings],
+                    "health_finding_count": len(findings),
                 },
             )
         except Exception:
@@ -2188,15 +2197,16 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
-                # but flag approval policies are intentionally field-level and scoped to `active`
-                # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
-                # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
+                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
+                # The `feature_flag.update` policy gates release condition changes on standalone flags
+                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
+                # are gated here (see UpdateFeatureFlagAction in
+                # products/approvals/backend/actions/feature_flags.py).
                 # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
                 # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
-                # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
+                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
                 # Mark the write as freeze-driven so the flag's log entry does not read as
                 # a manual targeting edit.
                 locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
@@ -4166,7 +4176,7 @@ class ExperimentService:
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
-        cohort_context = {**context, "team": self.team}
+        cohort_context = {**context, "team": self.team, ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY: True}
 
         cohort_serializer = CohortSerializer(
             data={

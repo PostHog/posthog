@@ -4,7 +4,13 @@ import posthog from 'posthog-js'
 import { isUserInitiatedError } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { type MetricsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import {
+    type MetricsDisplayType,
+    type MetricsQuery,
+    type MetricsReducer,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
@@ -23,6 +29,7 @@ import type { MetricAggregation, MetricRangeFunction, MetricsViewerClause } from
 export interface metricsUsageTrackingLogicValues {
     isRestoringFromUrl: boolean // metricsSceneLogic
     aggregation: MetricAggregation | null // metricsViewerLogic
+    displayType: MetricsDisplayType // metricsViewerLogic
     formula: string // metricsViewerLogic
     groupByKeys: string[] // metricsViewerLogic
     hasMetricName: boolean // metricsViewerLogic
@@ -80,6 +87,9 @@ export interface metricsUsageTrackingLogicActions {
     setDateFrom: (dateFrom: string | null) => {
         dateFrom: string | null
     } // metricsViewerLogic
+    setDisplayType: (displayType: MetricsDisplayType) => {
+        displayType: MetricsDisplayType
+    } // metricsViewerLogic
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
     } // metricsViewerLogic
@@ -97,6 +107,9 @@ export interface metricsUsageTrackingLogicActions {
     } // metricsViewerLogic
     setRangeFunction: (rangeFunction: MetricRangeFunction | null) => {
         rangeFunction: MetricRangeFunction | null
+    } // metricsViewerLogic
+    setReduce: (reduce: MetricsReducer) => {
+        reduce: MetricsReducer
     } // metricsViewerLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     exemplarDotClicked: (hasSpanId: boolean) => {
@@ -138,6 +151,8 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'setFilterGroup',
                 'addClause',
                 'setFormula',
+                'setDisplayType',
+                'setReduce',
                 'addToDashboard',
                 'saveAsInsightSuccess',
                 'fetchQueryResults',
@@ -159,6 +174,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'queryFilters',
                 'viewerClauses',
                 'formula',
+                'displayType',
             ],
             metricsSceneLogic,
             ['isRestoringFromUrl'],
@@ -225,6 +241,17 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                     formula_length: formula.trim().length,
                 })
             }
+        },
+        setDisplayType: ({ displayType }) => {
+            if (!values.isRestoringFromUrl) {
+                posthog.capture('metrics viewer display type changed', { display_type: displayType })
+            }
+        },
+        setReduce: ({ reduce }) => {
+            posthog.capture('metrics viewer value reducer changed', {
+                reduce,
+                display_type: values.displayType,
+            })
         },
         addToDashboard: () => {
             posthog.capture('metrics add to dashboard clicked', {

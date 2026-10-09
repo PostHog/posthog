@@ -21,7 +21,9 @@ import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
@@ -265,6 +267,41 @@ def capture_prior_state(
     )
 
 
+def _transition_actor(instance: SignalReport) -> ArtefactAttribution | None:
+    """Who asked for this transition, when the caller set `_transition_actor` before the save."""
+    return getattr(instance, "_transition_actor", None)
+
+
+def _transition_actor_user(instance: SignalReport) -> User | None:
+    """The actor's already-loaded user, when the caller set `_transition_actor_user` before the save."""
+    return getattr(instance, "_transition_actor_user", None)
+
+
+def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None = None) -> dict[str, Any]:
+    """Actor properties for the status-change label. A transition with no caller-set actor is `system`."""
+    actor = actor or ArtefactAttribution.system()
+    properties: dict[str, Any] = {
+        "actor_kind": actor.kind,
+        "actor_user_uuid": None,
+        "actor_distinct_id": None,
+        "actor_agent": actor.agent_name,
+        "actor_task_id": actor.task_id,
+    }
+    if actor.user_id is None:
+        return properties
+    # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
+    # user to skip a repeat lookup per report.
+    if actor_user is not None and actor_user.id == actor.user_id:
+        properties["actor_user_uuid"] = str(actor_user.uuid)
+        properties["actor_distinct_id"] = actor_user.distinct_id
+        return properties
+    user = User.objects.filter(id=actor.user_id).values("uuid", "distinct_id").first()
+    if user is not None:
+        properties["actor_user_uuid"] = str(user["uuid"])
+        properties["actor_distinct_id"] = user["distinct_id"]
+    return properties
+
+
 def _status_changed_on_this_save(
     instance: SignalReport,
     *,
@@ -335,7 +372,8 @@ def close_pr_when_report_dismissed(
     # The person who asked for this transition, when a caller set it before the save. GitHub
     # credits the App for the close, so the comment left beside it is the only place they appear.
     # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
-    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
+    actor = _transition_actor(instance)
+    actor_user_id = actor.user_id if actor is not None else None
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -394,11 +432,16 @@ def arm_pending_checks_when_report_resolved(
     inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
     request to date a window from, which is why the report's own transition is the event.
     """
-    if instance.status != SignalReport.Status.RESOLVED:
-        return
+    prior_status = getattr(instance, "_prior_status", None)
     if not _status_changed_on_this_save(
-        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
+        return
+    if instance.status != SignalReport.Status.RESOLVED:
+        if prior_status == SignalReport.Status.RESOLVED:
+            from products.signals.backend.report_check_execution import park_report_checks_on_reopen
+
+            park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
         return
     team_id = instance.team_id
     report_id = str(instance.id)
@@ -793,6 +836,23 @@ def sync_report_latest_actionability_on_delete(
     _sync_report_latest_actionability(instance)
 
 
+def _status_change_properties(
+    instance: SignalReport, previous_status: str, *, pending_reason: str | None
+) -> dict[str, Any]:
+    return {
+        "team_id": instance.team_id,
+        "report_id": str(instance.id),
+        "previous_status": previous_status,
+        "status": instance.status,
+        "signal_count": instance.signal_count,
+        "total_weight": instance.total_weight,
+        "run_count": instance.run_count,
+        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
+        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
+    }
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -824,18 +884,7 @@ def capture_status_change_analytics(
     )
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
-    properties = {
-        "team_id": instance.team_id,
-        "report_id": str(instance.id),
-        "previous_status": prior_status,
-        "status": instance.status,
-        "signal_count": instance.signal_count,
-        "total_weight": instance.total_weight,
-        "run_count": instance.run_count,
-        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
-        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
-        "pending_reason": pending_reason,
-    }
+    properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team
@@ -845,6 +894,8 @@ def capture_status_change_analytics(
     # caller supplied it — a PR-merge resolve from the tasks webhook writes none, and must not pick
     # up an unrelated earlier reason that happens to fall inside the freshness window.
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
+    actor = _transition_actor(instance)
+    actor_user = _transition_actor_user(instance)
 
     def _capture() -> None:
         try:
@@ -869,6 +920,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    **_actor_properties(actor, actor_user),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback
@@ -884,6 +936,39 @@ def capture_status_change_analytics(
 
     # After commit so a rolled-back transition never emits a phantom label. Post-commit also means
     # artefacts written in the same transaction (e.g. the dismissal) are visible to the snapshot.
+    transaction.on_commit(_capture)
+
+
+def capture_verdict_reason_added_analytics(instance: SignalReport) -> None:
+    """Emit `signal_report_status_changed` when a reason lands on a verdict the report already holds.
+
+    The state API skips the save for a repeated verdict, so the receiver above stays quiet. The Today
+    home sets the verdict first and sends the reason in a second call, so without this event the
+    ranking labels never see the reason. `previous_status` equals `status` and `reason_added` is true,
+    so a reader that counts real transitions can filter the event out.
+    """
+    properties = {
+        **_status_change_properties(instance, instance.status, pending_reason=None),
+        "reason_added": True,
+    }
+    report_id = str(instance.id)
+    team = instance.team
+    transition_at = timezone.now()
+
+    def _capture() -> None:
+        try:
+            posthoganalytics.capture(
+                event="signal_report_status_changed",
+                distinct_id=str(team.uuid),
+                properties={
+                    **properties,
+                    **_classification_snapshot(report_id, include_dismissal=True, transition_at=transition_at),
+                },
+                groups=groups(team.organization, team),
+            )
+        except Exception:
+            logger.exception("Failed to capture signal_report_status_changed", report_id=report_id)
+
     transaction.on_commit(_capture)
 
 
