@@ -21,7 +21,25 @@ import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 
 const EXPERIMENT_ID = 7
 
-const NO_EXPOSURES = { timeseries: [], total_exposures: {} }
+// The exposure query returns a series for every configured variant, with zero counts when nobody was exposed.
+const NO_EXPOSURES = {
+    timeseries: [
+        { variant: 'control', days: ['2026-01-01', '2026-01-02'], exposure_counts: [0, 0] },
+        { variant: 'test', days: ['2026-01-01', '2026-01-02'], exposure_counts: [0, 0] },
+    ],
+    total_exposures: { control: 0, test: 0 },
+}
+
+const exposureFinding = (code: string, title: string, actions: string[]): Record<string, unknown> => ({
+    code,
+    subcode: null,
+    severity: 'warning',
+    title,
+    detail: title,
+    evidence: {},
+    actions,
+    diagnostic_ref: null,
+})
 
 const UNEVEN_EXPOSURES = {
     timeseries: [
@@ -31,6 +49,13 @@ const UNEVEN_EXPOSURES = {
     total_exposures: { control: 600, test: 400 },
     sample_ratio_mismatch: { expected: { control: 500, test: 500 }, p_value: 0.0001 },
     bias_risk: { multiple_variant_percentage: 5 },
+    health_findings: [
+        exposureFinding('srm', 'Users are not split across variants as configured', []),
+        exposureFinding('bias_risk_multiple_excluded', 'Setup likely introduced bias', [
+            'adjust_distribution',
+            'use_first_seen_variant',
+        ]),
+    ],
 }
 
 describe('health finding reporting', () => {
