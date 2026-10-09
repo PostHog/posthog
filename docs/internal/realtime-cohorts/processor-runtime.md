@@ -235,7 +235,7 @@ They commit only for the partitions recorded at the drain, because closing the e
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
 With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
-It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, after shutdown cancels any periodic upload in flight.
+It captures positions for the partitions recorded at the drain and uploads with a budget of `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, after shutdown cancels any periodic upload in flight.
 It is skipped when boot never ended or the drain never finished, because positions are not settled then.
 
 The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.

@@ -33,7 +33,7 @@ use super::manifest::{ManifestError, OffsetManifest};
 use super::metadata::{CheckpointMetadata, MetadataError, METADATA_FILENAME};
 use super::restore_plan::{ReplayWindow, RestorePlan};
 use super::stage::{
-    link_checkpoint, parent_dir, staging_path, PendingRestore, RestoredFrom, ResumeError,
+    link_checkpoint, parent_dir, staging_path, sync_dir, PendingRestore, RestoredFrom, ResumeError,
     ValidatedStage,
 };
 use super::{DirCleanupGuard, S3Downloader};
@@ -598,7 +598,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// A restored DB reuses the SST numbers written after its checkpoint, so an `uploaded.json` from
     /// a later upload would name files it rewrites. An uploaded checkpoint becomes the baseline;
-    /// after a local one the next upload is full.
+    /// after a local one the next upload is full. The directory is synced before the publish, because
+    /// a crash could otherwise keep the published store beside the old baseline.
     fn reset_upload_baseline(&self, source: &RestoredFrom) -> io::Result<()> {
         match source {
             RestoredFrom::S3 { candidate } => {
@@ -609,7 +610,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
                 Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
                 _ => Ok(()),
             },
-        }
+        }?;
+        sync_dir(parent_dir(&self.uploaded))
     }
 }
 

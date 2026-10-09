@@ -610,8 +610,10 @@ pub struct Config {
     #[envconfig(default = "67108864")]
     pub checkpoint_upload_max_bytes_per_sec: u64,
 
-    /// Budget for the final checkpoint's upload on a graceful stop (secs). A slower upload never
-    /// writes its `metadata.json`, so the last periodic upload stays the newest restorable one.
+    /// Budget for the final checkpoint's upload on a graceful stop (secs). Past it the upload is
+    /// cancelled, but an S3 request in flight runs to its end, so the checkpoint component's shutdown
+    /// window is the hard limit. An upload stopped before its `metadata.json` leaves the last finished
+    /// upload the newest restorable one.
     #[envconfig(default = "45")]
     pub checkpoint_final_upload_timeout_secs: u64,
 }

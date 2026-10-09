@@ -251,8 +251,9 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
 - **Paced uploads.**
   One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
 - **A final checkpoint.**
-  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`.
-  An upload that is cancelled or runs out of time never writes its `metadata.json`, so the last finished upload stays the newest restorable one.
+  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it.
+  The upload is cancelled after `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, but an S3 request in flight runs to its end, so the checkpoint component's shutdown window is the hard limit.
+  An upload stopped before its `metadata.json` is not restorable, so the last finished upload stays the newest restorable one.
 - **No expiry.**
   Objects are not expired.
   An expiry, when one is set, must exceed the full-upload interval plus the import window.
