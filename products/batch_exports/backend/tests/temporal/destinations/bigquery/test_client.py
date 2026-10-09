@@ -4,6 +4,7 @@ import string
 import pytest
 from unittest.mock import MagicMock
 
+from google.api_core.exceptions import Cancelled
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
@@ -11,6 +12,7 @@ from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     BigQueryField,
+    BigQueryJobTimeoutError,
     BigQueryTable,
     BigQueryType,
     GoogleCloudServiceAccountIntegration,
@@ -73,6 +75,31 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
             poll_interval=0.01,
         )
         assert result == mock_result
+
+
+@pytest.mark.parametrize(
+    "error,expected_error",
+    [
+        (Cancelled("Job timed out after 10 min 0 sec"), BigQueryJobTimeoutError),
+        (Cancelled("Job was cancelled by the user"), Cancelled),
+    ],
+    ids=["job_timeout", "other_cancellation"],
+)
+@pytest.mark.asyncio
+async def test_execute_query_classifies_job_timeout(error: Exception, expected_error: type[Exception]):
+    mock_query_job = MagicMock()
+    mock_query_job.state = "RUNNING"
+    mock_query_job.job_id = "test-job-id"
+    mock_query_job.result.side_effect = error
+
+    mock_sync_client = MagicMock()
+    mock_sync_client.query.return_value = mock_query_job
+    mock_sync_client.project = "test-project"
+
+    client = BigQueryClient(mock_sync_client)
+
+    with pytest.raises(expected_error):
+        await client.execute_query("SELECT 1")
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
