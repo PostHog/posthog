@@ -231,29 +231,57 @@ class TestEventsPersonIdPrefilterIdentity(ClickhouseTestMixin, BaseTest):
             useNewEventsSchema=new_events_schema,
             pushDownPredicates=push_down_predicates,
         )
-        baseline = execute_hogql_query(query, team=self.team, modifiers=modifiers)
-        modifiers.personIdFilterPrewhere = True
-        optimized = execute_hogql_query(query, team=self.team, modifiers=modifiers)
 
-        assert (
-            optimized.results
-            == baseline.results
-            == [
-                ("event-0", "value-0"),
-                ("event-1", "value-1"),
-                ("event-3", "value-3"),
-                ("event-4", "value-4"),
-            ]
+        def assert_results(expected_indices: list[int]) -> None:
+            modifiers.personIdFilterPrewhere = False
+            baseline = execute_hogql_query(query, team=self.team, modifiers=modifiers)
+            modifiers.personIdFilterPrewhere = True
+            optimized = execute_hogql_query(query, team=self.team, modifiers=modifiers)
+
+            assert optimized.results == baseline.results == [(f"event-{i}", f"value-{i}") for i in expected_indices]
+            assert optimized.clickhouse is not None
+            assert "PREWHERE" in optimized.clickhouse
+
+            aggregate_query = f"SELECT count(), sum(length(properties.payload)) FROM events WHERE {where}"
+            modifiers.personIdFilterPrewhere = False
+            baseline_aggregate = execute_hogql_query(aggregate_query, team=self.team, modifiers=modifiers)
+            modifiers.personIdFilterPrewhere = True
+            optimized_aggregate = execute_hogql_query(aggregate_query, team=self.team, modifiers=modifiers)
+
+            assert (
+                optimized_aggregate.results
+                == baseline_aggregate.results
+                == [(len(expected_indices), 7 * len(expected_indices))]
+            )
+
+        assert_results([0, 1, 3, 4])
+
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [
+                (self.team.pk, "merged", PERSON_B, 2, 0),
+                (self.team.pk, "reassigned", PERSON_A, 3, 0),
+                (self.team.pk, "deleted", PERSON_B, 3, 0),
+                (self.team.pk, "reused", PERSON_A, 1, 0),
+            ],
         )
+        self._record_event("event-6", "reassigned", PERSON_B, "value-6", new_events_schema=new_events_schema)
+        assert_results([0, 2, 4, 5, 6])
 
-        aggregate_query = f"SELECT count(), sum(length(properties.payload)) FROM events WHERE {where}"
-        modifiers.personIdFilterPrewhere = False
-        baseline_aggregate = execute_hogql_query(aggregate_query, team=self.team, modifiers=modifiers)
-        modifiers.personIdFilterPrewhere = True
-        optimized_aggregate = execute_hogql_query(aggregate_query, team=self.team, modifiers=modifiers)
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [
+                (self.team.pk, "merged", PERSON_A, 3, 0),
+                (self.team.pk, "reassigned", PERSON_A, 4, 1),
+                (self.team.pk, "deleted", PERSON_B, 4, 1),
+                (self.team.pk, "reused", PERSON_A, 2, 1),
+                (self.team.pk, "merged", PERSON_B, 2, 0),
+            ],
+        )
+        assert_results([0, 1, 2, 3, 4])
 
-        assert optimized_aggregate.results == baseline_aggregate.results == [(4, 28)]
-        assert "PREWHERE" in optimized.clickhouse
+        sync_execute("OPTIMIZE TABLE person_distinct_id_overrides FINAL")
+        assert_results([0, 1, 2, 3, 4])
 
     def test_does_not_limit_distinct_id_candidates(self) -> None:
         distinct_ids = [f"historical-{index:04d}" for index in range(2501)]
@@ -263,7 +291,7 @@ class TestEventsPersonIdPrefilterIdentity(ClickhouseTestMixin, BaseTest):
         )
         self._record_event("last-candidate", distinct_ids[-1], PERSON_B, "last", new_events_schema=False)
         response = execute_hogql_query(
-            f"SELECT event FROM events WHERE person_id = '{PERSON_A}'",
+            f"SELECT event FROM events WHERE person_id = '{PERSON_A}' ORDER BY event LIMIT 1",
             team=self.team,
             modifiers=HogQLQueryModifiers(
                 personIdFilterPrewhere=True,
@@ -274,4 +302,5 @@ class TestEventsPersonIdPrefilterIdentity(ClickhouseTestMixin, BaseTest):
         )
 
         assert response.results == [("last-candidate",)]
+        assert response.clickhouse is not None
         assert "PREWHERE" in response.clickhouse
