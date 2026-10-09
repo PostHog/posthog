@@ -621,6 +621,42 @@
         },
         "sql": "SELECT\n    time,\n    service_name,\n    a - b AS value\nFROM (\n    SELECT\n        time,\n        service_name,\n        sum(a) AS a,\n        sum(b) AS b,\n        max(max(a_seen)) OVER (PARTITION BY service_name) AS a_in_label_set,\n        max(max(b_seen)) OVER (PARTITION BY service_name) AS b_in_label_set\n    FROM (\n        SELECT\n            time, service_name, value AS a, 0 AS b, 1 AS a_seen, 0 AS b_seen\n        FROM (\n            SELECT\n                s.time AS time,\n                ser.group_0 AS service_name,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            LEFT JOIN (\n                SELECT\n                    series_fingerprint,\n                    any(toString(service_name)) AS group_0\n                FROM posthog.metric_series\n                WHERE metric_name = 'queue_depth'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                GROUP BY series_fingerprint\n            ) AS ser ON s.series_fingerprint = ser.series_fingerprint\n            GROUP BY time, service_name\n        )\n        UNION ALL\n        SELECT\n            time, service_name, 0 AS a, value AS b, 0 AS a_seen, 1 AS b_seen\n        FROM (\n            SELECT\n                s.time AS time,\n                ser.group_0 AS service_name,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'api_queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            LEFT JOIN (\n                SELECT\n                    series_fingerprint,\n                    any(toString(service_name)) AS group_0\n                FROM posthog.metric_series\n                WHERE metric_name = 'api_queue_depth'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                GROUP BY series_fingerprint\n            ) AS ser ON s.series_fingerprint = ser.series_fingerprint\n            GROUP BY time, service_name\n        )\n    )\n    GROUP BY time, service_name\n)\nWHERE a_in_label_set = 1 AND b_in_label_set = 1\nORDER BY time"
     },
+    "share of total, spreading a series without labels": {
+        "builder": {
+            "clauses": [
+                {
+                    "name": "a",
+                    "aggregation": "sum",
+                    "metricName": "queue_depth",
+                    "groupBy": [
+                        {
+                            "key": "service_name"
+                        }
+                    ]
+                },
+                {
+                    "name": "b",
+                    "aggregation": "sum",
+                    "metricName": "queue_depth"
+                }
+            ],
+            "formula": "a / b"
+        },
+        "sql": "SELECT\n    time,\n    service_name,\n    if(b = 0, 0, a / b) AS value\nFROM (\n    SELECT\n        time,\n        service_name,\n        sum(a) AS a,\n        sum(sum(b)) OVER (PARTITION BY time) AS b,\n        max(max(a_seen)) OVER (PARTITION BY service_name) AS a_in_label_set,\n        max(max(b_seen)) OVER () AS b_in_label_set\n    FROM (\n        SELECT\n            time, service_name, value AS a, 0 AS b, 1 AS a_seen, 0 AS b_seen\n        FROM (\n            SELECT\n                s.time AS time,\n                ser.group_0 AS service_name,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            LEFT JOIN (\n                SELECT\n                    series_fingerprint,\n                    any(toString(service_name)) AS group_0\n                FROM posthog.metric_series\n                WHERE metric_name = 'queue_depth'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                GROUP BY series_fingerprint\n            ) AS ser ON s.series_fingerprint = ser.series_fingerprint\n            GROUP BY time, service_name\n        )\n        UNION ALL\n        SELECT\n            time, service_name, 0 AS a, value AS b, 0 AS a_seen, 1 AS b_seen\n        FROM (\n            SELECT\n                s.time AS time,\n                '' AS service_name,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            GROUP BY time\n        )\n    )\n    GROUP BY time, service_name\n)\nWHERE a_in_label_set = 1 AND b_in_label_set = 1\nORDER BY time"
+    },
+    "formula with a small constant": {
+        "builder": {
+            "clauses": [
+                {
+                    "name": "a",
+                    "aggregation": "sum",
+                    "metricName": "queue_depth"
+                }
+            ],
+            "formula": "a * 0.0000001"
+        },
+        "sql": "SELECT\n    time,\n    a * 0.0000001 AS value\nFROM (\n    SELECT\n        time,\n        sum(a) AS a,\n        max(max(a_seen)) OVER () AS a_in_label_set\n    FROM (\n        SELECT\n            time, value AS a, 1 AS a_seen\n        FROM (\n            SELECT\n                s.time AS time,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            GROUP BY time\n        )\n    )\n    GROUP BY time\n)\nWHERE a_in_label_set = 1\nORDER BY time"
+    },
     "formula with a zero denominator": {
         "builder": {
             "clauses": [

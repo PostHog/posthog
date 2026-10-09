@@ -1,4 +1,5 @@
 import { type Matcher, type PromExpr, binaryPrecedence } from './promqlParser'
+import { plainNumber } from './types'
 
 const LEGACY_METRIC_NAME = /^[a-zA-Z_:][a-zA-Z0-9_:]*$/
 const LEGACY_LABEL_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/
@@ -45,7 +46,7 @@ function printNumber(value: number): string {
     if (!Number.isFinite(value)) {
         return value > 0 ? 'Inf' : '-Inf'
     }
-    return String(value)
+    return plainNumber(value)
 }
 
 function printLabelList(labels: string[]): string {

@@ -8,6 +8,7 @@ import {
     SQL_EMPTY_INTERVAL_ISSUE,
     normalizeClause,
     normalizeLabelKey,
+    plainNumber,
 } from './types'
 
 /**
@@ -328,7 +329,7 @@ function clauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
 function formulaToSql(expr: PromExpr): string {
     switch (expr.type) {
         case 'number':
-            return String(expr.value)
+            return plainNumber(expr.value)
         case 'selector':
             return expr.name ?? ''
         case 'paren':
@@ -347,18 +348,20 @@ function formulaToSql(expr: PromExpr): string {
     }
 }
 
-/** The formula's value where every series is 0, with the builder's division policy. */
-function formulaAtZero(expr: PromExpr): number {
+/** The formula's value for the given series values (0 when not given), with the builder's division policy. */
+function formulaValue(expr: PromExpr, values: Record<string, number>): number {
     switch (expr.type) {
         case 'number':
             return expr.value
+        case 'selector':
+            return values[expr.name ?? ''] ?? 0
         case 'paren':
-            return formulaAtZero(expr.expr)
+            return formulaValue(expr.expr, values)
         case 'unary':
-            return expr.op === '-' ? -formulaAtZero(expr.expr) : formulaAtZero(expr.expr)
+            return expr.op === '-' ? -formulaValue(expr.expr, values) : formulaValue(expr.expr, values)
         case 'binary': {
-            const lhs = formulaAtZero(expr.lhs)
-            const rhs = formulaAtZero(expr.rhs)
+            const lhs = formulaValue(expr.lhs, values)
+            const rhs = formulaValue(expr.rhs, values)
             switch (expr.op) {
                 case '+':
                     return lhs + rhs
@@ -374,6 +377,9 @@ function formulaAtZero(expr: PromExpr): number {
             return 0
     }
 }
+
+/** Whether a clause returns labelled series. The builder spreads a clause without labels over every label set. */
+const hasLabels = (clause: BuilderClause): boolean => !clause.aggregation || !!clause.groupBy?.length
 
 export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     const issues: string[] = []
@@ -417,8 +423,23 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
         return { value: `${branches.join('\nUNION ALL\n')}`, issues }
     }
 
+    const used = usable.filter((clause) => new RegExp(`\\b${clause.name}\\b`).test(formula))
+    const unused = usable.filter((clause) => !used.includes(clause))
+    if (unused.length) {
+        issues.push(
+            `Series ${unused.map((clause) => clause.name).join(', ')} ${unused.length > 1 ? 'are' : 'is'} not in the formula and will be removed.`
+        )
+    }
+    const labelled = used.filter(hasLabels)
+    // With no labelled clause, every clause is one series and nothing is spread.
+    const spread = labelled.length ? used.filter((clause) => !hasLabels(clause)) : []
     const groupSets = new Set(
-        usable.map((clause) => (clause.groupBy ?? []).map((g) => normalizeLabelKey(g.key)).join(','))
+        labelled.map((clause) =>
+            [
+                clause.aggregation ? '' : PER_SERIES_COLUMN,
+                ...(clause.groupBy ?? []).map((g) => normalizeLabelKey(g.key)),
+            ].join(',')
+        )
     )
     if (groupSets.size > 1) {
         issues.push('The formula mixes series with different group-by labels.')
@@ -436,15 +457,16 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     } catch (error) {
         return { value: null, issues: [error instanceof Error ? error.message : String(error)] }
     }
-    if (formulaAtZero(parsed) !== 0) {
-        issues.push(SQL_EMPTY_INTERVAL_ISSUE)
-    }
-    const used = usable.filter((clause) => new RegExp(`\\b${clause.name}\\b`).test(formula))
-    const unused = usable.filter((clause) => !used.includes(clause))
-    if (unused.length) {
-        issues.push(
-            `Series ${unused.map((clause) => clause.name).join(', ')} ${unused.length > 1 ? 'are' : 'is'} not in the formula and will be removed.`
+    // SQL has no row for a label set in an interval where none of its series has data, so the
+    // chart shows 0 there. The builder shows the formula with those series at 0.
+    if (
+        labelled.length &&
+        [0, 1, 2].some(
+            (spreadValue) =>
+                formulaValue(parsed, Object.fromEntries(spread.map((clause) => [clause.name, spreadValue]))) !== 0
         )
+    ) {
+        issues.push(SQL_EMPTY_INTERVAL_ISSUE)
     }
     const labelColumns = labelKeys.map(quoteSqlIdentifier)
     const branches = used.map((clause) => {
@@ -458,8 +480,9 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
             ')',
         ].join('\n')
     })
-    // The builder keeps a label set only when every series of the formula has it.
-    const partition = labelColumns.length ? `OVER (PARTITION BY ${labelColumns.join(', ')})` : 'OVER ()'
+    // The builder keeps a label set only when every labelled series has it, and adds the value of
+    // each series without labels to every label set in the same interval.
+    const byLabels = labelColumns.length ? `OVER (PARTITION BY ${labelColumns.join(', ')})` : 'OVER ()'
     const lines = [
         'SELECT',
         `    ${['time', ...labelColumns, `${formulaSql} AS value`].join(',\n    ')}`,
@@ -468,8 +491,15 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
         `        ${[
             'time',
             ...labelColumns,
-            ...used.map((clause) => `sum(${clause.name}) AS ${clause.name}`),
-            ...used.map((clause) => `max(max(${clause.name}_seen)) ${partition} AS ${clause.name}_in_label_set`),
+            ...used.map((clause) =>
+                spread.includes(clause)
+                    ? `sum(sum(${clause.name})) OVER (PARTITION BY time) AS ${clause.name}`
+                    : `sum(${clause.name}) AS ${clause.name}`
+            ),
+            ...used.map(
+                (clause) =>
+                    `max(max(${clause.name}_seen)) ${spread.includes(clause) ? 'OVER ()' : byLabels} AS ${clause.name}_in_label_set`
+            ),
         ].join(',\n        ')}`,
         '    FROM (',
         indent(branches.join('\nUNION ALL\n'), 8),

@@ -5,8 +5,9 @@ not as a generic SQL insight: the metrics runner caches it, the logs workload ru
 metrics byte cap limits it. To keep those limits honest, it may read only the metrics tables.
 
 The result contract: a `time` column, a numeric `value` column, and any other columns as series
-labels. A `clause` column names the series of a multi-series query. As in the builder, a series with
-no row for a time that another series has gets 0 there. The SQL can use `{date_from}`, `{date_to}`,
+labels. A `clause` column names the series of a multi-series query. When every time is the start of
+a chart interval, a series with no row for a time that another series has gets 0 there, as in the
+builder. The SQL can use `{date_from}`, `{date_to}`,
 `{interval}` and `{interval_seconds}`, filled in from the insight's (or dashboard's) date range and
 the bucket interval.
 """
@@ -150,6 +151,17 @@ def _numeric(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _on_interval_starts(times: list[Any], interval: str, team: Team) -> bool:
+    """Whether every time is the start of a chart interval, as the times of `toStartOfInterval(…, {interval})` are."""
+    for time in times:
+        if not isinstance(time, dt.datetime):
+            return False
+        time = time if time.tzinfo else time.replace(tzinfo=dt.UTC)
+        if _align_to_interval(time, interval, tzinfo=team.timezone_info) != time:
+            return False
+    return True
+
+
 def run_metrics_sql(
     team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
 ) -> list[MetricSeries]:
@@ -178,6 +190,10 @@ def run_metrics_sql(
     clause_index = lowered.index(CLAUSE_COLUMN) if CLAUSE_COLUMN in lowered else None
     label_indexes = [index for index in range(len(columns)) if index not in (time_index, value_index, clause_index)]
 
+    # Raw sample times of different series do not line up, so a 0 between them would be invented.
+    on_interval_starts = _on_interval_starts(
+        [row[time_index] for row in results], _resolve_interval(date_from, date_to, interval), team
+    )
     points_by_series: dict[tuple[str | None, tuple[tuple[str, str], ...]], list[MetricPoint]] = {}
     for row in results:
         labels = tuple((columns[index], "" if row[index] is None else str(row[index])) for index in label_indexes)
@@ -190,5 +206,5 @@ def run_metrics_sql(
             (dict(labels), None, clause, sorted(points, key=lambda point: point.time))
             for (clause, labels), points in points_by_series.items()
         ],
-        fill=0.0,
+        fill=0.0 if on_interval_starts else None,
     )

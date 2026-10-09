@@ -11,6 +11,7 @@ import {
     ENGINE_QUANTILE,
     MAX_CONVERTED_CLAUSES,
     clauseAlias,
+    plainNumber,
 } from './types'
 
 type ClauseShape = Omit<BuilderClause, 'name'>
@@ -296,7 +297,7 @@ class FormulaBuilder {
     formula(expr: PromExpr): string | null {
         switch (expr.type) {
             case 'number':
-                return Number.isFinite(expr.value) ? String(expr.value) : null
+                return Number.isFinite(expr.value) ? plainNumber(expr.value) : null
             case 'paren': {
                 const inner = this.formula(expr.expr)
                 return inner === null ? null : `(${inner})`

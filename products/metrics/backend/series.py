@@ -7,7 +7,8 @@ from products.metrics.backend.metric_query_runner import _MAX_BUCKET_COUNT
 # The most a builder query can return: every clause at its series cap, on the longest bucket grid.
 # A PromQL or SQL query chooses its own clauses and times, so these limits bound its output too.
 MAX_SERIES_TOTAL = MAX_CLAUSES_PER_QUERY * MAX_SERIES_PER_CLAUSE
-MAX_POINTS_TOTAL = MAX_SERIES_TOTAL * _MAX_BUCKET_COUNT
+# An unaligned range start adds a partial first bucket, and a PromQL range query includes its end.
+MAX_POINTS_TOTAL = MAX_SERIES_TOTAL * (_MAX_BUCKET_COUNT + 2)
 
 Row = tuple[dict[str, str], str | None, str | None, list[MetricPoint]]
 

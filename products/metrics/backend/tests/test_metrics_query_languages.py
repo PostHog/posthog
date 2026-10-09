@@ -254,6 +254,23 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
 
         assert [point.value for point in series.points] == [4.0]
 
+    def test_raw_sample_times_are_not_zero_filled(self) -> None:
+        for service, offset in (("api", 0), ("worker", 7)):
+            seed_metric(
+                team_id=self.team.pk,
+                metric_name="cpu",
+                points=[(NOW - dt.timedelta(minutes=30, seconds=offset + 15 * i), 50.0) for i in range(4)],
+                service_name=service,
+            )
+        sql = (
+            "SELECT timestamp AS time, service_name, value FROM posthog.metrics "
+            "WHERE metric_name = 'cpu' AND timestamp >= {date_from} AND timestamp < {date_to}"
+        )
+
+        results = self._run(clauses=[], language="sql", sql=sql)
+
+        assert {point.value for series in results for point in series.points} == {50.0, None}
+
     def test_caches_like_a_metrics_insight_not_a_sql_insight(self) -> None:
         sql = "SELECT now() AS time, 1 AS value FROM posthog.metrics"
         sql_runner = MetricsQueryRunner(query=MetricsQuery(clauses=[], language="sql", sql=sql), team=self.team)

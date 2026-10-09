@@ -187,6 +187,10 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
     const source = toBuilderQuery(query)
     issues.push(...source.issues)
     const builder = source.value
+    if (from === 'sql' && builder) {
+        // The source SQL computes these values differently from every other language.
+        issues.push(...builderToSql(builder).issues.filter((issue) => VALUE_ONLY_ISSUES.has(issue)))
+    }
 
     if (to === 'builder') {
         const clauses = builder?.clauses ?? []

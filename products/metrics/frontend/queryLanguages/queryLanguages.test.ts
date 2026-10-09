@@ -216,6 +216,17 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
         ],
         formula: 'a - b',
     },
+    'share of total, spreading a series without labels': {
+        clauses: [
+            clause({ name: 'a', metricName: 'queue_depth', groupBy: [{ key: 'service_name' }] }),
+            clause({ name: 'b', metricName: 'queue_depth' }),
+        ],
+        formula: 'a / b',
+    },
+    'formula with a small constant': {
+        clauses: [clause({ name: 'a', metricName: 'queue_depth' })],
+        formula: 'a * 0.0000001',
+    },
     'formula with a zero denominator': {
         clauses: [
             clause({ name: 'a', metricName: 'queue_depth' }),
@@ -843,11 +854,11 @@ describe('metrics query languages', () => {
                 'promql',
             ],
             [
-                'an ungrouped series spread over a grouped one, to SQL',
+                'series with different group-by labels in a formula, to SQL',
                 metricsQuery({
                     clauses: [
                         clause({ name: 'a', metricName: 'x', groupBy: [{ key: 'job' }] }),
-                        clause({ name: 'b', metricName: 'y' }),
+                        clause({ name: 'b', metricName: 'y', groupBy: [{ key: 'service_name' }] }),
                     ],
                     formula: 'a / b',
                 }),
@@ -886,12 +897,42 @@ describe('metrics query languages', () => {
             ['PromQL that cannot be read', metricsQuery({ language: 'promql', promql: 'sum(' }), 'sql'],
             ['SQL that joins tables with a comma', metricsQuery({ language: 'sql', sql: COMMA_JOIN_SQL }), 'builder'],
             [
-                'a formula that is not 0 where no series has data, to SQL',
+                'a grouped formula that is not 0 where a label set has no data, to SQL',
                 metricsQuery({
-                    clauses: LOSSLESS_BUILDER_FIXTURES['formula with a zero denominator'].clauses,
+                    clauses: LOSSLESS_BUILDER_FIXTURES['formula over different label sets'].clauses,
                     formula: 'a + 1',
                 }),
                 'sql',
+            ],
+            [
+                'a grouped formula that is not 0 where a label set has no data, from SQL',
+                metricsQuery({
+                    language: 'sql',
+                    sql: builderToSql({
+                        clauses: LOSSLESS_BUILDER_FIXTURES['formula over different label sets'].clauses,
+                        formula: 'a + 1',
+                    }).value!,
+                }),
+                'builder',
+            ],
+            [
+                'a series without labels subtracted from a grouped one, to SQL',
+                metricsQuery({
+                    clauses: LOSSLESS_BUILDER_FIXTURES['share of total, spreading a series without labels'].clauses,
+                    formula: 'a - b',
+                }),
+                'sql',
+            ],
+            [
+                'a formula number in exponent notation, from SQL',
+                metricsQuery({
+                    language: 'sql',
+                    sql: builderToSql(LOSSLESS_BUILDER_FIXTURES['formula with a small constant']).value!.replace(
+                        '0.0000001',
+                        '1e-7'
+                    ),
+                }),
+                'builder',
             ],
         ])('warns about %s', (_name, query, to) => {
             expect(convertMetricsQuery(query, to).issues.length).toBeGreaterThan(0)

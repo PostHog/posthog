@@ -21,6 +21,23 @@ export interface ConversionResult<T> {
     issues: string[]
 }
 
+/** A finite number in plain decimal form: the builder formula has no exponent notation. */
+export function plainNumber(value: number): string {
+    const match = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(String(value))
+    if (!match) {
+        return String(value)
+    }
+    const [, sign, first, rest = '', exponent] = match
+    const digits = first + rest
+    const point = 1 + Number(exponent)
+    if (point <= 0) {
+        return `${sign}0.${'0'.repeat(-point)}${digits}`
+    }
+    return point >= digits.length
+        ? sign + digits + '0'.repeat(point - digits.length)
+        : `${sign}${digits.slice(0, point)}.${digits.slice(point)}`
+}
+
 /** Alias for the n-th clause a conversion creates, matching the builder's a, b, c… */
 export const clauseAlias = (index: number): string => String.fromCharCode('a'.charCodeAt(0) + index)
 
@@ -36,9 +53,9 @@ export const normalizeLabelKey = (key: string): string => (key === 'service.name
 // The PromQL label that keeps the series of a multi-series query apart, as the builder's clause alias does.
 export const CLAUSE_LABEL = 'clause'
 
-// The backend fills an interval with no SQL row with 0. The builder computes the formula there, with every series at 0.
+// The backend fills an interval with no SQL row with 0. The builder calculates the formula there.
 export const SQL_EMPTY_INTERVAL_ISSUE =
-    "Where no series has data in an interval, SQL shows 0, but the builder shows the formula's value with every series at 0."
+    'Where a label set has no data in an interval, SQL shows 0, but the builder calculates the formula with those series at 0.'
 
 /** Issues about values the target computes differently. The query itself converts without change. */
 export const VALUE_ONLY_ISSUES = new Set([SQL_EMPTY_INTERVAL_ISSUE])

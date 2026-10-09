@@ -711,7 +711,8 @@ function formulaFromSql(tokens: Token[]): string | null {
             const inner = factor()
             return inner === null ? null : `${token.value}${inner}`
         }
-        if (token?.type === 'number') {
+        // The builder formula has no exponent notation.
+        if (token?.type === 'number' && !/e/i.test(token.value)) {
             i++
             return token.value
         }
@@ -821,7 +822,10 @@ function readFormula(tokens: Token[], issues: string[]): ConversionResult<Builde
         return null
     }
     const branches = splitTopLevel(middle.source.tokens, unionSeparator)
-    const sums = middle.columns.filter((column) => /^sum\([a-z_][a-z0-9_]*\)$/i.test(canon(column.expr)))
+    // `sum(sum(x)) OVER (PARTITION BY time)` spreads a series without labels over every label set.
+    const sums = middle.columns.filter((column) =>
+        /^sum\((?:[a-z_][a-z0-9_]*|sum\([a-z_][a-z0-9_]*\)\)OVER\(PARTITION BY time)\)$/i.test(canon(column.expr))
+    )
     if (branches.length < 1 || sums.length === 0 || sums.length !== branches.length) {
         return null
     }
