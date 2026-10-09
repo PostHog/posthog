@@ -94,6 +94,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.facade.testing import (
+    create_message_category_for_test,
+    create_recipient_preference_for_test,
+)
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -547,17 +551,13 @@ def _create_hog_flow(team: Team, label: str) -> str:
     return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
-def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
-    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+def _create_message_category(team: Team, label: str) -> uuid.UUID:
+    return create_message_category_for_test(team_id=team.pk, key=f"category_{label}", name=f"Category {label}")
 
 
-def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
-    return MessageRecipientPreference.objects.create(
-        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+def _create_message_recipient_preference(team: Team, label: str) -> uuid.UUID:
+    return create_recipient_preference_for_test(
+        team_id=team.pk, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
     )
 
 
