@@ -46,8 +46,10 @@ export function requestedScopesForKind(kind: IntegrationKind): string[] {
 export function describeScopeShortfall(kind: IntegrationKind, missingScopes: string[]): string {
     const name = getIntegrationNameFromKind(kind)
     const permissions = missingScopes.length === 1 ? 'permission' : 'permissions'
+    // The instructions go before the scope list because the toast clips long messages at its max height.
     return (
-        `${name} is connected, but it did not grant ${missingScopes.length} ${permissions}: ${missingScopes.join(', ')}. ` +
-        `Reconnecting again will not fix this. Ask a ${name} workspace admin to approve or reinstall the PostHog app, then reconnect.`
+        `${name} is connected, but it did not grant ${missingScopes.length} ${permissions}. ` +
+        `Reconnecting again will not fix this. Ask a ${name} workspace admin to approve or reinstall the PostHog app, then reconnect. ` +
+        `Missing: ${missingScopes.join(', ')}.`
     )
 }
