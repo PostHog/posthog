@@ -1307,8 +1307,8 @@ def plan_old_events_cleanup(
             for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
         ]
     )
-    for item in plan.partitions:
-        context.log.info(f"{item.partition}: teams {item.team_ids}")
+    for partition_cleanup in plan.partitions:
+        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
 
     context.add_output_metadata(
         {
