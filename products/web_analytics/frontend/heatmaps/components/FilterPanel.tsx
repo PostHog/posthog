@@ -74,7 +74,7 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                 size="small"
                 onChange={setWindowWidthOverride}
                 value={lockedWidth ?? widthOverride}
-                disabledReason={lockedWidth ? 'Toolbar captures are saved at a single width' : undefined}
+                disabledReason={lockedWidth ? 'This capture is saved at a fixed viewport width' : undefined}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -101,10 +101,12 @@ export function FilterPanel({
     clickmapSettings,
     lockedWidth,
     previewUnavailable = false,
+    dateControl,
 }: {
     previewUnavailable?: boolean
     clickmapSettings?: JSX.Element
     lockedWidth?: number
+    dateControl?: JSX.Element
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
@@ -141,14 +143,16 @@ export function FilterPanel({
             )}
             <div className="flex flex-wrap justify-between items-center gap-2 my-2">
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <DateFilter
-                        dateFrom={commonFilters?.date_from}
-                        dateTo={commonFilters?.date_to}
-                        onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
-                        }}
-                        dateOptions={heatmapDateOptions}
-                    />
+                    {dateControl ?? (
+                        <DateFilter
+                            dateFrom={commonFilters?.date_from}
+                            dateTo={commonFilters?.date_to}
+                            onChange={(fromDate, toDate) => {
+                                setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
+                            }}
+                            dateOptions={heatmapDateOptions}
+                        />
+                    )}
                     {cohortFilterEnabled && (
                         <div className="min-w-0">
                             <PropertyFilters
