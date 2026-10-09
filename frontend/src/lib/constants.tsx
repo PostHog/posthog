@@ -403,6 +403,7 @@ export const FEATURE_FLAGS = {
     LOGS_IMPACT_STRIP: 'logs-impact-strip', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
     LOGS_JSON_ATTRIBUTE_PARSING: 'logs-json-attribute-parsing', // owner: #team-logs
+    LOGS_METRICS_SNUFFLE_API: 'logs-metrics-snuffle-api', // owner: #team-apm — the PromQL/LogQL APIs; the backend enforces it, the metrics insight editor reads it to offer PromQL
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
     LOGS_SESSION_ERROR_BADGES: 'logs-session-error-badges', // owner: #team-logs
@@ -447,6 +448,7 @@ export const FEATURE_FLAGS = {
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
     METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
+    METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
     NEW_COMMAND_K_SEARCH: 'new-command-k-search', // owner: @adamleithp #team-platform-ux, gates the Command K search with smart filters
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
@@ -640,7 +642,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
-    WORKFLOWS_NEW_NAVIGATION: 'workflows-new-navigation', // owner: #team-workflows, groups the workflows tabs into Workflows, Templates and Messaging
     WORKFLOWS_ONBOARDING_WIZARD: 'workflows-onboarding-wizard', // owner: #team-workflows, step-by-step setup after the first-run path choice, needs workflows-guided-onboarding
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows

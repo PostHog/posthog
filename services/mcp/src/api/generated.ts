@@ -31431,6 +31431,8 @@ export namespace Schemas {
      * * `Neo4j` - Neo4j
      * * `TestDino` - TestDino
      * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32809,6 +32811,8 @@ export namespace Schemas {
       Neo4j: 'Neo4j',
       TestDino: 'TestDino',
       ChessCom: 'ChessCom',
+      Userback: 'Userback',
+      Rewardful: 'Rewardful',
     } as const;
 
     /**
@@ -34200,7 +34204,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36822,7 +36828,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -46525,6 +46533,20 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
+    /**
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused
+     */
+    export type ExternalDataDestinationStatusEnum = typeof ExternalDataDestinationStatusEnum[keyof typeof ExternalDataDestinationStatusEnum];
+
+
+    export const ExternalDataDestinationStatusEnum = {
+      Healthy: 'healthy',
+      Failing: 'failing',
+      Paused: 'paused',
+    } as const;
+
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -46559,6 +46581,22 @@ export namespace Schemas {
       readonly updated_at: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at: string | null;
     }
 
     /**
@@ -48382,7 +48420,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -49794,7 +49834,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -56181,6 +56223,15 @@ export namespace Schemas {
       yAxis?: MetricsYAxisSettings | null;
     }
 
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -56227,6 +56278,7 @@ export namespace Schemas {
     }
 
     export interface MetricsQuery {
+      /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -56237,9 +56289,15 @@ export namespace Schemas {
       /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** How the query is written; the builder when unset. */
+      language?: MetricsQueryLanguage | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+      promql?: string | null;
       response?: MetricsQueryResponse | null;
+      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
+      sql?: string | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -75971,6 +76029,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly applied_version: number | null;
+      /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
+      readonly rejection_reason: string;
     }
 
     export interface PaginatedWorkflowProposalList {
@@ -78788,6 +78848,22 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources?: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status?: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error?: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at?: string | null;
     }
 
     /**
@@ -101080,7 +101156,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -102523,7 +102601,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -103933,7 +104013,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -111557,6 +111639,14 @@ export namespace Schemas {
       change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
+    }
+
+    export interface WorkflowProposalRejectRequest {
+      /**
+         * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+         * @maxLength 2000
+         */
+      reason?: string;
     }
 
     export interface WorkflowRunActivityPoint {

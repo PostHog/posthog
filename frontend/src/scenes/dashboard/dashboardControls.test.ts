@@ -20,6 +20,11 @@ describe('dashboardControls', () => {
         ['a retention insight', retentionTile, ['dateRange', 'properties', 'breakdown', 'testAccounts']],
         ['a metrics insight', metricsTile, ['dateRange', 'metricLabels']],
         [
+            'a PromQL metrics insight',
+            insightTile({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(x)' }),
+            ['dateRange'],
+        ],
+        [
             'a SQL insight',
             insightTile({ kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: '' } }),
             ['dateRange', 'interval', 'properties', 'breakdown', 'testAccounts'],

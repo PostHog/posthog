@@ -198,6 +198,36 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
+
+- **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and
+  replies. Other reviewers' comments, from people and bots, are left out. Dedup still matches findings against them
+  afterwards and lists the overlaps (entry below).
+- **Why.** The prompt used to quote every comment "to understand what has already been discussed". A reviewer that
+  reads another bot's finding tends to agree with it or skip it, so Full's own judgment and its agreement both lost
+  meaning. Seeing comments and posting duplicates are separate choices: detection stays independent, and the output
+  is consolidated after it.
+- **Also.** The chunking prompt gets the same author-only comments, because its free-text chunk summary reaches every
+  review prompt. Dedup treats a PR comment anywhere in a finding's file as a possible repeat, not only one on
+  overlapping lines, because a review that never saw the comment often anchors the same problem elsewhere.
+- **Measure.** Compare `reviewhog-full-1-4` with `1-3` on findings per turn, overlaps listed per turn, and how often
+  authors act on Full's findings.
+
+### ✅ BUILT 2026-10-09 — Full lists what other reviewers already raised; Flash never reads PR comments (`reviewhog-full-1-3`)
+
+- **What.** A Full turn reads the PR's inline comments again at dedup time, skips outdated ones, and still keeps a
+  finding another comment already raises off the PR. The final status comment now lists those findings with the
+  comment they repeat ("Also found in comments already on this pull request"), and a turn with nothing new says
+  "Nothing new to raise." instead of celebrating. Flash, in both designs, never reads PR comments. The
+  `dedupe_against_pr_comments` switch from the entry below is gone: no trigger ever set it, and a flag that changed
+  Flash but not Full would have meant two things.
+- **Why.** How people run Full (Sep 25 to Oct 9, human-authored PRs): 85% of runs are a label the author adds about
+  6 minutes after opening the PR, and another review bot is active on 85% of PRs, so Full almost always has company.
+  Posting duplicates would cost authors double replies; dropping them silently hid that ReviewHog agreed. Listing
+  them keeps one thread per issue and shows the agreement. When Full is the only reviewer, nothing changes.
+- **Next.** Full's review prompt still shows every PR comment, so its reviewers can still lean on what others said.
+  Showing only the PR author's own comments is the follow-up, measured under its own version.
+
 ### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
 
 - **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of

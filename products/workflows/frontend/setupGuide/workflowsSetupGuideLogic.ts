@@ -19,7 +19,6 @@ import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../OptOuts/optOutCategoriesLogic'
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import type { MessageTemplate } from '../TemplateLibrary/types'
-import { urlForNewWorkflowComposer } from '../Workflows/newWorkflowLogic'
 import { workflowTemplatesLogic } from '../Workflows/templates/workflowTemplatesLogic'
 import type { WorkflowTemplateTypeFilter } from '../Workflows/workflowTypeFilters'
 import { SetupGuideStep, SetupGuideStepKey, deriveSetupGuideSteps } from './setupGuideSteps'
@@ -309,11 +308,6 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
             }
         },
         browseTemplates: ({ typeFilter }) => {
-            if (!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]) {
-                // The templates page is part of the new navigation. Without it, start from nothing.
-                router.actions.push(urlForNewWorkflowComposer())
-                return
-            }
             actions.setTypeFilter(typeFilter)
             router.actions.push(urls.workflows('templates'))
         },
