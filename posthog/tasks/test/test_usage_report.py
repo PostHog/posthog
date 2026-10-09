@@ -5612,6 +5612,20 @@ class TestBillableTeams(TestCase):
         with self.assertNumQueries(1):
             assert teams[0].organization.for_internal_metrics is False
 
+    def test_team_moved_to_a_later_organization_during_the_scan_is_reported_once(self) -> None:
+        org_first = Organization.objects.create(id=UUID(int=1), name="First")
+        org_last = Organization.objects.create(id=UUID(int=2), name="Last")
+        moved_team = Team.objects.create(organization=org_first, name="Moved project")
+
+        with patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1):
+            teams = _get_teams_for_usage_reports()
+            first = next(teams)
+            Team.objects.filter(id=moved_team.id).update(organization=org_last)
+            rest = list(teams)
+
+        assert [team.id for team in [first, *rest]] == [moved_team.id]
+        assert first.organization.id == org_first.id
+
 
 @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
 class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

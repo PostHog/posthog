@@ -3244,6 +3244,9 @@ def iter_billable_teams(
     if organization_ids:
         organizations = organizations.filter(id__in=organization_ids)
 
+    # Each page is a separate read, so a project moved to a later organization during the scan
+    # comes back in that organization's page. Yield each team once, or its usage is reported twice.
+    yielded_team_ids: set[int] = set()
     page = organizations
     while batch := list(page[:BILLING_ORGANIZATION_BATCH_SIZE]):
         organizations_by_id = {organization.id: organization for organization in batch}
@@ -3255,6 +3258,9 @@ def iter_billable_teams(
             .order_by("organization_id", "id")
         )
         for team in teams.iterator(chunk_size=2_000):
+            if team.id in yielded_team_ids:
+                continue
+            yielded_team_ids.add(team.id)
             team.organization = organizations_by_id[team.organization_id]
             yield team
         if len(batch) < BILLING_ORGANIZATION_BATCH_SIZE:
