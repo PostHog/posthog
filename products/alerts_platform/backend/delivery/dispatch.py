@@ -44,7 +44,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, incident_action=incident_action),
+                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
                 in_reply_to=None,
             )
             continue
@@ -66,7 +66,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, incident_action=incident_action),
+                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
                 in_reply_to=claim.handle,
             )
         except Exception:

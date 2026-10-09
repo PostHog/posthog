@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    SourceKind,
 )
 
 TARGET = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
@@ -46,6 +47,7 @@ def _announcement(
     kind: AlertEventKind = AlertEventKind.FIRING, episode_started_at: datetime | None = FIRST_FIRING
 ) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
+        source=SourceKind.LOGS,
         configuration_id="cfg-1",
         alert_name="API errors",
         consecutive_failures=0,
@@ -163,6 +165,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         store = RecordingThreadStore()
         transport = FakeTransport()
         announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
             configuration_id="cfg-1",
             alert_name="API errors",
             consecutive_failures=0,

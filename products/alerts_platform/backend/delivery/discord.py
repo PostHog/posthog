@@ -32,16 +32,21 @@ def escape_markdown(text: str) -> str:
 
 
 def content_for(message: AlertMessage) -> str:
+    link = f"\n\n[View alert](<{message.alert_url}>)"
+    return _body(message, MAX_CONTENT_CHARS - len(link)) + link
+
+
+def _body(message: AlertMessage, limit: int) -> str:
     headline = f"**{escape_markdown(message.headline)}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if not lines:
         return headline
-    content = f"{headline}\n\n" + "\n".join(lines)
-    if len(content) <= MAX_CONTENT_CHARS:
-        return content
+    body = f"{headline}\n\n" + "\n".join(lines)
+    if len(body) <= limit:
+        return body
     # An error message can carry a whole query, so it is a detail that overflows. Each detail gets
     # an equal share, so clipping the error cannot drop the failure count after it.
-    share = (MAX_CONTENT_CHARS - len(headline) - 2 - (len(lines) - 1)) // len(lines)
+    share = (limit - len(headline) - 2 - (len(lines) - 1)) // len(lines)
     return f"{headline}\n\n" + "\n".join(clip_text(line, share) for line in lines)
 
 

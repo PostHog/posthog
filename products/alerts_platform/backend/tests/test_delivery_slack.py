@@ -15,7 +15,7 @@ from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
-from products.alerts_platform.backend.tests.delivery_messages import alert_message
+from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message
 
 MESSAGE = alert_message(
     headline="API errors is firing",
@@ -65,7 +65,8 @@ class TestSlackBlocks(SimpleTestCase):
     def test_a_message_without_details_carries_no_empty_section(self) -> None:
         blocks = blocks_for(alert_message(headline="API errors is resolved", details=()))
 
-        assert [block["type"] for block in blocks] == ["header"]
+        assert [block["type"] for block in blocks] == ["header", "actions"]
+        assert blocks[1]["elements"][0]["url"] == ALERT_URL
 
 
 class TestSlackTransport(APIBaseTest):

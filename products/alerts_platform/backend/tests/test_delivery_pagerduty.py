@@ -18,7 +18,12 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     PagerDutySeverity,
 )
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import (
+    ALERT_URL,
+    alert_message,
+    announced_transition,
+    pinned_post,
+)
 
 ROUTING_KEY = "not-a-real-routing-key-0000000000"
 TARGET = cast(AlertDestinationData, {"type": "pagerduty", "pagerduty_routing_key": ROUTING_KEY})
@@ -44,6 +49,7 @@ class TestPagerDutyBody(SimpleTestCase):
             "event_action": "trigger",
             "dedup_key": "cfg-1::2026-09-30T09:00:00+00:00",
             "client": "PostHog",
+            "client_url": ALERT_URL,
             "payload": {
                 "summary": "API errors is firing",
                 "source": "PostHog alerts platform",

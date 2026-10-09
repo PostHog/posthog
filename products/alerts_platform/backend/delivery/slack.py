@@ -10,7 +10,15 @@ from typing import Any, Final
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
-from posthog.slack.channels import MAX_SECTION_CHARS, clip_text, header_block, post_message, section_block
+from posthog.slack.channels import (
+    MAX_SECTION_CHARS,
+    SlackButton,
+    actions_block,
+    clip_text,
+    header_block,
+    post_message,
+    section_block,
+)
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
@@ -44,6 +52,7 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.headline)]
     if message.details:
         blocks.append(section_block(_body(message.details)))
+    blocks.append(actions_block([SlackButton(text="View alert", url=message.alert_url)]))
     return blocks
 
 

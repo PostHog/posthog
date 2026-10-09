@@ -3,12 +3,13 @@ from typing import Any
 
 import pytest
 
-from products.alerts_platform.backend.delivery.message import MessageDetail, build_message
+from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail, build_message
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    SourceKind,
 )
 
 CONDITION = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
@@ -30,17 +31,50 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
     return AnnouncedTransition(**fields)
 
 
-def _announcement(consecutive_failures: int = 0) -> EvaluationAnnouncement:
+def _announcement(consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
-        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=consecutive_failures, transitions=()
+        configuration_id="cfg-1",
+        source=source,
+        alert_name="API errors",
+        consecutive_failures=consecutive_failures,
+        transitions=(),
     )
 
 
-class TestAlertMessage:
-    def test_a_breach_states_what_it_measured_against_what_it_allowed(self) -> None:
-        message = build_message(_announcement(), _transition(AlertEventKind.FIRING))
+def _build(
+    announcement: EvaluationAnnouncement,
+    transition: AnnouncedTransition,
+    *,
+    incident_action: IncidentAction | None = None,
+) -> AlertMessage:
+    return build_message(announcement, transition, team_id=7, incident_action=incident_action)
 
-        assert message.headline == "API errors is firing"
+
+class TestAlertMessage:
+    @pytest.mark.parametrize(
+        "source,expected_headline",
+        [
+            (SourceKind.LOGS, "Log alert 'API errors' is firing"),
+            (SourceKind.INSIGHT, "Insight alert 'API errors' is firing"),
+        ],
+    )
+    def test_a_message_names_its_source_and_links_to_its_alert(
+        self, source: SourceKind, expected_headline: str
+    ) -> None:
+        message = _build(_announcement(source=source), _transition(AlertEventKind.FIRING))
+
+        assert message.headline == expected_headline
+        assert message.alert_url.endswith("/project/7/platform-alerts/cfg-1")
+
+    @pytest.mark.parametrize("source", list(SourceKind))
+    def test_every_source_kind_has_a_headline(self, source: SourceKind) -> None:
+        message = _build(_announcement(source=source), _transition(AlertEventKind.FIRING))
+
+        assert message.headline.endswith("alert 'API errors' is firing")
+
+    def test_a_breach_states_what_it_measured_against_what_it_allowed(self) -> None:
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING))
+
         assert message.details == (
             MessageDetail(label="Value", value="300"),
             MessageDetail(label="Threshold", value="above 100"),
@@ -48,12 +82,12 @@ class TestAlertMessage:
         )
 
     def test_a_failed_check_states_the_reason_rather_than_a_threshold(self) -> None:
-        message = build_message(
+        message = _build(
             _announcement(consecutive_failures=3),
             _transition(AlertEventKind.ERRORED, value=None, error_message="Query is too expensive"),
         )
 
-        assert message.headline == "API errors could not be checked"
+        assert message.headline == "Log alert 'API errors' could not be checked"
         assert message.details == (
             MessageDetail(label="Error", value="Query is too expensive"),
             MessageDetail(label="Failed checks", value="3"),
@@ -65,24 +99,27 @@ class TestAlertMessage:
     )
     def test_the_window_reads_as_a_duration(self, window_minutes: int, expected: str) -> None:
         condition = {**CONDITION, "window_minutes": window_minutes}
-        message = build_message(_announcement(), _transition(AlertEventKind.FIRING, condition=condition))
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition=condition))
 
         assert MessageDetail(label="Window", value=expected) in message.details
 
     def test_a_check_that_announces_nothing_has_no_message(self) -> None:
         with pytest.raises(ValueError):
-            build_message(_announcement(), _transition(AlertEventKind.CHECK))
+            _build(_announcement(), _transition(AlertEventKind.CHECK))
 
     @pytest.mark.parametrize(
         "action,expected",
-        [(IncidentAction.TRIGGER, "API errors is firing"), (IncidentAction.RESOLVE, "API errors is resolved")],
+        [
+            (IncidentAction.TRIGGER, "Log alert 'API errors' is firing"),
+            (IncidentAction.RESOLVE, "Log alert 'API errors' is resolved"),
+        ],
     )
     def test_a_held_check_speaks_for_the_incident_it_moved(self, action: IncidentAction, expected: str) -> None:
-        message = build_message(_announcement(), _transition(AlertEventKind.CHECK), incident_action=action)
+        message = _build(_announcement(), _transition(AlertEventKind.CHECK), incident_action=action)
 
         assert (message.headline, message.incident_action) == (expected, action)
 
     def test_a_partial_condition_drops_the_line_it_cannot_state(self) -> None:
-        message = build_message(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
 
         assert message.details == (MessageDetail(label="Value", value="300"),)

@@ -11,7 +11,7 @@ from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.teams import TeamsTransport, card_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
 TEAMS_URL = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=fake"
 
@@ -48,6 +48,7 @@ class TestTeamsCard(SimpleTestCase):
                                 ],
                             },
                         ],
+                        "actions": [{"type": "Action.OpenUrl", "title": "View alert", "url": ALERT_URL}],
                     },
                 }
             ],
