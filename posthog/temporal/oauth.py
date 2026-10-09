@@ -116,7 +116,6 @@ McpScopePreset = Literal[
     "signals_scout",
     "signals_scout_reports",
     "signals_scout_experiment",
-    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 ]
@@ -341,7 +340,6 @@ MCP_SCOPE_PRESETS = (
     "signals_scout",
     "signals_scout_reports",
     "signals_scout_experiment",
-    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 )
@@ -446,8 +444,6 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
-        elif scopes == "signals_scout_judge":
-            resolved = ["scout_experiment_internal:read"] if include_internal_scopes else []
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import direct_capable_source_types, direct_capable_source_types_for_team
 
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
@@ -1157,7 +1157,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": helpers.RESERVED_SOURCE_NAME_MESSAGE},
             )
 
-        if is_direct_query and source_type not in direct_capable_source_types():
+        if is_direct_query and source_type not in direct_capable_source_types_for_team(self.team):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
@@ -1774,6 +1774,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 team_id=self.team_id,
                 source_id=new_source_model.pk,
                 destination_ids=selected_destination_ids,
+                authorize_resume=self._assert_can_write_schemas,
             )
         except Exception as e:
             # The source is already created and its tables are configured. Losing that over a

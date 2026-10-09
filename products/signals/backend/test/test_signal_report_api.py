@@ -1084,6 +1084,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("monitoring", "monitoring"),
             ("garbage", "bogus_status"),
             ("mixed_valid_and_invalid", "ready,bogus_status"),
             ("deleted_not_filterable", "deleted"),
@@ -3013,6 +3014,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with (
             patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_close_pr,
+            patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -3037,6 +3039,18 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["note"] == "still can't see it"
         assert content["user_id"] == self.user.id
         mock_close_pr.delay.assert_not_called()
+
+        status_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "signal_report_status_changed"
+        ]
+        assert len(status_events) == 1
+        assert status_events[0]["report_id"] == str(report.id)
+        assert status_events[0]["previous_status"] == current_status
+        assert status_events[0]["status"] == current_status
+        assert status_events[0]["dismissal_reason"] == "report_unclear"
+        assert status_events[0]["reason_added"] is True
 
     def test_repeating_a_verdict_without_feedback_is_a_no_op_success(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
@@ -3393,8 +3407,15 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert survivor.signal_count == 1
         assert good.status == SignalReport.Status.READY
 
-    @parameterized.expand([("straight_after_the_merge", False), ("after_a_later_dismissal", True)])
-    def test_a_merged_report_cannot_be_restored(self, _name, dismiss_again):
+    @parameterized.expand(
+        [
+            (f"{target}_{bulk}_{dismiss_again}", target, bulk, dismiss_again)
+            for target in ["potential", "resolved"]
+            for bulk in [False, True]
+            for dismiss_again in [False, True]
+        ]
+    )
+    def test_a_merged_report_cannot_be_restored(self, _name: str, target: str, bulk: bool, dismiss_again: bool) -> None:
         survivor = self._report()
         source = self._report()
         assert self._merge(survivor, source).status_code == status.HTTP_200_OK
@@ -3411,10 +3432,14 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
         response = self.client.post(
-            self._state_url(str(source.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+            f"/api/projects/{self.team.id}/signals/reports/bulk-state/" if bulk else self._state_url(str(source.id)),
+            data=json.dumps({"state": target, **({"ids": [str(source.id)]} if bulk else {})}),
+            content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.status_code == (status.HTTP_200_OK if bulk else status.HTTP_409_CONFLICT), response.json()
+        if bulk:
+            assert response.json()["skipped_count"] == 1
         source.refresh_from_db()
         assert source.status == SignalReport.Status.SUPPRESSED
 
@@ -3610,6 +3635,31 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
 
         other_teams_report.refresh_from_db()
         assert other_teams_report.status == SignalReport.Status.READY
+
+    def test_bulk_status_labels_reuse_request_user_without_actor_lookups(self):
+        ids = [str(self._create_report().id) for _ in range(3)]
+
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
+                response = self._post({"ids": ids, "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        labels = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+        ]
+        assert len(labels) == 3
+        for label in labels:
+            assert label["actor_kind"] == "user"
+            assert label["actor_user_uuid"] == str(self.user.uuid)
+            assert label["actor_distinct_id"] == self.user.distinct_id
+        actor_lookups = [
+            query
+            for query in ctx.captured_queries
+            if query["sql"].startswith('SELECT "posthog_user"."uuid" AS "uuid", "posthog_user"."distinct_id"')
+        ]
+        assert actor_lookups == []
 
     def test_bulk_deduplicates_ids_preserving_order(self):
         first = self._create_report()

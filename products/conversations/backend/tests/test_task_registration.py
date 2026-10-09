@@ -22,6 +22,7 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.poll_team_shared_channels",
     "products.conversations.backend.tasks.poll_teams_shared_channels",
     "products.conversations.backend.tasks.wake_snoozed_tickets",
+    "products.conversations.backend.tasks.purge_deleted_tickets",
     "products.conversations.backend.tasks.process_github_event",
     "products.conversations.backend.tasks.post_reply_to_github",
     "products.conversations.backend.tasks.create_github_issue",

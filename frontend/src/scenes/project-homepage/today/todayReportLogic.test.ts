@@ -45,6 +45,7 @@ describe('todayReportLogic', () => {
             get: {
                 '/api/projects/:team_id/signals/reports/:id/': () => [200, report],
                 '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+                '/api/projects/:team_id/today/briefing/': () => [404, {}],
             },
         })
         initKeaTests()
@@ -72,6 +73,7 @@ describe('todayReportLogic', () => {
             get: {
                 '/api/projects/:team_id/signals/reports/:id/': () => [200, report],
                 '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+                '/api/projects/:team_id/today/briefing/': () => [404, {}],
                 '/api/projects/:team_id/today/reports/:id/figure_marks/': () => {
                     calls.figureMarks += 1
                     return [200, { marks: [] }]

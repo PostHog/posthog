@@ -11,6 +11,9 @@ const WAREHOUSE: ExternalDataDestinationApi = {
     config: {},
     integration: null,
     is_posthog_warehouse: true,
+    status: 'healthy',
+    latest_error: null,
+    latest_error_at: null,
     created_at: '2026-08-20T10:00:00Z',
     updated_at: '2026-08-25T10:00:00Z',
     created_by: null,
@@ -23,8 +26,27 @@ const POSTGRES: ExternalDataDestinationApi = {
     config: { database: 'analytics', schema: 'customer_sync' },
     integration: 1,
     is_posthog_warehouse: false,
+    status: 'healthy',
+    latest_error: null,
+    latest_error_at: null,
     created_at: '2026-08-24T10:00:00Z',
     updated_at: '2026-08-26T14:00:00Z',
+    created_by: null,
+} as ExternalDataDestinationApi
+
+const PAUSED_POSTGRES: ExternalDataDestinationApi = {
+    id: '01a03e9c-1b81-0000-4c2a-8f1d3e6b7a90',
+    type: 'Postgres',
+    name: 'Reporting Postgres',
+    config: { database: 'reporting', schema: 'public' },
+    integration: 2,
+    is_posthog_warehouse: false,
+    status: 'paused',
+    latest_error:
+        'The database refused the user name or password. Update the credentials on the destination, then run the sync again.',
+    latest_error_at: '2026-08-31T09:00:00Z',
+    created_at: '2026-08-22T10:00:00Z',
+    updated_at: '2026-08-31T09:00:00Z',
     created_by: null,
 } as ExternalDataDestinationApi
 
@@ -45,7 +67,7 @@ const Template: StoryFn<typeof WarehouseDestinationsTable> = (props: WarehouseDe
 
 export const Default = Template.bind({})
 Default.args = {
-    destinations: [POSTGRES, WAREHOUSE],
+    destinations: [POSTGRES, PAUSED_POSTGRES, WAREHOUSE],
     loading: false,
     onEdit: () => {},
     onDelete: () => {},

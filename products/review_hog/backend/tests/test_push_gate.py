@@ -19,8 +19,15 @@ def _file(filename: str, patch: str | None = "@@ -1 +1 @@\n-a\n+b") -> dict[str,
     return {"filename": filename, "changes": 2, "patch": patch}
 
 
-def _commit(sha: str, *, merge: bool = False) -> dict[str, Any]:
-    return {"sha": sha, "parents": [{"sha": "p1"}, {"sha": "p2"}] if merge else [{"sha": "p1"}]}
+_REVIEWHOG_BOT = {"login": "reviewhog[bot]", "type": "Bot"}
+
+
+def _commit(sha: str, *, merge: bool = False, author: dict[str, str] | None = None) -> dict[str, Any]:
+    return {
+        "sha": sha,
+        "parents": [{"sha": "p1"}, {"sha": "p2"}] if merge else [{"sha": "p1"}],
+        "author": author or {"login": "octocat", "type": "User"},
+    }
 
 
 def _pr(commits: list[dict[str, Any]], files: list[dict[str, Any]]) -> dict[str, Any]:
@@ -99,6 +106,17 @@ _CODE_PUSH = _push(
             "merge_only",
             True,
         ),
+        # The resolution stage pushed fixes for the last review's findings.
+        (
+            "reviewhog_fix_commits",
+            _push(
+                new_commits=[_commit("a"), _commit("c", author=_REVIEWHOG_BOT)],
+                pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+                own_commit_files=[_file("posthog/billing.py", _BILLING_FIX)],
+            ),
+            "reviewhog_commits_only",
+            True,
+        ),
         # ReviewHog never reviews lockfiles, yet a lockfile bump is the author's own change, not a merge.
         (
             "lockfile_bump",
@@ -155,6 +173,16 @@ def test_push_gate_asks_system_one_about_own_code_commits(
     # The threshold was calibrated on exactly this state: own code patches, docs dropped.
     assert call["state"] == f"--- posthog/billing.py\n{_BILLING_FIX}"
     assert "round" not in str(call["questions"]["alters"].instructions)
+
+
+def test_push_gate_reviews_a_push_that_mixes_reviewhog_and_author_commits() -> None:
+    push = _push(
+        new_commits=[_commit("a"), _commit("r", author=_REVIEWHOG_BOT), _commit("c")],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        own_commit_files=[_file("posthog/billing.py", _BILLING_FIX)],
+    )
+    decision = _decide({**push, "commits/r": {"files": []}}, _system_one(0.99))
+    assert (decision.skip, decision.reason) == (False, "system_one_above_threshold")
 
 
 @parameterized.expand(

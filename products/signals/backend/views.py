@@ -136,6 +136,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
@@ -1275,7 +1276,11 @@ class SignalReportViewSet(
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
-    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    # Monitoring has no supported lifecycle yet, so it is excluded from reads too.
+    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {
+        SignalReport.Status.DELETED,
+        SignalReport.Status.MONITORING,
+    }
     _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
@@ -2679,7 +2684,7 @@ class SignalReportViewSet(
 
         # Hide the report from the list immediately while signal deletion continues asynchronously.
         updated_fields = report.transition_to(SignalReport.Status.DELETED)
-        report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+        report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
@@ -3228,6 +3233,20 @@ class SignalReportViewSet(
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
+            # A merged report has no signals of its own left: they moved to the survivor, and
+            # so did its work log. Restoring it would put an empty duplicate back in the inbox
+            # and start it collecting again alongside the report it was folded into.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED}
+                and was_merged_away(report)
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "This report was merged into another one and can't be restored. Open the report it was "
+                    "merged into instead.",
+                )
+
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
             # through the archive into RESOLVED from candidate/in_progress with no title or summary.
@@ -3255,15 +3274,6 @@ class SignalReportViewSet(
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
-                    )
-                # A merged report has no signals of its own left: they moved to the survivor, and
-                # so did its work log. Restoring it would put an empty duplicate back in the inbox
-                # and start it collecting again alongside the report it was folded into.
-                if was_merged_away(report):
-                    return (
-                        SignalReportBulkStateOutcome.SKIPPED,
-                        "This report was merged into another one and can't be restored. Open the report it was "
-                        "merged into instead.",
                     )
                 effective_target = report.restore_target_status()
 
@@ -3301,10 +3311,11 @@ class SignalReportViewSet(
                 # superseded and the receiver closes it. The PR-merge webhook resolves through
                 # transition_to directly and never sets this, so a merged PR is left alone.
                 report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
-                # Name the caller in the comments the receiver leaves on the linked pull request
-                # and tracker issue. An external agent keeps its user principal, so it names the
-                # person who ran it rather than nobody.
-                report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+                # Name the caller in the status-change label and in the comments the receiver leaves
+                # on the linked pull request and tracker issue. An external agent keeps its user
+                # principal, so it names the person who ran it rather than nobody.
+                report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
+                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
@@ -3363,6 +3374,8 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+                if already_holds_verdict:
+                    capture_verdict_reason_added_analytics(report)
 
         # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
         # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so
@@ -3604,7 +3617,7 @@ class SignalReportViewSet(
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
-                report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
+                report._transition_actor = attribution  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
                 team_id=self.team.id,
