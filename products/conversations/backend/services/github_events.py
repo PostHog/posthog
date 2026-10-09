@@ -33,16 +33,14 @@ def _payload_delivery_id(data: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
 
 
-def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
-    """Resolve team ID from a GitHub App installation ID.
-
-    Returns (team_id, github_enabled). team_id is None if no team has this
-    installation connected for conversations.
+def _teams_for_github_installation(external_id: str, repo: str) -> list[int]:
+    """Resolve every team that monitors `repo` through a GitHub App installation.
 
     Multiple teams can share the same GitHub App installation ID (the unique
-    constraint is per-team). We iterate all matches and only accept the one
-    whose conversations_settings.github_integration_id explicitly points back
-    to the Integration row, ensuring deterministic routing.
+    constraint is per-team), and each team monitors its own repositories, so
+    every match gets the event. A team only counts if its
+    conversations_settings.github_integration_id explicitly points back to the
+    Integration row.
 
     A cancelled statement raises, because a lookup that never finished is not an answer.
     """
@@ -51,18 +49,18 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
             Integration.objects.filter(kind="github", integration_id=external_id).select_related("team").order_by("id")
         )
 
+    team_ids: list[int] = []
     for integration in integrations:
         settings_dict = integration.team.conversations_settings or {}
         if not settings_dict.get("github_enabled", False):
             continue
-        expected_integration_id = settings_dict.get("github_integration_id")
-        if expected_integration_id is not None and expected_integration_id != integration.id:
+        if settings_dict.get("github_integration_id") != integration.id:
             continue
-        if expected_integration_id is None:
+        if repo not in settings_dict.get("github_repos", []):
             continue
-        return integration.team_id, True
+        team_ids.append(integration.team_id)
 
-    return None, False
+    return team_ids
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:
@@ -73,20 +71,20 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
         logger.warning("github_issues_webhook_no_installation")
         return
 
+    repo = payload.get("repository", {}).get("full_name", "")
     # Unguarded on purpose: a timed-out lookup fails the delivery, so the dispatcher releases the
     # dedup mark and a redelivery reaches this consumer instead of the event being lost.
-    team_id, github_enabled = _team_for_github_installation(external_id)
-    if not (team_id and github_enabled):
-        # Quiet on purpose, because this is the normal case. Each region runs its own GitHub App,
-        # so this endpoint only ever receives its own installations, and an installation no team
-        # here has connected simply has the GitHub Issues channel off.
-        return
-
-    cast(Any, process_github_event).delay(
-        event_type=delivery.event_type,
-        action=payload.get("action", ""),
-        payload=payload,
-        delivery_id=delivery.delivery_id or _payload_delivery_id(payload),
-        team_id=team_id,
-        repo=payload.get("repository", {}).get("full_name", ""),
-    )
+    team_ids = _teams_for_github_installation(external_id, repo)
+    # Quiet on purpose when the list is empty, because this is the normal case. Each region runs
+    # its own GitHub App, so this endpoint only ever receives its own installations, and an
+    # installation no team here has connected simply has the GitHub Issues channel off.
+    delivery_id = delivery.delivery_id or _payload_delivery_id(payload)
+    for team_id in team_ids:
+        cast(Any, process_github_event).delay(
+            event_type=delivery.event_type,
+            action=payload.get("action", ""),
+            payload=payload,
+            delivery_id=delivery_id,
+            team_id=team_id,
+            repo=repo,
+        )

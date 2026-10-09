@@ -26,14 +26,19 @@ SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:github:event:"
 
 
-def _is_duplicate_github_event(delivery_id: str) -> bool:
-    key = f"{SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX}{delivery_id}"
-    return cache.get(key) is not None
+def _github_event_idempotency_key(team_id: int, delivery_id: str) -> str:
+    # One delivery fans out to every team that monitors the repository, so the key is per team.
+    return f"{SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX}{team_id}:{delivery_id}"
 
 
-def _mark_github_event_processed(delivery_id: str) -> None:
-    key = f"{SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX}{delivery_id}"
-    cache.set(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+def _is_duplicate_github_event(team_id: int, delivery_id: str) -> bool:
+    return cache.get(_github_event_idempotency_key(team_id, delivery_id)) is not None
+
+
+def _mark_github_event_processed(team_id: int, delivery_id: str) -> None:
+    cache.set(
+        _github_event_idempotency_key(team_id, delivery_id), True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS
+    )
 
 
 def _find_github_ticket(team_id: int, repo: str, issue_number: int) -> Ticket | None:
@@ -109,8 +114,8 @@ def process_github_event(
     repo: str,
 ) -> None:
     """Process an inbound GitHub webhook event for the Issues channel."""
-    if delivery_id and _is_duplicate_github_event(delivery_id):
-        logger.info("github_event_duplicate_skipped", delivery_id=delivery_id)
+    if delivery_id and _is_duplicate_github_event(team_id, delivery_id):
+        logger.info("github_event_duplicate_skipped", delivery_id=delivery_id, team_id=team_id)
         return
 
     try:
@@ -138,7 +143,7 @@ def process_github_event(
         raise cast(Any, process_github_event).retry(exc=e)
 
     if delivery_id:
-        _mark_github_event_processed(delivery_id)
+        _mark_github_event_processed(team_id, delivery_id)
 
 
 def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict[str, Any]) -> None:
