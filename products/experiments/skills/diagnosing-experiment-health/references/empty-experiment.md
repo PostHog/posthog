@@ -86,8 +86,9 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
   The total is 0 because of that only when every exposure is younger than 15 minutes.
 
-<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS, DEFAULT_EXPOSURE_TTL_SECONDS and
-ExperimentResultsCacheMixin in products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
+<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
+products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in
+products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
 products/experiments/backend/hogql_queries/utils.py (the per-variant floor); NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES and
 EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS in products/experiments/frontend/constants.ts (the forced page read); MIN_EXPERIMENT_AGE and
 MIN_TOTAL_EXPOSURES in products/experiments/backend/temporal/scheduled_recalculation_logic.py. Verify before citing. -->
