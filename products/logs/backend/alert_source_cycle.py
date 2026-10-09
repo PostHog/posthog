@@ -617,10 +617,15 @@ def _labels_of(grouping_key: str) -> dict[str, str] | None:
 
 
 def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
-    unknown = set(check.grouping.keys) - GROUPABLE_LOGS_COLUMNS
-    if check.grouping.mode == GroupingMode.SINGLE or not unknown:
+    if check.grouping.mode == GroupingMode.SINGLE:
         return None
-    return f"A logs alert can only group by {', '.join(sorted(GROUPABLE_LOGS_COLUMNS))}"
+    if set(check.grouping.keys) - GROUPABLE_LOGS_COLUMNS:
+        return f"A logs alert can only group by {', '.join(sorted(GROUPABLE_LOGS_COLUMNS))}"
+    # A group with no matching log returns no row, so a service gone silent, the case a `below`
+    # alert exists for, is never seen unless it was already open.
+    if check.condition.get("threshold_operator") != LogsAlertConfiguration.ThresholdOperator.ABOVE:
+        return "A grouped logs alert can only alert above a threshold"
+    return None
 
 
 @frozen
@@ -675,7 +680,11 @@ def _evaluate_grouped(
     counts = {grouping_key_of(group.labels): group for group in result.groups}
     existing = {instance.grouping_key for instance in check.instances}
     verdicts: list[_GroupVerdict] = []
-    for key in [*counts, *(key for key in open_keys if key not in counts)]:
+    # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
+    # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
+    truncated = len(result.groups) >= len(open_keys) + check.grouping.max_instances
+    absent = [key for key in open_keys if key not in counts and not (truncated and _labels_of(key) is None)]
+    for key in [*counts, *absent]:
         group = counts.get(key)
         buckets = group.counts if group is not None else result.zero_counts()
         current_breached, *prior_windows_breached = _derive_breaches(

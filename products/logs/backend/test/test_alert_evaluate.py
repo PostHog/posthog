@@ -290,6 +290,21 @@ class TestLogsAlertEvaluation(APIBaseTest):
             )
             return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
 
+    def test_an_open_group_with_a_hashed_key_resolves_only_when_the_query_was_not_cut(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=1)
+        configuration = self._configuration(grouping=grouping.to_stored())
+        long_name = "checkout-" * 40
+        self._record(self._run_grouped(configuration, {long_name: 500}))
+
+        def run_after(counts: dict[str, int]) -> dict[str, AlertEventKind]:
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+            (outcome,) = self._run_grouped(configuration, counts).outcomes
+            return {group.labels.get("service_name", group.grouping_key[:7]): group.kind for group in outcome.groups}
+
+        assert run_after({"api": 600, "web": 550}) == {}
+        assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
+
     def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
         configuration = self._configuration(grouping=grouping.to_stored())
@@ -324,10 +339,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
+            ("grouped_by_an_attribute", {"condition": CONDITION}, ("http.route",)),
+            ("grouped_below", {"condition": {**CONDITION, "threshold_operator": "below"}}, ("service_name",)),
         ]
     )
-    def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
-        configuration = self._configuration(source_config=source_config)
+    def test_a_broken_config_stops_being_discovered(
+        self, _name: str, source_config: dict[str, Any], grouping_keys: tuple[str, ...] = ()
+    ) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=grouping_keys) if grouping_keys else Grouping()
+        configuration = self._configuration(source_config=source_config, grouping=grouping.to_stored())
 
         evaluation, query = self._run(configuration)
         self._record(evaluation)
