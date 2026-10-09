@@ -3044,6 +3044,7 @@ describe('experimentLogic', () => {
                 expected: {
                     health_ui: 'panel',
                     health_finding_codes: ['flag_off_while_running'],
+                    health_finding_subcodes: ['flag_off_while_running:running_but_flag_disabled'],
                     health_finding_count: 1,
                     flag_state_browser: null,
                     flag_state_server: 'running_but_flag_disabled',
@@ -3070,6 +3071,7 @@ describe('experimentLogic', () => {
                 expected: {
                     health_ui: 'warnings',
                     health_finding_codes: null,
+                    health_finding_subcodes: null,
                     health_finding_count: null,
                     flag_state_browser: 'running_but_flag_disabled',
                     flag_state_server: null,

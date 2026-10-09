@@ -136,6 +136,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
@@ -1125,6 +1126,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "ranking_pr_created_score",
         "ranking_action": "ranking_action_score",
         "ranking_open": "ranking_open_score",
+        "ranking_fixed": "ranking_fixed_score",
+        "ranking_discuss": "ranking_discuss_score",
+        "ranking_thumbs_up": "ranking_thumbs_up_score",
+        "ranking_reviewer_fix": "ranking_reviewer_fix_score",
+        "ranking_refund": "ranking_refund_score",
+        "ranking_dismiss_wrong": "ranking_dismiss_wrong_score",
+        "ranking_dismiss_lowvalue": "ranking_dismiss_lowvalue_score",
     }
     # Ordering field to the outcome head it reads from the served model of the latest ranking score.
     _RANKING_ORDERING_HEADS: dict[str, str] = {
@@ -1132,6 +1140,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "pr_created",
         "ranking_action": "action",
         "ranking_open": "open",
+        "ranking_fixed": "fixed",
+        "ranking_discuss": "discuss",
+        "ranking_thumbs_up": "thumbs_up",
+        "ranking_reviewer_fix": "reviewer_fix",
+        "ranking_refund": "refund",
+        "ranking_dismiss_wrong": "dismiss_wrong",
+        "ranking_dismiss_lowvalue": "dismiss_lowvalue",
     }
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -2313,7 +2328,8 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
+                    "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
+                    "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They are staff only: other users get a 400."
                 ),
@@ -2683,7 +2699,7 @@ class SignalReportViewSet(
 
         # Hide the report from the list immediately while signal deletion continues asynchronously.
         updated_fields = report.transition_to(SignalReport.Status.DELETED)
-        report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+        report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
@@ -3310,10 +3326,11 @@ class SignalReportViewSet(
                 # superseded and the receiver closes it. The PR-merge webhook resolves through
                 # transition_to directly and never sets this, so a merged PR is left alone.
                 report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
-                # Name the caller in the comments the receiver leaves on the linked pull request
-                # and tracker issue. An external agent keeps its user principal, so it names the
-                # person who ran it rather than nobody.
-                report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+                # Name the caller in the status-change label and in the comments the receiver leaves
+                # on the linked pull request and tracker issue. An external agent keeps its user
+                # principal, so it names the person who ran it rather than nobody.
+                report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
+                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
@@ -3372,6 +3389,8 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+                if already_holds_verdict:
+                    capture_verdict_reason_added_analytics(report)
 
         # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
         # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so
@@ -3613,7 +3632,7 @@ class SignalReportViewSet(
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
-                report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
+                report._transition_actor = attribution  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
                 team_id=self.team.id,
