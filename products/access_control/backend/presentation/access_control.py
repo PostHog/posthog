@@ -40,9 +40,8 @@ from products.access_control.backend.facade.user_access_control import (
     ordered_access_levels,
     resource_to_display_name,
 )
-from products.access_control.backend.logic import can_write_access_rules, managed_access_config
+from products.access_control.backend.logic import can_write_access_rules
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.team_access_control_config import TeamAccessControlConfig
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -254,20 +253,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-MANAGED_ACCESS_RULES_MESSAGE = (
+TERRAFORM_MANAGED_MESSAGE = (
     "Access control for this project is managed by Terraform. Change it in your Terraform configuration."
 )
-
-
-def managed_by_payload(config: TeamAccessControlConfig | None) -> dict[str, Any] | None:
-    """The managing account for a payload, or None while the UI manages the rules."""
-    if config is None or config.managed_by is None:
-        return None
-    return {
-        "membership_id": config.managed_by.id,
-        "email": config.managed_by.user.email,
-        "managed_at": config.managed_at,
-    }
 
 
 def apply_access_control_rule(
@@ -285,9 +273,9 @@ def apply_access_control_rule(
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
 
-    # Every rule write goes through here, so this one check makes a managed project read-only
-    if not can_write_access_rules(managed_access_config(team.id), user):
-        raise exceptions.PermissionDenied(MANAGED_ACCESS_RULES_MESSAGE)
+    # Every rule write goes through here. When Terraform manages the project, only its account may write.
+    if not can_write_access_rules(team.id, user):
+        raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
         team=team,
@@ -436,7 +424,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = user_access_control.get_user_access_level(obj)
-        managed_config = managed_access_config(team.id)
 
         payload: dict[str, Any] = {
             "access_controls": serializer.data,
@@ -449,8 +436,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
             "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj)
-            and can_write_access_rules(managed_config, cast(User, request.user)),
-            "managed_by": managed_by_payload(managed_config),
+            and can_write_access_rules(team.id, cast(User, request.user)),
         }
 
         if not is_resource_level:

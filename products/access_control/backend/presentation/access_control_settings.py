@@ -58,16 +58,11 @@ from products.access_control.backend.facade.user_access_control import (
     minimum_access_level,
     ordered_access_levels,
 )
-from products.access_control.backend.logic import can_write_access_rules, managed_access_config
+from products.access_control.backend.logic import can_write_access_rules
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 
-from .access_control import (
-    AccessControlSerializer,
-    apply_access_control_rule,
-    managed_by_payload,
-    upsert_access_control,
-)
+from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
     AccessControlMemberRuleRequestSerializer,
@@ -304,13 +299,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             for r in ACCESS_CONTROL_RESOURCES
         }
 
-        managed_config = managed_access_config(team.id)
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
-            and can_write_access_rules(managed_config, cast(User, request.user)),
-            "managed_by": managed_by_payload(managed_config),
+            and can_write_access_rules(team.id, cast(User, request.user)),
             "project_access_level": project_access_level,
             "resource_access_levels": resource_access_levels,
             # The resources the settings UI can search and rule on; every entry works with
@@ -373,13 +366,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
-        managed_config = managed_access_config(team.id)
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
-            and can_write_access_rules(managed_config, cast(User, request.user)),
-            "managed_by": managed_by_payload(managed_config),
+            and can_write_access_rules(team.id, cast(User, request.user)),
             "results": results,
         }
         return Response(AccessControlRolesResponseSerializer(payload).data)
@@ -415,9 +406,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("member_id"):
             memberships = memberships.filter(id=self._get_membership(request, team).id)
 
-        managed_config = managed_access_config(team.id)
         can_edit = user_access_control.check_can_modify_access_levels_for_object(team) and can_write_access_rules(
-            managed_config, cast(User, request.user)
+            team.id, cast(User, request.user)
         )
         hide_non_project_members = (
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
@@ -463,7 +453,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": can_edit,
-            "managed_by": managed_by_payload(managed_config),
             "results": results,
         }
         return Response(AccessControlMembersResponseSerializer(payload).data)

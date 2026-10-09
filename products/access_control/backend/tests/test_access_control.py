@@ -304,7 +304,6 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_access_level": "manager",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
-            "managed_by": None,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
             # No rule anywhere above this notebook, so the resource's built-in default applies
@@ -3074,13 +3073,11 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
             ("access_control_members",),
         ]
     )
-    def test_payloads_say_who_manages_and_turn_off_editing(self, action):
+    def test_payloads_turn_off_editing_for_everyone_but_the_terraform_account(self, action):
         response = self.client.get(f"/api/projects/@current/{action}")
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["can_edit"] is False
-        assert body["managed_by"]["email"] == "terraform@example.com"
-        assert body["managed_by"]["membership_id"] == str(self.terraform_membership.id)
 
         self.client.force_login(self.terraform_user)
         body = self.client.get(f"/api/projects/@current/{action}").json()
@@ -3090,7 +3087,6 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         body = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/access_controls").json()
         assert body["user_can_edit_access_levels"] is False
-        assert body["managed_by"]["email"] == "terraform@example.com"
 
     def test_deleting_a_role_with_rules_in_a_managed_project_is_refused(self):
         role = Role.objects.create(name="Flag editors", organization=self.organization)

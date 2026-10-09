@@ -18,7 +18,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
-from products.access_control.backend.logic import managed_team_blocking_role_delete
+from products.access_control.backend.logic import terraform_managed_team_with_role_rules
 from products.access_control.backend.models.role import Role, RoleMembership
 
 if TYPE_CHECKING:
@@ -148,7 +148,7 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         return context
 
     def perform_destroy(self, instance: Role) -> None:
-        team = managed_team_blocking_role_delete(instance, cast(User, self.request.user))
+        team = terraform_managed_team_with_role_rules(instance, cast(User, self.request.user))
         if team is not None:
             raise PermissionDenied(
                 f"Access control for {team.name} is managed by Terraform and this role has rules there. "
