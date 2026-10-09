@@ -70,6 +70,7 @@ describe('metrics ingestion steps', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value).toMatchObject({
+                    kafkaHeaders: { token: 'tok', bytes_uncompressed: '120', record_count: '3' },
                     token: 'tok',
                     bytesUncompressed: 120,
                     bytesCompressed: 0,
@@ -206,11 +207,10 @@ describe('metrics ingestion steps', () => {
     describe('produceMetricsStep', () => {
         let outputs: jest.Mocked<ReturnType<typeof createMockIngestionOutputs<MetricsOutput | DlqOutput>>>
         const value = Buffer.from('opaque avro packet')
+        const kafkaHeaders = { token: 'tok', record_count: '3', 'retention-days': '7', batch_uuid: 'b1' }
         const input = {
-            message: createTestMessage({
-                value,
-                headers: toHeaders({ token: 'tok', record_count: '3', 'retention-days': '7', batch_uuid: 'b1' }),
-            }),
+            message: createTestMessage({ value, headers: toHeaders(kafkaHeaders) }),
+            kafkaHeaders,
             token: 'tok',
             teamId: 7,
             bytesUncompressed: 300,

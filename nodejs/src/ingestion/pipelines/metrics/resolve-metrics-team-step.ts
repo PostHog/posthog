@@ -12,7 +12,7 @@ export function createResolveMetricsTeamStep<T extends { token: string }>(
     return async function resolveMetricsTeamStep(input) {
         let team
         try {
-            if (isDevEnv() && input.token === 'phc_local') {
+            if (input.token === 'phc_local' && isDevEnv()) {
                 // phc_local is a special token used in dev to refer to team 1
                 team = await teamManager.getTeam(1)
             } else {

@@ -1,19 +1,19 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer'
 import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { retryIfRetriable } from '~/common/utils/retries'
 import { produceMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
+import { retryAfterFirstFailure } from './metrics-retry'
 import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 
 export interface ProduceMetricsInput {
     message: Message
+    kafkaHeaders: Record<string, string>
     token: string
     teamId: number
     bytesUncompressed: number
@@ -44,13 +44,13 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
         }
 
         const headers = { token: input.token, team_id: teamIdLabel }
-        const produced = retryIfRetriable(
+        const produced = retryAfterFirstFailure(
             () =>
                 outputs.produce(METRICS_OUTPUT, {
                     value,
                     key: null,
                     headers: {
-                        ...parseKafkaHeaders(input.message.headers),
+                        ...input.kafkaHeaders,
                         ...headers,
                         'retention-days': DEFAULT_METRICS_RETENTION_DAYS.toString(),
                     },

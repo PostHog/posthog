@@ -8,6 +8,8 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { metricMessageDroppedCounter } from './metrics'
 
 export interface MetricsHeaders {
+    /** All Kafka headers as strings, so later steps do not parse them again. */
+    kafkaHeaders: Record<string, string>
     token: string
     bytesUncompressed: number
     bytesCompressed: number
@@ -56,7 +58,9 @@ export function createParseMetricsHeadersStep<T extends { message: Message }>():
                 metricMessageDroppedCounter.inc({ reason: 'invalid_size_header', team_id: 'unknown' })
                 return Promise.resolve(drop('invalid_size_header'))
             }
-            return Promise.resolve(ok({ ...input, token, bytesUncompressed, bytesCompressed, recordCount }))
+            return Promise.resolve(
+                ok({ ...input, kafkaHeaders: headers, token, bytesUncompressed, bytesCompressed, recordCount })
+            )
         } catch (e) {
             logger.error('Error parsing message', e)
             metricMessageDroppedCounter.inc({ reason: 'parse_error', team_id: 'unknown' })

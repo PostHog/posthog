@@ -10,18 +10,12 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
-import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { MetricsUsageBatchContext } from './metrics-usage'
-import {
-    createEmitMetricsUsageStep,
-    createMetricsUsageBeforeBatchStep,
-    createRecordMetricsReceivedStep,
-} from './metrics-usage-steps'
+import { createEmitMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'
 import { MetricsOutput } from './outputs/outputs'
-import { createParseMetricsHeadersStep } from './parse-metrics-headers-step'
+import { createPrepareMetricsMessageStep, perMessage } from './prepare-metrics-message-step'
 import { createProduceMetricsStep } from './produce-metrics-step'
 import { createRateLimitMetricsStep } from './rate-limit-metrics-step'
-import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsMessageContext, MetricsPipelineInput } from './types'
 
@@ -52,6 +46,9 @@ export type MetricsIngestionPipeline = BatchingPipeline<
  * 2. Whole batch: one Redis round trip for the token-bucket rate limit.
  * 3. Per message, concurrently: produce the Avro packet to ClickHouse as is,
  *    as a side effect, so the next batch does not wait for the acks.
+ *
+ * Every stage is a chunk step (see `perMessage`), so the framework instruments
+ * each stage once per batch, not once per message.
  * 4. After the batch: emit Prometheus counters and billing rows from the tally.
  */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
@@ -73,18 +70,9 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
             batch
                 .messageAware((b) =>
                     b
-                        .concurrently((b) =>
-                            b
-                                .pipe(createParseMetricsHeadersStep())
-                                .pipe(createResolveMetricsTeamStep(teamManager), {
-                                    retry: { tries: 3, sleepMs: 100, name: 'resolve_metrics_team' },
-                                })
-                                .pipe(createRecordMetricsReceivedStep())
-                                .pipe(createDropQuotaLimitedStep(quotaLimiting))
-                        )
-                        .gather()
+                        .pipeChunk(perMessage(createPrepareMetricsMessageStep(teamManager, quotaLimiting)))
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
-                        .concurrently((b) => b.pipe(createProduceMetricsStep(outputs)))
+                        .pipeChunk(perMessage(createProduceMetricsStep(outputs)))
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, sideEffects),
