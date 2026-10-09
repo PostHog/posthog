@@ -35,6 +35,7 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
 
@@ -1934,10 +1935,7 @@ class FeatureFlagSerializer(
         try:
             config_writes.reject_duplicate_json_keys(body)
         except ConfigValidationError as exc:
-            # The repeated key can be anywhere in the body, so no field owns the error.
-            raise serializers.ValidationError(
-                [ErrorDetail(error.detail, code=error.code) for error in exc.errors]
-            ) from exc
+            raise self._v2_validation_error(exc) from exc
 
     @staticmethod
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
@@ -1949,11 +1947,13 @@ class FeatureFlagSerializer(
         handler renders the first key, which is the validator's first error. The details never echo
         config values, seeds or metadata. An unknown field's path ends in the client's key name, which
         can itself read as a real field's path, so that error is keyed by `filters` and its path goes
-        in the detail.
+        in the detail. An error with no path, such as a repeated key, renders with `attr: null`.
         """
         errors: dict[str, list[ErrorDetail]] = {}
         for error in exc.errors:
-            if error.code == "unknown_field":
+            if error.attr is None:
+                attr, detail = api_settings.NON_FIELD_ERRORS_KEY, error.detail
+            elif error.code == "unknown_field":
                 attr, detail = "filters", f"{error.attr}: {error.detail}"
             else:
                 attr, detail = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__"), error.detail
