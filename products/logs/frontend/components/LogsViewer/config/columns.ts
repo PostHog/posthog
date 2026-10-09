@@ -135,12 +135,7 @@ export function attributeLookupExpression(key: string): string {
     return `if(mapContains(attributes, '${escaped}'), attributes['${escaped}'], resource_attributes['${escaped}'])`
 }
 
-/**
- * Which map a custom column cell's filter actions target. This recognizes only the expressions
- * the app writes for an attribute column: `attributeLookupExpression`, and the `<prefix>.<key>`
- * shorthand from `taxonomicSelectionToColumn`. Any other expression keeps the log attribute
- * default, because the column name is not known to be a key in either map.
- */
+/** Only app-written attribute expressions tie `column.name` to a map key, so others keep the log attribute filter. */
 export function customColumnFilterType(
     column: LogsColumnConfig,
     attributes: Record<string, unknown> | undefined,
