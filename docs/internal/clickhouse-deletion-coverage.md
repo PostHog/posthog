@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal (with a HogQL predicate only for rows with an events copy, below), and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -215,15 +215,31 @@ The job finds typed columns through their comments in `system.columns`, not thro
 The rows age out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
 Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
 The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.
+The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
 
-### Event removal with a HogQL predicate does not reach `flag_evaluations`
+### Event removal with a HogQL predicate reaches `flag_evaluations` only through events copies
 
 `compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
 Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
 Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
-The dag refuses rather than guessing.
+The dag does not run the predicate on `flag_evaluations`.
 A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
-Deferred requests without a predicate are swept normally; deferred requests with one are refused if the table holds matching rows.
+
+A deferred request with a predicate reaches the table through `events` instead.
+A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
+`DeletionTarget.copied_from` records that relationship.
+The queue fill reads uuids from `sharded_events` with the full predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
+A flag row whose event the predicate does not name keeps its events copy and stays.
+
+That only works for a row that has an events copy.
+An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
+The gate therefore counts the matching rows that have no copy in `sharded_events`, shard-locally, and refuses the request when it finds any.
+Deferred requests without a predicate are swept normally, and read the table's own uuids into the queue.
+
+Verification of a deferred request with a predicate counts two sets of the table's rows: the rows whose uuids the request queued, and the rows with no copy in `sharded_events`.
+The second set keeps a request the gate refused, which queued nothing, from passing verification as a FAILED request.
+Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
+A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, survives the drain, and keeps the request in QUEUED.
 
 ## Producer prerequisite: person_id parity
 

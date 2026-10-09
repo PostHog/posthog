@@ -2544,6 +2544,111 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
     cluster.any_host(_truncate_adhoc_events_deletion).result()
 
 
+def _delete_uuid(table: str, uuid: UUID, client: Client) -> None:
+    client.execute(f"ALTER TABLE {table} DELETE WHERE uuid = %(uuid)s", {"uuid": uuid}, settings={"mutations_sync": 2})
+
+
+def _deferred_hogql_flag_request(name: str) -> tuple[DataDeletionRequest, DeletionRequestContext]:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    team = Team.objects.create(organization=Organization.objects.create(name=name), name=name)
+    now = datetime.now()
+    request = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.EVENT_REMOVAL,
+        delete_all_events=True,
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        hogql_predicate="properties.$browser = 'Chrome'",
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED.value,
+    )
+    assert request.start_time is not None and request.end_time is not None
+    ctx = DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=team.id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        events=[],
+        delete_all_events=True,
+        execution_mode=ExecutionMode.DEFERRED.value,
+        hogql_predicate=request.hogql_predicate,
+    )
+    return request, ctx
+
+
+@pytest.mark.django_db
+def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_through_event_uuids(
+    cluster: ClickhouseCluster,
+) -> None:
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-copies")
+    now = datetime.now()
+    chrome, firefox = uuid4(), uuid4()
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_properties,
+            [
+                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, '{"$browser": "Chrome"}'),
+                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, firefox, now, '{"$browser": "Firefox"}'),
+            ],
+        )
+    ).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [
+                (ctx.team_id, "", '{"$browser": "Chrome"}', str(chrome), now, now),
+                (ctx.team_id, "", '{"$browser": "Firefox"}', str(firefox), now, now),
+            ],
+        )
+    ).result()
+
+    try:
+        _run_event_deletion(cluster, ctx)
+        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome}
+
+        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
+        assert verify_queued_request(request).promoted is False
+
+        cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, chrome)).result()
+        assert verify_queued_request(request).promoted is True
+    finally:
+        cluster.any_host(_truncate_adhoc_events_deletion).result()
+        cluster.any_host(_truncate_flag_evaluations).result()
+
+
+@pytest.mark.django_db
+def test_deferred_event_removal_with_a_hogql_predicate_refuses_flag_rows_without_an_event(
+    cluster: ClickhouseCluster,
+) -> None:
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-no-copy")
+    now = datetime.now()
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+        )
+    ).result()
+
+    try:
+        with pytest.raises(dagster.Failure, match="have no copy in the events table"):
+            _run_event_deletion(cluster, ctx)
+
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        assert verify_queued_request(request).promoted is False
+    finally:
+        cluster.any_host(_truncate_flag_evaluations).result()
+
+
 @pytest.mark.django_db
 def test_get_property_removal_shards_refuses_a_hogql_predicate_when_flag_evaluations_holds_matching_rows(
     cluster: ClickhouseCluster,
