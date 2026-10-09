@@ -1,7 +1,9 @@
+from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from functools import lru_cache, partial
+from typing import TYPE_CHECKING, Optional, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -1200,85 +1202,50 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
-        from posthog.constants import AvailableFeature
-        from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
+        from posthog.user_permissions import (
+            UserTeamPermissions,  # noqa: PLC0415 - circular, user_permissions imports Team
+        )
 
         from products.access_control.backend.models.access_control import AccessControl
         from products.access_control.backend.models.role import RoleMembership
 
-        # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
-        # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.
-        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
+        project_rules = list(
+            AccessControl.objects.filter(team_id=self.id, resource="project").values(
+                "resource_id", "organization_member_id", "role_id", "access_level"
             )
-            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+        )
+        # Only roles that a rule on this team names can change an answer.
+        named_role_ids = {rule["role_id"] for rule in project_rules if rule["role_id"] is not None}
+        role_ids_by_user: dict[int, set[UUID]] = defaultdict(set)
+        if named_role_ids:
+            for user_id, role_id in (
+                RoleMembership.objects.filter(role_id__in=named_role_ids, role__organization_id=self.organization_id)
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                role_ids_by_user[user_id].add(role_id)
 
-        # First, check if the team is private
-        team_is_private = AccessControl.objects.filter(
-            team_id=self.id,
-            resource="project",
-            resource_id=str(self.id),
-            organization_member=None,
-            role=None,
-            access_level="none",
-        ).exists()
+        def role_ids_for(user_id: int) -> set[UUID]:
+            return role_ids_by_user.get(user_id, set())
 
-        if not team_is_private:
-            # If team is not private, all organization members have access
-            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
-            )
-        else:
-            # Team is private, need to check specific access
-
-            # Get all organization admins and owners
-            admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=self.organization_id,
-                level__gte=OrganizationMembership.Level.ADMIN,
-            ).values_list("user_id", flat=True)
-
-            # Get users with specific access control entries for this team
-            # First, get organization memberships with access to this team
-            org_memberships_with_access = AccessControl.objects.filter(
+        organization = self.organization
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=self.organization_id, user__is_active=True
+        ).only("id", "user_id", "level")
+        user_ids = [
+            membership.user_id
+            for membership in memberships
+            if UserTeamPermissions.resolve_membership_level(
+                organization=organization,
+                organization_membership=membership,
                 team_id=self.id,
-                resource="project",
-                resource_id=str(self.id),
-                organization_member__isnull=False,
-                access_level__in=["member", "admin"],
-            ).values_list("organization_member", flat=True)
-
-            # Then get the user IDs from those memberships
-            member_access_user_ids = OrganizationMembership.objects.filter(
-                id__in=org_memberships_with_access
-            ).values_list("user_id", flat=True)
-
-            # Role-backed access only contributes when the org has ROLE_BASED_ACCESS —
-            # same gate as the UI's "Roles" block on the project access settings page.
-            if self.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
-                roles_with_access = AccessControl.objects.filter(
-                    team_id=self.id,
-                    resource="project",
-                    resource_id=str(self.id),
-                    role__isnull=False,
-                    access_level__in=["member", "admin"],
-                ).values_list("role", flat=True)
-
-                role_user_ids = (
-                    RoleMembership.objects.filter(role_id__in=roles_with_access)
-                    .valid_for_authorization()
-                    .values_list("organization_member__user_id", flat=True)
-                    .distinct()
-                )
-            else:
-                # Empty queryset (not a list) so `.union()` keeps working.
-                role_user_ids = RoleMembership.objects.none().values_list("organization_member__user_id", flat=True)
-
-            # Union all sets of user IDs
-            user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
-
-        return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+                load_project_rules=lambda: project_rules,
+                load_role_ids=partial(role_ids_for, membership.user_id),
+            )
+            is not None
+        ]
+        return User.objects.filter(id__in=user_ids)
 
     def __str__(self):
         if self.name:
