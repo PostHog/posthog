@@ -142,7 +142,7 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         return None
 
     def _run_gates(self, repo: str) -> tuple[int, int] | Response:
-        """The shared trigger gates: owning project → authorized run user.
+        """The shared trigger gates: owning project in the dogfood allowlist → authorized run user.
 
         Returns `(team_id, user_id)` when every gate passes, else the error `Response` to return.
         (Shared-secret auth runs before body validation in each action, so it is not part of this.)
@@ -153,6 +153,11 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
                 {"error": f"Repository {repo} is not set up in PostHog Review"}, status=status.HTTP_403_FORBIDDEN
             )
         team_id = owner.team_id
+        # The shared token is not tied to a project, so it may only start runs in the dogfood projects.
+        if team_id not in settings.REVIEWHOG_TEAM_IDS:
+            return Response(
+                {"error": f"Repository {repo} is not set up in PostHog Review"}, status=status.HTTP_403_FORBIDDEN
+            )
 
         # The configured run user applies only where it is a member, so another project falls back
         # to its own run user.

@@ -28,7 +28,9 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.trigger_team = Team.objects.create(organization=self.organization, name="reviewhog trigger")
         self.run_user = User.objects.create(email="run-user@posthog.com")
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
-        self._settings_ctx = self.settings(REVIEWHOG_RUN_USER_ID=self.run_user.id)
+        self._settings_ctx = self.settings(
+            REVIEWHOG_RUN_USER_ID=self.run_user.id, REVIEWHOG_TEAM_IDS=[self.trigger_team.id, self.team.id]
+        )
         self._settings_ctx.enable()
         self._own(self.trigger_team, "PostHog/posthog", "PostHog/ai-gateway")
         # The busy-guard probes Temporal on every trigger; tests must never open real connections.
@@ -125,6 +127,18 @@ class TestReviewHogTriggerApi(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_owner_project_outside_dogfood_teams_is_rejected(self, mock_start):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self.client.post(
+                TRIGGER_URL,
+                {"repo": "PostHog/posthog", "pr_number": 1},
+                format="json",
+                HTTP_AUTHORIZATION="Bearer secret-token",
+            )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
 

@@ -837,7 +837,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
   core `installation_repositories` webhook keeps fresh.
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret).
-  The project that owns the repository runs and publishes the review. `REVIEWHOG_RUN_USER_ID` (optional) applies
+  The project that owns the repository runs and publishes the review, but only when that project is listed in
+  `REVIEWHOG_TEAM_IDS`, because the shared secret is not tied to a project. `REVIEWHOG_RUN_USER_ID` (optional) applies
   only where it is an active member; otherwise the run user is whoever connected the installation, then the
   oldest active member. Enabling manual project access requires no changes to these settings or the shared secret.
 - **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
@@ -847,7 +848,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   project rule (`ReviewProjectSettings.flash_for`: everyone except the excepted people, the listed people, or
   opt-in only, the default). Bot authors and authors who map to no active member get automatic Flash only when the
   project sets `bot_prs=run`; the review then runs as the user who connected the installation, with default
-  settings and no resolution. `REVIEWHOG_TEAM_IDS` no longer picks the project for any trigger.
+  settings and no resolution. `REVIEWHOG_TEAM_IDS` no longer picks the project for any trigger; it only limits the
+  label trigger to the listed owner projects.
 - **Internal UI features** use `show_internal_features` in the settings response, true only for the first
   `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
   show manual review and resolution without Flash or automation controls, except that saved Inbox or
