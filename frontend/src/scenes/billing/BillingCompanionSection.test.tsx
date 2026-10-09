@@ -44,6 +44,15 @@ const customRetention = ({ subscribed = true, onCurrentPlan = true } = {}): Bill
     projected_amount_usd: '30.25',
 })
 
+const limitedCompanion: BillingProductV2Type = {
+    ...customRetention(),
+    type: 'logs_limited_extra',
+    name: 'Logs limited extra',
+    no_billing_limit: undefined,
+    current_amount_usd: '40.00',
+    projected_amount_usd: '80.00',
+}
+
 const seedBilling = async (products: BillingProductV2Type[], overrides: Partial<BillingType> = {}): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, { ...billingJson, ...overrides, products }] } })
     billingLogic.mount()
@@ -95,6 +104,28 @@ describe('BillingCompanionSection', () => {
         )
 
         expect(container).toBeEmptyDOMElement()
+    })
+
+    it('renders nothing for a held companion that can have its own billing limit', async () => {
+        await seedBilling([logs, limitedCompanion])
+        const { container } = render(
+            <Provider>
+                <BillingCompanionSection product={logs} />
+            </Provider>
+        )
+
+        expect(container).toBeEmptyDOMElement()
+    })
+
+    it('shows and totals only the companion that cannot have a billing limit', async () => {
+        await seedBilling([logs, customRetention(), limitedCompanion])
+        renderSection(logs)
+
+        expect(screen.getByTestId('billing-companion-logs_retention_custom')).toBeInTheDocument()
+        expect(screen.queryByTestId('billing-companion-logs_limited_extra')).not.toBeInTheDocument()
+        expect(screen.getByTestId('billing-companions-total-logs')).toHaveTextContent(
+            'Total including this section: $112.50 month-to-date, $230.25 projected'
+        )
     })
 
     it('totals the parent at its projection capped by the billing limit', async () => {

@@ -148,11 +148,6 @@ export interface billingProductLogicValues {
     freeTier: number
     hasCustomLimitSet: boolean
     hedgehogSatisfied: boolean
-    heldCompanionAmounts: {
-        companion: BillingProductV2Type
-        currentAmount: number
-        projectedAmount: number
-    }[]
     heldCompanions: BillingProductV2Type[]
     isAddonProduct: boolean
     isBillingLimitInputSubmitting: boolean
@@ -165,6 +160,11 @@ export interface billingProductLogicValues {
     isProductWithVariants: boolean
     isProrated: boolean
     isSubscribedToAnotherAddon: boolean
+    noLimitCompanionAmounts: {
+        companion: BillingProductV2Type
+        currentAmount: number
+        projectedAmount: number
+    }[]
     productVariants: Array<{
         displayName: string
         key: string
@@ -515,7 +515,7 @@ export interface billingProductLogicMeta {
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
         ) => BillingProductV2Type[]
-        heldCompanionAmounts: (
+        noLimitCompanionAmounts: (
             heldCompanions: BillingProductV2Type[],
             combinedMonetaryData: {
                 billingLimit: number | null
@@ -539,7 +539,7 @@ export interface billingProductLogicMeta {
                 rawCurrentTotal: string
                 rawProjectedTotal: string
             },
-            heldCompanionAmounts: {
+            noLimitCompanionAmounts: {
                 companion: BillingProductV2Type
                 currentAmount: number
                 projectedAmount: number
@@ -1148,30 +1148,35 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 product: BillingProductV2Type | BillingProductV2AddonType
             ): BillingProductV2Type[] => getHeldCompanions(billing?.products, product.type),
         ],
-        heldCompanionAmounts: [
+        noLimitCompanionAmounts: [
             (s) => [s.heldCompanions, s.combinedMonetaryData],
             (
                 heldCompanions: BillingProductV2Type[],
                 monetaryData: { discountPercent: number }
             ): { companion: BillingProductV2Type; currentAmount: number; projectedAmount: number }[] => {
                 const discountMultiplier = 1 - monetaryData.discountPercent / 100
-                return heldCompanions.map((companion) => ({
-                    companion,
-                    currentAmount: roundToCents(parseFloat(companion.current_amount_usd || '0') * discountMultiplier),
-                    projectedAmount: roundToCents(
-                        parseFloat(companion.projected_amount_usd || '0') * discountMultiplier
-                    ),
-                }))
+                // A companion that can have its own billing limit gets its own look later.
+                return heldCompanions
+                    .filter((companion) => !canHaveBillingLimit(companion))
+                    .map((companion) => ({
+                        companion,
+                        currentAmount: roundToCents(
+                            parseFloat(companion.current_amount_usd || '0') * discountMultiplier
+                        ),
+                        projectedAmount: roundToCents(
+                            parseFloat(companion.projected_amount_usd || '0') * discountMultiplier
+                        ),
+                    }))
             },
         ],
         totalsIncludingCompanions: [
-            (s) => [s.combinedMonetaryData, s.heldCompanionAmounts],
+            (s) => [s.combinedMonetaryData, s.noLimitCompanionAmounts],
             (
                 monetaryData: { currentTotal: number; projectedTotal: number },
-                heldCompanionAmounts: { currentAmount: number; projectedAmount: number }[]
+                noLimitCompanionAmounts: { currentAmount: number; projectedAmount: number }[]
             ): { currentTotal: number; projectedTotal: number } =>
                 // Sum the amounts as the card shows them, in cents, so the total matches the figures above it.
-                heldCompanionAmounts.reduce(
+                noLimitCompanionAmounts.reduce(
                     (totals, amounts) => ({
                         currentTotal: totals.currentTotal + amounts.currentAmount,
                         projectedTotal: totals.projectedTotal + amounts.projectedAmount,

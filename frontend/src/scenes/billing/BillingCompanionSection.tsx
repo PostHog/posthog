@@ -17,12 +17,12 @@ import { BillingProductPricingTable } from './BillingProductPricingTable'
 // Companions bill under the parent card but outside its billing limit, so the card's own amounts leave them out.
 export const BillingCompanionSection = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { billing, isUnlicensedDebug } = useValues(billingLogic)
-    const { heldCompanionAmounts, totalsIncludingCompanions, variantExpandedStates } = useValues(
+    const { noLimitCompanionAmounts, totalsIncludingCompanions, variantExpandedStates } = useValues(
         billingProductLogic({ product })
     )
     const { toggleVariantExpanded } = useActions(billingProductLogic({ product }))
 
-    if (isUnlicensedDebug || heldCompanionAmounts.length === 0) {
+    if (isUnlicensedDebug || noLimitCompanionAmounts.length === 0) {
         return null
     }
 
@@ -35,7 +35,7 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
                 </p>
             )}
             <div className="space-y-4 mt-4">
-                {heldCompanionAmounts.map(({ companion, currentAmount, projectedAmount }) => {
+                {noLimitCompanionAmounts.map(({ companion, currentAmount, projectedAmount }) => {
                     const isExpanded = !!variantExpandedStates?.[companion.type]
                     const displayName = billingProductRowDisplayName(companion)
                     return (

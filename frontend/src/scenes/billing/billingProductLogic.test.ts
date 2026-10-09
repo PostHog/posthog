@@ -227,6 +227,24 @@ describe('billingProductLogic', () => {
             expect(logic.values.combinedMonetaryData).toMatchObject({ currentTotal: 90, projectedTotal: 180 })
             expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 99, projectedTotal: 198 })
         })
+
+        it('leaves a held companion that can have its own billing limit out of the amounts and the total', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                { ...companion('logs_limited_extra', 'logs', true), no_billing_limit: undefined },
+            ])
+            const logic = mountLogs()
+
+            expect(logic.values.heldCompanions.map((p) => p.type)).toEqual([
+                'logs_retention_custom',
+                'logs_limited_extra',
+            ])
+            expect(logic.values.noLimitCompanionAmounts.map(({ companion }) => companion.type)).toEqual([
+                'logs_retention_custom',
+            ])
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 110, projectedTotal: 220 })
+        })
     })
 
     describe('unsubscribe survey state', () => {
