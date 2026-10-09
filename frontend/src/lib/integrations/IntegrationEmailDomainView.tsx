@@ -38,7 +38,11 @@ export function IntegrationEmailDomainView({
 
     const makeDefault = (integrationId: number): void => {
         updateCurrentTeam({
-            workflows_config: { ...currentTeam?.workflows_config, default_email_integration_id: integrationId },
+            workflows_config: {
+                capture_workflows_engagement_events:
+                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
+                default_email_integration_id: integrationId,
+            },
         })
         // pinned: analytics event name
         posthog.capture('workflows default email sender set', { had_default: defaultSenderId !== null })
