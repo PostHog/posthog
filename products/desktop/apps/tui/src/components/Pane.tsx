@@ -237,6 +237,7 @@ export function Pane({
             lastTurn: null,
             turnStartedAt: null,
             wake: null,
+            modes: null,
           },
     [task, local, view.entries],
   );
