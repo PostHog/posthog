@@ -29966,6 +29966,10 @@
                 },
                 "start": {
                     "$ref": "#/definitions/integer"
+                },
+                "url": {
+                    "description": "An https page with more detail about the notice. The editor links to it from the notice's hover.",
+                    "type": "string"
                 }
             },
             "required": ["message"],
