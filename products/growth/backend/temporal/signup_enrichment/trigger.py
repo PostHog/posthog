@@ -67,7 +67,7 @@ def start_signup_enrichment_workflow(
     if not domain:
         return
 
-    work_email = gates.is_company_email(email)
+    work_email = gates.is_work_email(email)
     _record_work_email(
         organization_id=str(organization_id), work_email=work_email, signup_role=role_at_organization or None
     )

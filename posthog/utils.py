@@ -1820,7 +1820,10 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(email[(at_location + 1) :])
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the

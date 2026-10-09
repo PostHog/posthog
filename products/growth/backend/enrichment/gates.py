@@ -43,12 +43,17 @@ def domain_from_email(email: str) -> str | None:
     return domain or None
 
 
-def is_company_email(email: str) -> bool:
+def is_work_domain(domain: str) -> bool:
+    domain = domain.strip().lower()
+    return bool(domain) and domain not in _NON_COMPANY_DOMAINS and not _generic_emails.is_generic_domain(domain)
+
+
+def is_work_email(email: str) -> bool:
     domain = domain_from_email(email)
-    return domain is not None and domain not in _NON_COMPANY_DOMAINS and not _generic_emails.is_generic(email)
+    return domain is not None and is_work_domain(domain)
 
 
-SignupIdentitySkipReason = Literal["signup_user_left", "no_usable_member", "not_company_email"]
+SignupIdentitySkipReason = Literal["signup_user_left", "no_usable_member", "not_work_email"]
 
 
 @frozen
@@ -78,6 +83,6 @@ def resolve_signup_identity(organization_id: str) -> SignupIdentity | SignupIden
     if user is None or not user.distinct_id or not domain:
         return SignupIdentitySkip(reason="no_usable_member")
     # The signup user's email can have changed since signup, so re-check it's a work email.
-    if not is_company_email(user.email):
-        return SignupIdentitySkip(reason="not_company_email")
+    if not is_work_email(user.email):
+        return SignupIdentitySkip(reason="not_work_email")
     return SignupIdentity(distinct_id=user.distinct_id, domain=domain)
