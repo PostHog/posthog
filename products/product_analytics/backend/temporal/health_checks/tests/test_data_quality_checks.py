@@ -11,46 +11,33 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.temporal.health_checks.duplicate_pageviews import DuplicatePageviewsCheck
-from products.product_analytics.backend.temporal.health_checks.non_user_traffic import NonUserTrafficCheck
+from products.product_analytics.backend.temporal.health_checks.local_development_traffic import (
+    LocalDevelopmentTrafficCheck,
+)
 from products.product_analytics.backend.temporal.health_checks.stopped_funnel_steps import StoppedFunnelStepsCheck
 
-BOT_USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-BROWSER_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 HOST_FILTER = {"key": "$host", "type": "event", "operator": "not_regex", "value": "localhost"}
-BOT_FILTER = {"key": "$virt_is_bot", "type": "event", "operator": "exact", "value": ["false"]}
 
 
-class TestNonUserTrafficCheck(ClickhouseTestMixin, BaseTest):
+class TestLocalDevelopmentTrafficCheck(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("no_filters", [], ["local_development", "bots"]),
-            ("local_hosts_filtered", [HOST_FILTER], ["bots"]),
-            ("bots_filtered", [BOT_FILTER], ["local_development"]),
+            ("mostly_local", 60, 80, [], "warning"),
+            ("rarely_local", 60, 6000, [], "info"),
+            ("local_hosts_filtered", 60, 80, [HOST_FILTER], None),
         ]
     )
-    def test_flags_each_kind_of_non_user_traffic_the_internal_filter_misses(self, _name, filters, expected_reasons):
+    def test_flags_local_pageviews_the_internal_filter_misses(self, _name, local, other, filters, expected_severity):
         self.team.test_account_filters = filters
         self.team.save()
-        for i, (host, user_agent) in enumerate(
-            [("localhost:3000", BROWSER_USER_AGENT)] * 60
-            + [("example.com", BOT_USER_AGENT)] * 60
-            + [("example.com", BROWSER_USER_AGENT)] * 80
-        ):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=f"person{i}",
-                properties={"$host": host, "$raw_user_agent": user_agent},
-            )
+        for i, host in enumerate(["localhost:3000"] * local + ["example.com"] * other):
+            _create_event(team=self.team, event="$pageview", distinct_id=f"person{i}", properties={"$host": host})
         flush_persons_and_events()
 
-        issues = NonUserTrafficCheck().detect([self.team.id])
+        issues = LocalDevelopmentTrafficCheck().detect([self.team.id])
 
-        payloads = [result.payload for result in issues.get(self.team.id, [])]
-        self.assertEqual([payload["reason"] for payload in payloads], expected_reasons)
-        self.assertTrue(
-            all(payload["matching_pageviews"] == 60 and payload["pageviews"] == 200 for payload in payloads)
-        )
+        severity = issues[self.team.id][0].severity if self.team.id in issues else None
+        self.assertEqual(severity, expected_severity)
 
 
 class TestDuplicatePageviewsCheck(ClickhouseTestMixin, BaseTest):
