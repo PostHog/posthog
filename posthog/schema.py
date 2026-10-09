@@ -27515,10 +27515,7 @@ class DashboardFilter(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
-    filterTestAccounts: bool | None = Field(
-        default=None,
-        description=("Tri-state test-account override. True = force on; false = force off."),
-    )
+    filterTestAccounts: bool | None = Field(default=None, description="Tri-state test-account override.")
     interval: IntervalType | None = Field(
         default=None,
         description="Time granularity forced onto every insight that supports one.",

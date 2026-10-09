@@ -689,7 +689,7 @@ describe('dashboardLogic', () => {
                 logic.actions.saveDashboardChanges()
             }).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                 filters: expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } }),
                 variables: {},
             })

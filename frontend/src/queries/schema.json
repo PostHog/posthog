@@ -18790,7 +18790,7 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
-                    "description": "Tri-state test-account override. True = force on; false = force off.",
+                    "description": "Tri-state test-account override.",
                     "type": ["boolean", "null"]
                 },
                 "interval": {
