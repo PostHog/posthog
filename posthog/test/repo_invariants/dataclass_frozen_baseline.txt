@@ -764,7 +764,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/linear.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/linearb.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/lingo_dev.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/linkrunner.py
