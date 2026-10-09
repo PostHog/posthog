@@ -362,30 +362,19 @@ impl WrappedEvent {
 }
 
 impl Publishable for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
         (self.result == EventResult::Ok || self.result == EventResult::Warning)
             && self.destination != Destination::Drop
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
-    // Returns the full typed header set for this event, combining per-request
-    // context fields (token, now, historical_migration) with event-owned
-    // fields. Sinks convert the returned CapturedEventHeaders to their
-    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
-    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
         // nodejs/src/common/persons/person-utils.ts skips person processing
@@ -526,6 +515,9 @@ impl Publishable for WrappedEvent {
 }
 
 impl WrappedEvent {
+    /// The `$`-prefixed properties legacy ingestion expects, as a JSON fragment
+    /// to splice into the raw properties. Splicing avoids a `serde_json::Value`
+    /// round trip, so the client's property order and formatting stay intact.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);

@@ -2,7 +2,7 @@
 
 Working contract for implementation agents. Steps 1–12 have shipped. Each remaining step is one commit in its own PR.
 
-This doc is deleted when it schedules nothing. Step 18 closes objective 1; objectives 2 and 3 are then scheduled in order. Before deletion, the parts still needed — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning note — move into module docs or `v1/sinks/DESIGN.md`, and unscheduled work becomes issues.
+This doc is deleted when it schedules nothing. Step 18 closes objective 1; objectives 2 and 3 are then scheduled in order. Before deletion, the parts still needed — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning note — move into module docs, and unscheduled work becomes issues.
 
 ## Objectives
 
@@ -57,7 +57,7 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
 - **Address** = a lane of a pipeline, or an admin redirect (`Dlq`, `Custom(topic)`) outside the lane model. v0 builds it through `resolve`, v1 by mapping its `Destination`. Never reintroduce a flat enum that mixes pipeline and lane.
 - **Prepared event** = the transport-independent result of processing one event. The outputs layer's `PreparedEvent` is the shape, and v1 builds it; v0's `PreparedPayload` differs only in carrying v0's `Destination` instead of an address.
 - **Output** = targets + selection policy. **OutputRegistry** = the address → output map. The Step-3 **TopicTable** became the Step-10 **OutputTable**: one target per `Destination`.
-- **Destination** = v0's `sinks::registry::Destination` and v1's `v1::sinks::types::Destination` name the same routed slots. Both map onto `Address`. Never call both a policy tree and a routed topic an `Output`.
+- **Destination** = v0's `sinks::registry::Destination` and v1's `v1::types::Destination` name the same routed slots. Both map onto `Address`. Never call both a policy tree and a routed topic an `Output`.
 - **Sink** = one transport. Anything that picks between sinks is an output policy.
 - **Producer** config never carries topic names, and output config never carries connection config. An output moves clusters by naming a different producer.
 

@@ -1025,7 +1025,7 @@ fn on_ai_lane(event: &WrappedEvent) -> bool {
 /// request instead, matching the oversize checks already on it.
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
-/// size; the serialized envelope is not built until the sink.
+/// size; the serialized envelope is not built until the prepare step.
 fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
     if max_event_bytes == 0 {
         return;

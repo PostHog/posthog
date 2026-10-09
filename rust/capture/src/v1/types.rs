@@ -6,8 +6,8 @@ use crate::ordering::OrderingGuarantee;
 use crate::pipeline::{self, Address, Lane};
 use crate::v1::context::RequestContext;
 
-/// Kafka topic routing for a processed event.
-/// `Drop` means the event should not be produced at all.
+/// Where a processed event goes. The outputs layer resolves it to a topic
+/// through [`Destination::address`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Destination {
     #[default]
@@ -16,6 +16,7 @@ pub enum Destination {
     Overflow,
     Dlq,
     Custom(String),
+    /// Never published.
     Drop,
     ExceptionErrorTracking,
     HeatmapMain,
@@ -28,22 +29,13 @@ pub enum Destination {
 }
 
 impl Destination {
-    /// Returns true for destinations that flow through the analytics ingestion
-    /// pipeline (and are therefore subject to analytics-scoped restrictions,
-    /// overflow routing, etc). Mirrors legacy `DataType::is_analytics_pipeline`.
-    ///
-    /// `AiEvents` is false: `$ai_*` events are diverted out of the analytics
-    /// pipeline into a dedicated AI lane, just like heatmaps/exceptions.
+    /// Whether analytics-scoped restrictions and overflow routing apply.
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
 
-    /// Restriction pipeline this destination is governed by, if any. Mirrors
-    /// legacy `DataType::pipeline`: the AI lane (including its overflow arm)
-    /// consults ai-scoped restrictions, the analytics lanes consult analytics
-    /// ones. `None` destinations flow through unrestricted — either they have
-    /// no shared restriction config (heatmaps, ingestion warnings) or they are
-    /// themselves restriction/terminal outcomes (Dlq, Custom, Drop).
+    /// The restriction pipeline whose restrictions apply, or `None` when no
+    /// restriction applies. Matches v0's `DataType::pipeline`.
     pub fn pipeline(&self) -> Option<Pipeline> {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
@@ -51,24 +43,22 @@ impl Destination {
             }
             Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
-            Self::Drop => None,
+            // Their consumers share no restriction config with another pipeline.
+            Self::HeatmapMain | Self::ClientIngestionWarning => None,
+            // Already the outcome of a restriction, or never published.
+            Self::Dlq | Self::Custom(_) | Self::Drop => None,
         }
     }
 
     /// Whether this lane exists to absorb hot keys, and so may publish without
     /// a partition key to spread load across partitions.
-    ///
-    /// Everything else keeps its key even when person processing is off,
-    /// because its consumers rely on per-distinct-id ordering: historical
-    /// backfills, the dlq, admin custom redirects, and the AI main topic.
-    /// Matches the lanes legacy `route()` resolves through `person_ordering`.
-    ///
-    /// Exhaustive on purpose: a new destination has to state which side it is
-    /// on rather than silently inheriting "keeps its key".
     pub fn absorbs_hot_keys(&self) -> bool {
+        // No wildcard: a new destination has to state which side it is on
+        // instead of inheriting "keeps its key".
         match self {
             Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
+            // These keep their key even when person processing is off, because
+            // their consumers rely on per-distinct-id ordering.
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
@@ -76,41 +66,31 @@ impl Destination {
             | Self::HeatmapMain
             | Self::ClientIngestionWarning
             | Self::AiEvents => false,
-            // Never published, so it never reaches a partition key.
             Self::Drop => false,
         }
     }
 
-    /// Whether this lane's consumer runs person processing with writes. On
-    /// such a lane one distinct id must stay on one partition while person
-    /// processing is on — spreading it turns a hot key into contended
-    /// person-row updates — so a spread decision only takes effect once the
-    /// person-processing flag is set. Read-only consumers (the AI lanes,
-    /// error tracking) and lanes with no person processing at all (heatmaps,
-    /// client warnings) can take keyless records at any time. The dlq and
-    /// custom redirects replay into analytics ingestion, so they count as
-    /// person-writing.
-    ///
-    /// Exhaustive for the same reason as [`Self::absorbs_hot_keys`].
+    /// Whether this lane's consumer writes persons. On such a lane a spread
+    /// decision takes effect only once person processing is off, because
+    /// spreading one distinct id across partitions turns a hot key into
+    /// contended person-row updates.
     pub fn writes_persons(&self) -> bool {
+        // No wildcard, for the same reason as in `absorbs_hot_keys`.
         match self {
-            Self::AnalyticsMain
-            | Self::AnalyticsHistorical
-            | Self::Overflow
-            | Self::Dlq
-            | Self::Custom(_) => true,
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => true,
+            // Replayed into analytics ingestion.
+            Self::Dlq | Self::Custom(_) => true,
             Self::AiEvents
             | Self::AiEventsOverflow
             | Self::ExceptionErrorTracking
             | Self::HeatmapMain
             | Self::ClientIngestionWarning => false,
-            // Never published, so it never reaches a consumer.
             Self::Drop => false,
         }
     }
 
-    /// The output address this destination publishes to. `None` for `Drop`,
-    /// which is never published.
+    /// The output address this destination publishes to, or `None` when it is
+    /// never published.
     pub fn address(&self) -> Option<Address> {
         let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
         match self {
@@ -128,14 +108,14 @@ impl Destination {
         }
     }
 
-    /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
-    /// so admin-configured topic names never become label values.
+    /// Low-cardinality metric label value.
     pub fn as_tag(&self) -> &'static str {
         match self {
             Self::AnalyticsMain => "analytics_main",
             Self::AnalyticsHistorical => "analytics_historical",
             Self::Overflow => "overflow",
             Self::Dlq => "dlq",
+            // Admin-configured topic names never become label values.
             Self::Custom(_) => "custom",
             Self::Drop => "drop",
             Self::ExceptionErrorTracking => "exception_error_tracking",
@@ -147,31 +127,24 @@ impl Destination {
     }
 }
 
-/// Transport-agnostic trait declaring an event's identity, routing intent,
-/// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
-/// resolves `destination()` to a concrete backend target using its own config.
+/// What [`crate::v1::prepare::serialize_batch`] reads from a request event to
+/// build its [`PreparedEvent`](crate::outputs::PreparedEvent).
 pub trait Publishable: Send + Sync {
-    /// Pre-parsed UUID for result correlation.
+    /// Matches the event's serialize failure or publish result back to it.
     fn uuid(&self) -> Uuid;
 
-    /// Whether this event should be published. Events returning false are
-    /// silently skipped by the Sink -- no `SinkResult` is returned for them.
+    /// `false` skips the event: it gets no prepared record and no result.
     fn should_publish(&self) -> bool;
 
-    /// Semantic routing destination. The Sink resolves this to a concrete
-    /// backend target (e.g. Kafka topic, S3 bucket) using its own config.
     fn destination(&self) -> &Destination;
 
-    /// Resolve the full set of transport headers for this event, using the
-    /// supplied [`RequestContext`] for batch-scoped fields (token, now,
-    /// historical_migration) alongside any event-owned fields. Sinks convert
-    /// the returned [`CapturedEventHeaders`] to their backend-specific format
-    /// (e.g. `rdkafka::message::OwnedHeaders` via the `From` impl in
-    /// `common_types`).
+    /// `ctx` supplies the batch-scoped headers: token, now and
+    /// historical_migration.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
-    /// Return the partition key for this event. Whether the sink actually uses
-    /// it is decided by [`Publishable::ordering`], not by inspecting headers.
+    /// [`Publishable::ordering`] decides whether the record carries this key.
+    /// The person-processing header never does, because it instructs
+    /// ingestion to skip identity resolution and is not a partitioning signal.
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
     /// The ordering guarantee this event's destination must preserve. The sink
@@ -180,10 +153,8 @@ pub trait Publishable: Send + Sync {
     /// [`Publishable::partition_key`], which supplies the value that preserves it.
     fn ordering(&self) -> OrderingGuarantee;
 
-    /// Serialize the event payload and return the raw bytes. `Bytes` (not
-    /// `String`) so non-UTF-8 / binary payloads (e.g. replay) share this
-    /// contract, and so a serialized payload can be cheaply cloned across
-    /// multiple sinks (dual-write) without re-encoding.
+    /// `Bytes` so binary payloads such as replay fit, and so a failover output
+    /// can hold the payload without re-encoding it.
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
 }
 
@@ -211,8 +182,7 @@ mod destination_tests {
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
     }
 
-    /// Each v1 destination publishes to the output that carried its topic
-    /// before v1 joined the outputs layer.
+    /// Each v1 destination publishes to the same output as its v0 counterpart.
     #[rstest::rstest]
     #[case(Destination::AnalyticsMain, Some(Output::AnalyticsMain))]
     #[case(Destination::AnalyticsHistorical, Some(Output::AnalyticsHistorical))]
@@ -233,14 +203,9 @@ mod destination_tests {
         assert_eq!(output, expected);
     }
 
-    /// Exhaustive: every variant's tag is non-empty, stable, and unique.
-    /// Custom(_) collapses to "custom" regardless of the topic name, so two
-    /// different Custom values share the same tag (cardinality defense).
     #[test]
     fn as_tag_exhaustive_stable_and_unique() {
-        // One representative per variant. If a new variant is added, the
-        // as_tag() match becomes non-exhaustive and this file fails to
-        // compile, forcing an update here too.
+        // One representative per variant.
         let expected: &[(Destination, &str)] = &[
             (Destination::AnalyticsMain, "analytics_main"),
             (Destination::AnalyticsHistorical, "analytics_historical"),
@@ -268,7 +233,6 @@ mod destination_tests {
             assert!(seen.insert(*tag), "tag {tag} is not unique across variants");
         }
 
-        // Two different Custom values collapse to the same "custom" tag.
         assert_eq!(Destination::Custom("topic_b".into()).as_tag(), "custom");
         assert_eq!(
             Destination::Custom("topic_a".into()).as_tag(),

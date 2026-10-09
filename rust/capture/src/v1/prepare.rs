@@ -1,13 +1,11 @@
-//! Hoisted, CaptureMode-agnostic serialize step.
+//! The v1 serialize step.
 //!
-//! `serialize_batch` turns a batch of [`Publishable`] events into the outputs layer's
-//! [`PreparedEvent`]s (owned, addressed, storage-agnostic), which
-//! `OutputRegistry::publish_prepared` takes. Every capture mode (analytics,
-//! replay, AI) shares this one CPU-bound step.
+//! `serialize_batch` turns [`Publishable`] events into the outputs layer's
+//! [`PreparedEvent`]s, which `OutputRegistry::publish_prepared` takes. It runs
+//! before any output sees the batch, so CPU-bound encoding stays apart from
+//! produce I/O and can run in parallel.
 //!
-//! Small batches serialize sequentially; large batches scatter across tokio
-//! tasks and gather back in input order. Per-event panics are isolated so one
-//! bad event never fails the whole request.
+//! Each event serializes under `catch_unwind`, so a panic fails only that event.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -26,30 +24,28 @@ use crate::v1::constants::{
 use crate::v1::context::RequestContext;
 use crate::v1::types::Publishable;
 
-/// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
+/// Batches smaller than this serialize inline, because spawning a task per
+/// event costs more than serializing a handful of events. Overridden by
+/// `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
 
-/// Outcome of the serialize step: events ready to publish (input order) plus
-/// per-event failures.
 pub struct SerializedBatch {
+    /// In input order.
     pub prepared: Vec<PreparedEvent>,
     pub failures: Vec<SerializationFailure>,
 }
 
-/// Per-event result before aggregation. `Skipped` is an event that is not
-/// published (`should_publish() == false`), which gets no result.
 // Prepared is the hot, dominant variant and is immediately drained into a
 // Vec<PreparedEvent>; boxing it just to even out variant sizes would add a
 // heap allocation per successful event.
 #[allow(clippy::large_enum_variant)]
 enum Slot {
     Prepared(PreparedEvent),
+    /// Not published, so it gets no result.
     Skipped,
     Failed(SerializationFailure),
 }
 
-/// Serialize one event, honoring `should_publish`. Pure and panic-free at this
-/// layer — panic isolation is the caller's (`run_one`) job.
 fn prepare_one<E: Publishable>(
     ev: &E,
     ctx: &RequestContext,
@@ -71,9 +67,8 @@ fn prepare_one<E: Publishable>(
     }))
 }
 
-/// Run `prepare_one` with panic isolation so a single misbehaving event (e.g. a
-/// `serialize` impl that panics) is recorded as a failure instead of aborting
-/// the batch / poisoning the worker.
+/// Records a panic in `prepare_one` as this event's failure, so one bad event
+/// cannot fail the batch or kill the worker task.
 fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot {
     let uuid = ev.uuid();
     match catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
@@ -84,13 +79,11 @@ fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot {
     }
 }
 
-/// Serialize a whole batch into `PreparedEvent`s, preserving input order for
-/// the prepared events so downstream per-partition ordering is unaffected.
+/// Prepared events keep input order, so per-partition order downstream
+/// matches the request.
 ///
-/// Consumes `events` so the parallel path can share them across tokio tasks
-/// via `Arc`, then hands ownership back (alongside the results) so the caller
-/// can keep correlating results to events and build its response. `ctx` is
-/// cloned once and shared across tasks.
+/// Takes `events` by value because the parallel path shares them across
+/// tasks, and returns them so the caller can build its per-event response.
 pub async fn serialize_batch<E>(
     events: Vec<E>,
     ctx: &RequestContext,
@@ -116,15 +109,14 @@ where
         for i in 0..n {
             let events = Arc::clone(&events);
             let ctx = Arc::clone(&ctx);
-            // Spawn onto the async runtime workers (not spawn_blocking): the
-            // per-event work is short CPU, so concurrent execution is naturally
-            // bounded by worker_threads (~num_cpus) and excess events queue
-            // cheaply. This mirrors v0's send_batch and avoids saturating the
-            // shared spawn_blocking pool on huge batches.
+            // Spawn onto the async runtime workers, not spawn_blocking: the
+            // per-event work is short CPU, so worker_threads bounds the
+            // concurrency and excess events queue cheaply. One spawn_blocking
+            // task per event would saturate the shared blocking pool on huge
+            // batches. The v0 Kafka sink's parallel prep does the same.
             set.spawn(async move { (i, run_one(&events[i], &ctx)) });
         }
 
-        // Gather out-of-completion-order results back into input order.
         let mut indexed: Vec<Option<Slot>> = (0..n).map(|_| None).collect();
         while let Some(joined) = set.join_next().await {
             // run_one catches panics internally, so a JoinError is unexpected;
@@ -196,12 +188,8 @@ fn batch_size_bucket(n: usize) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SerializationFailure
-// ---------------------------------------------------------------------------
-
-/// An event that failed during the serialize step, before any output saw it.
-/// Always fatal: the event is dropped, never retried.
+/// An event that failed to serialize. Always fatal: serializing the same event
+/// again fails the same way, so it is dropped, never retried.
 #[derive(Debug, Clone)]
 pub struct SerializationFailure {
     uuid: Uuid,
