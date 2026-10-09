@@ -2504,12 +2504,16 @@ async fn drainer_crash_mid_drain_replays_to_survivor_in_order(#[case] kind: Sche
 /// max_in_flight > 1: everything is stashed while nothing is routable, then
 /// drains to the first recovered worker with per-key order intact.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
-async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(#[case] kind: SchedulerKind) {
+async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
+    #[case] kind: SchedulerKind,
+    #[case] pack_targets: PackTargets,
+) {
     let topic = format!("e2e-pool-loss-{}", Uuid::new_v4());
-    let harness = Harness::start(
+    let harness = Harness::start_with_pack_targets(
         kind,
         &topic,
         2,
@@ -2517,6 +2521,7 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(#[case] kin
         3,
         Duration::from_secs(60),
         fast_registry_config(),
+        pack_targets,
     )
     .await;
     let producer = make_producer();
@@ -2530,8 +2535,16 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(#[case] kin
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
+    // One message per request splits the keys into two requests, and
+    // bin-packing places them one per worker. At the production target
+    // both keys fit in one request.
+    let split = pack_targets == common::ONE_MESSAGE_PER_REQUEST;
     wait_until(Duration::from_secs(10), "work to be in flight", || {
-        harness.workers.iter().any(|w| w.arrived_count() > 0)
+        if split {
+            harness.workers.iter().all(|w| w.arrived_count() > 0)
+        } else {
+            harness.workers.iter().any(|w| w.arrived_count() > 0)
+        }
     })
     .await;
 
