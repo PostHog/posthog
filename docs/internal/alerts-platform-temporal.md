@@ -489,6 +489,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.
+Pass `--ids-file` to either backfill, with one alert id per line, to copy only those alerts or, with `--disable`, to switch only their copies off. A rollout uses it to retire the alerts a comparison has enough evidence for and spend the load on the ones it still lacks.
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
