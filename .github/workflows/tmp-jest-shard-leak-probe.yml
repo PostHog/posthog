@@ -1,7 +1,8 @@
 name: Jest shard 1 leak probe (throwaway)
 
-# Throwaway measurement, not for merge. Runs the PR jest shard 1 workload twice on one runner,
-# with and without runStreamLogic.test.ts, so the runner's speed cancels out of the comparison.
+# Throwaway measurement, not for merge. Runs the PR jest shard 1 workload three times on one runner:
+# as it runs today, with V8's compilation cache off, and with a jest worker memory limit.
+# One runner per job, so the runner's speed cancels out of the comparison. The order rotates per job.
 on:
     pull_request:
         paths:
@@ -16,14 +17,13 @@ permissions:
 
 jobs:
     probe:
-        name: Probe (${{ matrix.order }} - ${{ matrix.replica }})
+        name: Probe (${{ matrix.order }})
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 80
         strategy:
             fail-fast: false
             matrix:
-                order: [with-first, without-first]
-                replica: [1, 2]
+                order: ['today nocache limit', 'nocache limit today', 'limit today nocache']
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -32,7 +32,7 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
-            - name: Run shard 1 with and without the run-stream suite
+            - name: Run shard 1 three ways
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   ORDER: ${{ matrix.order }}
@@ -40,23 +40,22 @@ jobs:
                   set -uo pipefail
                   pnpm --filter=@posthog/frontend build:products
 
-                  # The config's own ignore list, as one pattern, so both variants name it the same way.
-                  base_ignore='/node_modules/|/services/mcp/|/products/[^/]+/frontend/e2e/|/products/visual_review/cli/|/products/desktop/'
-
                   run_variant() {
-                      local variant="$1" ignore="$base_ignore" log="$RUNNER_TEMP/jest-$1.log"
-                      if [ "$variant" = "without" ]; then
-                          ignore="$base_ignore|runStreamLogic\\.test"
-                      fi
+                      local variant="$1" log="$RUNNER_TEMP/jest-$1.log"
+                      local node_flags=() jest_flags=()
+                      case "$variant" in
+                          nocache) node_flags=(--no-compilation-cache) ;;
+                          limit) jest_flags=(--workerIdleMemoryLimit=2GB) ;;
+                      esac
                       local start
                       start=$(date +%s)
-                      # Same command as the selective jest job, plus heap logging and a cold cache per variant.
-                      pnpm --filter=@posthog/frontend exec jest \
+                      # Same jest arguments as the selective jest job, plus heap logging and a cold jest cache per variant.
+                      pnpm --filter=@posthog/frontend exec node "${node_flags[@]}" node_modules/jest/bin/jest.js \
                           --forceExit \
                           --passWithNoTests \
                           --logHeapUsage \
                           --cacheDirectory="$RUNNER_TEMP/jest-cache-$variant" \
-                          --testPathIgnorePatterns="$ignore" \
+                          "${jest_flags[@]}" \
                           --shard=1/2 \
                           --findRelatedTests src/lib/constants.tsx > "$log" 2>&1
                       local status=$?
@@ -65,7 +64,7 @@ jobs:
                   import re, sys
                   log, variant, wall, status = sys.argv[1:5]
                   ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-                  heaps, first, jest_time, suites = [], None, "?", "?"
+                  heaps, first, jest_time, suites, tests = [], None, "?", "?", "?"
                   for raw in open(log, errors="replace"):
                       line = ansi.sub("", raw.rstrip("\n"))
                       m = re.match(r"^(PASS|FAIL) (\S+)(?: \((?:[\d.]+ s, )?(\d+) MB heap size\))?", line)
@@ -75,22 +74,20 @@ jobs:
                               heaps.append(int(m.group(3)))
                       if line.startswith("Test Suites:"):
                           suites = line.split(":", 1)[1].strip()
+                      if line.startswith("Tests:"):
+                          tests = line.split(":", 1)[1].strip()
                       if line.startswith("Time:"):
                           jest_time = line.split(":", 1)[1].strip()
                   third = max(1, len(heaps) // 3)
                   mid = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
-                  print(f"variant={variant} exit={status} wall_s={wall} jest_time={jest_time}")
-                  print(f"  suites: {suites}")
-                  print(f"  first suite: {first}")
-                  print(f"  heap MB: median first third={mid(heaps[:third])} middle third={mid(heaps[third:2 * third])} last third={mid(heaps[2 * third:])} max={max(heaps) if heaps else 0}")
-                  print(f"  suites reporting over 2000 MB: {sum(1 for h in heaps if h > 2000)} of {len(heaps)}")
+                  print(f"RESULT variant={variant} exit={status} wall_s={wall} jest_time={jest_time}")
+                  print(f"RESULT   suites: {suites}; tests: {tests}")
+                  print(f"RESULT   first suite: {first}")
+                  print(f"RESULT   heap MB: median first third={mid(heaps[:third])} middle third={mid(heaps[third:2 * third])} last third={mid(heaps[2 * third:])} max={max(heaps) if heaps else 0}")
+                  print(f"RESULT   suites reporting over 2000 MB: {sum(1 for h in heaps if h > 2000)} of {len(heaps)}")
                   PY
                   }
 
-                  if [ "$ORDER" = "with-first" ]; then
-                      run_variant with
-                      run_variant without
-                  else
-                      run_variant without
-                      run_variant with
-                  fi
+                  for variant in $ORDER; do
+                      run_variant "$variant"
+                  done
