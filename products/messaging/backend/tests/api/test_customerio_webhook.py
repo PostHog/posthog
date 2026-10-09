@@ -10,7 +10,6 @@ from posthog.auth import WebhookSignatureAuthentication
 from posthog.models.integration import Integration
 from posthog.test.authentication_checks import covers_authentication
 
-from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookAuthentication
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -18,6 +17,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
+from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookAuthentication
 
 
 class TestCustomerIOWebhook(APIBaseTest):
