@@ -34,6 +34,7 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionResult
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -1940,6 +1941,138 @@ class TestAlertSimulate(TrendsInsightAPITest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert AlertCheck.objects.count() == checks_before
+
+
+def _metrics_flag_only(flag: str, *args: Any, **kwargs: Any) -> bool:
+    return flag == "metrics"
+
+
+def _metrics_rows(values: list[float]) -> list[dict[str, Any]]:
+    return [
+        {
+            "metricName": "queue.depth",
+            "labels": {},
+            "points": [
+                {"time": f"2026-09-19T{i // 60:02d}:{i % 60:02d}:00Z", "value": v} for i, v in enumerate(values)
+            ],
+        }
+    ]
+
+
+@mock.patch(
+    "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only
+)
+@mock.patch("products.alerts.backend.logic.threshold_suggestions.calculate_for_query_based_insight")
+class TestAlertSuggestThresholds(TrendsInsightAPITest):
+    def setUp(self):
+        super().setUp()
+        self.insight = Insight.objects.create(
+            team=self.team,
+            name="Queue depth",
+            query={
+                "kind": "MetricsQuery",
+                "clauses": [{"name": "a", "metricName": "queue.depth", "aggregation": "avg"}],
+            },
+        )
+        # The trailing bucket is still filling up, so its spike must not move the candidates.
+        self.values = [float(v) for v in range(1, 101)] + [1000.0]
+
+    def _suggest(self, insight_id: int | None = None) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/alerts/suggest_thresholds",
+            {"insight": insight_id or self.insight.id},
+            format="json",
+        )
+
+    @mock.patch(
+        "products.alerts.backend.logic.threshold_suggestions.jev_threshold_suggestions_enabled", return_value=False
+    )
+    def test_heuristic_candidates_from_completed_buckets(self, _jev_flag, mock_calculate, _flag) -> None:
+        mock_calculate.return_value = mock.MagicMock(result=_metrics_rows(self.values))
+
+        response = self._suggest()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {
+            "upper": [
+                {"value": 91.0, "description": "Above 90% of recent values"},
+                {"value": 96.0, "description": "Above 95% of recent values"},
+                {"value": 100.0, "description": "Above 99% of recent values"},
+                {"value": 120.0, "description": "Above every recent value"},
+            ],
+            # The below-every-value bound is negative, which a non-negative metric never reaches.
+            "lower": [
+                {"value": 10.0, "description": "Below 90% of recent values"},
+                {"value": 5.9, "description": "Below 95% of recent values"},
+                {"value": 1.9, "description": "Below 99% of recent values"},
+            ],
+            "recommended_direction": "upper",
+            "recommended_value": 100.0,
+            "source": "heuristic",
+        }
+
+    @mock.patch("products.ml_inference.backend.facade.api.decisions_enabled", return_value=True)
+    @mock.patch(
+        "products.alerts.backend.logic.threshold_suggestions.jev_threshold_suggestions_enabled", return_value=True
+    )
+    @mock.patch("products.ml_inference.backend.facade.api.decide_unchecked")
+    def test_jev_choice_sets_the_recommendation(self, mock_decide, _jev_flag, _enrolled, mock_calculate, _flag) -> None:
+        mock_calculate.return_value = mock.MagicMock(result=_metrics_rows(self.values))
+        mock_decide.return_value = DecisionResult(
+            model="jev",
+            answers={"threshold": ChoiceAnswer(choice="lt_1", confidence=0.8, probabilities={"lt_1": 0.8})},
+            input_tokens=10,
+        )
+
+        response = self._suggest()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["recommended_direction"] == "lower"
+        assert response.json()["recommended_value"] == 5.9
+        assert response.json()["source"] == "jev"
+        request = mock_decide.call_args.args[0]
+        assert request.privacy_mode is True
+        assert "1000" not in request.state
+
+    @parameterized.expand(
+        [
+            ("gateway_error", RuntimeError("gateway down"), None),
+            ("unknown_choice", None, "gt_99"),
+        ]
+    )
+    @mock.patch("products.ml_inference.backend.facade.api.decisions_enabled", return_value=True)
+    @mock.patch(
+        "products.alerts.backend.logic.threshold_suggestions.jev_threshold_suggestions_enabled", return_value=True
+    )
+    @mock.patch("products.ml_inference.backend.facade.api.decide_unchecked")
+    def test_jev_failure_falls_back_to_heuristic(
+        self, _name, error, choice, mock_decide, _jev_flag, _enrolled, mock_calculate, _flag
+    ) -> None:
+        mock_calculate.return_value = mock.MagicMock(result=_metrics_rows(self.values))
+        if error:
+            mock_decide.side_effect = error
+        else:
+            mock_decide.return_value = DecisionResult(
+                model="jev",
+                answers={"threshold": ChoiceAnswer(choice=choice, confidence=0.8, probabilities={})},
+                input_tokens=10,
+            )
+
+        response = self._suggest()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["recommended_direction"] == "upper"
+        assert response.json()["recommended_value"] == 100.0
+        assert response.json()["source"] == "heuristic"
+
+    def test_rejects_non_metrics_insight(self, mock_calculate, _flag) -> None:
+        trends_insight = self.create_trends_insight()
+
+        response = self._suggest(trends_insight["id"])
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "only available for metrics insights" in response.json()["detail"]
+        mock_calculate.assert_not_called()
 
 
 class TestAlertTestDelivery(TrendsInsightAPITest):

@@ -12496,6 +12496,64 @@ export namespace Schemas {
       breakdown_results?: BreakdownSimulationResult[];
     }
 
+    export interface AlertSuggestThresholds {
+      /** Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for. */
+      insight: number | string;
+    }
+
+    export interface ThresholdCandidate {
+      /** Threshold value. */
+      value: number;
+      /** How the value relates to the recent values of the metric. */
+      description: string;
+    }
+
+    /**
+     * * `upper` - upper
+     * * `lower` - lower
+     */
+    export type RecommendedDirectionEnum = typeof RecommendedDirectionEnum[keyof typeof RecommendedDirectionEnum];
+
+
+    export const RecommendedDirectionEnum = {
+      Upper: 'upper',
+      Lower: 'lower',
+    } as const;
+
+    /**
+     * * `jev` - jev
+     * * `heuristic` - heuristic
+     */
+    export type AlertSuggestThresholdsResponseSourceEnum = typeof AlertSuggestThresholdsResponseSourceEnum[keyof typeof AlertSuggestThresholdsResponseSourceEnum];
+
+
+    export const AlertSuggestThresholdsResponseSourceEnum = {
+      Jev: 'jev',
+      Heuristic: 'heuristic',
+    } as const;
+
+    export interface AlertSuggestThresholdsResponse {
+      /** Candidate 'more than' bounds, from the least to the most strict. */
+      upper: ThresholdCandidate[];
+      /** Candidate 'less than' bounds, from the least to the most strict. */
+      lower: ThresholdCandidate[];
+      /** Which bound the recommended value is for. Null when the insight has no data.
+       *
+       * * `upper` - upper
+       * * `lower` - lower */
+      recommended_direction: RecommendedDirectionEnum | null;
+      /**
+         * Recommended threshold value. Null when the insight has no data.
+         * @nullable
+         */
+      recommended_value: number | null;
+      /** Whether the decision model picked the recommendation, or a percentile heuristic did.
+       *
+       * * `jev` - jev
+       * * `heuristic` - heuristic */
+      source: AlertSuggestThresholdsResponseSourceEnum;
+    }
+
     /**
      * * `email` - email
      * * `destination` - destination

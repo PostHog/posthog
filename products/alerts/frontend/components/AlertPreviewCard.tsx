@@ -14,7 +14,12 @@ import {
     deriveTrendsBreakdownAlertPreview,
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
-import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import {
+    isFunnelsAlertConfig,
+    isHogQLAlertConfig,
+    isMetricsAlertConfig,
+    isTrendsAlertConfig,
+} from 'products/alerts/frontend/types'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
@@ -72,6 +77,9 @@ export interface AlertPreviewCardProps {
     trendsLabels?: string[] | null
     isBreakdown?: boolean
     trendsBreakdownSeries?: AlertPreviewChartSeries[] | null
+    /** Every series of a metrics insight, on one shared grid of `metricsLabels`. */
+    metricsSeries?: AlertPreviewChartSeries[] | null
+    metricsLabels?: string[] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -86,6 +94,8 @@ export function AlertPreviewCard({
     trendsLabels,
     isBreakdown,
     trendsBreakdownSeries,
+    metricsSeries,
+    metricsLabels,
     funnelPreview,
     hogqlPreview,
     checkPreview,
@@ -98,15 +108,17 @@ export function AlertPreviewCard({
     const trendsPreview = trendsValues
         ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
-    const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
+    const isMetricsPreview = isMetricsAlertConfig(config)
+    // A metrics alert checks every series, so its preview draws them all like a breakdown.
+    const isBreakdownPreview = (isTrendsAlertConfig(config) && isBreakdown) || isMetricsPreview
     const referenceLines = thresholdReferenceLines(alertForm)
     const useLogScale = Boolean(
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
     const checkPreviewValues = checkPreview?.values
     const breakdownPreview = deriveTrendsBreakdownAlertPreview(
-        trendsBreakdownSeries ?? undefined,
-        trendsLabels ?? undefined,
+        (isMetricsPreview ? metricsSeries : trendsBreakdownSeries) ?? undefined,
+        (isMetricsPreview ? metricsLabels : trendsLabels) ?? undefined,
         conditionType,
         thresholdType
     )
@@ -144,14 +156,20 @@ export function AlertPreviewCard({
                 series={breakdownPreview.rows}
                 labels={breakdownPreview.labels}
                 referenceLines={referenceLines}
-                relative={trendsPreview?.relative ?? false}
+                relative={
+                    isMetricsPreview
+                        ? conditionType !== AlertConditionType.ABSOLUTE_VALUE
+                        : (trendsPreview?.relative ?? false)
+                }
                 useLogScale={breakdownUseLogScale}
             />
         )
     } else if (isBreakdownPreview && !loading) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                No activity to preview across breakdown values.
+                {isMetricsPreview
+                    ? 'No metric data to preview. Check the metric and date range of the insight.'
+                    : 'No activity to preview across breakdown values.'}
             </div>
         )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
@@ -219,13 +237,17 @@ export function AlertPreviewCard({
 
     let previewTooltip =
         'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
-    if (isBreakdownPreview) {
+    if (isMetricsPreview) {
+        previewTooltip = 'Every series is shown. The alert fires when any series crosses a dashed line.'
+    } else if (isBreakdownPreview) {
         previewTooltip = 'Every breakdown value is shown. The dashed lines are your thresholds.'
     } else if (checkPreview !== undefined) {
         previewTooltip = 'Values recorded by recent alert evaluations.'
     }
     let previewTitle = 'Preview'
-    if (isBreakdownPreview) {
+    if (isMetricsPreview) {
+        previewTitle = 'All series'
+    } else if (isBreakdownPreview) {
         previewTitle = 'All breakdown values'
     } else if (checkPreview !== undefined) {
         previewTitle = 'Recent evaluations'

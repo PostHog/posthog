@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode, isMetricsQuery, isTrendsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
@@ -32,6 +32,7 @@ import { buildAlertSummary } from 'products/alerts/frontend/components/alertSumm
 import { AlertWizard } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
 import { evaluationDelayPreview, isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { metricsQueryInsightInterval } from 'products/alerts/frontend/logic/metricsAlertPreview'
 import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
@@ -161,7 +162,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         insightId,
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
-        insightInterval: trendInterval ?? undefined,
+        insightInterval: isMetricsQuery(query) ? metricsQueryInsightInterval(query) : (trendInterval ?? undefined),
         insightAlertKind,
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
@@ -185,6 +186,9 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         hogqlResultColumns,
         hogqlValueColumnOptions,
         hogqlLabelColumnOptions,
+        metricsAlertPreview,
+        metricsPreviewResultsLoading,
+        thresholdSuggestions,
     } = useValues(formLogic)
     const {
         deleteAlert,
@@ -194,6 +198,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
+        applyThresholdSuggestion,
     } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
@@ -392,7 +397,13 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             simulationResultLoading={simulationResultLoading}
             simulationDateFrom={simulationDateFrom}
             onSetAlertFormValue={setAlertFormValue}
-            thresholdRowRenderer={(props) => <ThresholdConditionRow {...props} />}
+            thresholdRowRenderer={(props) => (
+                <ThresholdConditionRow
+                    {...props}
+                    thresholdSuggestions={thresholdSuggestions}
+                    onApplyThresholdSuggestion={applyThresholdSuggestion}
+                />
+            )}
             onSimulateAlert={simulateAlert}
             onSetSimulationDateFrom={setSimulationDateFrom}
             onClearSimulation={clearSimulation}
@@ -467,11 +478,13 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                       }))
                     : undefined
             }
+            metricsSeries={metricsAlertPreview?.rows}
+            metricsLabels={metricsAlertPreview?.labels}
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}
             previewHistoryTooShort={previewHistoryTooShort}
-            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
+            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading || metricsPreviewResultsLoading)}
         />
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined

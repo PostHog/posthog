@@ -897,7 +897,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         closeAddToDashboardModal: true,
         setLastSavedQueryNode: (query: MetricsQuery | MetricsHistogramQuery) => ({ query }),
         // Saves the current query as an insight (reusing the last save while the query is
-        // unchanged) and routes to its alerts page, where the shared insight-alert form
+        // unchanged) and routes to its new alert modal, where the shared insight-alert form
         // builds a MetricsAlertConfig on it. Surfaces insight alerts for metrics instead of
         // a parallel metrics-specific alert model.
         createAlert: true,
@@ -1140,7 +1140,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         // Armed while a createAlert-initiated save is in flight, so the success listener routes to
-        // the alerts page instead of showing the "View insight" toast. Reducers run before listeners,
+        // the new alert modal instead of showing the "View insight" toast. Reducers run before listeners,
         // so this can't reset on saveAsInsightSuccess (the listener needs to read it still armed);
         // the listener clears it via resetPendingAlert after routing. Cleared on failure.
         pendingAlert: [
@@ -1314,8 +1314,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return
                 }
                 if (savedInsight && values.pendingAlert) {
-                    router.actions.push(urls.insightAlerts(savedInsight.short_id))
-                    // Clear the armed flag so a later plain save isn't mis-routed to the alerts page.
+                    router.actions.push(urls.insightAlert(savedInsight.short_id, 'new'))
+                    // Clear the armed flag so a later plain save isn't mis-routed to the new alert modal.
                     actions.resetPendingAlert()
                 }
             },
@@ -1324,9 +1324,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return
                 }
                 // Reuse the saved insight while the query is unchanged; route straight to its
-                // alerts page since no save (and so no saveAsInsightSuccess) is coming.
+                // new alert modal since no save (and so no saveAsInsightSuccess) is coming.
                 if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.savedQueryNode)) {
-                    router.actions.push(urls.insightAlerts(values.savedInsight.short_id))
+                    router.actions.push(urls.insightAlert(values.savedInsight.short_id, 'new'))
                     return
                 }
                 actions.saveAsInsight()

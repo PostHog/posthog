@@ -984,6 +984,63 @@ export interface AlertSimulateResponseApi {
     breakdown_results?: BreakdownSimulationResultApi[]
 }
 
+export interface AlertSuggestThresholdsApi {
+    /** Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for. */
+    insight: number | string
+}
+
+export interface ThresholdCandidateApi {
+    /** Threshold value. */
+    value: number
+    /** How the value relates to the recent values of the metric. */
+    description: string
+}
+
+/**
+ * * `upper` - upper
+ * * `lower` - lower
+ */
+export type RecommendedDirectionEnumApi = (typeof RecommendedDirectionEnumApi)[keyof typeof RecommendedDirectionEnumApi]
+
+export const RecommendedDirectionEnumApi = {
+    Upper: 'upper',
+    Lower: 'lower',
+} as const
+
+/**
+ * * `jev` - jev
+ * * `heuristic` - heuristic
+ */
+export type AlertSuggestThresholdsResponseSourceEnumApi =
+    (typeof AlertSuggestThresholdsResponseSourceEnumApi)[keyof typeof AlertSuggestThresholdsResponseSourceEnumApi]
+
+export const AlertSuggestThresholdsResponseSourceEnumApi = {
+    Jev: 'jev',
+    Heuristic: 'heuristic',
+} as const
+
+export interface AlertSuggestThresholdsResponseApi {
+    /** Candidate 'more than' bounds, from the least to the most strict. */
+    upper: ThresholdCandidateApi[]
+    /** Candidate 'less than' bounds, from the least to the most strict. */
+    lower: ThresholdCandidateApi[]
+    /** Which bound the recommended value is for. Null when the insight has no data.
+     *
+     * * `upper` - upper
+     * * `lower` - lower */
+    recommended_direction: RecommendedDirectionEnumApi | null
+    /**
+     * Recommended threshold value. Null when the insight has no data.
+     * @nullable
+     */
+    recommended_value: number | null
+    /** Whether the decision model picked the recommendation, or a percentile heuristic did.
+     *
+     * * `jev` - jev
+     * * `heuristic` - heuristic */
+    source: AlertSuggestThresholdsResponseSourceEnumApi
+}
+
 export interface ThresholdWithAlertApi {
     readonly id: string
     readonly created_at: string

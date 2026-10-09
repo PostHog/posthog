@@ -1233,3 +1233,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })
+
+/**
+ * Suggest threshold values for a new alert on a metrics insight, from the insight's recent values. When available, a decision model picks the recommended value.
+ */
+export const AlertsSuggestThresholdsCreateBody = /* @__PURE__ */ zod.object({
+    insight: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for.'),
+})

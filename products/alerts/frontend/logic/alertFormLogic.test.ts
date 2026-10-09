@@ -17,10 +17,13 @@ import {
     AlertConditionType,
     HogQLAlertConfig,
     InsightThresholdType,
+    Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
+
+import * as queryModule from '~/queries/query'
 
 import * as generatedApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'
@@ -600,6 +603,55 @@ describe('alertFormLogic', () => {
             const formConfig = logic.values.alertForm.config as HogQLAlertConfig
             expect(formConfig.column).toBeUndefined()
             expect(logic.values.alertFormChanged).toBe(false)
+        })
+    })
+
+    describe('metrics threshold suggestions', () => {
+        const metricsInsightLogicProps: InsightLogicProps = {
+            dashboardItemId: '43' as InsightShortId,
+            cachedInsight: {
+                ...createEmptyInsight('43' as InsightShortId),
+                id: 43,
+                query: { kind: NodeKind.MetricsQuery, clauses: [] } as Node,
+                alerts: [],
+            },
+        }
+
+        beforeEach(() => {
+            jest.spyOn(queryModule, 'performQuery').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(generatedApi, 'alertsSuggestThresholdsCreate').mockResolvedValue({
+                upper: [{ value: 120, description: 'Above every recent value' }],
+                lower: [{ value: 5, description: 'Below 95% of recent values' }],
+                recommended_direction: 'upper',
+                recommended_value: 120,
+                source: 'jev',
+            } as any)
+            insightLogic(metricsInsightLogicProps).mount()
+            insightDataLogic(metricsInsightLogicProps).mount()
+            insightVizDataLogic(metricsInsightLogicProps).mount()
+        })
+
+        it.each([
+            { name: 'fills in the recommended bound', typedBounds: null, expectedBounds: { upper: 120 } },
+            { name: 'keeps a bound the user typed first', typedBounds: { lower: 3 }, expectedBounds: { lower: 3 } },
+        ])('$name', async ({ typedBounds, expectedBounds }) => {
+            const logic = alertFormLogic({
+                alert: null,
+                insightId: 43,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: metricsInsightLogicProps,
+                insightAlertKind: 'metrics',
+            })
+            logic.mount()
+            if (typedBounds) {
+                logic.actions.setAlertFormValue('threshold', {
+                    configuration: { type: InsightThresholdType.ABSOLUTE, bounds: typedBounds },
+                })
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.thresholdSuggestions?.source).toEqual('jev')
+            expect(logic.values.alertForm.threshold.configuration.bounds).toEqual(expectedBounds)
         })
     })
 

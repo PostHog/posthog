@@ -649,9 +649,9 @@ describe('metricsViewerLogic', () => {
     })
 
     // "Create alert" surfaces the shared insight-alert flow for a metric: it saves the query as
-    // an insight (reusing it while unchanged) and routes to that insight's alerts page, rather
+    // an insight (reusing it while unchanged) and routes to that insight's new alert modal, rather
     // than building a parallel metrics-specific alert model.
-    it('create alert saves the insight and routes to its alerts page', async () => {
+    it('create alert saves the insight and opens its new alert modal', async () => {
         const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
@@ -661,7 +661,7 @@ describe('metricsViewerLogic', () => {
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(insightsApi.create).toHaveBeenCalledTimes(1)
-        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts?alert_id=new')
         push.mockRestore()
     })
 
@@ -678,11 +678,11 @@ describe('metricsViewerLogic', () => {
         expect(insightsApi.create).toHaveBeenCalledTimes(1)
 
         push.mockClear()
-        // Unchanged query: route straight to the alerts page without a duplicate save.
+        // Unchanged query: route straight to the new alert modal without a duplicate save.
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['createAlert'])
         expect(insightsApi.create).toHaveBeenCalledTimes(1)
-        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts?alert_id=new')
         push.mockRestore()
     })
 
@@ -703,8 +703,8 @@ describe('metricsViewerLogic', () => {
     })
 
     // The armed createAlert flag must clear after routing: if it stayed set, a later plain
-    // "Save as insight" would be mis-routed to the alerts page (and its toast suppressed).
-    it('a plain save after a create-alert save does not route to the alerts page', async () => {
+    // "Save as insight" would be mis-routed to the new alert modal (and its toast suppressed).
+    it('a plain save after a create-alert save does not route to the new alert modal', async () => {
         const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
@@ -713,7 +713,7 @@ describe('metricsViewerLogic', () => {
 
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
-        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts?alert_id=new')
         expect(logic.values.pendingAlert).toBe(false)
 
         push.mockClear()
