@@ -142,6 +142,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     type ExperimentSavedMetric,
     type ExperimentUpdatePayload,
+    type ExperimentUpdateRequest,
     getDisplayOrderedIndices,
     getExperimentVariants,
     getOrderedMetricsWithResults,
@@ -598,6 +599,7 @@ export interface experimentLogicValues {
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
     notifyWhenResultsReady: boolean
+    openDatePicker: 'end' | 'start' | null
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
         error: any
@@ -734,6 +736,9 @@ export interface experimentLogicActions {
             id: number
         }
     } // featureFlagsLogic
+    closeCupedModal: () => {
+        value: true
+    } // modalsLogic
     closeFinishExperimentModal: () => {
         value: true
     } // modalsLogic
@@ -747,6 +752,9 @@ export interface experimentLogicActions {
         value: true
     } // modalsLogic
     closeSecondaryMetricModal: () => {
+        value: true
+    } // modalsLogic
+    closeStatsEngineModal: () => {
         value: true
     } // modalsLogic
     openPrimaryMetricModal: (uuid: string) => {
@@ -1131,6 +1139,9 @@ export interface experimentLogicActions {
     setNotifyWhenResultsReady: (notify: boolean) => {
         notify: boolean
     }
+    setOpenDatePicker: (boundary: 'end' | 'start' | null) => {
+        boundary: 'end' | 'start' | null
+    }
     setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => {
         results: CachedNewExperimentQueryResponse[]
     }
@@ -1222,7 +1233,7 @@ export interface experimentLogicActions {
         rolloutPercentage: number | undefined
         variants: MultivariateFlagVariant[]
     }
-    updateExperiment: (update: ExperimentUpdatePayload) => ExperimentUpdatePayload
+    updateExperiment: (request: ExperimentUpdateRequest) => ExperimentUpdateRequest
     updateExperimentFailure: (
         error: string,
         errorObject?: any
@@ -1233,15 +1244,19 @@ export interface experimentLogicActions {
     updateExperimentMetrics: () => {
         value: true
     }
-    updateExperimentSettings: (update: Partial<Experiment>) => {
+    updateExperimentSettings: (
+        update: Partial<Experiment>,
+        fromModal?: 'cuped' | 'statsMethod'
+    ) => {
+        fromModal: 'cuped' | 'statsMethod' | undefined
         update: Partial<Experiment>
     }
     updateExperimentSuccess: (
         experimentUpdate: Experiment,
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdateRequest
     ) => {
         experimentUpdate: Experiment
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdateRequest
     }
     updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => {
         variantPreviewMediaIds: Record<string, string[]>
@@ -1496,6 +1511,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
+                'closeCupedModal',
+                'closeStatsEngineModal',
             ],
         ],
     })),
@@ -1547,9 +1564,13 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         updateExperimentMetrics: true,
         updateExposureCriteria: true,
-        updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
+        updateExperimentSettings: (update: Partial<Experiment>, fromModal?: 'cuped' | 'statsMethod') => ({
+            update,
+            fromModal,
+        }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
+        setOpenDatePicker: (boundary: 'start' | 'end' | null) => ({ boundary }),
         launchExperiment: true,
         endExperiment: (
             openCleanupPr: boolean = false,
@@ -2146,6 +2167,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
+        // In the logic, so that the date change listeners close the picker only after a successful save.
+        openDatePicker: [
+            null as 'start' | 'end' | null,
+            {
+                setOpenDatePicker: (_, { boundary }) => boundary,
+            },
+        ],
         launchExperimentLoading: [
             false,
             {
@@ -2344,9 +2372,16 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldStartDate = values.experiment?.start_date
-            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            actions.updateExperiment({
+                start_date: startDate,
+                update_feature_flag_params: false,
+                discardOnConflict: true,
+            })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (values.openDatePicker === 'start') {
+                actions.setOpenDatePicker(null)
             }
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
@@ -2360,9 +2395,12 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: async ({ endDate }) => {
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldEndDate = values.experiment?.end_date
-            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false, discardOnConflict: true })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (values.openDatePicker === 'end') {
+                actions.setOpenDatePicker(null)
             }
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
@@ -2719,12 +2757,19 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
-        updateExperimentSettings: async ({ update }) => {
+        updateExperimentSettings: async ({ update, fromModal }) => {
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
-            actions.updateExperiment({ ...update, update_feature_flag_params: false })
+            // A save sends the whole stats_config object, also the keys that this user did not edit. After a conflict,
+            // a kept copy would send those stale keys over the other edit, so the controls show the server's copy.
+            actions.updateExperiment({ ...update, update_feature_flag_params: false, discardOnConflict: true })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (fromModal === 'cuped') {
+                actions.closeCupedModal()
+            } else if (fromModal === 'statsMethod') {
+                actions.closeStatsEngineModal()
             }
             // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
             lemonToast.success(
@@ -3539,7 +3584,8 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: ExperimentUpdatePayload) => {
+                updateExperiment: async (request: ExperimentUpdateRequest) => {
+                    const { discardOnConflict, ...update } = request
                     // The concurrency payload is built inside `send`, when the request actually
                     // runs, so a queued update reads the version absorbed from its predecessor's
                     // response instead of the one both dispatches started from.
@@ -3569,7 +3615,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 // Reload so the next save carries the current version and base state,
                                 // but keep this update's rejected scalar fields in local state so the
                                 // user's edit isn't lost — they can review the fresh state and save again.
-                                const preserved = conflictPreservedFields(update)
+                                const preserved = discardOnConflict ? {} : conflictPreservedFields(update)
                                 try {
                                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                                     const fresh: Experiment = await api.get(
@@ -3580,11 +3626,23 @@ export const experimentLogic = kea<experimentLogicType>([
                                 } catch {
                                     actions.loadExperiment()
                                 }
+                            } else if (isApprovalRequiredError(error)) {
+                                showApprovalRequiredToast(error.data.change_request_id, undefined, error.data.code)
+                                dispatchChangeRequestCreated({
+                                    resourceType: 'feature_flag',
+                                    resourceId: values.experiment.feature_flag?.id ?? '',
+                                })
                             } else if (error?.status === undefined) {
                                 // The loader onFailure handler in initKea toasts only errors that carry an HTTP
                                 // status. Without this toast, a request that got no response (offline, blocked,
                                 // dropped) would fail with no feedback.
                                 lemonToast.error('Could not save the experiment. Check your connection and try again.')
+                            } else if (error.status === 409) {
+                                // The loader onFailure handler in initKea skips every 409, because the conflict and
+                                // approval flows above show their own message. This 409 is neither of them.
+                                lemonToast.error(
+                                    error.detail || 'Could not save the experiment. Reload the page and try again.'
+                                )
                             }
                             throw error
                         }
@@ -3594,7 +3652,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     // carrying the same version, so the loser 409s even though its change saved.
                     // A dispatch identical to the in-flight one (double click, twin listeners)
                     // shares its request; a different one queues behind it.
-                    const key = JSON.stringify(update)
+                    const key = JSON.stringify(request)
                     const inflight: { key: string; promise: Promise<Experiment> } | undefined = cache.inflightUpdate
                     if (inflight && inflight.key === key) {
                         return inflight.promise
