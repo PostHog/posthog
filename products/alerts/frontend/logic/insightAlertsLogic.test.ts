@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -272,6 +274,34 @@ describe('insightAlertsLogic', () => {
 
         expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
     })
+
+    it.each([
+        { flag: 'on', metricsEnabled: true, expectedWarning: false },
+        { flag: 'off', metricsEnabled: false, expectedWarning: true },
+    ])(
+        'with the metrics flag $flag, a metrics query on an insight with alerts sets the deletion warning to $expectedWarning',
+        async ({ metricsEnabled, expectedWarning }) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
+            const insightLogicProps: InsightLogicProps = {
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...createEmptyInsight(Insight42),
+                    id: 42,
+                    query: METRICS_QUERY,
+                    alerts: [{ id: 'alert-a' }] as AlertType[],
+                },
+            }
+            mountInsightStack(insightLogicProps)
+            const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+            alertsLogic.mount()
+
+            await expectLogic(alertsLogic, () => {
+                insightVizDataLogic(insightLogicProps).actions.setQuery(METRICS_QUERY)
+            }).toDispatchActions(['setShouldShowAlertDeletionWarning'])
+            expect(alertsLogic.values.shouldShowAlertDeletionWarning).toBe(expectedWarning)
+        }
+    )
 
     it('refreshes destination counts after an alert is saved', async () => {
         const insightLogicProps: InsightLogicProps = {
