@@ -65,7 +65,7 @@ class TestInboxTrigger(BaseTest):
     def _opt_in(self, user: User, **flags: bool) -> None:
         # No explicit flags means the classic ReviewHog inbox opt-in.
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team=self.team, user=user, **(flags or {"review_inbox_prs": True})
+            team=self.team, user=user, preferences=flags or {"review_inbox_prs": True}
         )
 
     def _task(

@@ -22,6 +22,8 @@ def process_authored_pr_event(
     # Messages queued before this argument existed came only from the one repository the handler
     # accepted then.
     repository: str = "PostHog/posthog",
+    # Messages queued before this argument existed match the repository by name.
+    github_repo_id: int | None = None,
 ) -> None:
     AuthoredPRReview(
         installation_id=installation_id,
@@ -29,4 +31,5 @@ def process_authored_pr_event(
         author_login=author_login,
         pr_number=pr_number,
         head_sha=head_sha,
+        github_repo_id=github_repo_id,
     ).start()

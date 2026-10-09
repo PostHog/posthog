@@ -13,7 +13,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from products.review_hog.backend.automatic_review_rules import find_repository
+from products.review_hog.backend.ownership import RepositoryOwnership
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.temporal.client import (
     start_resolution_workflow,
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class ReviewHogTriggerRequestSerializer(serializers.Serializer):
     repo = serializers.CharField(
         help_text="GitHub repository to review, in 'owner/name' form (e.g. 'PostHog/posthog'). The repository must "
-        "be added to PostHog Review in the trigger team.",
+        "be set up in PostHog Review: the project that reviews it runs the review.",
     )
     pr_number = serializers.IntegerField(
         min_value=1,
@@ -43,8 +43,8 @@ class ReviewHogTriggerRequestSerializer(serializers.Serializer):
 
 class ReviewHogResolveRequestSerializer(serializers.Serializer):
     repo = serializers.CharField(
-        help_text="GitHub repository, in 'owner/name' form (e.g. 'PostHog/posthog'). The repository must be added "
-        "to PostHog Review in the trigger team.",
+        help_text="GitHub repository, in 'owner/name' form (e.g. 'PostHog/posthog'). The repository must be "
+        "set up in PostHog Review: the project that reviews it runs the resolution.",
     )
     pr_number = serializers.IntegerField(
         min_value=1,
@@ -72,15 +72,19 @@ def _bearer_token(request: Request) -> str:
     return auth.strip()
 
 
-def _resolve_run_user_id(team_id: int) -> int | None:
-    """The user the sandbox tasks run as: the GitHub integration creator if still an active org
+def _resolve_run_user_id(team_id: int, installation_id: str) -> int | None:
+    """The user the sandbox tasks run as: whoever connected the installation if still an active org
     member, else the oldest active org member (same semantics as signals' resolve_user_id_for_team).
 
     A disabled run user is worse than none: every user-scoped sandbox credential 403s and the agent
     hangs silently until the poll budget expires, so never return an inactive user here.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
-    integration = Integration.objects.filter(team_id=team_id, kind="github").order_by("id").first()
+    integrations = Integration.objects.filter(team_id=team_id, kind="github")
+    integration = (
+        integrations.filter(integration_id=installation_id).order_by("id").first()
+        or integrations.order_by("id").first()
+    )
     if integration is not None and integration.created_by_id:
         creator_is_active = OrganizationMembership.objects.filter(
             organization=team.organization,
@@ -100,6 +104,14 @@ def _resolve_run_user_id(team_id: int) -> int | None:
         .first()
     )
     return membership.user_id if membership else None
+
+
+def _is_active_member(team_id: int, user_id: int) -> bool:
+    return OrganizationMembership.objects.filter(
+        organization__team__id=team_id,
+        user_id=user_id,
+        user__is_active=True,
+    ).exists()
 
 
 class ReviewHogTriggerViewSet(viewsets.ViewSet):
@@ -130,22 +142,26 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         return None
 
     def _run_gates(self, repo: str) -> tuple[int, int] | Response:
-        """The shared trigger gates: configured team → added repository → authorized run user.
+        """The shared trigger gates: owning project → authorized run user.
 
         Returns `(team_id, user_id)` when every gate passes, else the error `Response` to return.
         (Shared-secret auth runs before body validation in each action, so it is not part of this.)
         """
-        # First configured team = the one label-triggered runs execute and publish under.
-        team_id = settings.REVIEWHOG_TEAM_IDS[0] if settings.REVIEWHOG_TEAM_IDS else None
-        if not team_id:
-            return Response({"error": "ReviewHog team is not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        if find_repository(team_id, repo) is None:
+        # The project that reviews the repository runs and publishes the review.
+        owner = RepositoryOwnership.find_by_name(repo)
+        if owner is None:
             return Response(
-                {"error": f"Repository {repo} is not added to PostHog Review"}, status=status.HTTP_403_FORBIDDEN
+                {"error": f"Repository {repo} is not set up in PostHog Review"}, status=status.HTTP_403_FORBIDDEN
             )
+        team_id = owner.team_id
 
-        user_id = settings.REVIEWHOG_RUN_USER_ID or _resolve_run_user_id(team_id)
+        # The configured run user applies only where it is a member, so another project falls back
+        # to its own run user.
+        configured_user_id = settings.REVIEWHOG_RUN_USER_ID
+        if configured_user_id and _is_active_member(team_id, configured_user_id):
+            user_id: int | None = configured_user_id
+        else:
+            user_id = _resolve_run_user_id(team_id, owner.installation_id)
         if not user_id:
             return Response(
                 {"error": "No active run user found for the team (no GitHub integration creator or org member)"},
@@ -153,12 +169,7 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             )
         # Fail loud here rather than silently downstream: sandbox credentials are authorized against
         # active org membership, so an unauthorized run user hangs the review until its poll budget expires.
-        run_user_is_authorized = OrganizationMembership.objects.filter(
-            organization__team__id=team_id,
-            user_id=user_id,
-            user__is_active=True,
-        ).exists()
-        if not run_user_is_authorized:
+        if not _is_active_member(team_id, user_id):
             # The Action echoes error bodies into public CI logs, so the id stays server-side.
             logger.warning("ReviewHog trigger: run user %s is not an active member of the team's organization", user_id)
             return Response(
@@ -176,19 +187,18 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             ),
             403: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,
-                description="Missing/invalid token or a repository that is not added",
+                description="Missing/invalid token or a repository that no project reviews",
             ),
             409: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,
                 description="The PR's resolution run is still going (busy-guard); retry once it finishes",
             ),
-            503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
         },
         summary="Trigger a ReviewHog PR review",
         description=(
             "Start a single-turn ReviewHog review for a pull request and (by default) publish it back to "
             "the PR. A published review chains into the resolution stage when the PR author's "
-            "resolve_comments setting is on (the default). Authenticated with the REVIEWHOG_TRIGGER_TOKEN "
+            "resolve_comments setting is on. Authenticated with the REVIEWHOG_TRIGGER_TOKEN "
             "shared secret in the Authorization header. Non-blocking: returns the Temporal workflow id "
             "immediately while the review runs in the worker."
         ),
@@ -220,9 +230,8 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             )
 
         # Forks are rejected server-side in the workflow's fetch activity (and by the Action gate); the
-        # endpoint stays free of GitHub I/O and returns immediately. Reviewing includes resolving:
-        # whether the run chains the resolution stage is the PR author's `resolve_comments` setting
-        # (default on), not a caller flag.
+        # endpoint stays free of GitHub I/O and returns immediately. Whether the run chains the
+        # resolution stage is the PR author's `resolve_comments` setting (default off), not a caller flag.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
         # Probed before the start: a same-id start joins the running turn, whose inputs keep the
         # original trigger, so the label's tier lift has to be written here (see the helper).
@@ -262,13 +271,12 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             ),
             403: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,
-                description="Missing/invalid token or a repository that is not added",
+                description="Missing/invalid token or a repository that no project reviews",
             ),
             409: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,
                 description="The PR's review workflow is still going (busy-guard); it chains resolution itself",
             ),
-            503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
         },
         summary="Trigger the ReviewHog resolution stage on a PR",
         description=(

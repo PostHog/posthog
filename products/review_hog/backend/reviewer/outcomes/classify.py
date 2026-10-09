@@ -184,7 +184,7 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
     # mirror IssuePriority, coerced through the value like the publish path).
     snapshotted = report.published_urgency_thresholds or {}
     fallback_threshold = (
-        str(ReviewUserSettings.load(team_id, report.acting_user_id).urgency_threshold)
+        ReviewUserSettings.load_preferences(team_id, report.acting_user_id).urgency_threshold.value
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
     )
