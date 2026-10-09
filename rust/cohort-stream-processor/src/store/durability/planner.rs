@@ -17,9 +17,12 @@ pub struct CheckpointPlan {
 
 /// Build a checkpoint plan: `metadata` with its files tracked, plus the files to upload.
 ///
-/// Incremental dedup keyed on filename: SST files (immutable) are reused from the previous attempt;
-/// mutable files are re-uploaded only on checksum change. The cancellation token, if given, is
-/// checked during the directory walk and before hashing non-SST files.
+/// With no previous attempt, every file uploads and the plan starts a new chain. Otherwise dedup is
+/// keyed on filename: SST files (immutable) are reused from the previous attempt; mutable files are
+/// re-uploaded only on checksum change, and the plan stays in the previous attempt's chain. The
+/// caller must pass a previous attempt of the same DB, because SST names are unique only within one
+/// DB. The cancellation token, if given, is checked during the directory walk and before hashing
+/// non-SST files.
 pub fn plan_checkpoint(
     local_checkpoint_attempt_dir: &Path,
     metadata: CheckpointMetadata,
@@ -51,6 +54,7 @@ pub fn plan_checkpoint(
         });
     };
 
+    info.metadata.full_upload_at = prev_meta.full_upload_at;
     let mut prev_file_map: HashMap<String, CheckpointFile> = HashMap::new();
     for prev_cp_file in &prev_meta.files {
         let filename = prev_cp_file
@@ -236,6 +240,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::store::durability::{CheckpointLineage, PodOrdinal};
+    use crate::store::DbIdentity;
 
     fn attempt_dir(base: &Path, checkpoint_id: &str) -> PathBuf {
         CheckpointLineage::new(PodOrdinal::STANDALONE)
@@ -244,7 +249,11 @@ mod tests {
     }
 
     fn metadata_at(attempt_timestamp: DateTime<Utc>) -> CheckpointMetadata {
-        CheckpointMetadata::new(PodOrdinal::STANDALONE, attempt_timestamp)
+        CheckpointMetadata::new(
+            PodOrdinal::STANDALONE,
+            attempt_timestamp,
+            DbIdentity::for_test("db"),
+        )
     }
 
     fn remote_attempt_dir(namespace: &str, checkpoint_id: &str) -> String {
@@ -318,6 +327,7 @@ mod tests {
             plan.info.get_metadata_key(),
             format!("{expected_remote_path}/metadata.json"),
         );
+        assert_eq!(plan.info.metadata.full_upload_at, attempt_timestamp);
     }
 
     #[test]
@@ -376,6 +386,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.files_to_upload.len(), 1);
+        assert_eq!(
+            plan.info.metadata.full_upload_at, prev_attempt_timestamp,
+            "an incremental plan stays in its baseline's chain",
+        );
         let got_sst3 = plan
             .files_to_upload
             .iter()

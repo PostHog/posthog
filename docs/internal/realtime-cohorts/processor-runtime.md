@@ -234,8 +234,12 @@ So follower work that finishes during the drain is committed, not replayed on th
 They commit only for the partitions recorded at the drain, because closing the events consumer revokes every partition from the live ownership.
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
-The events consumer gets 30 seconds to drain and each follower 45 seconds, inside the process's 90-second ceiling.
-Kubernetes kills the pod when its termination grace period ends, so a grace period shorter than that ceiling can cut the drain off, and the uncommitted work replays on the next boot.
+With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
+It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, after shutdown cancels any periodic upload in flight.
+It is skipped when boot never ended or the drain never finished, because positions are not settled then.
+
+The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.
+Kubernetes kills the pod when its termination grace period ends, so a grace period shorter than that ceiling can cut the drain or the final checkpoint off, and the uncommitted work replays on the next boot.
 
 ## Store access lanes
 

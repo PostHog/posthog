@@ -1511,6 +1511,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
             lineage,
             config.durability_config(),
             1,
+            tokio_util::sync::CancellationToken::new(),
         );
         sweeper.run_once().await;
 

@@ -7,12 +7,12 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::lineage::{CheckpointLineage, PodOrdinal};
-use crate::store::STORE_SCHEMA_VERSION;
+use crate::store::{DbIdentity, STORE_SCHEMA_VERSION};
 
 /// Filename of the checkpoint metadata JSON file, in a remote attempt directory and in a local one.
 pub const METADATA_FILENAME: &str = "metadata.json";
-/// Checkpoint ID format: the S3 attempt directory name, derived from `attempt_timestamp`. It
-/// carries milliseconds, so two checkpoints in one second get two attempt paths.
+/// Checkpoint ID format: the S3 attempt directory name, derived from `attempt_timestamp`. A final
+/// checkpoint can land in the same second as a periodic one, so the id carries milliseconds.
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%S-%3fZ";
 /// Current metadata shape. Decode refuses any other, so a restore can tell a checkpoint written by
 /// an older build from a corrupt one.
@@ -44,18 +44,31 @@ pub struct CheckpointMetadata {
     /// The [`STORE_SCHEMA_VERSION`] the checkpointed DB was written under. A restore checks it
     /// before downloading anything.
     pub store_schema: u32,
+    /// The checkpointed DB's id. An SST file name is unique only within one DB, so an incremental
+    /// upload reuses this checkpoint's files only for a DB with the same id.
+    pub db_identity: DbIdentity,
+    /// The attempt time of the last full upload in this checkpoint's chain of incrementals.
+    pub full_upload_at: DateTime<Utc>,
     /// Every remote file needed to reconstitute the store, across this and earlier attempts.
     pub files: Vec<CheckpointFile>,
 }
 
 impl CheckpointMetadata {
-    pub fn new(ordinal: PodOrdinal, attempt_timestamp: DateTime<Utc>) -> Self {
+    /// Metadata for a checkpoint that starts a new chain: `full_upload_at` is its own attempt time
+    /// until an incremental plan copies it from the baseline.
+    pub fn new(
+        ordinal: PodOrdinal,
+        attempt_timestamp: DateTime<Utc>,
+        db_identity: DbIdentity,
+    ) -> Self {
         Self {
             version: METADATA_VERSION,
             id: Self::generate_id(attempt_timestamp),
             ordinal,
             attempt_timestamp,
             store_schema: STORE_SCHEMA_VERSION,
+            db_identity,
+            full_upload_at: attempt_timestamp,
             files: Vec::new(),
         }
     }
@@ -177,7 +190,7 @@ mod tests {
     fn metadata(ordinal: PodOrdinal) -> CheckpointMetadata {
         let attempt = Utc.with_ymd_and_hms(2026, 10, 9, 16, 0, 5).unwrap()
             + chrono::Duration::milliseconds(123);
-        CheckpointMetadata::new(ordinal, attempt)
+        CheckpointMetadata::new(ordinal, attempt, DbIdentity::for_test("db-a"))
     }
 
     #[test]

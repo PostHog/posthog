@@ -934,6 +934,7 @@ async fn checkpoint_to_s3(instance: &Instance, config: &Config, groups: &Arc<Inp
         config.checkpoint_lineage().expect("ordinal pod name"),
         config.durability_config(),
         1,
+        tokio_util::sync::CancellationToken::new(),
     );
     sweeper.run_once().await;
 }

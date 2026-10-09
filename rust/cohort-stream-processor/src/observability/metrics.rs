@@ -97,9 +97,13 @@ pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
 /// File count in a freshly-taken checkpoint directory (histogram).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
-/// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`); when
-/// `result=cancelled`, an additional `cause` label (`rebalance`|`shutdown`|`unknown`) (counter).
+/// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`) and
+/// `trigger` (`periodic`|`final`), plus checkpoint ticks skipped by a failed WAL fsync
+/// (`result=flush_failed`) (counter). A cancelled final upload ran out of its budget.
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
+/// Bytes a successful upload sent, labelled by `kind` (`full`|`incremental`) (counter). Sizes the
+/// bucket's growth for its expiry setting.
+pub const CHECKPOINT_UPLOADED_BYTES_TOTAL: &str = "checkpoint_uploaded_bytes_total";
 /// Unix time of the last captured manifest (gauge, seconds). Starts at the sweeper's start, so a
 /// staleness alert fires only after its threshold passes.
 pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
@@ -108,6 +112,9 @@ pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
 /// **Alert on staleness**: no restorable checkpoint is getting newer.
 pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_upload_timestamp_seconds";
+/// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
+pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_full_upload_timestamp_seconds";
 /// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
 /// (counter).
 pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
@@ -822,12 +829,20 @@ mod tests {
             "checkpoint_import_duration_seconds",
         );
         assert_eq!(
+            CHECKPOINT_UPLOADED_BYTES_TOTAL,
+            "checkpoint_uploaded_bytes_total"
+        );
+        assert_eq!(
             CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS,
             "checkpoint_last_capture_timestamp_seconds",
         );
         assert_eq!(
             CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS,
             "checkpoint_last_upload_timestamp_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS,
+            "checkpoint_last_full_upload_timestamp_seconds",
         );
         assert_eq!(
             CHECKPOINT_CAPTURE_FAILURES_TOTAL,

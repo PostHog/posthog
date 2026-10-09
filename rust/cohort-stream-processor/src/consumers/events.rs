@@ -97,6 +97,11 @@ impl DrainedOwnership {
     pub(crate) fn partitions(&self) -> &HashSet<i32> {
         &self.0
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(partitions: impl IntoIterator<Item = i32>) -> Self {
+        Self(partitions.into_iter().collect())
+    }
 }
 
 pub(crate) enum DrainWait {

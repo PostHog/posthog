@@ -36,7 +36,7 @@ use cohort_stream_processor::producer::{
     NoopReconcileMarkerSink, NoopSeedTileSink, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
     TransferSink,
 };
-use cohort_stream_processor::store::durability::checkpoint::CHECKPOINT_LOOP_NAME;
+use cohort_stream_processor::store::durability::checkpoint::run_checkpoints;
 use cohort_stream_processor::store::durability::{
     ensure_one_filesystem, open_store, upload_cadence, CheckpointSweeper,
 };
@@ -79,8 +79,10 @@ async fn async_main(config: Config) -> Result<()> {
         .then(|| config.checkpoint_lineage())
         .transpose()?;
 
+    // Covers the 45 s follower windows, then the checkpoint component's 60 s. The pod's termination
+    // grace period must exceed it, or Kubernetes cuts the final checkpoint off.
     let mut manager = Manager::builder(SERVICE_NAME)
-        .with_global_shutdown_timeout(Duration::from_secs(90))
+        .with_global_shutdown_timeout(Duration::from_secs(110))
         .build();
 
     let metrics_handle =
@@ -119,6 +121,16 @@ async fn async_main(config: Config) -> Result<()> {
         manager.register(
             "seed-follower",
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
+        )
+    });
+    // Phase 1: its final checkpoint starts once every consumer and follower has made its final
+    // commit, so the checkpoint holds every folded event and positions past none of them.
+    let checkpoint_handle = lineage.map(|_| {
+        manager.register(
+            "checkpoint",
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(60))
+                .with_shutdown_phase(1),
         )
     });
     // Short graceful window: it holds no state and its next tick is disposable.
@@ -552,10 +564,11 @@ async fn async_main(config: Config) -> Result<()> {
         .start_monitoring(tokio_monitor_handle),
     );
 
-    // Whole-DB checkpoints to the local volume and S3. The loop waits for boot: a capture before the
-    // events rewind would record the broker's old offsets of a pending restore.
-    if let Some(lineage) = lineage {
-        let sweeper = CheckpointSweeper::new(
+    // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
+    // The loop waits for boot: a capture before the events rewind would record the broker's old
+    // offsets of a pending restore.
+    if let (Some(lineage), Some(checkpoint_handle)) = (lineage, checkpoint_handle) {
+        let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
             groups,
@@ -565,7 +578,8 @@ async fn async_main(config: Config) -> Result<()> {
                 config.checkpoint_interval_ms,
                 config.checkpoint_s3_upload_interval_ms,
             ),
-        );
+            consumer_handle.shutdown_token(),
+        ));
         let stop = consumer_handle.shutdown_token();
         let interval = config.checkpoint_interval();
         let checkpoint_catalog = catalog.clone();
@@ -574,9 +588,9 @@ async fn async_main(config: Config) -> Result<()> {
             tokio::select! {
                 biased;
                 // Boot never ended, so there are no settled positions to checkpoint.
-                _ = stop.cancelled() => {}
+                _ = stop.cancelled() => checkpoint_handle.work_completed(),
                 _ = wait_for_boot(&checkpoint_catalog, &checkpoint_readiness) => {
-                    run_sweep_loop(sweeper, interval, CHECKPOINT_LOOP_NAME, stop.clone()).await;
+                    run_checkpoints(sweeper, interval, checkpoint_handle).await;
                 }
             }
         });

@@ -21,6 +21,7 @@ use rocksdb::{
     Cache, ColumnFamily, DBWithThreadMode, Direction, FlushOptions, IteratorMode, Options,
     ReadOptions, SingleThreaded, WriteBatch, WriteOptions,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -64,6 +65,7 @@ const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
 const OP_RESET_SLICES: &str = "reset_slices";
+const OP_DB_IDENTITY: &str = "db_identity";
 const OP_FLUSH: &str = "flush";
 const OP_FLUSH_WAL: &str = "flush_wal";
 const OP_SCAN: &str = "scan";
@@ -202,6 +204,18 @@ pub enum StoreError {
 
     #[error("store offload cancelled by runtime shutdown")]
     OffloadCancelled,
+}
+
+/// The RocksDB DB id. A reopen and a checkpoint keep it; a created store gets a new one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DbIdentity(String);
+
+#[cfg(test)]
+impl DbIdentity {
+    pub(crate) fn for_test(id: &str) -> Self {
+        Self(id.to_owned())
+    }
 }
 
 /// One scanned key/value pair as raw bytes — the merge-CF GC decodes each per CF.
@@ -435,6 +449,17 @@ impl CohortStore {
         let store = Self::from_db(db, &db_opts, &config);
         store.check_schema(true, false)?;
         Ok(())
+    }
+
+    pub fn db_identity(&self) -> Result<DbIdentity, StoreError> {
+        let id = self
+            .db
+            .get_db_identity()
+            .map_err(|source| StoreError::Backend {
+                op: OP_DB_IDENTITY,
+                source,
+            })?;
+        Ok(DbIdentity(String::from_utf8_lossy(&id).into_owned()))
     }
 
     /// Compare the `cf_meta` schema stamp against [`STORE_SCHEMA_VERSION`]. A fresh store (one that
@@ -2517,6 +2542,18 @@ mod tests {
             restored.get_behavioral(&key).unwrap().as_deref(),
             Some(b"snapshot".as_slice()),
         );
+        assert_eq!(
+            restored.db_identity().unwrap(),
+            store.db_identity().unwrap(),
+            "a restored checkpoint is the same DB, so an incremental upload may reuse its files",
+        );
+
+        let created = CohortStore::open(&StoreConfig {
+            path: dir.path().join("other"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_ne!(created.db_identity().unwrap(), store.db_identity().unwrap());
     }
 
     // RocksDB's Checkpoint::create_checkpoint creates the destination dir itself and requires
