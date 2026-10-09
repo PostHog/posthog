@@ -340,6 +340,28 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
         change_request.refresh_from_db()
         assert change_request.validation_status == ValidationStatus.INVALID
 
+    def test_approve_commits_failed_state_when_requester_loses_access(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="approval-access-gated",
+            name="approval-access-gated",
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+        change_request = self._change_request(flag)
+        change_request.state = ChangeRequestState.PENDING
+        change_request.policy_snapshot = {"quorum": 1}
+        change_request.save(update_fields=["state", "policy_snapshot"])
+        self._revoke_flag_access()
+
+        result = ChangeRequestService(change_request, self.user).approve()
+
+        assert result.status == "failed"
+        change_request.refresh_from_db()
+        assert change_request.state == ChangeRequestState.FAILED
+        assert change_request.validation_status == ValidationStatus.INVALID
+
     def test_apply_refuses_when_the_requester_account_is_gone(self) -> None:
         # created_by is SET_NULL, so offboarding the requester empties it. Nobody is left whose
         # access can be checked, and the apply must not treat that as permission.
@@ -388,3 +410,4 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             assert flag.active is False
             change_request.refresh_from_db()
             assert change_request.validation_status == ValidationStatus.INVALID
+            assert change_request.state == ChangeRequestState.FAILED
