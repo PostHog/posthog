@@ -4507,7 +4507,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const urlVariables = settingsToRefresh.variables
                 const requestConcurrency = new ConcurrencyController(4)
-                let requestPriority = 0
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile, index) => async () => {
                     const insight = tile.insight
@@ -4540,7 +4539,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                             }
                                             return request()
                                         },
-                                        priority: requestPriority++,
+                                        // Retry deadlines continue while queued, so keep the tile's original priority.
+                                        priority: index,
                                         abortController: tileController,
                                     }),
                                 onCapacityWaitChange: (waiting) => {

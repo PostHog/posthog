@@ -2947,6 +2947,63 @@ describe('dashboardLogic', () => {
                 }
             )
 
+            it('retries cooling tiles before later blocking requests exhaust their retry budget', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const template = logic.values.insightTiles[0].insight!
+                const tiles = Array.from({ length: 12 }, (_, index) => ({
+                    ...tileFromInsight(
+                        { ...template, id: 9100 + index, short_id: `slow-${index}` as InsightShortId, result: null },
+                        9100 + index
+                    ),
+                    order: index,
+                }))
+                dashboardsModel.actions.updateDashboardSuccess(dashboardResult(5, tiles))
+
+                const attempts = Array(12).fill(0)
+                let activeRequests = 0
+                let peakRequests = 0
+                const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                    const index = tiles.findIndex((tile) => url.includes(`/insights/${tile.insight!.id}/`))
+                    attempts[index]++
+                    activeRequests++
+                    peakRequests = Math.max(peakRequests, activeRequests)
+                    try {
+                        if (index < 4 && attempts[index] === 1) {
+                            throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '5' }))
+                        }
+                        if (index >= 4) {
+                            await new Promise((resolve) => setTimeout(resolve, 50_000))
+                        }
+                        return new Response(JSON.stringify({ ...tiles[index].insight, result: [{ count: 42 }] }))
+                    } finally {
+                        activeRequests--
+                    }
+                })
+                jest.useFakeTimers()
+                try {
+                    logic.actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh })
+                    await jest.advanceTimersByTimeAsync(5001)
+                    expect(attempts).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0])
+
+                    await jest.advanceTimersByTimeAsync(45_000)
+                    expect(attempts.slice(0, 4)).toEqual([2, 2, 2, 2])
+                    for (const tile of tiles.slice(0, 4)) {
+                        expect(logic.values.insightTiles.find((item) => item.id === tile.id)?.insight?.result).toEqual([
+                            { count: 42 },
+                        ])
+                    }
+
+                    await jest.advanceTimersByTimeAsync(50_000)
+                    expect(peakRequests).toBe(4)
+                    expect(logic.values.insightTiles.every((tile) => tile.insight?.result != null)).toBe(true)
+                } finally {
+                    logic.actions.cancelDashboardRefresh()
+                    await jest.advanceTimersByTimeAsync(100_000)
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
+
             it.each([false, true])('clears a cooldown replaced by a batch (old request batch: %s)', async (batch) => {
                 await expectLogic(logic).toFinishAllListeners()
                 const tile = logic.values.insightTiles[0]
