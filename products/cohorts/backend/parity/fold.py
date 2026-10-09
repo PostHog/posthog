@@ -53,7 +53,7 @@ class ReconcileRunCompleteness:
         return f"{state}, withheld " + ", ".join(f"p{partition} {reason}" for partition, reason in self.withheld)
 
 
-@dataclass
+@dataclass(frozen=False)
 class FoldStats:
     total: int = 0
     folded: int = 0
