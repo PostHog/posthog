@@ -11,17 +11,32 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## MCP setup recommendations
+
+The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
+The tool returns ranked source connection recommendations with evidence and confidence, alongside other setup improvements.
+It supports `refresh=true` for an explicit rescan and does not connect accounts or apply changes.
+Incomplete or truncated scan results must be presented as such.
+
 ## Search performance
 
 Spend and conversions require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
 The Traffic view always includes the Position column when Google Search Console, Google Ads, or Bing Ads is ready.
-The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads or Bing Ads.
+The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads keywords and Bing Ads.
 Hover over each label or value, or focus it with the keyboard, for its definition.
-Google Ads percentages use Google Search impressions with placement data, weighted by impressions; Search partners are excluded.
+Google Ads keyword placement comes from the `keyword_placement_stats` table, selected by default for new connections.
+For existing connections, enable it in the Google Ads source settings and wait for its first successful sync to see Top and First percentages.
+These percentages use Google Search impressions, weighted by impressions, and exclude Search partners.
+The placement table does not include click-type segmentation, which Google Ads does not allow with these metrics.
+Clicks, spend, conversions, and total impressions continue to come from `keyword_stats`.
+When keyword traffic tables are ready but placement data is unavailable, a separate notice explains how to enable or restore `keyword_placement_stats`.
+Traffic remains visible while placement data is pending.
+If the placement table is missing or the user cannot access it, the report omits its placement data and shows an access notice.
+Google Ads landing page breakdowns show no placement percentages because Google Ads does not support these metrics for the landing page resource.
+Historical placement columns in `keyword_stats` and `landing_page_stats` are ignored.
 Bing Ads percentages use Microsoft Advertising report values, weighted by impressions.
 They do not identify second or third position, or the search results page.
-Existing Google Ads connections need to sync `keyword_stats` or `landing_page_stats` to import the new fields.
 Bing Ads connections need to sync `keyword_performance_report` or `destination_url_performance_report`.
 Older rows without placement data show no value.
 When no paid source is ready, the disabled control directs users to check their source settings or filters.
@@ -85,3 +100,5 @@ Search connections use a separate card controlled by `marketing-analytics-organi
 Review fixes preserve source data after request failures and provide a retry for connection errors.
 Blocked required imports show Needs attention with a Manage source link.
 Dashboard dismissals use the shared Setup restore controls.
+Source refresh failures retain the previous list and allow a later retry.
+Native source readiness checks include required schema failures and paused imports.
