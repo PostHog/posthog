@@ -1,4 +1,9 @@
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import {
+    type ExperimentExposureHealthFinding,
+    type ExperimentExposureHealthFindingCode,
+    type ExperimentExposureQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { healthPanelFindings } from './healthPanelFindings'
@@ -14,11 +19,27 @@ const serverFinding = (code: ExperimentHealthFindingApi['code']): ExperimentHeal
     diagnostic_ref: null,
 })
 
+const exposureFinding = (code: ExperimentExposureHealthFindingCode): ExperimentExposureHealthFinding => ({
+    code,
+    subcode: null,
+    severity: 'warning',
+    title: code,
+    detail: code,
+    evidence: {},
+    actions: [],
+    diagnostic_ref: null,
+})
+
 const UNEVEN_EXPOSURES = {
-    timeseries: [{ variant: 'control' }, { variant: 'test' }],
+    kind: NodeKind.ExperimentExposureQuery,
+    timeseries: [
+        { variant: 'control', days: ['2026-10-01', '2026-10-02'], exposure_counts: [300, 600] },
+        { variant: 'test', days: ['2026-10-01', '2026-10-02'], exposure_counts: [200, 400] },
+    ],
     total_exposures: { control: 600, test: 400 },
-    health_findings: [serverFinding('srm'), serverFinding('bias_risk_multiple_excluded')],
-} as unknown as ExperimentExposureQueryResponse
+    date_range: { date_from: '2026-10-01', date_to: '2026-10-02' },
+    health_findings: [exposureFinding('srm'), exposureFinding('bias_risk_multiple_excluded')],
+} satisfies ExperimentExposureQueryResponse
 
 describe('healthPanelFindings', () => {
     test.each<{
