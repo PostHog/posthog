@@ -20,7 +20,7 @@ export function SuggestionForm(): JSX.Element {
                 maxRows={6}
                 data-attr="autoresearch-suggestion-input"
             />
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"
                     value={suggestionPriority}

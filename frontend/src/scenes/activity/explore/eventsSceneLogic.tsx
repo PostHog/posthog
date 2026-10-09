@@ -8,8 +8,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import {
+    applyTestAccountFilter,
+    getDefaultEventsSceneQuery,
+    isUnnamedEventLookup,
+} from 'scenes/activity/explore/defaults'
+import {
+    FEATURE_FLAG_CALLED_EVENT,
     reachesPastFlagEvaluationsRetention,
     readsFlagEvaluationsTable,
 } from 'scenes/feature-flags/featureFlagUsageQueries'
@@ -21,7 +26,8 @@ import { urls } from 'scenes/urls'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { DataTableNode, EventsQuery, Node } from '~/queries/schema/schema-general'
+import { performQuery } from '~/queries/query'
+import { DataTableNode, EventsQuery, Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { ActivityTab, Breadcrumb } from '~/types'
 
@@ -29,7 +35,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 
 const FLAG_EVALUATIONS_ONLY_MODE = FlagEvaluationsModeEnumApi.Number2
-const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 export type FlagCallsNote = 'stored-separately' | 'retention'
 
@@ -66,6 +71,9 @@ export interface eventsSceneLogicActions {
         sceneKey: string
         tabId: string
     } // tabUiStateLogic
+    nameFlagCallLookup: (query: Node) => {
+        query: Node<Record<string, any>>
+    }
     setQuery: (query: Node) => {
         query: Node<Record<string, any>>
     }
@@ -114,12 +122,47 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         actions: [tabUiStateLogic, ['setSavedQueryForTab']],
     })),
 
-    actions({ setQuery: (query: Node) => ({ query }) }),
+    actions({
+        // The URL holds the query as JSON, which drops keys set to undefined. A date edit writes before: undefined.
+        // The scene stores the query in its JSON form, so that the scene's own URL update matches the stored query.
+        setQuery: (query: Node) => ({ query: JSON.parse(JSON.stringify(query)) as Node }),
+        nameFlagCallLookup: (query: Node) => ({ query }),
+    }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
             const isDefault = objectsEqual(query, values.defaultQuery)
             actions.setSavedQueryForTab(undefined, 'events', isDefault ? null : query)
+        },
+        // A lookup that names no event reads the events table. On flag_evaluations_mode 2 that table holds no flag call.
+        // This listener runs the lookup again with the flag call event, which reads flag_evaluations.
+        // It names the event when that query finds the row.
+        // Only a query in the URL dispatches this listener. An edit in the open scene does not dispatch it.
+        // A reload after the user clears the event runs the check again, because the URL then holds the cleared lookup.
+        nameFlagCallLookup: async ({ query }, breakpoint) => {
+            if (
+                values.currentTeam?.flag_evaluations_mode !== FLAG_EVALUATIONS_ONLY_MODE ||
+                !isDataTableNode(query) ||
+                !isEventsQuery(query.source) ||
+                !isUnnamedEventLookup(query.source)
+            ) {
+                return
+            }
+            const namedSource: EventsQuery = { ...query.source, event: FEATURE_FLAG_CALLED_EVENT }
+            const namedQuery: DataTableNode = { ...query, source: namedSource }
+            // performQuery reports a failure. On a failure the lookup keeps reading the events table.
+            const response = await performQuery({
+                ...namedSource,
+                select: ['uuid'],
+                // An empty order skips the runner's presorted path, which reads flag_evaluations two times.
+                orderBy: [],
+                limit: 1,
+                tags: { productKey: ProductKey.FEATURE_FLAGS },
+            }).catch(() => null)
+            breakpoint()
+            if (response?.results.length && objectsEqual(values.query, query)) {
+                actions.setQuery(namedQuery)
+            }
         },
     })),
     selectors({
@@ -198,6 +241,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 } else {
                     if (typeof queryParam === 'object') {
                         actions.setQuery(queryParam)
+                        actions.nameFlagCallLookup(queryParam)
                     } else {
                         lemonToast.error('Invalid query in URL')
                         console.error({ queryParam })

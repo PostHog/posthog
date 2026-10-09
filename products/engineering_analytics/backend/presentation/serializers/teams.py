@@ -1,6 +1,6 @@
 """Payloads for team-level rollups: CI health, activity, and merge trend."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
@@ -12,7 +12,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 
-class TeamCIHealthItemSerializer(DataclassSerializer):
+class TeamCIHealthItemSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TeamCIHealthItem
         extra_kwargs = {
@@ -68,7 +68,7 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
         }
 
 
-class TeamCIHealthListSerializer(DataclassSerializer):
+class TeamCIHealthListSerializer(LabeledChoicesDataclassSerializer):
     items = TeamCIHealthItemSerializer(
         many=True,
         help_text="Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. "
@@ -86,7 +86,7 @@ class TeamCIHealthListSerializer(DataclassSerializer):
         }
 
 
-class TeamTestSignalSerializer(DataclassSerializer):
+class TeamTestSignalSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TeamTestSignal
         extra_kwargs = {
@@ -104,7 +104,7 @@ class TeamTestSignalSerializer(DataclassSerializer):
         }
 
 
-class TeamCIActivitySerializer(DataclassSerializer):
+class TeamCIActivitySerializer(LabeledChoicesDataclassSerializer):
     tests = TeamTestSignalSerializer(
         many=True,
         help_text="The team's owned tests with signal in either window, ranked by the stronger window's count "
@@ -119,7 +119,7 @@ class TeamCIActivitySerializer(DataclassSerializer):
         }
 
 
-class TeamMergeTrendPointSerializer(DataclassSerializer):
+class TeamMergeTrendPointSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TeamMergeTrendPoint
         extra_kwargs = {
@@ -136,7 +136,7 @@ class TeamMergeTrendPointSerializer(DataclassSerializer):
         }
 
 
-class TeamMergeTrendSerializer(DataclassSerializer):
+class TeamMergeTrendSerializer(LabeledChoicesDataclassSerializer):
     points = TeamMergeTrendPointSerializer(
         many=True,
         help_text="Daily median and average open→merge over the PRs this team's members merged, ascending "

@@ -21,6 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+import type { MockSignature } from '~/mocks/utils'
 import {
     InsightColor,
     type DashboardTemplateType,
@@ -173,12 +174,6 @@ const sampleTemplates: DashboardTemplateType[] = [
     ),
 ]
 
-const tableListMocks = {
-    get: {
-        '/api/projects/:team_id/dashboard_templates/': toPaginatedResponse(sampleTemplates),
-    },
-}
-
 /** Second project in the org so `eligibleDestinationTeamsCount` is non-zero and Copy appears in the row menu. */
 const storySecondTeam: TeamType = {
     ...MOCK_DEFAULT_TEAM,
@@ -186,6 +181,43 @@ const storySecondTeam: TeamType = {
     name: 'Marketing site',
     uuid: '0178a3ab-story-0000-4b55-bceadebb0abc',
     project_id: 1002,
+}
+
+const organizationTemplates: DashboardTemplateType[] = [
+    {
+        id: 'tpl-org-own',
+        template_name: 'Release health',
+        dashboard_description: 'Organization template saved from this project.',
+        scope: 'organization',
+        team_id: MOCK_TEAM_ID,
+        created_by: MOCK_DEFAULT_BASIC_USER,
+        tags: ['releases'],
+        dashboard_filters: {},
+        variables: [],
+        tiles: [insightTile],
+    },
+    {
+        id: 'tpl-org-other-project',
+        template_name: 'Marketing funnel',
+        dashboard_description: 'Organization template shared from another project.',
+        scope: 'organization',
+        team_id: storySecondTeam.id,
+        created_by: MOCK_DEFAULT_BASIC_USER,
+        tags: [],
+        dashboard_filters: {},
+        variables: [],
+        tiles: [insightTile, insightTile],
+    },
+]
+
+const allStoryTemplates = [...sampleTemplates, ...organizationTemplates]
+
+/** Honors `?scope=` like the API, so the customer list (team + organization requests) leaves official templates out. */
+function templatesListMock(templates: DashboardTemplateType[]): MockSignature {
+    return ({ request }) => {
+        const scope = new URL(request.url).searchParams.get('scope')
+        return [200, toPaginatedResponse(scope ? templates.filter((t) => t.scope === scope) : templates)]
+    }
 }
 
 const storySecondProject: ProjectType = {
@@ -243,15 +275,17 @@ function storyUserForViewerMode(viewerMode: ViewerMode): UserType {
 }
 
 /** MSW follows `viewerMode` (Controls → Viewer mode). Always mock `@me` so `userLogic` loadUser does not overwrite the story org with a single-team user (staff mode previously had no handler). */
-const withViewerModeMsw: Decorator = (Story, context) => {
-    const viewerMode = ((context.args as { viewerMode?: ViewerMode }).viewerMode ?? 'staff') as ViewerMode
-    const mocks = {
-        get: {
-            ...tableListMocks.get,
-            '/api/users/@me/': (): [number, UserType] => [200, storyUserForViewerMode(viewerMode)],
-        },
+function withViewerModeMsw(templates: DashboardTemplateType[], defaultViewerMode: ViewerMode): Decorator {
+    return (Story, context) => {
+        const viewerMode = ((context.args as { viewerMode?: ViewerMode }).viewerMode ?? defaultViewerMode) as ViewerMode
+        const mocks = {
+            get: {
+                '/api/projects/:team_id/dashboard_templates/': templatesListMock(templates),
+                '/api/users/@me/': (): [number, UserType] => [200, storyUserForViewerMode(viewerMode)],
+            },
+        }
+        return mswDecorator(mocks)(Story, context)
     }
-    return mswDecorator(mocks)(Story, context)
 }
 
 function DashboardTemplatesTableStory({
@@ -290,9 +324,20 @@ export const Default: Story = {
             name: 'Viewer mode',
         },
     },
-    decorators: [withViewerModeMsw],
+    decorators: [withViewerModeMsw(allStoryTemplates, 'staff')],
     render: (_, { args }) => {
         const viewerMode = ((args as { viewerMode?: ViewerMode }).viewerMode ?? 'staff') as ViewerMode
         return <DashboardTemplatesTableStory perspective={viewerMode === 'nonStaff' ? 'nonstaff' : 'staff'} />
     },
+}
+
+/** Customers manage their own templates here, so official ones are left out and other projects' are read-only. */
+export const Customer: Story = {
+    decorators: [withViewerModeMsw(allStoryTemplates, 'nonStaff')],
+    render: () => <DashboardTemplatesTableStory perspective="nonstaff" />,
+}
+
+export const CustomerWithNoTemplates: Story = {
+    decorators: [withViewerModeMsw([], 'nonStaff')],
+    render: () => <DashboardTemplatesTableStory perspective="nonstaff" />,
 }
