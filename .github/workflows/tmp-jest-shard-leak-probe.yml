@@ -1,8 +1,7 @@
 name: Jest shard 1 leak probe (throwaway)
 
-# Throwaway measurement, not for merge. Runs the PR jest shard 1 workload three times on one runner:
-# as it runs today, with V8's compilation cache off, and with a jest worker memory limit.
-# One runner per job, so the runner's speed cancels out of the comparison. The order rotates per job.
+# Throwaway measurement, not for merge. Each job runs the PR jest shard 1 workload twice on one runner:
+# once as it runs today and once with one candidate fix, so the runner's speed cancels out of the pair.
 on:
     pull_request:
         paths:
@@ -17,13 +16,14 @@ permissions:
 
 jobs:
     probe:
-        name: Probe (${{ matrix.order }})
+        name: Probe (${{ matrix.fix }}, ${{ matrix.order }})
         runs-on: ubuntu-24.04
-        timeout-minutes: 80
+        timeout-minutes: 60
         strategy:
             fail-fast: false
             matrix:
-                order: ['today nocache limit', 'nocache limit today', 'limit today nocache']
+                fix: [nocache, workerlimit, heap4g, heap3g]
+                order: [today-first, today-second]
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -32,25 +32,30 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
-            - name: Run shard 1 three ways
+            - name: Run shard 1 as today and with one fix
               env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+                  FIX: ${{ matrix.fix }}
                   ORDER: ${{ matrix.order }}
               run: |
+                  set +e
                   set -uo pipefail
                   pnpm --filter=@posthog/frontend build:products
+                  echo "RESULT runner: $(nproc) cpus, $(free -m | awk '/^Mem:/ {print $2}') MB RAM"
 
                   run_variant() {
                       local variant="$1" log="$RUNNER_TEMP/jest-$1.log"
+                      local heap=16384
                       local node_flags=() jest_flags=()
                       case "$variant" in
                           nocache) node_flags=(--no-compilation-cache) ;;
-                          limit) jest_flags=(--workerIdleMemoryLimit=2GB) ;;
+                          workerlimit) jest_flags=(--workerIdleMemoryLimit=2GB) ;;
+                          heap4g) heap=4096 ;;
+                          heap3g) heap=3072 ;;
                       esac
                       local start
                       start=$(date +%s)
                       # Same jest arguments as the selective jest job, plus heap logging and a cold jest cache per variant.
-                      pnpm --filter=@posthog/frontend exec node "${node_flags[@]}" node_modules/jest/bin/jest.js \
+                      NODE_OPTIONS="--max-old-space-size=$heap" pnpm --filter=@posthog/frontend exec node "${node_flags[@]}" node_modules/jest/bin/jest.js \
                           --forceExit \
                           --passWithNoTests \
                           --logHeapUsage \
@@ -64,12 +69,14 @@ jobs:
                   import re, sys
                   log, variant, wall, status = sys.argv[1:5]
                   ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-                  heaps, first, jest_time, suites, tests = [], None, "?", "?", "?"
+                  heaps, first, jest_time, suites, tests, failed, notes = [], None, "?", "?", "?", [], []
                   for raw in open(log, errors="replace"):
                       line = ansi.sub("", raw.rstrip("\n"))
                       m = re.match(r"^(PASS|FAIL) (\S+)(?: \((?:[\d.]+ s, )?(\d+) MB heap size\))?", line)
                       if m:
                           first = first or m.group(2)
+                          if m.group(1) == "FAIL":
+                              failed.append(m.group(2))
                           if m.group(3):
                               heaps.append(int(m.group(3)))
                       if line.startswith("Test Suites:"):
@@ -78,6 +85,8 @@ jobs:
                           tests = line.split(":", 1)[1].strip()
                       if line.startswith("Time:"):
                           jest_time = line.split(":", 1)[1].strip()
+                      if re.search(r"heap out of memory|FATAL ERROR|SIGKILL|SIGABRT|terminated by another process|ran out of memory|Killed", line) and len(notes) < 6:
+                          notes.append(line.strip()[:200])
                   third = max(1, len(heaps) // 3)
                   mid = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
                   print(f"RESULT variant={variant} exit={status} wall_s={wall} jest_time={jest_time}")
@@ -85,9 +94,23 @@ jobs:
                   print(f"RESULT   first suite: {first}")
                   print(f"RESULT   heap MB: median first third={mid(heaps[:third])} middle third={mid(heaps[third:2 * third])} last third={mid(heaps[2 * third:])} max={max(heaps) if heaps else 0}")
                   print(f"RESULT   suites reporting over 2000 MB: {sum(1 for h in heaps if h > 2000)} of {len(heaps)}")
+                  for name in sorted(set(failed))[:8]:
+                      print(f"RESULT   failed suite: {name}")
+                  for note in notes:
+                      print(f"RESULT   note: {note}")
                   PY
+                      if [ "$status" -ne 0 ]; then
+                          echo "RESULT   last lines of the jest output for $variant:"
+                          tail -n 25 "$log" | cut -c1-220 | sed 's/^/RESULT     /'
+                      fi
                   }
 
-                  for variant in $ORDER; do
-                      run_variant "$variant"
-                  done
+                  if [ "$ORDER" = "today-first" ]; then
+                      run_variant today
+                      run_variant "$FIX"
+                  else
+                      run_variant "$FIX"
+                      run_variant today
+                  fi
+                  echo "RESULT kernel out-of-memory kills: $(sudo dmesg 2>/dev/null | grep -c -i 'killed process')"
+                  exit 0
