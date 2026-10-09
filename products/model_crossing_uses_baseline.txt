@@ -255,7 +255,6 @@ django.QuerySet products.product_analytics.backend.facade.api.with_last_viewed_a
 django.QuerySet products.product_analytics.backend.facade.models.resolve_insight_by_id_or_short_id facade-accepts(queryset) 1
 django.QuerySet products.stamphog.backend.facade.api.LazyDTOList.__init__ facade-accepts(queryset) 1
 django.QuerySet products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-returns 1
-django.QuerySet products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-returns 1
 endpoints.Endpoint products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(endpoint) 1
@@ -680,7 +679,6 @@ stamphog:backend/facade/tasks.py products.stamphog.backend.facade.tasks facade-l
 surveys.Survey product_tours.ProductTour.linked_surveys reverse-accessor(product_tours) 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
 tasks.Channel products.tasks.backend.facade.api.create_task_without_run facade-accepts(channel) 1
-tasks.SandboxEnvironment products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 tasks.Task signals.SignalReportTask.task reverse-accessor(signal_report_tasks) 1
 tasks.Task slack_app.SlackThreadTaskMapping.task reverse-accessor(slack_thread_mappings) 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
