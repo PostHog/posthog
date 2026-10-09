@@ -32,7 +32,6 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
-    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -118,7 +117,6 @@ class TaskProcessingContext:
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
-    pr_babysit_enabled: bool = False
     context_layer_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
@@ -1095,31 +1093,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _is_pr_babysit_snapshot_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("pr_babysit_snapshot_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context("pr_babysit_snapshot_flag_checked", run_id=run_id, pr_babysit_enabled=enabled)
-    return enabled
-
-
 def _is_sandbox_rotation_enabled(
     *,
     distinct_id: str,
@@ -1347,11 +1320,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-    # Signals implementation PRs are bot-authored and always benefit from the PR
-    # follow-up loop (fixing CI, replying to and resolving review threads), so they
-    # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
-    # that gates other origins. This mirrors the babysitting the Slack coding bot
-    # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         or posthoganalytics.feature_enabled(
@@ -1587,16 +1555,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     ):
         interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
 
-    pr_babysit_enabled = pr_loop_enabled and _is_pr_babysit_snapshot_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
-    )
     sandbox_backend_state = state
     resumed_backend = input.resumed_sandbox_backend
     if (
@@ -1702,7 +1660,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
-        pr_babysit_enabled=pr_babysit_enabled,
         context_layer_enabled=context_layer_enabled,
         state={key: value for key, value in state.items() if key != "scout_trial_private"},
         _branch=task_run.branch,

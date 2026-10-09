@@ -401,28 +401,6 @@ def increment_sandbox_process_killed_notification() -> None:
         pass
 
 
-def increment_pr_babysit_decision(decision: str) -> None:
-    try:
-        meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
-        meter.create_counter(
-            "tasks_pr_babysit_decision",
-            "CI follow-up decisions made by the snapshot-driven PR babysit loop",
-        ).add(1)
-    except Exception:
-        pass
-
-
-def increment_pr_babysit_snapshot(outcome: str, *, pr_state: str = "unknown") -> None:
-    try:
-        meter = _metric_meter({"outcome": outcome, "pr_state": pr_state})
-        meter.create_counter(
-            "tasks_pr_babysit_snapshot",
-            "PR babysit snapshot fetches for the PR follow-up loop, by outcome",
-        ).add(1)
-    except Exception:
-        pass
-
-
 def record_sandbox_created(
     runtime: str,
     image_kind: str,
