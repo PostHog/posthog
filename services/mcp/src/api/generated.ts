@@ -55903,6 +55903,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
@@ -55932,6 +55933,7 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      placementTable?: string | null;
       queryPageTable?: boolean | null;
       sourceType: SourceType;
       statsTable: string;
@@ -91079,6 +91081,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
