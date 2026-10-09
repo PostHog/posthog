@@ -97,11 +97,11 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         strategy:
             matrix:
-                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel]
+                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel]
                 include:
-                    - os: macos-14
+                    - os: macos-15
                       cibw_archs_macos: arm64
-                      MACOSX_DEPLOYMENT_TARGET: 14
+                      MACOSX_DEPLOYMENT_TARGET: 15
                     - os: macos-15-intel
                       cibw_archs_macos: x86_64
                       MACOSX_DEPLOYMENT_TARGET: 15
@@ -169,10 +169,10 @@ jobs:
                   name: wheels-ubuntu-22.04-arm
                   path: dist
 
-            - name: Download wheels from macos-14
+            - name: Download wheels from macos-15
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: wheels-macos-14
+                  name: wheels-macos-15
                   path: dist
 
             - name: Download wheels from macos-15-intel

@@ -127,7 +127,7 @@ jobs:
                     - os: ubuntu-22.04-arm
                       target: aarch64
                       manylinux: musllinux_1_2
-                    - os: macos-14
+                    - os: macos-15
                       target: aarch64
                     - os: macos-15-intel
                       target: x86_64
