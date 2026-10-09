@@ -312,6 +312,61 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
   not one session per thread. Watch the resolution outcomes on the dashboard after the change.
 
+### ✅ BUILT 2026-10-09 — settings rework: project rules, repository ownership, the PR owner rule, and first-class enablement
+
+Decided with the maintainer on 2026-10-09 (settings audit and settings mockup). Built in two layers: the data model
+and API (storage, ownership, the Flash decision), then the behavior rules. The record of the settled spec:
+
+- **Storage.** Personal preferences live in `ReviewUserSettings.preferences`, a sparse JSON dict typed in
+  `backend/preferences.py`: an absent key inherits, unknown keys and invalid values are ignored on read, and a write
+  equal to the inherited value removes the key. Keys: `default_review_mode` (follow / flash / off), `resolve_comments`
+  (default off, personal only), `urgency_threshold` and `celebrate_clean_reviews` (Full only, layered code default →
+  project default → user value), and the two Inbox opt-ins. The old columns stay on the model, unused. A GET creates no
+  row. Project rules live in `ReviewProjectSettings`: `flash_for` (everyone / listed / off, default off = opt-in only),
+  `bot_prs` (skip / run), and the two project defaults. People lists are `ReviewRepositoryPerson` rows; a row without
+  a repository belongs to the project rule.
+- **Ownership.** A repository belongs to at most one project, like GitHub's install picker: a
+  `ReviewInstallationClaim` per (project, installation) is `all` (at most one project per installation) or
+  `selected`, and a selected `ReviewRepository` row (unique across projects, matched by GitHub repository id, then by
+  name) wins over another project's `all` claim. Global uniqueness, not one project per GitHub organization, because
+  several projects often share one installation. The repository list in the settings reads the core GitHub
+  integration's cached repository list; the core `installation_repositories` webhook refreshes it.
+- **Flash decision**, highest first: the user's choice for the repository → the user's default unless follow → the
+  repository exception → the project rule. Bots and authors without an active member follow `bot_prs` only; a bot
+  review runs as the user who connected the installation, with default settings and no writes.
+- **PR owner** (`backend/pr_owner.py`): the author when the login maps to an active member; a self-driving PR (opened
+  by the PostHog app) belongs to its Inbox report's canonical reviewer; else nobody.
+- **Whose settings shape a review.** Automatic: the owner's rules (Flash reads no personal settings). Review button
+  and MCP: the person who asks. Label: the owner, else the connector with default settings. Inbox: the report
+  reviewer. The `review_labeled_prs` opt-out is gone: a label always runs.
+- **Resolution** runs only after a Full review, only when the owner opted in, whoever triggered, and only with the
+  `review-hog-internal` flag (`review_request_rules.ResolutionGate`). No owner, no writes. The resolve-only action
+  answers 409 `resolution_not_opted_in`, and `_prepare_run` checks the gate again. Guards: a protected head branch
+  holds the stage before any push (`CommitHold.BRANCH_PROTECTED`), and `is_app_bot_author` fails closed in production
+  when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset.
+- **Flash vs Full.** Flash ignores `urgency_threshold`: it publishes every kept finding and records `consider` in
+  `published_urgency_thresholds`. No Flash after Full: once a PR has a published Full review, automatic dispatch, the
+  turn's recheck, and manual Flash requests (API, MCP) refuse it (`flash_after_full`). Full may resolve Flash threads.
+- **Push gate.** New rule `reviewhog_commits_only`: an automatic follow-up skips when the ReviewHog app authored every
+  new commit since the last automatically reviewed head (resolution fixes). It emits `reviewhog_push_gate_decided`
+  like the other rules.
+- **First-class enablement.** No per-deploy team constant decides behavior: `REVIEWHOG_TEAM_IDS`,
+  `REVIEWHOG_RUN_USER_ID`, and `REVIEWHOG_TRIGGER_TOKEN` are gone. One feature flag, `review-hog-internal`, evaluated
+  per project like `review-hog`, gates the internal-only parts: automatic reviews, the label trigger, resolution, manual
+  Flash, the tiered review arms, and the Inbox and Stamphog controls. The `review-hog` flag stays the product switch.
+  The label trigger moved from the GitHub Action (deleted) to the GitHub App's own `labeled` delivery through the
+  existing `review_hog_authored_prs` consumer, which now routes by action (`accept_pull_request_event`). A person or
+  `stamphog[bot]` may label; another bot's label gets the explaining comment and is removed with the app token. The
+  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. No
+  migration seeds a claim: a project admin sets the claim in the settings UI. Customer setup: enable the flag →
+  connect GitHub → claim the installation → set the project rule.
+- **Facade.** `facade/github.py::owning_team_id(installation_id, repository)` exposes ownership, so a PR comment
+  command dispatcher can pick the project.
+- **One request entry.** `requested_reviews.request_pr_review()` serves the UI, MCP and the `@posthog review` comment,
+  and applies the owner rule, the resolution gate and the Flash-after-Full check for all of them. A comment run
+  follows the same owner rule.
+- **Open follow-ups.** Claims and rows of an uninstalled installation are not cleaned up yet.
+
 ### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
 
 - **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
