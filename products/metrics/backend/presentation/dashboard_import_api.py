@@ -44,6 +44,7 @@ from products.metrics.backend.facade.enums import (
     DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
+    PanelBuilderAggregation,
     PanelImportOutcome,
     PanelProgressState,
     PanelQueryLanguage,
@@ -162,7 +163,7 @@ class PanelBuilderClauseSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=64, help_text="Alias that a formula uses, for example 'a'.")
     metric_name = serializers.CharField(max_length=255, help_text="Exact metric name.")
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=PanelBuilderAggregation.choices,
         help_text="Aggregation for each bucket, with the same meaning as in the metrics query API.",
     )
     quantile = serializers.FloatField(

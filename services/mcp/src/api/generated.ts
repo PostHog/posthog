@@ -76632,6 +76632,32 @@ export namespace Schemas {
       results: WorkflowProposal[];
     }
 
+    /**
+     * * `sum` - Sum
+     * * `avg` - Avg
+     * * `count` - Count
+     * * `min` - Min
+     * * `max` - Max
+     * * `p95` - P95
+     * * `rate` - Rate
+     * * `increase` - Increase
+     * * `histogram_quantile` - Histogram Quantile
+     */
+    export type PanelBuilderAggregationEnum = typeof PanelBuilderAggregationEnum[keyof typeof PanelBuilderAggregationEnum];
+
+
+    export const PanelBuilderAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
     export interface PanelFilter {
       /**
          * Attribute name, for example 'service.name'.
@@ -76665,16 +76691,16 @@ export namespace Schemas {
       metric_name: string;
       /** Aggregation for each bucket, with the same meaning as in the metrics query API.
        *
-       * * `sum` - sum
-       * * `avg` - avg
-       * * `count` - count
-       * * `min` - min
-       * * `max` - max
-       * * `p95` - p95
-       * * `rate` - rate
-       * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation: AggregationEnum;
+       * * `sum` - Sum
+       * * `avg` - Avg
+       * * `count` - Count
+       * * `min` - Min
+       * * `max` - Max
+       * * `p95` - P95
+       * * `rate` - Rate
+       * * `increase` - Increase
+       * * `histogram_quantile` - Histogram Quantile */
+      aggregation: PanelBuilderAggregationEnum;
       /**
          * Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it.
          * @minimum 0

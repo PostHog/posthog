@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.metrics.backend.dashboard_import.display import (
     axis_bound,
     legacy_thresholds,
@@ -143,9 +145,15 @@ def _text(value: Any, limit: int) -> str:
     return " ".join(value.split())[:limit]
 
 
-def _position(panel: dict[str, Any]) -> tuple[int, int]:
-    grid = _dict(panel.get("gridPos"))
-    return _int(grid.get("y"), 0), _int(grid.get("x"), 0)
+def _grid_coordinate(panel: dict[str, Any], axis: str) -> int:
+    return _int(_dict(panel.get("gridPos")).get(axis), 0)
+
+
+@frozen
+class _UnwrappedDashboard:
+    dashboard: dict[str, Any]
+    # The pasted object. An export for sharing keeps __inputs and __elements next to the dashboard.
+    outer: dict[str, Any]
 
 
 def _pixels(value: Any, default: float) -> float:
@@ -174,7 +182,8 @@ def relative_date(grafana_from: Any) -> str | None:
 
 class GrafanaDashboardParser:
     def __init__(self, raw: Any) -> None:
-        self._dashboard, outer = self._unwrap(raw)
+        unwrapped = self._unwrap(raw)
+        self._dashboard, outer = unwrapped.dashboard, unwrapped.outer
         self._inputs = {
             str(item.get("name")): str(item.get("pluginId"))
             for item in _list(self._dashboard.get("__inputs") or outer.get("__inputs"))
@@ -192,7 +201,7 @@ class GrafanaDashboardParser:
         self._used_keys: set[str] = set()
 
     @staticmethod
-    def _unwrap(raw: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _unwrap(raw: Any) -> _UnwrappedDashboard:
         if not isinstance(raw, dict):
             raise GrafanaImportError("Paste the dashboard JSON model as one JSON object.")
         api_version = raw.get("apiVersion")
@@ -211,7 +220,7 @@ class GrafanaDashboardParser:
             raise GrafanaImportError(
                 "The JSON has no panels. In Grafana, open the dashboard settings, select JSON Model, and copy all of it."
             )
-        return dashboard, raw
+        return _UnwrappedDashboard(dashboard=dashboard, outer=raw)
 
     def parse(self) -> DashboardSpec:
         items = self._ordered_items()
@@ -242,7 +251,7 @@ class GrafanaDashboardParser:
             return self._legacy_rows(packer)
         items: list[tuple[dict[str, Any], GridLayout]] = []
         top_level = [panel for panel in _list(self._dashboard.get("panels")) if isinstance(panel, dict)]
-        for panel in sorted(top_level, key=_position):
+        for panel in sorted(top_level, key=lambda panel: (_grid_coordinate(panel, "y"), _grid_coordinate(panel, "x"))):
             if panel.get("type") == "row":
                 if _text(panel.get("title"), MAX_TITLE_LENGTH):
                     items.append((panel, packer.place_full_width(h=1)))
@@ -250,7 +259,12 @@ class GrafanaDashboardParser:
                     packer.start_band()
                 if panel.get("collapsed"):
                     children = [child for child in _list(panel.get("panels")) if isinstance(child, dict)]
-                    items.extend((child, self._place(packer, child)) for child in sorted(children, key=_position))
+                    items.extend(
+                        (child, self._place(packer, child))
+                        for child in sorted(
+                            children, key=lambda panel: (_grid_coordinate(panel, "y"), _grid_coordinate(panel, "x"))
+                        )
+                    )
                 continue
             items.append((panel, self._place(packer, panel)))
         return items
@@ -399,7 +413,8 @@ class GrafanaDashboardParser:
             unit_id = first_axis.get("format")
         elif grafana_type == "singlestat":
             unit_id = panel.get("format")
-        unit, unit_note = map_unit(unit_id)
+        mapped_unit = map_unit(unit_id)
+        unit, unit_note = mapped_unit.unit, mapped_unit.note
 
         reduce: Reducer | None = None
         thresholds = []

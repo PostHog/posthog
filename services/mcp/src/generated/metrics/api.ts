@@ -304,10 +304,10 @@ export const MetricsDashboardImportsValidateCreateBody = () => zod.object({
                                                 'histogram_quantile',
                                             ])
                                             .describe(
-                                                '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                                '\* `sum` - Sum\n\* `avg` - Avg\n\* `count` - Count\n\* `min` - Min\n\* `max` - Max\n\* `p95` - P95\n\* `rate` - Rate\n\* `increase` - Increase\n\* `histogram_quantile` - Histogram Quantile'
                                             )
                                             .describe(
-                                                'Aggregation for each bucket, with the same meaning as in the metrics query API.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                                'Aggregation for each bucket, with the same meaning as in the metrics query API.\n\n\* `sum` - Sum\n\* `avg` - Avg\n\* `count` - Count\n\* `min` - Min\n\* `max` - Max\n\* `p95` - P95\n\* `rate` - Rate\n\* `increase` - Increase\n\* `histogram_quantile` - Histogram Quantile'
                                             ),
                                         quantile: zod
                                             .number()

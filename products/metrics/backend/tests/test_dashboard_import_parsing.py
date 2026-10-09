@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from products.metrics.backend.dashboard_import.display import map_color, map_thresholds, map_unit
+from products.metrics.backend.dashboard_import.display import MappedUnit, map_color, map_thresholds, map_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError, relative_date
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
 from products.metrics.backend.dashboard_import.layout import RequestedBox, place_screenshot_boxes
@@ -471,7 +471,9 @@ def test_base_threshold_sits_below_every_other_step() -> None:
 
 
 def test_an_unknown_unit_is_dropped_with_a_note() -> None:
-    assert map_unit("lengthmm") == (None, 'The unit "lengthmm" is not available, so the panel shows plain numbers.')
+    assert map_unit("lengthmm") == MappedUnit(
+        unit=None, note='The unit "lengthmm" is not available, so the panel shows plain numbers.'
+    )
 
 
 def _box(key: str, x: int, y: int, w: int, h: int) -> RequestedBox:
