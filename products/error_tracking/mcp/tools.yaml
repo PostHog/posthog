@@ -297,8 +297,8 @@ tools:
             `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it. Setting `ingestion_enabled` to false drops every exception the project sends,
-            within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop
-            or resume exception ingestion.
+            within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop or
+            resume exception ingestion.
     error-tracking-severity-rules-create:
         operation: error_tracking_severity_rules_create
         enabled: true
