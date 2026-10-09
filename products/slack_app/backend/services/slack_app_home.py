@@ -44,7 +44,6 @@ from products.slack_app.backend.models import (
     SlackUserProfileCache,
     UntaggedFollowupMode,
 )
-from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
@@ -987,10 +986,7 @@ def _untagged_followups_section_blocks(
             "What I do when nobody tags @PostHog: replies in a thread you started, "
             "and questions you post in a channel that I can answer from your PostHog data."
         )
-        note = (
-            "Applies to every reply in your threads, yours included. "
-            f"A channel can be stricter: see `{SLASH_COMMAND_PREFIX} answers`."
-        )
+        note = "Applies to every reply in your threads, yours included."
     else:
         title = "💬 Thread follow-ups"
         subtitle = "What I do with replies in a thread you started, when nobody tags @PostHog."
@@ -2174,7 +2170,7 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
-        untagged_mode_covers_channel_questions=_unprompted_answers_offered(integration, slack_user_id),
+        untagged_mode_covers_channel_questions=is_slack_app_unprompted_answers_enabled(integration),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id)
@@ -2433,13 +2429,6 @@ def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> 
     if home_user is None:
         return False
     return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
-
-
-def _unprompted_answers_offered(integration: Integration, slack_user_id: str) -> bool:
-    home_user = _resolve_home_user(integration, slack_user_id)
-    if home_user is None:
-        return False
-    return is_slack_app_unprompted_answers_enabled(integration, distinct_id=home_user.distinct_id)
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:

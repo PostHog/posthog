@@ -4,11 +4,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackChannel, SlackSettings, UntaggedFollowupMode
-from products.slack_app.backend.services.slack_settings import (
-    resolve_unprompted_question_mode,
-    resolve_untagged_followup_mode,
-)
+from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 
 
 @pytest.fixture
@@ -55,33 +52,3 @@ class TestResolveUntaggedFollowupMode:
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.ASK
-
-
-class TestResolveUnpromptedQuestionMode:
-    @pytest.mark.parametrize(
-        "user_mode,channel_mode,expected",
-        [
-            (None, None, UntaggedFollowupMode.ASK),
-            # A channel nobody configured caps an author's AUTO at ASK, so no public answer goes out unclicked.
-            (UntaggedFollowupMode.AUTO, None, UntaggedFollowupMode.ASK),
-            (UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO),
-            (UntaggedFollowupMode.ASK, UntaggedFollowupMode.AUTO, UntaggedFollowupMode.ASK),
-            (UntaggedFollowupMode.NEVER, UntaggedFollowupMode.AUTO, UntaggedFollowupMode.NEVER),
-            (UntaggedFollowupMode.AUTO, UntaggedFollowupMode.NEVER, UntaggedFollowupMode.NEVER),
-        ],
-    )
-    def test_the_stricter_of_author_and_channel_wins(self, db, user_mode, channel_mode, expected):
-        SlackSettings.objects.create(slack_workspace_id="T_WS", slack_user_id="U001", untagged_followup_mode=user_mode)
-        SlackChannel.objects.create(
-            slack_workspace_id="T_WS", slack_channel_id="C001", unprompted_answer_mode=channel_mode
-        )
-        assert resolve_unprompted_question_mode("T_WS", "C001", "U001") == expected
-
-    def test_another_channels_ceiling_does_not_leak(self, db):
-        SlackSettings.objects.create(
-            slack_workspace_id="T_WS", slack_user_id="U001", untagged_followup_mode=UntaggedFollowupMode.AUTO
-        )
-        SlackChannel.objects.create(
-            slack_workspace_id="T_WS", slack_channel_id="C002", unprompted_answer_mode=UntaggedFollowupMode.NEVER
-        )
-        assert resolve_unprompted_question_mode("T_WS", "C001", "U001") == UntaggedFollowupMode.ASK

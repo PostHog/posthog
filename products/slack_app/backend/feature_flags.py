@@ -149,15 +149,16 @@ def is_slack_app_model_router_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_unprompted_answers_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for answering top-level channel messages nobody tagged the app in, and for the
-    App Home setting that controls it. Keyed on the author when ``distinct_id`` is given, so a
-    rollout can name people the way every other one does."""
+def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
+    """Gate for answering top-level channel messages nobody tagged the app in.
+
+    Keyed on the workspace, not the author, because the webhook checks it before it resolves
+    who wrote the message. Roll it out with an organization condition.
+    """
     return _workspace_flag_enabled(
         SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 

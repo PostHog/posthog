@@ -23,7 +23,7 @@ from posthog.temporal.ai.slack_app.activities.unprompted_question import (
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 from products.slack_app.backend.api import claim_message_handled
-from products.slack_app.backend.models import SlackChannel, SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
 
 MODULE = "posthog.temporal.ai.slack_app.activities.unprompted_question"
 
@@ -76,28 +76,16 @@ class TestRequestUnpromptedAnswerConfirmation(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "auto where the channel allows it answers",
-                UntaggedFollowupMode.AUTO,
-                UntaggedFollowupMode.AUTO,
-                False,
-                False,
-            ),
-            # An unconfigured channel caps the author's AUTO at a private offer.
-            ("auto in an unconfigured channel offers", UntaggedFollowupMode.AUTO, None, True, True),
-            ("never stays quiet", UntaggedFollowupMode.NEVER, UntaggedFollowupMode.AUTO, True, False),
-            ("a channel turned off stays quiet", UntaggedFollowupMode.AUTO, UntaggedFollowupMode.NEVER, True, False),
-            ("unset offers privately", None, None, True, True),
+            ("auto answers", UntaggedFollowupMode.AUTO, False, False),
+            ("never stays quiet", UntaggedFollowupMode.NEVER, True, False),
+            ("ask offers privately", UntaggedFollowupMode.ASK, True, True),
+            ("unset offers privately", None, True, True),
         ]
     )
-    def test_the_stricter_mode_decides(self, _name, user_mode, channel_mode, expect_stop, expect_prompt):
+    def test_the_authors_mode_decides(self, _name, user_mode, expect_stop, expect_prompt):
         if user_mode is not None:
             SlackSettings.objects.create(
                 slack_workspace_id="T_WS", slack_user_id="U_ALICE", untagged_followup_mode=user_mode
-            )
-        if channel_mode is not None:
-            SlackChannel.objects.create(
-                slack_workspace_id="T_WS", slack_channel_id="C1", unprompted_answer_mode=channel_mode
             )
         with patch("products.slack_app.backend.api._post_unprompted_answer_prompt", return_value=True) as mock_prompt:
             stop = request_unprompted_answer_confirmation_activity(self.inputs)

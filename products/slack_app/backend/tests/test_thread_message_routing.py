@@ -16,7 +16,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import (
-    SlackChannel,
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
@@ -151,43 +150,23 @@ class TestRouteThreadMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("an untagged question", {}, True, None, None, False, True),
-            ("a private channel", {"channel_type": "group"}, True, None, None, False, True),
-            ("a statement", {"text": "Shipped the new export filter today"}, True, None, None, False, False),
-            (
-                "a question to a person",
-                {"text": "<@U_ALICE> how many signups last week?"},
-                True,
-                None,
-                None,
-                False,
-                False,
-            ),
-            ("a group DM", {"channel_type": "mpim"}, True, None, None, False, False),
-            ("the flag is off", {}, False, None, None, False, False),
-            ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, None, False, False),
-            (
-                "the channel turned answers off",
-                {},
-                True,
-                UntaggedFollowupMode.AUTO,
-                UntaggedFollowupMode.NEVER,
-                False,
-                False,
-            ),
-            ("an externally shared channel", {}, True, None, None, True, False),
+            ("an untagged question", {}, True, None, False, True),
+            ("a private channel", {"channel_type": "group"}, True, None, False, True),
+            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
+            ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
+            ("the flag is off", {}, False, None, False, False),
+            ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
+            ("an author without a PostHog account", {"user": "U_UNKNOWN"}, True, None, False, False),
+            ("an externally shared channel", {}, True, None, True, False),
         ]
     )
     def test_top_level_question_starts_the_unprompted_workflow(
-        self, _name, overrides, flag_on, author_mode, channel_mode, ext_shared, expect_dispatch
+        self, _name, overrides, flag_on, author_mode, ext_shared, expect_dispatch
     ):
         if author_mode is not None:
             SlackSettings.objects.create(
                 slack_workspace_id="T_SLACK", slack_user_id="U_BOB", untagged_followup_mode=author_mode
-            )
-        if channel_mode is not None:
-            SlackChannel.objects.create(
-                slack_workspace_id="T_SLACK", slack_channel_id="C002", unprompted_answer_mode=channel_mode
             )
         event = {
             "type": "message",
@@ -201,10 +180,13 @@ class TestRouteThreadMessage(TestCase):
         with (
             patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,
         ):
             self._route(event, is_ext_shared_channel=ext_shared)
 
         assert mock_start.called is expect_dispatch
+        # Nobody asked, so a drop says nothing, an unknown author included.
+        mock_failure_reply.assert_not_called()
         if expect_dispatch:
             kwargs = mock_start.call_args.kwargs
             assert kwargs["unprompted_question"] is True

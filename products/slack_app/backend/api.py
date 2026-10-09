@@ -112,8 +112,8 @@ from products.slack_app.backend.services.slack_messages import (
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
-    resolve_unprompted_question_mode,
     resolve_untagged_followup_mode,
+    resolve_user_untagged_mode,
     set_untagged_followup_mode,
 )
 from products.slack_app.backend.services.slack_user_info import (
@@ -291,15 +291,12 @@ class RulesCommand:
         "project_set_workspace",
         "welcome_show",
         "welcome_set",
-        "answers_show",
-        "answers_set",
     ]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
     project_team_id: int | None = None
     welcome_mode: ChannelWelcomeMode | None = None
-    answers_mode: UntaggedFollowupMode | None = None
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -924,14 +921,6 @@ WELCOME_COMMAND_VALUES: dict[str, ChannelWelcomeMode] = {
 }
 
 
-# The words people type in `/posthog answers <value>`, mapped to the stored channel ceiling.
-ANSWERS_COMMAND_VALUES: dict[str, UntaggedFollowupMode] = {
-    "auto": UntaggedFollowupMode.AUTO,
-    "ask": UntaggedFollowupMode.ASK,
-    "off": UntaggedFollowupMode.NEVER,
-}
-
-
 def parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
@@ -992,13 +981,6 @@ def parse_rules_command(text: str) -> RulesCommand | None:
         if value is None:
             return RulesCommand(action="welcome_show")
         return RulesCommand(action="welcome_set", welcome_mode=WELCOME_COMMAND_VALUES[value.lower()])
-
-    answers_match = re.fullmatch(r"answers(?:\s+(auto|ask|off))?", cleaned, flags=re.IGNORECASE)
-    if answers_match is not None:
-        value = answers_match.group(1)
-        if value is None:
-            return RulesCommand(action="answers_show")
-        return RulesCommand(action="answers_set", answers_mode=ANSWERS_COMMAND_VALUES[value.lower()])
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
@@ -2530,15 +2512,13 @@ def _route_unprompted_question(
     """Start the classifier workflow for a top-level channel post nobody tagged the app in.
 
     Every drop here is silent: nobody asked PostHog anything, so nobody waits for an answer.
+    An author without a PostHog account is a normal drop, not a failure.
     Externally shared channels are out, because people outside the organization would see the reply.
     """
     if is_ext_shared_channel or _unprompted_question_ignore_reason(event) is not None:
         return ROUTE_HANDLED_LOCALLY
     slack_user_id = str(event.get("user") or "")
     channel = event.get("channel") if isinstance(event.get("channel"), str) else None
-    # Two indexed lookups that need no integration, ahead of the integration and Slack calls.
-    if resolve_unprompted_question_mode(slack_team_id, channel, slack_user_id) == UntaggedFollowupMode.NEVER:
-        return ROUTE_HANDLED_LOCALLY
 
     workspace_result = load_integrations(
         slack_team_id=slack_team_id,
@@ -2559,9 +2539,11 @@ def _route_unprompted_question(
         if claimed is not True:
             return ROUTE_HANDLED_LOCALLY
         return _proxy_event_and_return_route(request, other_domain)
-    # A workspace-level check ahead of user resolution, which can call Slack's users.info for
-    # every author. The per-person check below still decides the rollout for each author.
+
+    # Ahead of user resolution, which can call Slack's users.info for every author.
     if not is_slack_app_unprompted_answers_enabled(workspace_result.candidates[0]):
+        return ROUTE_HANDLED_LOCALLY
+    if resolve_user_untagged_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
 
     resolution = resolve_user_for_workspace(
@@ -2576,11 +2558,7 @@ def _route_unprompted_question(
     candidates = resolution.candidates
     # No picker: asking which project a question nobody addressed to us belongs to is noise.
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
-    if target is None:
-        return ROUTE_HANDLED_LOCALLY
-    if not is_slack_app_unprompted_answers_enabled(target, distinct_id=posthog_user.distinct_id):
-        return ROUTE_HANDLED_LOCALLY
-    if SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
+    if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
         return ROUTE_HANDLED_LOCALLY
 
     logger.info(
@@ -3983,9 +3961,8 @@ def _handle_unprompted_answer_run(payload: dict) -> HttpResponse:
         not isinstance(event, dict)
         or posthog_user is None
         or not _can_access_team(posthog_user, integration)
-        or resolve_unprompted_question_mode(integration.integration_id, context.get("slack_channel_id"), slack_user_id)
-        == UntaggedFollowupMode.NEVER
-        or not is_slack_app_unprompted_answers_enabled(integration, distinct_id=posthog_user.distinct_id)
+        or resolve_user_untagged_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
+        or not is_slack_app_unprompted_answers_enabled(integration)
         or SlackIntegration(integration).missing_scopes(REQUIRED_SLACK_SCOPES)
     ):
         _delete_ephemeral_via_response_url(response_url)

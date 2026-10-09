@@ -7,7 +7,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import RulesCommand
-from products.slack_app.backend.models import ChannelWelcomeMode, SlackChannel, SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings
 from products.slack_app.backend.services.commands import (
     SLASH_COMMAND_PREFIX,
     _handle_project_set_workspace,
@@ -224,60 +224,3 @@ class TestWelcomeCommand:
         text = self._dispatch(RulesCommand(action="welcome_show"))
 
         assert "only to that person" in text
-
-
-class TestAnswersCommand:
-    @pytest.fixture(autouse=True)
-    def setup(self, db):
-        self.organization = Organization.objects.create(name="Org")
-        self.team = Team.objects.create(organization=self.organization, name="Team A")
-        self.integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_WS",
-            sensitive_config={"access_token": "xoxb-a"},
-        )
-        self.user = User.objects.create_and_join(self.organization, "answers@example.com", "pw")
-        self.slack = MagicMock()
-
-    def _dispatch(self, command: RulesCommand, channel: str = "C1") -> str:
-        dispatch_rules_command(
-            command,
-            self.slack,
-            self.integration,
-            channel=channel,
-            thread_ts="111.1",
-            slack_user_id="U1",
-            slack_workspace_id="T_WS",
-            user_id=self.user.id,
-            command_prefix=SLASH_COMMAND_PREFIX,
-        )
-        return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
-
-    def _stored(self) -> str | None:
-        row = SlackChannel.objects.filter(slack_workspace_id="T_WS", slack_channel_id="C1").first()
-        return row.unprompted_answer_mode if row else None
-
-    @pytest.mark.parametrize(
-        "requested,is_admin,expected_stored",
-        [
-            # The unset ceiling is ASK. Anyone may hold answers back further.
-            (UntaggedFollowupMode.NEVER, False, UntaggedFollowupMode.NEVER),
-            # Loosening speaks for everyone in the channel.
-            (UntaggedFollowupMode.AUTO, False, None),
-            (UntaggedFollowupMode.AUTO, True, UntaggedFollowupMode.AUTO),
-        ],
-    )
-    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
-    def test_anyone_can_tighten_and_only_admins_can_loosen(self, mock_info, requested, is_admin, expected_stored):
-        mock_info.return_value = _slack_user_info(is_admin=is_admin)
-
-        self._dispatch(RulesCommand(action="answers_set", answers_mode=requested))
-
-        assert self._stored() == expected_stored
-
-    def test_a_direct_message_has_no_channel_to_configure(self):
-        text = self._dispatch(RulesCommand(action="answers_set", answers_mode=UntaggedFollowupMode.NEVER), channel="D1")
-
-        assert "in the channel" in text
-        assert not SlackChannel.objects.exists()

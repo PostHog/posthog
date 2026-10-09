@@ -21,7 +21,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.models import UntaggedFollowupMode
-from products.slack_app.backend.services.slack_settings import resolve_unprompted_question_mode
+from products.slack_app.backend.services.slack_settings import resolve_user_untagged_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -195,10 +195,10 @@ def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflo
 @activity.defn
 @close_db_connections
 def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
-    """Apply the stricter of the author's untagged-message mode and the channel's ceiling.
+    """Apply the author's untagged-message mode to a question the classifier passed.
 
     Returns ``True`` when the run must stop here: the private offer now waits for the
-    author, or the author or the channel turned answers off while this run was in flight.
+    author, or the author turned untagged pickups off while this run was in flight.
     """
     from products.slack_app.backend.api import (
         _post_unprompted_answer_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
@@ -206,7 +206,7 @@ def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMent
 
     inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
-    mode = resolve_unprompted_question_mode(inputs.slack_team_id, inputs.event.get("channel"), slack_user_id)
+    mode = resolve_user_untagged_mode(inputs.slack_team_id, slack_user_id)
     if mode == UntaggedFollowupMode.AUTO:
         return False
     if mode == UntaggedFollowupMode.NEVER:
