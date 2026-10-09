@@ -17,7 +17,7 @@ import type { IAnalytics } from "@posthog/platform/analytics";
 import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import type { IWorkspaceRepository } from "@posthog/workspace-server/db/repositories/workspace-repository";
-import { AgentService } from "@posthog/workspace-server/services/agent/agent";
+import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { AgentAuthAdapter } from "@posthog/workspace-server/services/agent/auth-adapter";
 import type {
   AgentAuth,
@@ -118,10 +118,14 @@ function claudeBinary(): string {
 }
 
 // The desktop app's agent service, with its Electron-only needs stubbed: it only runs Claude Code here.
-function createClaudeAgent(
+async function createClaudeAgent(
   mcp: AgentAuthAdapter,
   logger: RootLogger,
-): AgentService {
+): Promise<AgentService> {
+  // Its module graph takes over a second to load, so it loads on the first Claude chat, after the first paint.
+  const { AgentService } = await import(
+    "@posthog/workspace-server/services/agent/agent"
+  );
   const dataDir = join(homedir(), ".config", "posthog-tui", "agent");
   mkdirSync(join(dataDir, "plugin", "skills"), { recursive: true });
   const claude = claudeBinary();
@@ -328,7 +332,7 @@ export function createCloud(
     gateway,
   );
   const localChats = new LocalChats();
-  let claudeAgent: AgentService | undefined;
+  let claudeAgent: Promise<AgentService> | undefined;
   const sendPi: PiCommand = async (input) =>
     engine.sendCommand({ ...input, ...(await context()) });
   return {
@@ -367,7 +371,7 @@ export function createCloud(
       if (start.harness === "claude") {
         claudeAgent ??= createClaudeAgent(mcp, logger);
         const session = new ClaudeLocalSession(
-          claudeAgent,
+          await claudeAgent,
           {
             taskId: id,
             taskRunId: id,
