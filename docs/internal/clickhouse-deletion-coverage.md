@@ -253,7 +253,17 @@ When one of those runs starts during a copy, the shard stops, and its error name
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
 `cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for the teams and partitions each run names, and every other personal-data table already expires sooner under its own TTL.
-In EU, `eu_monthly_old_events_cleanup_schedule` runs it monthly for a fixed team list, over every partition from 202001 through the newest month with 13-month-old rows.
+It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
+
+Staff set the retention in Django admin, on the team and organization pages:
+
+- `OrganizationEventsRetentionConfig` holds the organization's default, minimum and maximum months.
+- `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range. Saving an organization range that excludes an existing team value fails until that team changes.
+- A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
+- This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
+
+`monthly_old_events_cleanup_schedule` starts one run per effective retention value on the 1st of each month, in every region. Each run requests every partition from 202001 through the newest month that is entirely past the retention.
+Each run rechecks the admin settings when it starts and skips teams whose retention no longer allows it. The runs share the `deletes_job` run queue, so they do not mutate the same partitions at the same time.
 It is stopped by default. It leaves events dated before 2020 in place, because `sharded_events_json` keeps them in its 202001 partition and the schedule matches on the event's own month.
 
 ## Adding a table

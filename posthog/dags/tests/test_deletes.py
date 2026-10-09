@@ -12,6 +12,7 @@ from django.conf import settings as django_settings
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
+from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, NodeRole, Query
 from posthog.dags.common.staged_dictionary import create_on_every_cluster
@@ -19,7 +20,6 @@ from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     _SURVIVOR_COUNT_ATTEMPTS,
     DELETES_RUN_CONFIG,
-    EU_OLD_EVENTS_CLEANUP_TEAM_IDS,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -33,11 +33,11 @@ from posthog.dags.deletes import (
     cleanup_old_events_by_partition,
     deletes_job,
     ensure_no_concurrent_deletes_run,
-    eu_monthly_old_events_cleanup_schedule,
     find_partitions_to_cleanup,
     manual_deletes_job,
     mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    monthly_old_events_cleanup_schedule,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
 )
@@ -46,7 +46,10 @@ from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
+from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+from posthog.models.team import Team
 
 
 def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
@@ -577,13 +580,26 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
+def _mid_month(months_ago: int) -> datetime:
+    return (datetime.now() - relativedelta(months=months_ago)).replace(
+        day=15, hour=12, minute=0, second=0, microsecond=0
+    )
+
+
+def _first_hour_of_month(months_ago: int) -> datetime:
+    return (datetime.now() - relativedelta(months=months_ago)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
+
+
+def _partition(timestamp: datetime) -> int:
+    return int(timestamp.strftime("%Y%m"))
+
+
 @pytest.mark.django_db
 def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
     from dagster import build_op_context
 
-    now = datetime.now()
-    old_timestamp = now - timedelta(days=400)
-    recent_timestamp = now - timedelta(days=30)
+    old_timestamp = _mid_month(14)
+    partly_aged_timestamp = _first_hour_of_month(13)
 
     team_ids = [100, 101, 102]
     events = []
@@ -593,7 +609,7 @@ def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
         )
         events.extend(
             [
-                (team_id, f"distinct_id_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
+                (team_id, f"distinct_id_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), partly_aged_timestamp)
                 for i in range(5)
             ]
         )
@@ -609,26 +625,28 @@ def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
     cluster.any_host(insert_events).result()
 
     config = MonthlyCleanupConfig(
-        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
+        team_ids=team_ids,
+        partitions=[_partition(old_timestamp), _partition(partly_aged_timestamp)],
+        min_age_months=13,
     )
     context = build_op_context()
 
     plan = find_partitions_to_cleanup(context, config, cluster)
 
-    assert len(plan.partitions) > 0
-    for partition in plan.partitions:
-        partition_date = datetime.strptime(str(partition), "%Y%m")
-        months_diff = (now.year - partition_date.year) * 12 + (now.month - partition_date.month)
-        assert months_diff >= 13
+    assert plan.partitions == [_partition(old_timestamp)]
+
+    rechecked = find_partitions_to_cleanup(
+        context, config.model_copy(update={"recheck_admin_retention": True}), cluster
+    )
+    assert (rechecked.team_ids, rechecked.partitions) == ([], [])
 
 
 @pytest.mark.django_db
 def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
     from dagster import build_op_context
 
-    now = datetime.now()
-    old_timestamp = now - timedelta(days=400)
-    recent_timestamp = now - timedelta(days=30)
+    old_timestamp = _mid_month(15)
+    recent_timestamp = datetime.now() - timedelta(days=30)
 
     team_ids = [200, 201]
     old_events = [
@@ -655,29 +673,18 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
     def count_events_by_age(client: Client) -> tuple[int, int]:
         old_result = client.execute(
             f"""
-            SELECT count(*)
+            SELECT countIf(toYYYYMM(timestamp) = {_partition(old_timestamp)}), countIf(toYYYYMM(timestamp) != {_partition(old_timestamp)})
             FROM writable_events
             WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
-            AND age('month', timestamp, now()) >= 13
             """
         )
-        recent_result = client.execute(
-            f"""
-            SELECT count(*)
-            FROM writable_events
-            WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
-            AND age('month', timestamp, now()) < 13
-            """
-        )
-        return (old_result[0][0], recent_result[0][0])
+        return (old_result[0][0], old_result[0][1])
 
     old_count_before, recent_count_before = cluster.any_host(count_events_by_age).result()
     assert old_count_before == len(old_events)
     assert recent_count_before == len(recent_events)
 
-    config = MonthlyCleanupConfig(
-        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
-    )
+    config = MonthlyCleanupConfig(team_ids=team_ids, partitions=[_partition(old_timestamp)], min_age_months=13)
     context = build_op_context()
 
     plan = find_partitions_to_cleanup(context, config, cluster)
@@ -697,8 +704,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
 
-    now = datetime.now()
-    old_timestamp = now - timedelta(days=400)
+    old_timestamp = _mid_month(15)
 
     team_ids = [400, 401]
     old_events = [
@@ -717,9 +723,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     cluster.any_host(insert_events).result()
 
-    config = MonthlyCleanupConfig(
-        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
-    )
+    config = MonthlyCleanupConfig(team_ids=team_ids, partitions=[_partition(old_timestamp)], min_age_months=13)
     context = build_op_context()
 
     plan = find_partitions_to_cleanup(context, config, cluster)
@@ -744,10 +748,9 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
 @pytest.mark.django_db
 def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
-    now = datetime.now()
-    old_timestamp = now - timedelta(days=400)
-    older_unrequested_timestamp = now - timedelta(days=460)
-    recent_timestamp = now - timedelta(days=30)
+    old_timestamp = _mid_month(15)
+    older_unrequested_timestamp = _mid_month(17)
+    partly_aged_timestamp = _first_hour_of_month(13)
 
     team_ids = [300, 301, 302]
     old_events = [
@@ -760,8 +763,8 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
         for team_id in team_ids
         for i in range(20)
     ]
-    recent_events = [
-        (team_id, f"recent_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
+    partly_aged_events = [
+        (team_id, f"partly_aged_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), partly_aged_timestamp)
         for team_id in team_ids
         for i in range(50)
     ]
@@ -771,14 +774,14 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
             """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
             VALUES
             """,
-            old_events + older_unrequested_events + recent_events,
+            old_events + older_unrequested_events + partly_aged_events,
         )
 
     cluster.any_host(insert_events).result()
 
-    old_partition = int(old_timestamp.strftime("%Y%m"))
-    older_unrequested_partition = int(older_unrequested_timestamp.strftime("%Y%m"))
-    recent_partition = int(recent_timestamp.strftime("%Y%m"))
+    old_partition = _partition(old_timestamp)
+    older_unrequested_partition = _partition(older_unrequested_timestamp)
+    partly_aged_partition = _partition(partly_aged_timestamp)
 
     def count_events_by_partition(client: Client) -> dict[int, int]:
         rows = client.execute(
@@ -794,7 +797,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
     assert cluster.any_host(count_events_by_partition).result() == {
         old_partition: len(old_events),
         older_unrequested_partition: len(older_unrequested_events),
-        recent_partition: len(recent_events),
+        partly_aged_partition: len(partly_aged_events),
     }
 
     monthly_old_events_cleanup_job.execute_in_process(
@@ -803,7 +806,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
                 "find_partitions_to_cleanup": {
                     "config": {
                         "team_ids": team_ids,
-                        "partitions": [old_partition],
+                        "partitions": [old_partition, partly_aged_partition],
                         "min_age_months": 13,
                     }
                 },
@@ -814,35 +817,46 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
     assert cluster.any_host(count_events_by_partition).result() == {
         older_unrequested_partition: len(older_unrequested_events),
-        recent_partition: len(recent_events),
+        partly_aged_partition: len(partly_aged_events),
     }
 
 
-@pytest.mark.parametrize(
-    "scheduled_at, newest_partition",
-    [
-        (datetime(2026, 11, 1, tzinfo=UTC), 202510),
-        (datetime(2027, 1, 1, tzinfo=UTC), 202512),
-        (datetime(2027, 2, 1, tzinfo=UTC), 202601),
-    ],
-)
-def test_eu_monthly_old_events_cleanup_schedule_requests_every_month_through_cutoff(
-    scheduled_at: datetime, newest_partition: int
-):
-    with dagster.build_schedule_context(scheduled_execution_time=scheduled_at) as context:
-        run_request = eu_monthly_old_events_cleanup_schedule(context)
+@pytest.mark.django_db
+@time_machine.travel("2027-01-01", tick=False)
+def test_monthly_old_events_cleanup_schedule_runs_each_retention_with_its_teams():
+    org_with_default = Organization.objects.create(name="With default")
+    OrganizationEventsRetentionConfig.objects.create(organization=org_with_default, default_events_retention_months=13)
+    inherits_default = Team.objects.create(organization=org_with_default, name="Inherits default")
+    overrides_default = Team.objects.create(organization=org_with_default, name="Overrides default")
+    TeamEventsRetentionConfig.objects.create(team=overrides_default, events_retention_months=24)
 
-    assert isinstance(run_request, dagster.RunRequest)
-    config = run_request.run_config["ops"]["find_partitions_to_cleanup"]["config"]
-    assert config["team_ids"] == list(EU_OLD_EVENTS_CLEANUP_TEAM_IDS)
-    assert config["min_age_months"] == 13
-    partitions = config["partitions"]
-    assert partitions[0] == 202001
-    assert partitions[-1] == newest_partition
-    assert all(
-        later == (earlier + 1 if earlier % 100 < 12 else earlier + 89)
-        for earlier, later in zip(partitions, partitions[1:])
-    )
+    org_without_config = Organization.objects.create(name="Without config")
+    Team.objects.create(organization=org_without_config, name="Keeps everything")
+    own_value = Team.objects.create(organization=org_without_config, name="Own value")
+    TeamEventsRetentionConfig.objects.create(team=own_value, events_retention_months=13)
+    nothing_old_enough = Team.objects.create(organization=org_without_config, name="Nothing old enough")
+    TeamEventsRetentionConfig.objects.create(team=nothing_old_enough, events_retention_months=120)
+
+    with dagster.build_schedule_context(scheduled_execution_time=datetime(2027, 1, 1, tzinfo=UTC)) as context:
+        run_requests = monthly_old_events_cleanup_schedule(context)
+
+    assert isinstance(run_requests, list)
+    configs = {
+        request.run_key: request.run_config["ops"]["find_partitions_to_cleanup"]["config"] for request in run_requests
+    }
+    assert {key: (config["team_ids"], config["min_age_months"]) for key, config in configs.items()} == {
+        "202701-13": (sorted([inherits_default.id, own_value.id]), 13),
+        "202701-24": ([overrides_default.id], 24),
+    }
+    assert all(config["recheck_admin_retention"] for config in configs.values())
+    for key, newest_partition in {"202701-13": 202511, "202701-24": 202412}.items():
+        partitions = configs[key]["partitions"]
+        assert partitions[0] == 202001
+        assert partitions[-1] == newest_partition
+        assert all(
+            later == (earlier + 1 if earlier % 100 < 12 else earlier + 89)
+            for earlier, later in zip(partitions, partitions[1:])
+        )
 
 
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:
