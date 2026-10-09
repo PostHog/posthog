@@ -5027,9 +5027,10 @@ Today (6): `auditlog`, `environments`, `flags`, `members`, `metrics`, `projects`
 
 Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 
-- [ ] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
-- [ ] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
-- [ ] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
+- [x] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
+- [x] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
 - [ ] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
 - [ ] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
 - [ ] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
@@ -5068,10 +5069,10 @@ Today (5): `activities`, `campaigns`, `team`, `team_senders`, `unsubscribes`
 
 Diffed against: <https://developer.lemlist.com/api-reference/openapi/v2.json>
 
-- [ ] `GET /campaigns/{campaignId}/leads/ (and GET /leads)` — the prospect records a campaign is actually working - the fact table the synced activities point at (high)
-- [ ] `GET /contacts` — unified contact records with custom variables; the identity table for joining activities to people (high)
-- [ ] `GET /campaigns/reports and GET /v2/campaigns/{campaignId}/stats` — headline campaign performance metrics (sends, opens, replies, interested) without re-aggregating raw activities (high)
-- [ ] `GET /campaigns/{campaignId}/sequences` — lookup resolving the sequence and step ids carried on every activity row (high)
+- [x] `GET /campaigns/{campaignId}/leads/ (and GET /leads)` — the prospect records a campaign is actually working - the fact table the synced activities point at (high)
+- [x] `GET /contacts` — unified contact records with custom variables; the identity table for joining activities to people (high)
+- [x] `GET /campaigns/reports and GET /v2/campaigns/{campaignId}/stats` — headline campaign performance metrics (sends, opens, replies, interested) without re-aggregating raw activities (high)
+- [x] `GET /campaigns/{campaignId}/sequences` — lookup resolving the sequence and step ids carried on every activity row (high)
 - [ ] `GET /campaigns/{campaignId}/statutes` — per-lead campaign state (paused, finished, interested) - the transition status behind funnel reporting (medium)
 - [ ] `GET /companies (and GET /companies/{companyId}/notes)` — company records for account-level outreach reporting (medium)
 - [ ] `GET /inbox and GET /inbox/{contactId}` — conversations and messages, the reply side of outreach that activities only summarize (medium)
@@ -5095,14 +5096,14 @@ Note: Coverage is essentially complete: every list endpoint in the API nav (stor
 
 ## LessAnnoyingCRM — gaps
 
-Today (6): `contacts`, `events`, `notes`, `tasks`, `teams`, `users`
+Today (11): `contacts`, `events`, `group_memberships`, `groups`, `notes`, `pipeline_items`, `pipeline_statuses`, `pipelines`, `tasks`, `teams`, `users`
 
 Diffed against: <https://account.lessannoyingcrm.com/api_docs/v2/Core_Functions/Pipeline_Items>
 
-- [ ] `GetPipelineItems (also GetPipelineItemsAttachedToContact)` — pipeline items are the deal/opportunity records - the core revenue object and the biggest hole in coverage (high)
-- [ ] `GetPipelines` — lookup resolving the pipeline ids that pipeline items and contacts carry (high)
-- [ ] `GetPipelineStatuses` — lookup resolving stage/status ids on pipeline items; required for any funnel or stage-duration analysis (high)
-- [ ] `GetGroups + GetContactsInGroup (GetGroupsAttachedToContact)` — group definitions plus the contact-to-group membership table used for segmentation (medium)
+- [x] `GetPipelineItems (also GetPipelineItemsAttachedToContact)` — pipeline items are the deal/opportunity records - the core revenue object and the biggest hole in coverage (high)
+- [x] `GetPipelines` — lookup resolving the pipeline ids that pipeline items and contacts carry (high)
+- [x] `GetPipelineStatuses` — lookup resolving stage/status ids on pipeline items; required for any funnel or stage-duration analysis (high)
+- [x] `GetGroups + GetContactsInGroup (GetGroupsAttachedToContact)` — group definitions plus the contact-to-group membership table used for segmentation (medium)
 - [ ] `GetEmails (GetEmailsAttachedToContact)` — logged email activity per contact, the main engagement signal alongside notes and events (medium)
 - [ ] `GetCustomFields` — lookup decoding the custom field ids that appear on contacts and pipeline items (medium)
 - [ ] `GetRelationshipsAttachedToContacts` — contact-to-contact relationship graph (company/person links) used for account rollups (medium)
@@ -5112,14 +5113,14 @@ Note: LACRM's v2 API is RPC-shaped (single POST endpoint with a Function name), 
 
 ## Lever — gaps
 
-Today (8): `archive_reasons`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
+Today (12): `applications`, `archive_reasons`, `feedback`, `interviews`, `offers`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
 
 Diffed against: <https://hire.lever.co/developer/documentation>
 
-- [ ] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high)
-- [ ] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high)
-- [ ] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high)
-- [ ] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high)
+- [x] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high) — synced as `feedback`
+- [x] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high) — synced as `interviews`
+- [x] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high) — synced as `applications` through `GET /opportunities?expand=applications`, the route Lever recommends over the deprecated per-candidate endpoint; `/applications/deleted` is not synced because it requires 30-day windows with no documented start
+- [x] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high) — synced as `offers`
 - [ ] `disposition_stages` — lookup resolving the disposition/stage codes carried on archived opportunities (medium)
 - [ ] `audit_events` — state-transition history for candidates, postings and users; the only source of change-over-time in Lever (medium)
 - [ ] `opportunities/{id}/notes` — recruiter activity volume per candidate (medium)
@@ -5158,8 +5159,8 @@ Today (9): `accounts`, `contacts`, `emails`, `lists`, `meetings`, `members`, `no
 
 Diffed against: <https://docs.lightfield.app/api/resources/object/methods/list/>
 
-- [ ] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
-- [ ] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
+- [x] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
+- [x] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
 
 Note: Lightfield's full resource list is account, contact, email, file, list, meeting, member, note, object, opportunity, task (plus auth/merge helpers), so PostHog already covers 9 of 11. Custom objects are addressed dynamically by entitySlug (GET /v1/objects/{entitySlug}), so implementing them requires discovering the slugs at sync time rather than a static table list. File endpoints were excluded as uploads/plumbing.
 
@@ -5190,7 +5191,7 @@ Today (5): `deployments`, `measurements`, `services`, `teams`, `users`
 
 Diffed against: <https://docs.linearb.io/api-overview/>
 
-- [ ] `incidents (GET /api/v1/incidents/search and /api/v1/incidents)` — incident records are the input to change failure rate and MTTR, two of the four DORA metrics LinearB is built around (high)
+- [x] `incidents (GET /api/v1/incidents/search and /api/v1/incidents)` — incident records are the input to change failure rate and MTTR, two of the four DORA metrics LinearB is built around (high)
 
 Note: LinearB's public API reference lists only measurements v2, deployments, incidents, external custom metrics, teams v1/v2, users, services, jobs and health. PostHog already covers deployments, measurements, services, teams and users. External custom metrics is write-only (report a metric), jobs is an async job-status poll and health is a liveness probe, so incidents is the only genuine readable gap.
 
