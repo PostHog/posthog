@@ -89,6 +89,7 @@ def calculate_for_query_based_insight(
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
     limit_context: LimitContext = LimitContext.QUERY_ASYNC,
+    bypass_warehouse_access_control: bool = False,
 ) -> "InsightResult":
     from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 
@@ -126,6 +127,7 @@ def calculate_for_query_based_insight(
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     raw_results: Optional[bytes] = None
