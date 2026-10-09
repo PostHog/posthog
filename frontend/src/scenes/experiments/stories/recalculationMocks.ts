@@ -38,12 +38,6 @@ export function resultsByMetricType(
     }
 }
 
-/**
- * Handlers for the recalculation endpoints experimentMetricsLogic calls on mount: the latest run, the create
- * POST, and the retrieve by id. All three answer with one completed run that covers every metric of the
- * experiment, so no cold run or heal starts and the table renders the fixtures at once. `resultFor` picks the
- * result fixture per metric uuid; `null` records that metric as failed, which keeps an error story an error.
- */
 export function recalculationMocks(
     experiment: ExperimentFixture,
     resultFor: (metricUuid: string) => ResultFixture | null
@@ -61,7 +55,7 @@ export function recalculationMocks(
             : { metric_uuid: metricUuid, status: 'failed', result: null, error_message: 'Metric failed to compute' }
     })
     const failedUuids = results.filter(({ status }) => status === 'failed').map(({ metric_uuid }) => metric_uuid)
-    // The legacy loader showed each result's own refresh stamp; the run's window is the freshest of them.
+
     const queryTo =
         results
             .map(({ result }) => (result as ResultFixture | null)?.last_refresh ?? null)
