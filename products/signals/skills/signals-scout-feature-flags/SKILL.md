@@ -230,25 +230,27 @@ Retained behavior follows the direction: **fully rolled out** → keep the enabl
 
 ##### Still-called full rollouts — the fallback's second scan
 
-`STALE` matches a flag only when its last call is more than 30 days old, or when it was never called. A flag at 100% that the code still evaluates gets calls every day, so `STALE` never returns it. That is often the flag with the most code ready to remove. This scan stands in for the check's `effectively_full_rollout` class while the check does not reach the project. It ranks the roster rows that carry an untargeted 100% release condition by call volume:
+`STALE` matches a flag only when its last call is more than 30 days old, or when it was never called. A flag at 100% that the code still evaluates gets calls every day, so `STALE` never returns it. That is often the flag with the most code ready to remove. This scan stands in for the check's `effectively_full_rollout` class while the check does not reach the project. It ranks the roster rows that carry an untargeted 100% release condition by call volume. The window is 30 days, the same as the check's, because `STALE` already returns a flag with no call in 30 days. A shorter window would miss a flag last called 15 to 29 days ago. The key prefixes drop the targeting flags that PostHog creates for surveys and product tours:
 
 ```sql
-SELECT f.id, f.key, c.calls_14d
+SELECT f.id, f.key, c.calls_30d
 FROM system.feature_flags AS f
 INNER JOIN (
-    SELECT properties.$feature_flag AS flag_key, count() AS calls_14d
+    SELECT properties.$feature_flag AS flag_key, count() AS calls_30d
     FROM events
     WHERE event = '$feature_flag_called'
-      AND timestamp >= now() - INTERVAL 14 DAY
+      AND timestamp >= now() - INTERVAL 30 DAY
     GROUP BY flag_key
 ) AS c ON c.flag_key = f.key
 WHERE f.deleted = 0
   AND f.created_at < now() - INTERVAL 30 DAY
+  AND NOT startsWith(f.key, 'survey-targeting-')
+  AND NOT startsWith(f.key, 'product-tour-targeting-')
   AND arrayExists(
       g -> JSONExtractInt(g, 'rollout_percentage') = 100 AND JSONLength(g, 'properties') = 0,
       JSONExtractArrayRaw(f.filters, 'groups')
   )
-ORDER BY c.calls_14d DESC
+ORDER BY c.calls_30d DESC
 LIMIT 25
 ```
 
@@ -259,9 +261,10 @@ The SQL returns a superset. `system.feature_flags` has no `active` column, and a
 - `feature-flags-status-retrieve {id}` returns `rollout.effectively_full_rollout: true`;
 - `feature-flag-get-definition` shows the flag active, an `updated_at` more than 30 days old, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration. A flag moved to 100% this week is still in its soak, not finished;
 - the definition has no setting that decides the result before the release conditions or outside them. `filters` carries no `holdout`, `holdout_groups`, `super_groups`, `early_exit`, or `feature_enrollment`, neither `filters` nor any group sets `aggregation_group_type_index`, and `bucketing_identifier` is not `device_id`. `effectively_full_rollout` ignores these settings, so a holdout flag still serves a second result that the bundle must not call the retained behavior;
+- the definition shows empty `surveys` and `features` (early access) lists and `is_used_in_replay_settings: false`. The check excludes these linked flags too;
 - `feature-flags-dependent-flags-retrieve` returns no dependents.
 
-Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Record the id of each flag that fails a check above as rejected in the same entry, so the next scan skips it and moves down the ranking. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
+Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Record the id of each flag that fails a check above as rejected in the same entry, with the rejection date, so the next scan skips it and moves down the ranking. A soak, a payload, or a dependent can go away, so drop a rejection from the exclusion list 30 days after its date and let the flag be checked again. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
 
 #### Dead checks still shipped (P3 bundle)
 
