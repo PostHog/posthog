@@ -74,23 +74,14 @@ export const wantsText = (prompt: AgentPrompt, index: number): boolean =>
   (prompt.request.options[index]?._meta as { customInput?: boolean })
     ?.customInput === true;
 
-export function feedbackSheet(prompt: AgentPrompt, index: number): Sheet {
-  return {
-    title:
-      prompt.kind === "acp"
-        ? (prompt.request.options[index]?.name ?? prompt.request.title)
-        : "",
-    items: [],
-    footer: "Type what to do instead below and press Enter · Esc to reject",
-  };
-}
-
 // The questions a Claude Code prompt asks, or none for a plain permission.
 export const questionsOf = (prompt: AgentPrompt): AcpQuestion[] =>
   prompt.kind === "acp" ? (prompt.request.questions ?? []) : [];
 
-// `step` is the question being asked, for a prompt with several.
-export function promptSheet(prompt: AgentPrompt, step = 0): Sheet {
+const FEEDBACK_PLACEHOLDER = "Type what to do instead, then press Enter";
+
+// `step` is the question being asked, for a prompt with several; `draft` is the text typed for an option that takes some.
+export function promptSheet(prompt: AgentPrompt, step = 0, draft = ""): Sheet {
   const questions = questionsOf(prompt);
   const question = questions[step];
   if (question)
@@ -107,7 +98,12 @@ export function promptSheet(prompt: AgentPrompt, step = 0): Sheet {
   if (prompt.kind === "acp")
     return {
       title: prompt.request.title,
-      items: prompt.request.options.map(({ name }) => ({ label: name })),
+      items: prompt.request.options.map(({ name }, index) => ({
+        label: name,
+        ...(wantsText(prompt, index) && {
+          input: { placeholder: FEEDBACK_PLACEHOLDER, text: draft },
+        }),
+      })),
       footer: "Enter to choose · Esc to reject",
     };
   if (prompt.kind === "permission") {

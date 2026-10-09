@@ -5,7 +5,6 @@ import { allPanes, findPane, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
 import {
   type AgentPrompt,
-  feedbackSheet,
   type PromptReply,
   promptId,
   promptReply,
@@ -23,6 +22,8 @@ export interface OpenModal {
   choose: (index: number) => void;
   // Runs on Esc, for a sheet whose opener needs to hear about a cancel.
   dismiss?: () => void;
+  // Takes what is typed into the selected item's text field.
+  edit?: (text: string) => void;
   // Set when the answer is typed in the composer instead of picked from the list.
   submitText?: (text: string) => void;
 }
@@ -66,15 +67,15 @@ export function useSheets({
     });
   const paneTaskId = (paneId: string): string | null =>
     findPane(layout, paneId)?.taskId ?? null;
-  // A question prompt's picks so far, and the option that now waits for its text from the composer, by prompt.
+  // A question prompt's picks so far, and the text typed for an option that takes some, by prompt.
   // Keys arrive in bursts before React renders, so each one reads what the last one left: refs, with a render asked for.
   const answered = useRef(new Map<string, Record<string, string>>()).current;
-  const feedback = useRef(new Map<string, number>()).current;
+  const drafts = useRef(new Map<string, string>()).current;
   const [, setChanged] = useState(0);
   const changed = (): void => setChanged((count) => count + 1);
   const forget = (id: string): void => {
     answered.delete(id);
-    feedback.delete(id);
+    drafts.delete(id);
     changed();
   };
 
@@ -85,7 +86,7 @@ export function useSheets({
     if (!prompt || !local) return undefined;
     const id = promptId(prompt);
     const picks = answered.get(id) ?? {};
-    const typingFor = feedback.get(id);
+    const draft = drafts.get(id) ?? "";
     const send = (next: PromptReply): void => {
       forget(id);
       local
@@ -95,12 +96,11 @@ export function useSheets({
         );
     };
     const reply = (answer: number | string | null): void => {
-      if (typeof answer === "number" && wantsText(prompt, answer)) {
-        feedback.set(id, answer);
-        changed();
-        return;
-      }
-      const next = promptReply(prompt, answer, picks);
+      const typed =
+        typeof answer === "number" && wantsText(prompt, answer)
+          ? draft.trim() || undefined
+          : undefined;
+      const next = promptReply(prompt, answer, picks, typed);
       const answers = next.kind === "acp" ? (next.answers ?? {}) : {};
       const count = Object.keys(answers).length;
       if (answer !== null && count > 0 && count < questionsOf(prompt).length) {
@@ -111,19 +111,15 @@ export function useSheets({
       }
       send(next);
     };
-    if (typingFor !== undefined)
-      return {
-        sheet: feedbackSheet(prompt, typingFor),
-        index: 0,
-        choose: () => {},
-        dismiss: () => reply(null),
-        submitText: (text) => send(promptReply(prompt, typingFor, picks, text)),
-      };
     return {
-      sheet: promptSheet(prompt, Object.keys(picks).length),
+      sheet: promptSheet(prompt, Object.keys(picks).length, draft),
       index: promptCursors.get(id) ?? 0,
       choose: reply,
       dismiss: () => reply(null),
+      edit: (text) => {
+        drafts.set(id, text);
+        changed();
+      },
       submitText: takesText(prompt) ? reply : undefined,
     };
   };
@@ -178,6 +174,18 @@ export function useSheets({
       const index = key.kind === "number" ? key.index : modal.index;
       const item = modal.sheet.items[index];
       if (!item || item.disabled) return;
+      // A number lands the cursor on an item with a text field, so typing can start; Enter sends it.
+      if (key.kind === "number" && item.input) {
+        const prompt = modals.has(paneId)
+          ? undefined
+          : prompts.get(paneTaskId(paneId) ?? "")?.[0];
+        if (prompt) setPromptCursor(promptId(prompt), index);
+        else
+          setModals((current) =>
+            new Map(current).set(paneId, { ...modal, index }),
+          );
+        return;
+      }
       closeModal(paneId);
       modal.choose(index);
     },
