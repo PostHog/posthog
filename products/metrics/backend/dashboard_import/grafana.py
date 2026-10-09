@@ -17,6 +17,7 @@ from products.metrics.backend.dashboard_import.display import (
     map_thresholds,
     map_unit,
 )
+from products.metrics.backend.dashboard_import.grafana_v2 import classic_from_v2, is_v2_spec
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
 from products.metrics.backend.dashboard_import.layout import (
     MIN_INSIGHT_HEIGHT,
@@ -197,13 +198,13 @@ class GrafanaDashboardParser:
         api_version = raw.get("apiVersion")
         dashboard: Any = raw
         if isinstance(api_version, str) and api_version.startswith("dashboard.grafana.app/"):
-            if "/v2" in api_version:
-                raise GrafanaImportError(
-                    "This is a Grafana v2 dashboard resource. Export the dashboard as classic JSON and try again."
-                )
             dashboard = raw.get("spec")
         elif isinstance(raw.get("dashboard"), dict):
             dashboard = raw["dashboard"]
+        if isinstance(dashboard, dict) and is_v2_spec(_dict(dashboard.get("spec"))):
+            dashboard = dashboard["spec"]
+        if is_v2_spec(dashboard):
+            dashboard = classic_from_v2(dashboard)
         if not isinstance(dashboard, dict) or not (
             isinstance(dashboard.get("panels"), list) or isinstance(dashboard.get("rows"), list)
         ):

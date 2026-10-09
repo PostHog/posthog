@@ -139,6 +139,7 @@ class PanelValidator:
 
     def clause_contract(self, clause: BuilderClause) -> MetricQueryClause:
         entry = self._catalog.resolve(clause.metric_name)
+        quantile: float | None
         if clause.aggregation == "p95":
             aggregation, quantile = MetricAggregation.QUANTILE, P95_QUANTILE
         else:

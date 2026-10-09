@@ -13,7 +13,7 @@ _REFERENCE = re.compile(
     r"|\$(?P<plain>[A-Za-z0-9_]+)"
 )
 # The range rewrite handles these, so the substitution must leave them in place.
-GRAFANA_RANGE_VARIABLES = frozenset({"__rate_interval", "__interval", "__range", "__auto"})
+GRAFANA_RANGE_VARIABLES = frozenset({"__rate_interval", "__interval", "__range", "__range_s", "__range_ms", "__auto"})
 _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
@@ -90,7 +90,8 @@ class TemplateVariables:
         def replace(match: re.Match[str]) -> str:
             name = match.group("braced") or match.group("bracketed") or match.group("plain")
             value_format = match.group("braced_format") or match.group("bracketed_format")
-            if name in GRAFANA_RANGE_VARIABLES:
+            # A numeric reference such as $1 is a regex group in label_replace, not a variable.
+            if name in GRAFANA_RANGE_VARIABLES or name.isdigit():
                 return match.group(0)
             variable = self._variables.get(name)
             if variable is None or (not variable.values and not variable.is_all):

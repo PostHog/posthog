@@ -51,7 +51,8 @@ KEYWORDS = GROUPING_KEYWORDS | {"bool", "and", "or", "unless", "offset", "atan2"
 # Grafana fills these per panel. PostHog runs a range-less rate or increase over the query step,
 # which is what `$__rate_interval` and `$__interval` stand for.
 _STEP_RANGE_VARIABLE = re.compile(r"^\$\{?__(rate_interval|interval|auto)\}?$")
-_DASHBOARD_RANGE_VARIABLE = re.compile(r"^\$\{?__range\}?$")
+# Grafana also writes the dashboard range as `${__range_s}s` or `${__range_ms}ms`.
+_DASHBOARD_RANGE_VARIABLE = re.compile(r"^\$\{?__range(?:\}?|_s\}?s|_ms\}?ms)$")
 
 _LOGQL_PIPELINE = re.compile(
     r"\}\s*(?:\|=|!=|\|~|!~|\|\s*(?:json|logfmt|pattern|regexp|unpack|line_format|label_format|unwrap|drop|keep|decolorize)\b)"
