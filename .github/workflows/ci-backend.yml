@@ -4687,7 +4687,7 @@ jobs:
                   version: '0.12.13'
             - name: Download junit artifacts
               if: steps.timing-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./junit-artifacts
                   pattern: '{junit-results-backend,product-junit-results}-*'
@@ -4754,14 +4754,14 @@ jobs:
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # a run where no shard emitted coverage data is not a failure
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./cov-artifacts
                   pattern: coverage-products-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # core coverage only present once the Core segment ran with --cov
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./core-artifacts
                   pattern: coverage-core-*

@@ -280,7 +280,7 @@ jobs:
             - name: DockerHub login
               continue-on-error: true
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
-              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -504,7 +504,7 @@ jobs:
 
             - name: Download result
               id: dl
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               continue-on-error: true # a PR the resolve job skipped has no artifact
               with:
                   name: result-${{ matrix.pr.number }}
