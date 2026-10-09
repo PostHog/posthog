@@ -1,27 +1,51 @@
-import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '~/common/utils/retries'
-import { sleep } from '~/common/utils/utils'
+import { RetrySchedule, retryIfRetriable } from '~/common/utils/retries'
+import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
+
+export interface MetricsRetryOptions extends RetrySchedule {
+    /** Identifies the retry site in the `ingestion_pipeline_retry_attempts` metric. */
+    name: string
+}
 
 /**
- * Retries `fn` on errors with `isRetriable === true`, on the same schedule as
- * `retryIfRetriable`. The first attempt runs outside the retry loop, because
- * the loop has a fixed cost per call and almost every call succeeds at once.
- * `schedule.tries` counts the first attempt.
+ * `retryIfRetriable` with the first attempt outside the retry loop. The loop
+ * and its metric have a fixed cost per call, and almost every call succeeds
+ * at once. After a first failure, the error goes through `retryIfRetriable`,
+ * so the retry rule and the schedule are the same. `tries` counts the first
+ * attempt, and `softDeadlineMs` starts at the first attempt. The retry metric
+ * records only calls that failed at least once.
  */
-export async function retryAfterFirstFailure<T>(fn: () => Promise<T>, schedule: RetrySchedule): Promise<T> {
+export async function retryAfterFirstFailure<T>(fn: () => Promise<T>, options: MetricsRetryOptions): Promise<T> {
+    const { name, ...schedule } = options
+    const startedAt = schedule.softDeadlineMs === undefined ? 0 : Date.now()
+    let firstError: unknown
     try {
         return await fn()
     } catch (error) {
-        const tries = (schedule.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT) - 1
-        if (error?.isRetriable !== true || tries < 1) {
-            throw error
+        firstError = error
+    }
+
+    let attempts = 1
+    let replayed = false
+    const attempt = (): Promise<T> => {
+        if (!replayed) {
+            replayed = true
+            return Promise.reject(firstError)
         }
-        const sleepMs = schedule.sleepMs ?? defaultRetryConfig.RETRY_INTERVAL_DEFAULT
-        const maxSleepMs = schedule.maxSleepMs ?? defaultRetryConfig.MAX_INTERVAL
-        await sleep(Math.min(sleepMs, maxSleepMs))
-        return await retryIfRetriable(fn, {
-            ...schedule,
-            tries,
-            sleepMs: Math.min(sleepMs * (schedule.backoffFactor ?? defaultRetryConfig.BACKOFF_FACTOR), maxSleepMs),
-        })
+        attempts++
+        return fn()
+    }
+
+    try {
+        const softDeadlineMs =
+            schedule.softDeadlineMs === undefined
+                ? undefined
+                : Math.max(0, schedule.softDeadlineMs - (Date.now() - startedAt))
+        const result = await retryIfRetriable(attempt, { ...schedule, softDeadlineMs })
+        pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
+        return result
+    } catch (error) {
+        const outcome = (error as { isRetriable?: boolean })?.isRetriable === false ? 'non_retriable' : 'exhausted'
+        pipelineRetryAttemptsHistogram.labels({ name, outcome }).observe(attempts)
+        throw error
     }
 }

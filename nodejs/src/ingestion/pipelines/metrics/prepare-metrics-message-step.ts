@@ -13,7 +13,7 @@ import { createRecordMetricsReceivedStep } from './metrics-usage-steps'
 import { MetricsHeaders, createParseMetricsHeadersStep } from './parse-metrics-headers-step'
 import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 
-const RESOLVE_TEAM_RETRY = { tries: 3, sleepMs: 100 }
+const RESOLVE_TEAM_RETRY = { tries: 3, sleepMs: 100, name: 'resolve_metrics_team' }
 
 /**
  * Runs an element step over each value of a chunk, concurrently. The framework

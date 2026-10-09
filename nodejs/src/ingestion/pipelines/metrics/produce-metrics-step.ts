@@ -20,7 +20,9 @@ export interface ProduceMetricsInput {
     recordCount: number
 }
 
-const PRODUCE_RETRY = { tries: 5, sleepMs: 100 }
+// A delivery timeout already includes librdkafka's own retries, so the deadline
+// keeps a slow failure from waiting through more attempts.
+const PRODUCE_RETRY = { tries: 5, sleepMs: 100, softDeadlineMs: 10_000, name: 'produce_metrics' }
 
 /**
  * Produces the capture-side Avro packet to the ClickHouse-bound topic as is.
@@ -28,8 +30,8 @@ const PRODUCE_RETRY = { tries: 5, sleepMs: 100 }
  * (`team_id`, `retention-days`) on top of the ones capture stamped.
  *
  * The produce is a side effect, so the consumer reads the next batch while
- * the acks are pending. A retriable error gets retries. When the produce still
- * fails, the message goes to the DLQ. The side effect must not reject:
+ * the acks are pending. An error not marked `isRetriable: false` gets retries.
+ * When the produce still fails, the message goes to the DLQ. The side effect must not reject:
  * consumer-v1 stores the batch's offsets even when its background task
  * rejects, so a rejection would lose the message instead of replaying it.
  */
