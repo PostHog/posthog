@@ -1,12 +1,13 @@
 """Payloads for the atomic CI Signals configuration endpoint."""
 
 from rest_framework import serializers
-from rest_framework_dataclasses.serializers import DataclassSerializer
+
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import CISignalsConfig
 
 
-class CISignalsConfigSerializer(DataclassSerializer):
+class CISignalsConfigSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CISignalsConfig
         extra_kwargs = {

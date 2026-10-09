@@ -13167,14 +13167,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `open` - OPEN
-     * * `closed` - CLOSED
-     * * `merged` - MERGED
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged
      */
-    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+    export type PRStateEnum = typeof PRStateEnum[keyof typeof PRStateEnum];
 
 
-    export const EngineeringAnalyticsPRStateEnum = {
+    export const PRStateEnum = {
       Open: 'open',
       Closed: 'closed',
       Merged: 'merged',
@@ -13195,10 +13195,10 @@ export namespace Schemas {
       title: string;
       /** Derived state: 'open', 'closed', or 'merged'.
        *
-       * * `open` - OPEN
-       * * `closed` - CLOSED
-       * * `merged` - MERGED */
-      state: EngineeringAnalyticsPRStateEnum;
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
       /** True if the pull request is a draft. */
       is_draft: boolean;
       /** When the pull request was opened. */
@@ -13369,9 +13369,9 @@ export namespace Schemas {
 
     /**
      * * `ci` - CI
-     * * `review` - REVIEW
-     * * `queue` - QUEUE
-     * * `rework` - REWORK
+     * * `review` - Review
+     * * `queue` - Queue
+     * * `rework` - Rework
      */
     export type FrictionGroupEnum = typeof FrictionGroupEnum[keyof typeof FrictionGroupEnum];
 
@@ -13387,9 +13387,9 @@ export namespace Schemas {
       /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
        *
        * * `ci` - CI
-       * * `review` - REVIEW
-       * * `queue` - QUEUE
-       * * `rework` - REWORK */
+       * * `review` - Review
+       * * `queue` - Queue
+       * * `rework` - Rework */
       group: FrictionGroupEnum;
       /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
       score: number;
@@ -18831,6 +18831,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `breaking_master` - Breaking Master
+     * * `blocking_merge_queue` - Blocking Merge Queue
+     * * `novel_burst` - Novel Burst
+     * * `potentially_resolved` - Potentially Resolved
+     * * `flaky` - Flaky
+     * * `pr_only` - PR Only
+     */
+    export type BrokenTestStateEnum = typeof BrokenTestStateEnum[keyof typeof BrokenTestStateEnum];
+
+
+    export const BrokenTestStateEnum = {
+      BreakingMaster: 'breaking_master',
+      BlockingMergeQueue: 'blocking_merge_queue',
+      NovelBurst: 'novel_burst',
+      PotentiallyResolved: 'potentially_resolved',
+      Flaky: 'flaky',
+      PrOnly: 'pr_only',
+    } as const;
+
+    /**
      * * `github_actions` - GitHub Actions
      * * `depot_ci` - Depot CI
      */
@@ -18842,32 +18862,7 @@ export namespace Schemas {
       DepotCi: 'depot_ci',
     } as const;
 
-    /**
-     * * `breaking_master` - BREAKING_MASTER
-     * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
-     * * `novel_burst` - NOVEL_BURST
-     * * `potentially_resolved` - POTENTIALLY_RESOLVED
-     * * `flaky` - FLAKY
-     * * `pr_only` - PR_ONLY
-     */
-    export type BrokenTestRowStateEnum = typeof BrokenTestRowStateEnum[keyof typeof BrokenTestRowStateEnum];
-
-
-    export const BrokenTestRowStateEnum = {
-      BreakingMaster: 'breaking_master',
-      BlockingMergeQueue: 'blocking_merge_queue',
-      NovelBurst: 'novel_burst',
-      PotentiallyResolved: 'potentially_resolved',
-      Flaky: 'flaky',
-      PrOnly: 'pr_only',
-    } as const;
-
     export interface BrokenTestRow {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      latest_ci_engine?: CIEngineEnum | null;
       /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
       fingerprint: string;
       /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
@@ -18880,13 +18875,13 @@ export namespace Schemas {
       repo: string;
       /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch: one PR's own problem).
        *
-       * * `breaking_master` - BREAKING_MASTER
-       * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
-       * * `novel_burst` - NOVEL_BURST
-       * * `potentially_resolved` - POTENTIALLY_RESOLVED
-       * * `flaky` - FLAKY
-       * * `pr_only` - PR_ONLY */
-      state: BrokenTestRowStateEnum;
+       * * `breaking_master` - Breaking Master
+       * * `blocking_merge_queue` - Blocking Merge Queue
+       * * `novel_burst` - Novel Burst
+       * * `potentially_resolved` - Potentially Resolved
+       * * `flaky` - Flaky
+       * * `pr_only` - PR Only */
+      state: BrokenTestStateEnum;
       /** Earliest failure line for this fingerprint in the analysis window. */
       first_seen: string;
       /** Most recent failure line for this fingerprint in the analysis window. */
@@ -18903,6 +18898,11 @@ export namespace Schemas {
       latest_branch: string;
       /** Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), for the row sparkline. All zeros when nothing failed in the last day. */
       trend_24h?: number[];
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
     }
 
     export interface BrokenTestsResult {
@@ -19391,11 +19391,6 @@ export namespace Schemas {
     }
 
     export interface CIJobFailureLog {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
       /** Integer job id of the failed job; unique only together with ci_engine. */
@@ -19412,6 +19407,11 @@ export namespace Schemas {
       line_count: number;
       /** True when the job had more failure lines than the per-job cap. */
       truncated: boolean;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
     }
 
     export interface CIFailureLogs {
@@ -19495,14 +19495,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `running` - RUNNING
-     * * `completed` - COMPLETED
-     * * `failed` - FAILED
+     * * `running` - Sync Running
+     * * `completed` - Sync Completed
+     * * `failed` - Sync Failed
      */
-    export type SyncStatusEnum = typeof SyncStatusEnum[keyof typeof SyncStatusEnum];
+    export type CISignalsSyncStatusEnum = typeof CISignalsSyncStatusEnum[keyof typeof CISignalsSyncStatusEnum];
 
 
-    export const SyncStatusEnum = {
+    export const CISignalsSyncStatusEnum = {
       Running: 'running',
       Completed: 'completed',
       Failed: 'failed',
@@ -19515,10 +19515,10 @@ export namespace Schemas {
       enabled: boolean;
       /** Aggregate sync status for pull requests, workflow runs, and workflow jobs.
        *
-       * * `running` - RUNNING
-       * * `completed` - COMPLETED
-       * * `failed` - FAILED */
-      sync_status: SyncStatusEnum | null;
+       * * `running` - Sync Running
+       * * `completed` - Sync Completed
+       * * `failed` - Sync Failed */
+      sync_status: CISignalsSyncStatusEnum | null;
     }
 
     export interface CISignalsConfigUpdate {
@@ -19527,8 +19527,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `pytest` - PYTEST
-     * * `jest` - JEST
+     * * `pytest` - Pytest
+     * * `jest` - Jest
      */
     export type CITestRunnerEnum = typeof CITestRunnerEnum[keyof typeof CITestRunnerEnum];
 
@@ -24098,6 +24098,24 @@ export namespace Schemas {
       label: string;
       value: string;
     }
+
+    /**
+     * * `pull_request` - Pull Request
+     * * `review_requests` - Review Requests
+     * * `only_team` - Only Team
+     * * `all_teams` - All Teams
+     * * `no_team` - No Team
+     */
+    export type ComparisonTeamBasisEnum = typeof ComparisonTeamBasisEnum[keyof typeof ComparisonTeamBasisEnum];
+
+
+    export const ComparisonTeamBasisEnum = {
+      PullRequest: 'pull_request',
+      ReviewRequests: 'review_requests',
+      OnlyTeam: 'only_team',
+      AllTeams: 'all_teams',
+      NoTeam: 'no_team',
+    } as const;
 
     export interface CompleteRunInput {
       /**
@@ -34708,24 +34726,6 @@ export namespace Schemas {
       before_first_approval_share: number | null;
     }
 
-    /**
-     * * `pull_request` - PULL_REQUEST
-     * * `review_requests` - REVIEW_REQUESTS
-     * * `only_team` - ONLY_TEAM
-     * * `all_teams` - ALL_TEAMS
-     * * `no_team` - NO_TEAM
-     */
-    export type TeamBasisEnum = typeof TeamBasisEnum[keyof typeof TeamBasisEnum];
-
-
-    export const TeamBasisEnum = {
-      PullRequest: 'pull_request',
-      ReviewRequests: 'review_requests',
-      OnlyTeam: 'only_team',
-      AllTeams: 'all_teams',
-      NoTeam: 'no_team',
-    } as const;
-
     export interface DeliveryComparison {
       /** Over the author's pull requests, without the pr_number pull request. */
       author_medians: ReadyToMergeMedians;
@@ -34745,12 +34745,12 @@ export namespace Schemas {
       ready_data_available: boolean;
       /** How the teams were picked from the author's teams that own code: pull_request (the pr_number asked the team to review); review_requests (the team the author's pull requests asked to review most often in the window, with ties kept); only_team (the author is in one team); all_teams (no review request points at one team); no_team (no team, or no membership data).
        *
-       * * `pull_request` - PULL_REQUEST
-       * * `review_requests` - REVIEW_REQUESTS
-       * * `only_team` - ONLY_TEAM
-       * * `all_teams` - ALL_TEAMS
-       * * `no_team` - NO_TEAM */
-      team_basis: TeamBasisEnum;
+       * * `pull_request` - Pull Request
+       * * `review_requests` - Review Requests
+       * * `only_team` - Only Team
+       * * `all_teams` - All Teams
+       * * `no_team` - No Team */
+      team_basis: ComparisonTeamBasisEnum;
     }
 
     /**
@@ -34839,13 +34839,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `open_to_gate` - OPEN_TO_GATE
-     * * `gate_to_merge` - GATE_TO_MERGE
+     * * `open_to_gate` - Open To Gate
+     * * `gate_to_merge` - Gate To Merge
      */
-    export type DeliveryStageTimingStageEnum = typeof DeliveryStageTimingStageEnum[keyof typeof DeliveryStageTimingStageEnum];
+    export type DeliveryStageEnum = typeof DeliveryStageEnum[keyof typeof DeliveryStageEnum];
 
 
-    export const DeliveryStageTimingStageEnum = {
+    export const DeliveryStageEnum = {
       OpenToGate: 'open_to_gate',
       GateToMerge: 'gate_to_merge',
     } as const;
@@ -34853,9 +34853,9 @@ export namespace Schemas {
     export interface DeliveryStageTiming {
       /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
        *
-       * * `open_to_gate` - OPEN_TO_GATE
-       * * `gate_to_merge` - GATE_TO_MERGE */
-      stage: DeliveryStageTimingStageEnum;
+       * * `open_to_gate` - Open To Gate
+       * * `gate_to_merge` - Gate To Merge */
+      stage: DeliveryStageEnum;
       /**
          * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
          * @nullable
@@ -34878,9 +34878,9 @@ export namespace Schemas {
     }
 
     /**
-     * * `author` - AUTHOR
-     * * `github_team` - GITHUB_TEAM
-     * * `pull_request` - PULL_REQUEST
+     * * `author` - Author
+     * * `github_team` - GitHub Team
+     * * `pull_request` - Pull Request
      */
     export type DeliveryScopeKindEnum = typeof DeliveryScopeKindEnum[keyof typeof DeliveryScopeKindEnum];
 
@@ -34931,9 +34931,9 @@ export namespace Schemas {
       lead_time: DeliveryLeadTime;
       /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
        *
-       * * `author` - AUTHOR
-       * * `github_team` - GITHUB_TEAM
-       * * `pull_request` - PULL_REQUEST */
+       * * `author` - Author
+       * * `github_team` - GitHub Team
+       * * `pull_request` - Pull Request */
       scope_kind: DeliveryScopeKindEnum;
       /** The GitHub login or GitHub team slug the summary is for. */
       scope: string;
@@ -51861,14 +51861,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `confirmed_flake` - CONFIRMED_FLAKE
-     * * `suspected_regression` - SUSPECTED_REGRESSION
-     * * `quarantined` - QUARANTINED
+     * * `confirmed_flake` - Confirmed Flake
+     * * `suspected_regression` - Suspected Regression
+     * * `quarantined` - Quarantined
      */
-    export type FlakyTestItemClassificationEnum = typeof FlakyTestItemClassificationEnum[keyof typeof FlakyTestItemClassificationEnum];
+    export type FlakyTestClassificationEnum = typeof FlakyTestClassificationEnum[keyof typeof FlakyTestClassificationEnum];
 
 
-    export const FlakyTestItemClassificationEnum = {
+    export const FlakyTestClassificationEnum = {
       ConfirmedFlake: 'confirmed_flake',
       SuspectedRegression: 'suspected_regression',
       Quarantined: 'quarantined',
@@ -51877,8 +51877,8 @@ export namespace Schemas {
     export interface FlakyTestItem {
       /** Test runner that emitted this signal: 'pytest' or 'jest'.
        *
-       * * `pytest` - PYTEST
-       * * `jest` - JEST */
+       * * `pytest` - Pytest
+       * * `jest` - Jest */
       runner: CITestRunnerEnum;
       /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
       nodeid: string;
@@ -51886,10 +51886,10 @@ export namespace Schemas {
       selector: string;
       /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
-       * * `confirmed_flake` - CONFIRMED_FLAKE
-       * * `suspected_regression` - SUSPECTED_REGRESSION
-       * * `quarantined` - QUARANTINED */
-      classification: FlakyTestItemClassificationEnum;
+       * * `confirmed_flake` - Confirmed Flake
+       * * `suspected_regression` - Suspected Regression
+       * * `quarantined` - Quarantined */
+      classification: FlakyTestClassificationEnum;
       /** Runs where one commit both failed and passed the test: a 'Re-run failed jobs' attempt went green on the same commit, or an in-job pytest retry (tests hand-marked @pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit and never counts. */
       same_commit_recovery_run_count: number;
       /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
@@ -60579,22 +60579,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `active` - ACTIVE
-     * * `expiring_soon` - EXPIRING_SOON
-     * * `in_grace` - IN_GRACE
-     * * `overdue` - OVERDUE
-     */
-    export type LifecycleEnum = typeof LifecycleEnum[keyof typeof LifecycleEnum];
-
-
-    export const LifecycleEnum = {
-      Active: 'active',
-      ExpiringSoon: 'expiring_soon',
-      InGrace: 'in_grace',
-      Overdue: 'overdue',
-    } as const;
-
-    /**
      * * `awaiting_generation` - awaiting_generation
      * * `generating` - generating
      * * `building` - building
@@ -64570,11 +64554,6 @@ export namespace Schemas {
     }
 
     export interface MasterFailureGroup {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the failures occurred in. */
       repo: RepoRef;
       /** GitHub Actions workflow name the failing runs belong to. */
@@ -64589,6 +64568,11 @@ export namespace Schemas {
       last_seen: string;
       /** Run id of the newest failing run: the drill-down anchor. */
       latest_run_id: number;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
     }
 
     export interface SpecificityMetadata {
@@ -65280,9 +65264,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `precise` - PRECISE
-     * * `coarse` - COARSE
-     * * `partial` - PARTIAL
+     * * `precise` - Precise
+     * * `coarse` - Coarse
+     * * `partial` - Partial
      */
     export type MetricQualityEnum = typeof MetricQualityEnum[keyof typeof MetricQualityEnum];
 
@@ -68032,11 +68016,6 @@ export namespace Schemas {
     }
 
     export interface RunCost {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** Integer run id this cost is for; unique only together with ci_engine. */
       run_id: number;
       /** Re-run attempt number; 1 for the first attempt. */
@@ -68048,6 +68027,11 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
     }
 
     export interface PRLLMSpend {
@@ -68098,10 +68082,10 @@ export namespace Schemas {
       title: string;
       /** Derived state: 'open', 'closed', or 'merged'.
        *
-       * * `open` - OPEN
-       * * `closed` - CLOSED
-       * * `merged` - MERGED */
-      state: EngineeringAnalyticsPRStateEnum;
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
       /** True if the pull request is a draft. */
       is_draft: boolean;
       /** When the pull request was opened. */
@@ -68119,13 +68103,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `opened` - OPENED
-     * * `ready_for_review` - READY_FOR_REVIEW
-     * * `converted_to_draft` - CONVERTED_TO_DRAFT
-     * * `ci_started` - CI_STARTED
-     * * `ci_finished` - CI_FINISHED
-     * * `merged` - MERGED
-     * * `closed` - CLOSED
+     * * `opened` - Opened
+     * * `ready_for_review` - Ready For Review
+     * * `converted_to_draft` - Converted To Draft
+     * * `ci_started` - CI Started
+     * * `ci_finished` - CI Finished
+     * * `merged` - Merged
+     * * `closed` - Closed
      */
     export type PRLifecycleEventKindEnum = typeof PRLifecycleEventKindEnum[keyof typeof PRLifecycleEventKindEnum];
 
@@ -68141,20 +68125,15 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
-       * * `opened` - OPENED
-       * * `ready_for_review` - READY_FOR_REVIEW
-       * * `converted_to_draft` - CONVERTED_TO_DRAFT
-       * * `ci_started` - CI_STARTED
-       * * `ci_finished` - CI_FINISHED
-       * * `merged` - MERGED
-       * * `closed` - CLOSED */
+       * * `opened` - Opened
+       * * `ready_for_review` - Ready For Review
+       * * `converted_to_draft` - Converted To Draft
+       * * `ci_started` - CI Started
+       * * `ci_finished` - CI Finished
+       * * `merged` - Merged
+       * * `closed` - Closed */
       kind: PRLifecycleEventKindEnum;
       /** When the event occurred. */
       at: string;
@@ -68168,6 +68147,11 @@ export namespace Schemas {
          * @nullable
          */
       run_id?: number | null;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
     }
 
     export interface PRLifecycle {
@@ -68177,9 +68161,9 @@ export namespace Schemas {
       events: PRLifecycleEvent[];
       /** Always 'partial': CI events only; reviews and comments are not yet available.
        *
-       * * `precise` - PRECISE
-       * * `coarse` - COARSE
-       * * `partial` - PARTIAL */
+       * * `precise` - Precise
+       * * `coarse` - Coarse
+       * * `partial` - Partial */
       metric_quality?: MetricQualityEnum;
     }
 
@@ -68191,18 +68175,18 @@ export namespace Schemas {
     }
 
     /**
-     * * `draft` - DRAFT
-     * * `waiting_for_review` - WAITING_FOR_REVIEW
-     * * `changes_requested` - CHANGES_REQUESTED
-     * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
-     * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
-     * * `ci_running` - CI_RUNNING
-     * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
-     * * `red_master_broken` - RED_MASTER_BROKEN
-     * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
-     * * `red_not_provable` - RED_NOT_PROVABLE
-     * * `merge_queue` - MERGE_QUEUE
-     * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE
+     * * `draft` - Draft
+     * * `waiting_for_review` - Waiting For Review
+     * * `changes_requested` - Changes Requested
+     * * `approved_not_enqueued` - Approved Not Enqueued
+     * * `review_state_unknown` - Review State Unknown
+     * * `ci_running` - CI Running
+     * * `red_passed_on_rerun` - Red Passed On Rerun
+     * * `red_master_broken` - Red Master Broken
+     * * `red_fixed_by_push` - Red Fixed By Push
+     * * `red_not_provable` - Red Not Provable
+     * * `merge_queue` - Merge Queue
+     * * `out_of_merge_queue` - Out Of Merge Queue
      */
     export type PRTimelineSegmentKindEnum = typeof PRTimelineSegmentKindEnum[keyof typeof PRTimelineSegmentKindEnum];
 
@@ -68225,18 +68209,18 @@ export namespace Schemas {
     export interface PRTimelineSegment {
       /** What the PR waited on: draft; waiting_for_review (no approval yet, or re-review after a push); changes_requested (no push since); approved_not_enqueued (approved, with no failing or running check); review_state_unknown (reviews not synced); ci_running; red_passed_on_rerun (the failed workflows passed a re-run of the same commit); red_master_broken (the failed jobs also failed on the default branch within 12 hours); red_fixed_by_push (a later commit arrived); red_not_provable; merge_queue (every queue state collapsed); out_of_merge_queue (open PR, Trunk says failed or cancelled).
        *
-       * * `draft` - DRAFT
-       * * `waiting_for_review` - WAITING_FOR_REVIEW
-       * * `changes_requested` - CHANGES_REQUESTED
-       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
-       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
-       * * `ci_running` - CI_RUNNING
-       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
-       * * `red_master_broken` - RED_MASTER_BROKEN
-       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
-       * * `red_not_provable` - RED_NOT_PROVABLE
-       * * `merge_queue` - MERGE_QUEUE
-       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+       * * `draft` - Draft
+       * * `waiting_for_review` - Waiting For Review
+       * * `changes_requested` - Changes Requested
+       * * `approved_not_enqueued` - Approved Not Enqueued
+       * * `review_state_unknown` - Review State Unknown
+       * * `ci_running` - CI Running
+       * * `red_passed_on_rerun` - Red Passed On Rerun
+       * * `red_master_broken` - Red Master Broken
+       * * `red_fixed_by_push` - Red Fixed By Push
+       * * `red_not_provable` - Red Not Provable
+       * * `merge_queue` - Merge Queue
+       * * `out_of_merge_queue` - Out Of Merge Queue */
       kind: PRTimelineSegmentKindEnum;
       /** Segment start. */
       started_at: string;
@@ -68259,10 +68243,10 @@ export namespace Schemas {
       author: Author;
       /** open, merged, or closed. Author and team scopes list open and merged PRs only; a pull_request scope returns the PR whatever its state.
        *
-       * * `open` - OPEN
-       * * `closed` - CLOSED
-       * * `merged` - MERGED */
-      state: EngineeringAnalyticsPRStateEnum;
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
       /** True when the PR is a draft right now. */
       is_draft: boolean;
       /** When the PR was opened. */
@@ -68289,18 +68273,18 @@ export namespace Schemas {
     export interface PRTimelineRedTime {
       /** The red segment cause.
        *
-       * * `draft` - DRAFT
-       * * `waiting_for_review` - WAITING_FOR_REVIEW
-       * * `changes_requested` - CHANGES_REQUESTED
-       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
-       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
-       * * `ci_running` - CI_RUNNING
-       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
-       * * `red_master_broken` - RED_MASTER_BROKEN
-       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
-       * * `red_not_provable` - RED_NOT_PROVABLE
-       * * `merge_queue` - MERGE_QUEUE
-       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+       * * `draft` - Draft
+       * * `waiting_for_review` - Waiting For Review
+       * * `changes_requested` - Changes Requested
+       * * `approved_not_enqueued` - Approved Not Enqueued
+       * * `review_state_unknown` - Review State Unknown
+       * * `ci_running` - CI Running
+       * * `red_passed_on_rerun` - Red Passed On Rerun
+       * * `red_master_broken` - Red Master Broken
+       * * `red_fixed_by_push` - Red Fixed By Push
+       * * `red_not_provable` - Red Not Provable
+       * * `merge_queue` - Merge Queue
+       * * `out_of_merge_queue` - Out Of Merge Queue */
       kind: PRTimelineSegmentKindEnum;
       /** Average seconds per merged pull request attributed to this cause. */
       seconds_per_merged_pr: number;
@@ -89068,9 +89052,9 @@ export namespace Schemas {
       red_seconds_per_merged_pr: PRTimelineRedTime[];
       /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
        *
-       * * `author` - AUTHOR
-       * * `github_team` - GITHUB_TEAM
-       * * `pull_request` - PULL_REQUEST */
+       * * `author` - Author
+       * * `github_team` - GitHub Team
+       * * `pull_request` - Pull Request */
       scope_kind: DeliveryScopeKindEnum;
       /** The GitHub login, GitHub team slug, or 'owner/name#number' the timelines are for. */
       scope: string;
@@ -89093,8 +89077,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `run` - RUN
-     * * `skip` - SKIP
+     * * `run` - Run
+     * * `skip` - Skip
      */
     export type QuarantineModeEnum = typeof QuarantineModeEnum[keyof typeof QuarantineModeEnum];
 
@@ -89105,15 +89089,31 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `product` - PRODUCT
-     * * `file` - FILE
-     * * `directory` - DIRECTORY
-     * * `test` - TEST
+     * * `active` - Active
+     * * `expiring_soon` - Expiring Soon
+     * * `in_grace` - In Grace
+     * * `overdue` - Overdue
      */
-    export type SelectorKindEnum = typeof SelectorKindEnum[keyof typeof SelectorKindEnum];
+    export type QuarantineLifecycleEnum = typeof QuarantineLifecycleEnum[keyof typeof QuarantineLifecycleEnum];
 
 
-    export const SelectorKindEnum = {
+    export const QuarantineLifecycleEnum = {
+      Active: 'active',
+      ExpiringSoon: 'expiring_soon',
+      InGrace: 'in_grace',
+      Overdue: 'overdue',
+    } as const;
+
+    /**
+     * * `product` - Product
+     * * `file` - File
+     * * `directory` - Directory
+     * * `test` - Test
+     */
+    export type QuarantineSelectorKindEnum = typeof QuarantineSelectorKindEnum[keyof typeof QuarantineSelectorKindEnum];
+
+
+    export const QuarantineSelectorKindEnum = {
       Product: 'product',
       File: 'file',
       Directory: 'directory',
@@ -89137,25 +89137,25 @@ export namespace Schemas {
       expires: string;
       /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).
        *
-       * * `run` - RUN
-       * * `skip` - SKIP */
+       * * `run` - Run
+       * * `skip` - Skip */
       mode: QuarantineModeEnum;
       /** Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).
        *
-       * * `active` - ACTIVE
-       * * `expiring_soon` - EXPIRING_SOON
-       * * `in_grace` - IN_GRACE
-       * * `overdue` - OVERDUE */
-      lifecycle: LifecycleEnum;
+       * * `active` - Active
+       * * `expiring_soon` - Expiring Soon
+       * * `in_grace` - In Grace
+       * * `overdue` - Overdue */
+      lifecycle: QuarantineLifecycleEnum;
       /** Days until the entry expires; negative once past expiry. */
       days_until_expiry: number;
       /** What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.
        *
-       * * `product` - PRODUCT
-       * * `file` - FILE
-       * * `directory` - DIRECTORY
-       * * `test` - TEST */
-      selector_kind: SelectorKindEnum;
+       * * `product` - Product
+       * * `file` - File
+       * * `directory` - Directory
+       * * `test` - Test */
+      selector_kind: QuarantineSelectorKindEnum;
     }
 
     export interface QuarantineFile {
@@ -89269,28 +89269,28 @@ export namespace Schemas {
     }
 
     /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
+     * * `quarantine` - Quarantine
+     * * `extend` - Extend
+     * * `remove` - Remove
      */
-    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
+    export type QuarantineRequestActionEnum = typeof QuarantineRequestActionEnum[keyof typeof QuarantineRequestActionEnum];
 
 
-    export const QuarantineRequestOperationEnum = {
+    export const QuarantineRequestActionEnum = {
       Quarantine: 'quarantine',
       Extend: 'extend',
       Remove: 'remove',
     } as const;
 
     /**
-     * * `pytest` - PYTEST
-     * * `jest` - JEST
-     * * `playwright` - PLAYWRIGHT
+     * * `pytest` - Pytest
+     * * `jest` - Jest
+     * * `playwright` - Playwright
      */
-    export type QuarantineRequestRunnerEnum = typeof QuarantineRequestRunnerEnum[keyof typeof QuarantineRequestRunnerEnum];
+    export type QuarantineRunnerEnum = typeof QuarantineRunnerEnum[keyof typeof QuarantineRunnerEnum];
 
 
-    export const QuarantineRequestRunnerEnum = {
+    export const QuarantineRunnerEnum = {
       Pytest: 'pytest',
       Jest: 'jest',
       Playwright: 'playwright',
@@ -89299,18 +89299,18 @@ export namespace Schemas {
     export interface QuarantineRequest {
       /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
        *
-       * * `quarantine` - QUARANTINE
-       * * `extend` - EXTEND
-       * * `remove` - REMOVE */
-      operation: QuarantineRequestOperationEnum;
+       * * `quarantine` - Quarantine
+       * * `extend` - Extend
+       * * `remove` - Remove */
+      operation: QuarantineRequestActionEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
        *
-       * * `pytest` - PYTEST
-       * * `jest` - JEST
-       * * `playwright` - PLAYWRIGHT */
-      runner?: QuarantineRequestRunnerEnum | null;
+       * * `pytest` - Pytest
+       * * `jest` - Jest
+       * * `playwright` - Playwright */
+      runner?: QuarantineRunnerEnum | null;
       /**
          * Optional 'owner/name' repository override; defaults to the team's most active repo.
          * @nullable
@@ -89329,8 +89329,8 @@ export namespace Schemas {
       expires?: string | null;
       /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.
        *
-       * * `run` - RUN
-       * * `skip` - SKIP */
+       * * `run` - Run
+       * * `skip` - Skip */
       mode?: QuarantineModeEnum;
     }
 
@@ -95042,11 +95042,6 @@ export namespace Schemas {
     }
 
     export interface RunFailureLogs {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
       /** Workflow run id the failure logs are for. */
@@ -95055,6 +95050,11 @@ export namespace Schemas {
       logs_available: boolean;
       /** True when the overall line cap across all jobs was hit. */
       truncated: boolean;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
     }
 
     export interface RunInsightsResponse {
@@ -107882,8 +107882,8 @@ export namespace Schemas {
     export interface TeamTestSignal {
       /** Test runner that emitted this signal: 'pytest' or 'jest'.
        *
-       * * `pytest` - PYTEST
-       * * `jest` - JEST */
+       * * `pytest` - Pytest
+       * * `jest` - Jest */
       runner: CITestRunnerEnum;
       /** Runner-specific test identity (the CI span name), a stable grouping key. */
       nodeid: string;
@@ -111233,11 +111233,6 @@ export namespace Schemas {
     }
 
     export interface WorkflowHealthItem {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the workflow runs in. */
       repo: RepoRef;
       /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
@@ -111307,14 +111302,14 @@ export namespace Schemas {
       percentile_run_count?: number;
       /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
       merge_queue_run_count?: number;
-    }
-
-    export interface WorkflowJob {
       /** CI execution engine; null when unknown.
        *
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
+      latest_ci_engine?: CIEngineEnum | null;
+    }
+
+    export interface WorkflowJob {
       /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */
@@ -111352,6 +111347,11 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /**
          * Source-native run id; use with ci_engine for identity.
          * @nullable
@@ -111558,11 +111558,6 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunActivityPoint {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** Integer run id; unique only together with ci_engine. */
       run_id: number;
       /**
@@ -111583,6 +111578,11 @@ export namespace Schemas {
       pr_number: number;
       /** Head commit SHA of the run/commit, or '' when unknown. */
       head_sha: string;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
     }
 
     export interface WorkflowRunActivity {
@@ -111595,11 +111595,6 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunDetail {
-      /** CI execution engine; null when unknown.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine?: CIEngineEnum | null;
       /** Repository the run belongs to. */
       repo: RepoRef;
       /** Integer run id; unique only together with ci_engine. */
@@ -111643,6 +111638,11 @@ export namespace Schemas {
       commit_pr_number: number | null;
       /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
       is_merge_queue: boolean;
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /**
          * Source-native run id; use with ci_engine for identity.
          * @nullable
@@ -127801,6 +127801,10 @@ export namespace Schemas {
      * @minLength 1
      */
     status?: WarehouseSuggestionsListStatus;
+    /**
+     * Only return suggestions about the view or table with this ID.
+     */
+    subject_id?: string;
     };
 
     export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
