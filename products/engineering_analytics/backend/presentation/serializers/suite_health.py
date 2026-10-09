@@ -1,6 +1,6 @@
 """Payloads for test-health reads and the quarantine sidecar."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestRow,
@@ -15,10 +15,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
-from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer, ci_engine_field
+from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
 
-class FlakyTestItemSerializer(DataclassSerializer):
+class FlakyTestItemSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
@@ -65,7 +65,7 @@ class FlakyTestItemSerializer(DataclassSerializer):
         }
 
 
-class TrunkQuarantinedTestSerializer(DataclassSerializer):
+class TrunkQuarantinedTestSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TrunkQuarantinedTest
         extra_kwargs = {
@@ -95,7 +95,7 @@ class TrunkQuarantinedTestSerializer(DataclassSerializer):
         }
 
 
-class TrunkQuarantineTeamDebtSerializer(DataclassSerializer):
+class TrunkQuarantineTeamDebtSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TrunkQuarantineTeamDebt
         extra_kwargs = {
@@ -106,7 +106,7 @@ class TrunkQuarantineTeamDebtSerializer(DataclassSerializer):
         }
 
 
-class TrunkQuarantineDebtSerializer(DataclassSerializer):
+class TrunkQuarantineDebtSerializer(LabeledChoicesDataclassSerializer):
     teams = TrunkQuarantineTeamDebtSerializer(
         many=True,
         help_text="Per-team rollup, most indebted first: overdue count, then test count, then oldest age.",
@@ -142,7 +142,7 @@ class TrunkQuarantineDebtSerializer(DataclassSerializer):
         }
 
 
-class FlakyTestListSerializer(DataclassSerializer):
+class FlakyTestListSerializer(LabeledChoicesDataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
         help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. "
@@ -161,12 +161,11 @@ class FlakyTestListSerializer(DataclassSerializer):
         }
 
 
-class BrokenTestRowSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
-
+class BrokenTestRowSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "fingerprint": {
                 "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
                 "normalized error signature, so the same failure across runs groups into one row.",
@@ -211,7 +210,7 @@ class BrokenTestRowSerializer(DataclassSerializer):
         }
 
 
-class BrokenTestsResultSerializer(DataclassSerializer):
+class BrokenTestsResultSerializer(LabeledChoicesDataclassSerializer):
     rows = BrokenTestRowSerializer(
         many=True,
         help_text="Classified failures ranked by triage urgency: breaking trunk first, single-PR failures last.",
@@ -232,7 +231,7 @@ class BrokenTestsResultSerializer(DataclassSerializer):
         }
 
 
-class QuarantineEntrySerializer(DataclassSerializer):
+class QuarantineEntrySerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = QuarantineEntry
         extra_kwargs = {
@@ -260,7 +259,7 @@ class QuarantineEntrySerializer(DataclassSerializer):
         }
 
 
-class QuarantineFileSerializer(DataclassSerializer):
+class QuarantineFileSerializer(LabeledChoicesDataclassSerializer):
     entries = QuarantineEntrySerializer(
         many=True,
         help_text="Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), "
@@ -290,7 +289,7 @@ class QuarantineFileSerializer(DataclassSerializer):
         }
 
 
-class QuarantineRequestSerializer(DataclassSerializer):
+class QuarantineRequestSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = QuarantineRequest
         extra_kwargs = {
@@ -348,7 +347,7 @@ class QuarantineRequestSerializer(DataclassSerializer):
         }
 
 
-class QuarantineRequestResultSerializer(DataclassSerializer):
+class QuarantineRequestResultSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = QuarantineRequestResult
         extra_kwargs = {
