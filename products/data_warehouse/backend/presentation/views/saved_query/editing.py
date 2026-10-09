@@ -560,6 +560,16 @@ class DataWarehouseSavedQuerySerializer(
                 raise exceptions.NotFound("Not found.")
             before_update = copy.copy(locked_instance)
 
+            # validate() read the row before the lock, so a first generation can publish after it.
+            if (
+                "snapshot_config" in validated_data
+                and locked_instance.snapshot_state
+                and validated_data["snapshot_config"] != locked_instance.snapshot_config
+            ):
+                raise serializers.ValidationError(
+                    {"snapshot": "Snapshot configuration cannot change after history exists. Create another model."}
+                )
+
             if inferred_columns is not None and locked_instance.snapshot_state:
                 # Every later run compares against the first generation's schema and fails on drift,
                 # so a query whose output changed would save now and break at the next run.

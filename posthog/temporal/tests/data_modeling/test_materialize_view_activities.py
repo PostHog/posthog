@@ -1387,12 +1387,17 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    @pytest.mark.parametrize(
+        "concurrent_change, published",
+        [("another_run_publishes", "winner"), ("unique_key_changes", "parent")],
+    )
     async def test_snapshot_conflict_leaves_the_table_on_the_published_generation(
-        self, activity_environment, ateam, asaved_query, ajob
+        self, activity_environment, ateam, asaved_query, ajob, concurrent_change, published
     ):
         root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
         parent, winner, loser = (f"{root}/1791000000_{name}_1" for name in ("parent", "winner", "loser"))
         asaved_query.snapshot_state = {"generation_uri": parent, "last_run_id": "parent"}
+        asaved_query.snapshot_config = {"unique_key": ["id"]}
         await database_sync_to_async(asaved_query.save)()
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam, name="test_snapshot_table", format="Delta"
@@ -1405,15 +1410,25 @@ class TestPrepareQueryableTableActivity:
             file_uris=[],
             row_count=3,
             snapshot_generation_uri=loser,
-            snapshot_state={"generation_uri": loser, "parent_generation_uri": parent, "last_run_id": "loser"},
+            snapshot_state={
+                "generation_uri": loser,
+                "parent_generation_uri": parent,
+                "last_run_id": "loser",
+                "unique_key": ["id"],
+            },
         )
 
         def create_table_while_another_run_publishes(*args):
-            # The loser repoints the table, then the winner publishes before the loser takes the lock.
+            # The loser repoints the table, then the saved query changes before the loser takes the lock.
             DataWarehouseTable.objects.filter(pk=warehouse_table.pk).update(queryable_folder=args[3])
-            DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
-                snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
-            )
+            if concurrent_change == "another_run_publishes":
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
+                )
+            else:
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_config={"unique_key": ["other_id"]}
+                )
             warehouse_table.refresh_from_db()
             return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
 
@@ -1427,8 +1442,10 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.refresh_from_db)()
         assert (
             warehouse_table.queryable_folder
-            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_winner_1"
+            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_{published}_1"
         )
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.snapshot_state["last_run_id"] != "loser"
         await database_sync_to_async(warehouse_table.delete)()
 
     async def test_snapshot_conflict_is_refused_before_the_table_is_touched(
