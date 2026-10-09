@@ -414,7 +414,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         assert not TeamExperimentsConfig.objects.filter(team=self.team).exists()
 
     @patch("posthog.tasks.integrations.refresh_github_repository_cache.delay")
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_repositories")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_empty_picker_cache_refreshes_in_background(
         self, mock_resolve_github, mock_list_repositories, mock_refresh
@@ -423,7 +423,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         mock_resolve_github.side_effect = lambda *_args, **_kwargs: GitHubIntegration(
             Integration.objects.get(id=integration.id)
         )
-        mock_list_repositories.return_value = [{"id": 1, "name": "app", "full_name": "example/app"}]
+        mock_list_repositories.return_value = ([{"id": 1, "name": "app", "full_name": "example/app"}], False)
         flag = self._flag()
 
         response = self.client.get(self._url(flag, "cleanup_target"))
@@ -440,7 +440,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         assert response.json()["repository"] == "example/app"
         assert response.json()["source"] == "single_repo"
 
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_repositories")
     def test_background_cache_refresh_does_not_cross_teams(self, mock_list_repositories):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="456", config={})
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -452,14 +452,14 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         assert integration.repository_cache == []
         assert integration.repository_cache_updated_at is None
 
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_repositories")
     def test_background_cache_refresh_coalesces_overlapping_workers(self, mock_list_repositories):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="456", config={})
 
-        def scan_repositories():
+        def scan_repositories(**_kwargs):
             if mock_list_repositories.call_count == 1:
                 refresh_github_repository_cache.run(integration.id, self.team.id)
-            return [{"id": 1, "name": "app", "full_name": "example/app"}]
+            return [{"id": 1, "name": "app", "full_name": "example/app"}], False
 
         mock_list_repositories.side_effect = scan_repositories
         refresh_github_repository_cache.run(integration.id, self.team.id)

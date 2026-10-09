@@ -15,6 +15,7 @@ from posthog.models.integration import (
 from posthog.models.scoping import with_team_scope
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks.github_repository_cache import refresh_repository_cache_chunk
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.facade.api import delete_ses_identity
@@ -34,16 +35,19 @@ def refresh_github_repository_cache(integration_id: int, team_id: int) -> None:
     lock = get_client().lock(f"github:repository_cache_refresh:{team_id}:{integration_id}", timeout=150, blocking=False)
     if not lock.acquire():
         return
+    needs_more = False
     try:
         integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
         if integration is None:
             return
         github = GitHubIntegration(integration, source="flag_cleanup", priority=Priority.BATCH)
         if github.repository_cache_is_stale():
-            github.sync_repository_cache()
+            needs_more = refresh_repository_cache_chunk(github)
     finally:
         with suppress(LockError):
             lock.release()
+    if needs_more:
+        refresh_github_repository_cache.apply_async(args=(integration_id, team_id), countdown=1)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)

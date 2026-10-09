@@ -123,6 +123,7 @@ It is the one action that cannot return a 409: every gated action declines a cha
 Both cleanup endpoints require PostHog Desktop access.
 `cleanup_target` reads the repository cache and schedules a background refresh when it is stale.
 Concurrent refresh workers share a per-integration lease to avoid repeated GitHub scans.
+Refreshes checkpoint completed pages and queue bounded chunks, so interrupted workers resume pagination without publishing a partial cache.
 An empty cache being refreshed returns `source: refreshing`; retry the lookup once the refresh completes.
 Repository resolution excludes archived repositories and validates the chosen repository against the team's GitHub installation before starting a task.
 
