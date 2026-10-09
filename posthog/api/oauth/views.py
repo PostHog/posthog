@@ -2219,16 +2219,20 @@ class OAuthTokenView(TokenView):
                     # to populate the project selector. When the app is org-scoped only,
                     # access_token.scoped_teams is empty in the DB by design — derive teams
                     # from scoped_organizations so clients keep working without weakening
-                    # the stored token scope.
+                    # the stored token scope. List only the teams the user can access, because
+                    # access control can deny an org member some of the org's teams.
                     # TODO(@charlesvien): remove this after a migration period in PostHog Desktop.
                     if (
                         not scoped_teams
                         and scoped_organizations
                         and access_token.application
                         and access_token.application.is_first_party
+                        and access_token.user
                     ):
-                        scoped_teams = list(
-                            Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
+                        scoped_teams = sorted(
+                            team.pk
+                            for team in UserPermissions(access_token.user).teams_visible_for_user
+                            if str(team.organization_id) in scoped_organizations
                         )
 
                     response_data["scoped_teams"] = scoped_teams
