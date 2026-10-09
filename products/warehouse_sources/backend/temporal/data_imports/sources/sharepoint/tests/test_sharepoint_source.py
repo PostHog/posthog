@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.tests.test_sharepoint import (
     CLIENT_ID,
     CLIENT_SECRET,
+    FILES_MODULE,
     MODULE,
     SITE_A,
     SITE_URL,
@@ -26,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
     _g,
     _manager,
     _session,
+    excel_bytes,
     file_routes,
 )
 
@@ -63,6 +66,82 @@ def make_inputs(schema_name: str, resource_id: str | None) -> SourceInputs:
 
 
 class TestSharePointSchemas:
+    def test_discovers_one_table_per_visible_worksheet(self) -> None:
+        routes = file_routes([{"id": "item-a", "name": "report.xlsx", "file": {}}])
+        routes[_g("/drives/drive-a/items/item-a/content")] = excel_bytes()
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=_session(routes)):
+            schemas = SharePointSource().get_schemas(make_config(), team_id=1)
+
+        assert [
+            (schema.name, schema.label, schema.description, schema.schema_metadata)
+            for schema in schemas
+            if schema.schema_metadata
+        ] == [
+            (
+                "shared_documents_report_sales_north",
+                "Shared Documents/report.xlsx [Sales - North]",
+                "Rows of the worksheet Sales - North in the Excel file Shared Documents/report.xlsx",
+                {SCHEMA_RESOURCE_ID_METADATA_KEY: "drive-a:item-a:Sales - North"},
+            ),
+            (
+                "shared_documents_report_sales_south",
+                "Shared Documents/report.xlsx [Sales South]",
+                "Rows of the worksheet Sales South in the Excel file Shared Documents/report.xlsx",
+                {SCHEMA_RESOURCE_ID_METADATA_KEY: "drive-a:item-a:Sales South"},
+            ),
+        ]
+
+    @parameterized.expand([("reported_size",), ("download_size",), ("corrupt",), ("missing",)])
+    def test_skips_unreadable_workbooks_and_keeps_sibling_csv(self, case: str) -> None:
+        routes = file_routes(
+            [
+                {"id": "item-a", "name": "report.xlsx", "file": {}, "size": 51 if case == "reported_size" else 1},
+                {"id": "csv", "name": "orders.csv", "file": {}},
+            ]
+        )
+        routes[_g("/drives/drive-a/items/item-a/content")] = (
+            404 if case == "missing" else b"not a zip" if case == "corrupt" else excel_bytes()
+        )
+        session = _session(routes)
+        with (
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILE_BYTES", 50),
+            capture_logs() as logs,
+        ):
+            schemas = SharePointSource().get_schemas(make_config(), team_id=1)
+
+        assert [schema.name for schema in schemas if schema.schema_metadata] == ["shared_documents_orders"]
+        assert any(
+            log.get("log_level") == "warning" and log.get("path") == "Shared Documents/report.xlsx" for log in logs
+        )
+        if case == "reported_size":
+            assert not any(call.args[0].endswith("/content") for call in session.get.call_args_list)
+
+    def test_caps_excel_downloads_in_discovery_order(self) -> None:
+        routes = file_routes(
+            [
+                {"id": "first", "name": "first.xlsx", "file": {}},
+                {"id": "second", "name": "second.xlsx", "file": {}},
+                {"id": "csv", "name": "orders.csv", "file": {}},
+            ]
+        )
+        routes[_g("/drives/drive-a/items/first/content")] = excel_bytes()
+        session = _session(routes)
+        with (
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILES", 1),
+            capture_logs() as logs,
+        ):
+            schemas = SharePointSource().get_schemas(make_config(), team_id=1)
+
+        assert [schema.name for schema in schemas if schema.schema_metadata] == [
+            "shared_documents_first_sales_north",
+            "shared_documents_first_sales_south",
+            "shared_documents_orders",
+        ]
+        assert any(log.get("log_level") == "warning" and log.get("skipped_files") == 1 for log in logs)
+        assert not any("second/content" in call.args[0] for call in session.get.call_args_list)
+
     @parameterized.expand(
         [
             ("absent", None, None),
@@ -107,8 +186,8 @@ class TestSharePointSchemas:
 class TestSharePointCredentialValidation:
     @parameterized.expand(
         [
-            ("missing_sites", None, None, "Enter at least one site URL to import CSV file contents."),
-            ("blank_sites", " ,\n ", None, "Enter at least one site URL to import CSV file contents."),
+            ("missing_sites", None, None, "Enter at least one site URL to import file contents."),
+            ("blank_sites", " ,\n ", None, "Enter at least one site URL to import file contents."),
             ("invalid_pattern", SITE_URL, "([", PATTERN_ERROR),
         ]
     )

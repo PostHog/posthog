@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.excel_parsing import EXCEL_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FORMAT_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -29,8 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.files import (
     SharePointFilePatternError,
     compile_file_pattern,
-    discover_files,
-    files_by_table,
+    discover_file_tables,
     sharepoint_file_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.settings import (
@@ -78,7 +78,11 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
             INVALID_SITE_URL_ERROR: None,
             FILE_NOT_FOUND_ERROR: "The SharePoint file is missing. Refresh the source's tables or restore the file.",
             FORMAT_ERROR: (
-                "PostHog could not read the file format. Use a CSV or TSV file and refresh the source's tables."
+                "PostHog could not read the file format. Use a CSV, TSV, or XLSX file and refresh the source's tables."
+            ),
+            EXCEL_ERROR: (
+                "PostHog could not read the Excel worksheet. Check that the worksheet exists and the file is under 100 MB. "
+                "Save it as .xlsx again, then refresh the source's tables."
             ),
             PATTERN_ERROR: "The file pattern is not a valid regular expression. Fix the pattern and try again.",
             "400 Client Error: Bad Request for url: https://login.microsoftonline.com": (
@@ -121,17 +125,17 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
         ):
             logger = structlog.get_logger(__name__)
             client = SharePointClient(config.tenant_id, config.client_id, config.client_secret, logger)
-            files = discover_files(client, config.site_urls, import_files.file_pattern, logger)
+            tables = discover_file_tables(client, config.site_urls, import_files.file_pattern, logger)
             schemas.extend(
                 SourceSchema(
                     name=name,
                     supports_incremental=False,
                     supports_append=False,
-                    label=file.path,
-                    description=f"Rows of the CSV file {file.path}",
-                    schema_metadata={SCHEMA_RESOURCE_ID_METADATA_KEY: f"{file.drive_id}:{file.item_id}"},
+                    label=file.label,
+                    description=file.description,
+                    schema_metadata={SCHEMA_RESOURCE_ID_METADATA_KEY: file.resource_id},
                 )
-                for name, file in files_by_table(files).items()
+                for name, file in tables.items()
             )
         if names is not None:
             requested = set(names)
@@ -149,7 +153,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
         if import_files is not None and import_files.enabled:
             try:
                 if not parse_site_urls(config.site_urls):
-                    return False, "Enter at least one site URL to import CSV file contents."
+                    return False, "Enter at least one site URL to import file contents."
                 compile_file_pattern(import_files.file_pattern)
             except (SharePointSiteURLError, SharePointFilePatternError) as error:
                 return False, str(error)
@@ -198,7 +202,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
             keywords=["microsoft", "sharepoint online", "office 365", "microsoft 365"],
             caption=(
                 "Sync SharePoint Online sites, lists and list items, document libraries, and file metadata "
-                "through Microsoft Graph. You can also import CSV file contents as separate tables.\n\n"
+                "through Microsoft Graph. You can also import CSV and Excel file contents as separate tables.\n\n"
                 "Create an Entra ID app registration and add a client secret. Grant it the **Sites.Read.All** "
                 "Microsoft Graph application permission and give admin consent. To limit access to a few "
                 "sites, grant **Sites.Selected** instead and list those site URLs below. Then enter the "
@@ -246,12 +250,12 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="import_files",
-                        label="Import CSV file contents?",
+                        label="Import CSV and Excel file contents?",
                         default=False,
                         caption=(
-                            "Turn this on to create one table for each CSV file in the document libraries "
-                            "of the sites above. "
-                            "Each sync reads the files in full. Site URLs are required when this is on."
+                            "Turn this on to create one table for each CSV file and each Excel worksheet "
+                            "in the document libraries of the sites above. Each sync reads the files in full. "
+                            "Excel files over 100 MB are skipped. Site URLs are required when this is on."
                         ),
                         fields=cast(
                             list[FieldType],
@@ -261,10 +265,10 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                                     label="File pattern (optional)",
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
-                                    placeholder=r"^Shared Documents/reports/.*\.csv$",
+                                    placeholder=r"^Shared Documents/reports/",
                                     caption=(
                                         "A regular expression matched against each file's path, which starts with the "
-                                        "document library name. Leave it empty to import every CSV file."
+                                        "document library name. Leave it empty to import every CSV and Excel file."
                                     ),
                                     secret=False,
                                 ),

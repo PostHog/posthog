@@ -5,6 +5,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     FORMAT_ERROR,
     FileDelimiterError,
@@ -71,12 +73,20 @@ class TestResolveFileFormat:
 
 
 class TestIterFileRows:
-    def test_csv_headers_are_normalized_and_deduplicated(self) -> None:
-        stream = csv_stream("Order Total (USD),name,Name\n1,a,b\n")
+    @parameterized.expand(
+        [
+            ("named", "Order Total (USD),name,Name", {"order_total_usd": "1", "name": "a", "name_2": "b"}),
+            ("blank", "Order ID,,", {"order_id": "1", "column": "a", "column_2": "b"}),
+        ]
+    )
+    def test_csv_headers_are_normalized_and_deduplicated(
+        self, _name: str, headers: str, expected: dict[str, str]
+    ) -> None:
+        stream = csv_stream(f"{headers}\n1,a,b\n")
 
         chunks = list(iter_file_rows(stream, ResolvedFormat("csv", ",", False), "orders.csv"))
 
-        assert chunks == [[{"order_total_usd": "1", "name": "a", "name_2": "b"}]]
+        assert chunks == [[expected]]
 
     def test_csv_quoting_and_blank_lines(self) -> None:
         stream = csv_stream('a,b\n"x,y",2\n\n"multi\nline",3\n')

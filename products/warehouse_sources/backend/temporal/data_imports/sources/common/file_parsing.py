@@ -108,7 +108,7 @@ def normalize_column_name(header: str) -> str:
     return normalized or "column"
 
 
-def _dedupe_headers(headers: list[str]) -> list[str]:
+def dedupe_headers(headers: list[str]) -> list[str]:
     seen: dict[str, int] = {}
     result = []
     for header in headers:
@@ -143,7 +143,7 @@ def _iter_csv_rows(
 
     for line_number, row in enumerate(reader, start=1):
         if headers is None:
-            headers = _dedupe_headers(row)
+            headers = dedupe_headers(row)
             continue
         if not any(cell.strip() for cell in row):
             continue

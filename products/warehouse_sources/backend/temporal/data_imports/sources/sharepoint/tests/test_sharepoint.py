@@ -2,6 +2,7 @@ import io
 import gzip
 import hashlib
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any, Optional, Union, cast
@@ -11,10 +12,15 @@ from unittest import mock
 
 import requests
 import responses
+from openpyxl import Workbook
 from parameterized import parameterized
 from structlog.testing import capture_logs
 from urllib3.response import HTTPResponse
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.excel_parsing import (
+    EXCEL_ERROR,
+    ExcelFileError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -44,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.sharepoint"
+FILES_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.files"
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 CLIENT_ID = "22222222-2222-2222-2222-222222222222"
@@ -329,6 +336,23 @@ def test_canonical_descriptions_document_every_primary_key() -> None:
 SITE_URL = "https://contoso.sharepoint.com/sites/a"
 
 
+def excel_bytes() -> bytes:
+    workbook = Workbook()
+    try:
+        first = workbook.worksheets[0]
+        first.title = "Sales - North"
+        first.append(["Order ID", "total"])
+        first.append([1, 20])
+        workbook.create_sheet("Hidden").sheet_state = "hidden"
+        workbook.create_sheet("Sales South").append(["id"])
+        workbook.create_sheet("Very hidden").sheet_state = "veryHidden"
+        stream = io.BytesIO()
+        workbook.save(stream)
+        return stream.getvalue()
+    finally:
+        workbook.close()
+
+
 def file_routes(items: list[dict[str, object]]) -> dict[str, Route]:
     return {
         _g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A, "displayName": "Site A"},
@@ -375,7 +399,7 @@ class TestSharePointFileDiscovery:
 
     @parameterized.expand(
         [
-            ("all", None, ["latest.CSV", "compressed.csv.gz", "tabs.TSV.GZ"]),
+            ("all", None, ["latest.CSV", "compressed.csv.gz", "tabs.TSV.GZ", "book.XLSX"]),
             ("search", r"Documents/latest", ["latest.CSV"]),
             ("no_match", r"^reports/", []),
         ]
@@ -388,6 +412,9 @@ class TestSharePointFileDiscovery:
                 {"id": "folder", "name": "folder.csv", "folder": {}},
                 {"id": "text", "name": "notes.txt", "file": {}},
                 {"id": "json", "name": "data.json", "file": {}},
+                {"id": "xls", "name": "legacy.xls", "file": {}},
+                {"id": "xlsm", "name": "macros.xlsm", "file": {}},
+                {"id": "xlsx-gz", "name": "book.xlsx.gz", "file": {}},
                 {"id": "deleted", "name": "deleted.csv", "file": {}, "deleted": {}},
             ]
         )
@@ -400,6 +427,7 @@ class TestSharePointFileDiscovery:
                 {"id": "deleted-later", "deleted": {}},
                 {"id": "gzip", "name": "compressed.csv.gz", "file": {}},
                 {"id": "tsv", "name": "tabs.TSV.GZ", "file": {}},
+                {"id": "xlsx", "name": "book.XLSX", "file": {}},
             ]
         }
 
@@ -448,7 +476,7 @@ class TestSharePointFileNames:
     @parameterized.expand(
         [
             ("plain", "Shared Documents/Reports/Orders.CSV.GZ", "shared_documents_reports_orders"),
-            ("static_collision", "sites.csv", "sites_" + hashlib.sha1(b"drive-a:item-a").hexdigest()[:8]),
+            ("static_collision", "sites.csv", "sites_5115e536"),
             ("long", "a" * 120 + ".csv", "a" * 100),
         ]
     )
@@ -483,8 +511,80 @@ class TestSharePointFileNames:
         assert set(tables.values()) == set(files)
         assert tables == files_by_table(list(reversed(files)))
 
+    @parameterized.expand(
+        [
+            ("long_file", "a" * 120, "Sales - North", "a" * 88 + "_sales_north"),
+            ("long_worksheet", "report", "w" * 120, "r_" + "w" * 98),
+        ]
+    )
+    def test_truncates_file_before_worksheet(self, _name: str, path: str, worksheet: str, expected: str) -> None:
+        file = replace(_file(path + ".xlsx"), worksheet=worksheet)
+
+        assert files_by_table([file]) == {expected: file}
+
+    def test_worksheet_collisions_hash_the_full_resource_id(self) -> None:
+        files = [replace(_file("a" * 120 + ".xlsx"), worksheet=title) for title in ("Sales - North", "Sales North")]
+        expected = {
+            f"{'a' * 79}_sales_north_{hashlib.sha1(file.resource_id.encode()).hexdigest()[:8]}": file for file in files
+        }
+
+        assert files_by_table(files) == expected
+        assert files_by_table(list(reversed(files))) == expected
+        assert all(len(name) == 100 for name in expected)
+
 
 class TestSharePointFileSync:
+    def test_worksheet_rows_include_file_metadata(self) -> None:
+        content = excel_bytes()
+        session = _session(
+            {
+                _g("/drives/drive-a/items/item-a"): {
+                    "name": "renamed.xlsx",
+                    "size": len(content),
+                    "lastModifiedDateTime": "2026-01-02T03:04:05Z",
+                },
+                _g("/drives/drive-a/items/item-a/content"): content,
+            }
+        )
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            logger = mock.MagicMock()
+            file = replace(_file("old.xlsx"), worksheet="Sales - North")
+            response = sharepoint_file_source(
+                SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger), "old_table", file.resource_id, logger
+            )
+            rows = [row for chunk in cast(Iterable[list[dict[str, object]]], response.items()) for row in chunk]
+
+        assert rows == [
+            {
+                "order_id": 1,
+                "total": 20,
+                "_file_name": "renamed.xlsx",
+                "_file_modified_at": datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            }
+        ]
+
+    @parameterized.expand([("reported", 51), ("grew", 1)])
+    def test_rejects_oversized_workbook_at_sync(self, _name: str, reported_size: int) -> None:
+        session = _session(
+            {
+                _g("/drives/drive-a/items/item-a"): {"name": "report.xlsx", "size": reported_size},
+                _g("/drives/drive-a/items/item-a/content"): excel_bytes(),
+            }
+        )
+        with (
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILE_BYTES", 50),
+        ):
+            logger = mock.MagicMock()
+            response = sharepoint_file_source(
+                SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger),
+                "report",
+                "drive-a:item-a:Sales - North",
+                logger,
+            )
+            with pytest.raises(ExcelFileError, match=f"^{EXCEL_ERROR}"):
+                list(cast(Iterable[object], response.items()))
+
     @parameterized.expand(
         [
             ("csv", "renamed.csv", b"Order ID,total\n1,20\n"),
@@ -528,7 +628,15 @@ class TestSharePointFileSync:
         download.close.assert_called_once()
         assert download.raw.decode_content is True
 
-    @parameterized.expand([("missing_id", None, 0), ("malformed_id", "drive-a:", 0), ("deleted", "drive-a:item-a", 1)])
+    @parameterized.expand(
+        [
+            ("missing_id", None, 0),
+            ("malformed_id", "drive-a:", 0),
+            ("deleted", "drive-a:item-a", 1),
+            ("deleted_excel", "drive-a:item-a:Sales - North", 1),
+            ("empty_worksheet", "drive-a:item-a:", 0),
+        ]
+    )
     def test_reports_missing_files(self, _name: str, resource_id: str | None, expected_requests: int) -> None:
         session = _session({_g("/drives/drive-a/items/item-a"): 404})
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):

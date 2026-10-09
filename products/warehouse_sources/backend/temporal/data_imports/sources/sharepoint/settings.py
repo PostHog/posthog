@@ -16,6 +16,9 @@ TOKEN_SCOPE = "https://graph.microsoft.com/.default"
 MAX_PAGES_PER_COLLECTION = 50_000
 MAX_FILES = 1000
 FILE_EXTENSIONS = {".csv", ".tsv"}
+EXCEL_EXTENSIONS = {".xlsx"}
+# Discovery downloads each workbook to list its worksheets.
+MAX_EXCEL_FILES = 100
 FILE_NOT_FOUND_ERROR = "The SharePoint file for table"
 PATTERN_ERROR = "The file pattern isn't a valid regular expression"
 
