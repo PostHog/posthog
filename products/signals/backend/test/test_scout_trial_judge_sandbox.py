@@ -146,19 +146,33 @@ class TestSandboxJudgeDispatch(BaseTest):
         self.assertEqual(TaskRun.objects.filter(team_id=self.team.id, task=run.task).count(), 1)
         self.dispatch.assert_called_once()
 
+    @parameterized.expand([("no_output", False), ("output_saved_without_completion", True)])
     @time_machine.travel("2026-08-01T12:00:00Z", tick=False)
-    def test_resumed_judge_keeps_its_original_deadline(self) -> None:
+    def test_resumed_judge_keeps_its_original_deadline(self, _name: str, output_saved: bool) -> None:
         self.assertIsNone(async_to_sync(judge_trial_run)(self.snapshot, self.evidence))
         run = TaskRun.objects.get(team_id=self.team.id, task__origin_key__startswith="scout-trial-judge:")
         started_at = datetime.now(UTC)
         with time_machine.travel(started_at + timedelta(minutes=29), tick=False):
             self.assertIsNone(async_to_sync(judge_trial_run)(self.snapshot, self.evidence))
+        if output_saved:
+            with patch("posthog.temporal.common.client.sync_connect", side_effect=RuntimeError):
+                tasks_facade.set_task_run_output(
+                    run.id, run.task_id, self.team.id, output=self.output.model_dump(mode="json")
+                )
         with time_machine.travel(started_at + timedelta(minutes=31), tick=False):
-            with self.assertRaises(TrialJudgeExecutionError):
-                async_to_sync(judge_trial_run)(self.snapshot, self.evidence)
+            if output_saved:
+                result = async_to_sync(judge_trial_run)(self.snapshot, self.evidence)
+                assert result is not None
+                self.assertEqual((result.status, result.criteria), ("judged", self.output.criteria))
+            else:
+                with self.assertRaises(TrialJudgeExecutionError):
+                    async_to_sync(judge_trial_run)(self.snapshot, self.evidence)
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.FAILED)
-        self.assertIn("did not finish", run.error_message)
+        if output_saved:
+            self.assertFalse(run.is_terminal)
+        else:
+            self.assertEqual(run.status, TaskRun.Status.FAILED)
+            self.assertIn("did not finish", run.error_message)
         self.dispatch.assert_called_once()
 
     @parameterized.expand(["failed", "cancelled", "invalid_result", "missing_result"])

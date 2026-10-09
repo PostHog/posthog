@@ -96,6 +96,10 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
         raise TrialJudgeValidationError("The scout trial was invalidated after its evidence was saved.")
 
 
+def _has_assessment(output: dict | None) -> bool:
+    return isinstance(output, dict) and "summary" in output and "criteria" in output
+
+
 def _token_count(state: dict[str, object], field_name: str) -> int | None:
     usage = state.get("token_usage")
     value = usage.get(field_name) if isinstance(usage, dict) else None
@@ -231,12 +235,13 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             if run.status != "completed":
                 if run.created_at is None:
                     raise TrialJudgeExecutionError("The judge task has no saved start time.")
-                if timezone.now() >= run.created_at + timedelta(seconds=JUDGE_MAX_RUNTIME_SECONDS):
-                    run = await database_sync_to_async(judge_run.expire)(run)
-                else:
+                if timezone.now() < run.created_at + timedelta(seconds=JUDGE_MAX_RUNTIME_SECONDS):
                     return None
+                # Tasks saves the output before it records completion, so a lost completion signal leaves the run open.
+                if not _has_assessment(run.output):
+                    run = await database_sync_to_async(judge_run.expire)(run)
             output = run.output
-            if not isinstance(output, dict) or "summary" not in output or "criteria" not in output:
+            if output is None or not _has_assessment(output):
                 raise TrialJudgeExecutionError("The judge finished without saving its structured assessment.")
             sources = await asyncio.to_thread(read_trial_evidence_sources, snapshot, evidence)
             verdicts = parse_trial_judgment(
