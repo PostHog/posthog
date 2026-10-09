@@ -1490,6 +1490,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
                 self._run_temporal_side_effect(cancel_running_import)
 
+        # A schedule that update_schedule creates with an immediate run already starts the refresh.
+        refresh_run_started = False
+
         if source.supports_scheduled_sync and (
             should_sync is not None
             or was_sync_frequency_updated
@@ -1498,6 +1501,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ):
 
             def update_schedule() -> None:
+                nonlocal refresh_run_started
                 should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
                 # A reset left to capture keeps the schedule paused, and capture unpauses it once the reset is done.
                 reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
@@ -1533,6 +1537,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     sync_external_data_job_workflow(
                         updated_instance, create=True, should_sync=should_sync_value and not reset_pending
                     )
+                    refresh_run_started = True
 
                 # Re-issue an existing schedule when the cadence changed. A disabled schema with no
                 # schedule has nothing to update — updating a missing schedule raises "workflow not
@@ -1552,7 +1557,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
-            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
+
+            def start_refresh() -> None:
+                if refresh_run_started:
+                    return
+                try:
+                    trigger_external_data_workflow(updated_instance)
+                except temporalio.service.RPCError as e:
+                    if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+                        raise
+                    # The reset is saved, so the next run of a schedule made later does the refresh.
+                    if not updated_instance.should_sync or updated_instance.sync_frequency_interval is None:
+                        logger.info("refresh_skipped_no_schedule", schema_id=str(updated_instance.id))
+                        return
+                    reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
+                    sync_external_data_job_workflow(updated_instance, create=True, should_sync=not reset_pending)
+
+            self._run_temporal_side_effect(start_refresh)
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
