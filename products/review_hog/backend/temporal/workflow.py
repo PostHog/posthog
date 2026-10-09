@@ -40,6 +40,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MAX_ATTEMPTS,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
@@ -526,6 +527,10 @@ class ReviewPRWorkflow:
                 report_id=report_id,
                 trigger_source=inputs.trigger_source,
                 default_user_id=inputs.user_id,
+                repository=repository,
+                installation_id=inputs.installation_id,
+                github_repo_id=inputs.github_repo_id,
+                head_branch=branch,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
@@ -537,10 +542,15 @@ class ReviewPRWorkflow:
             )
             return report_id
         # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
-        # flip gates). Label gates only the cloud path (no explicit acting-user override) — an
-        # explicit CLI/eval invocation always runs. Inbox re-checks the receiver-side gate here for
-        # snapshot-at-resolve consistency. Manual stays ungated.
-        if inputs.trigger_source == TRIGGER_LABEL and inputs.acting_user_id is None and not acting.review_labeled_prs:
+        # flip gates). Inbox re-checks the receiver-side gate here for snapshot-at-resolve
+        # consistency. A label always runs, and manual stays ungated.
+        # Histories from before the patch recorded the label opt-out, so they replay its early return.
+        if (
+            inputs.trigger_source == TRIGGER_LABEL
+            and not workflow.patched("reviewhog-label-always-runs-2026-10")
+            and inputs.acting_user_id is None
+            and not acting.review_labeled_prs
+        ):
             workflow.logger.info(
                 f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
                 "turned off; skipping review"
@@ -553,6 +563,11 @@ class ReviewPRWorkflow:
             workflow.logger.info("Automatic reviews are disabled for the author; skipping review")
             return report_id
         acting_user_id = acting.acting_user_id
+        # Flash publishes every kept finding: the threshold is a Full review setting. Recording
+        # "consider" keeps the outcome classification of a Flash turn truthful.
+        urgency_threshold = (
+            IssuePriority.CONSIDER.value if inputs.review_mode == REVIEW_MODE_FLASH else acting.urgency_threshold
+        )
 
         # Only an automatic follow-up is gated. The first automatic review of a PR and every human
         # trigger always run. The gate fails open: an activity failure reviews the push.
@@ -735,7 +750,7 @@ class ReviewPRWorkflow:
                     head_sha=head_sha,
                     run_index=stage.run_index,
                     issue_ids=dedup.issue_ids,
-                    urgency_threshold=acting.urgency_threshold,
+                    urgency_threshold=urgency_threshold,
                     # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
                     will_publish=publishes_to_pr,
                 ),
@@ -758,7 +773,7 @@ class ReviewPRWorkflow:
                         # The resolved destination: the input PR, or the open PR fetch discovered
                         # for a branch target.
                         pr_number=meta.pr_number,
-                        urgency_threshold=acting.urgency_threshold,
+                        urgency_threshold=urgency_threshold,
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
                     ),
@@ -853,7 +868,7 @@ class ReviewPRWorkflow:
                         team_id=inputs.team_id,
                         report_id=report_id,
                         run_index=meta.run_index,
-                        urgency_threshold=acting.urgency_threshold,
+                        urgency_threshold=urgency_threshold,
                         review_url=publish_result.review_url if publish_result is not None else None,
                         resolved_from=acting.resolved_from,
                         review_mode=inputs.review_mode,
@@ -881,18 +896,23 @@ class ReviewPRWorkflow:
         )
 
         # Reviewing includes resolving: hand the PR to the resolution stage once this turn's comments
-        # are on it. The acting user's `resolve_comments` setting decides (via the resolve-time
-        # snapshot, publishing runs only — an unpublished eval/CLI review must not write to the PR);
-        # `inputs.resolve_comments` is the per-run override (the UI's "review without resolving").
-        # Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
-        # dispatch failure must never fail a finished review. Deterministic under replay: both
-        # operands come from recorded history (workflow input + activity result), and pre-field
-        # histories decode input None + snapshot False, so the command never fires where it didn't.
-        resolve_after = (
-            inputs.resolve_comments
-            if inputs.resolve_comments is not None
-            else (inputs.publish and acting.resolve_comments)
-        )
+        # are on it. The PR owner's opt-in decides, whoever triggered (the resolve-time snapshot,
+        # publishing runs only: an unpublished eval/CLI review must not write to the PR).
+        # `inputs.resolve_comments=False` turns it off for one run (the UI's "review without
+        # resolving"); no input turns it on. Fire-and-forget (ABANDON), because the resolution run
+        # outlives this workflow, and best-effort: a dispatch failure must never fail a finished
+        # review. Deterministic under replay: both operands come from recorded history, and the
+        # patch keeps older histories on the rule they ran with.
+        if workflow.patched("reviewhog-owner-resolution-2026-10"):
+            resolve_after = inputs.publish and acting.resolve_comments and inputs.resolve_comments is not False
+            resolution_acting_user_id = acting.owner_user_id
+        else:
+            resolve_after = (
+                inputs.resolve_comments
+                if inputs.resolve_comments is not None
+                else (inputs.publish and acting.resolve_comments)
+            )
+            resolution_acting_user_id = acting_user_id
         # A flash turn never writes code, whatever the override or the setting says: the trigger pins
         # the override off, and this is the guarantee for any other producer of a flash input.
         if resolve_after and inputs.review_mode == REVIEW_MODE_FLASH:
@@ -910,7 +930,7 @@ class ReviewPRWorkflow:
                         repo=inputs.repo,
                         pr_number=meta.pr_number,
                         pr_url=meta.pr_url or "",
-                        acting_user_id=acting_user_id,
+                        acting_user_id=resolution_acting_user_id,
                         trigger_source=inputs.trigger_source,
                     ),
                     id=resolve_pr_workflow_id(

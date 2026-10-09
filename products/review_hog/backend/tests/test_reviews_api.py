@@ -166,6 +166,15 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
 
+    def test_full_review_published_reads_only_the_full_marker(self) -> None:
+        self._report(pr_number=1, acting_user=self.user, published_head_sha="a", published_heads_by_mode={"flash": "a"})
+        self._report(pr_number=2, acting_user=self.user, published_head_sha="b", published_heads_by_mode={"full": "b"})
+
+        rows = {row["pr_number"]: row for row in self.client.get(self.url).json()["results"]}
+
+        assert rows[1]["full_review_published"] is False
+        assert rows[2]["full_review_published"] is True
+
     def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
         # The incident this guards: a review a teammate triggers on your PR lands under THEIR
         # acting_user, so without the author_login match it never reaches your "For you" tab — the
