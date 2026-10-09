@@ -23,6 +23,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -152,28 +153,31 @@ export function TaskRunSceneShell({
                         <QuillSceneHeader
                             className={cn(taskError && 'mt-4')}
                             back={
-                                isMobile && !todayPhone ? (
-                                    <Button
-                                        variant="default"
-                                        size="icon"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={urls.ai()} />}
-                                        aria-label="Back to PostHog AI"
-                                    >
-                                        <IconChevronLeft />
-                                    </Button>
-                                ) : phoneHeaderHidden ? (
-                                    <Button
-                                        variant="default"
-                                        size="icon-lg"
-                                        className="-ml-2"
-                                        aria-label="Back"
-                                        onClick={goBackOnPhone}
-                                        data-attr="today-phone-back"
-                                    >
-                                        <IconChevronLeft />
-                                    </Button>
-                                ) : undefined
+                                <>
+                                    <TodaySidebarBreadcrumb />
+                                    {isMobile && !todayPhone ? (
+                                        <Button
+                                            variant="default"
+                                            size="icon"
+                                            nativeButton={false}
+                                            render={<LinkPrimitive to={urls.ai()} />}
+                                            aria-label="Back to PostHog AI"
+                                        >
+                                            <IconChevronLeft />
+                                        </Button>
+                                    ) : phoneHeaderHidden ? (
+                                        <Button
+                                            variant="default"
+                                            size="icon-lg"
+                                            className="-ml-2"
+                                            aria-label="Back"
+                                            onClick={goBackOnPhone}
+                                            data-attr="today-phone-back"
+                                        >
+                                            <IconChevronLeft />
+                                        </Button>
+                                    ) : undefined}
+                                </>
                             }
                             icon={<TodaySessionIcon item={sessionIconFields(task?.latest_run)} />}
                             title={

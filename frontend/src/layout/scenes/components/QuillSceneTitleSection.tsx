@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
@@ -73,9 +74,12 @@ export function QuillSceneTitleSection({
                     className
                 )}
                 back={
-                    !titleInPhoneHeader && (forceBackTo || breadcrumbs.length > 2) ? (
-                        <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                    ) : undefined
+                    <>
+                        <TodaySidebarBreadcrumb />
+                        {!titleInPhoneHeader && (forceBackTo || breadcrumbs.length > 2) && (
+                            <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
+                        )}
+                    </>
                 }
                 icon={name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined}
                 title={

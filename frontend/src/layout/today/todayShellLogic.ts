@@ -16,6 +16,9 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products'
 
+/** What showed or hid the sidebar. `row_pick` is a click on a row that opens a page. */
+export type TodaySidebarToggleSource = 'rail' | 'shortcut' | 'pane_header' | 'scene_breadcrumb' | 'row_pick'
+
 export const TODAY_RAIL_WIDTH = 60
 export const TODAY_PHONE_MAX_WIDTH = 768
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
@@ -142,6 +145,9 @@ export interface todayShellLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    collapseSidebarAfterPick: () => {
+        value: true
+    }
     goBackOnPhone: () => {
         value: true
     }
@@ -162,6 +168,9 @@ export interface todayShellLogicActions {
     }
     toggleSidebar: () => {
         value: true
+    }
+    toggleSidebarFrom: (source: TodaySidebarToggleSource) => {
+        source: TodaySidebarToggleSource
     }
 }
 
@@ -211,6 +220,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setSidebarWidth: (width: number) => ({ width }),
         toggleSidebar: true,
+        toggleSidebarFrom: (source: TodaySidebarToggleSource) => ({ source }),
+        collapseSidebarAfterPick: true,
     }),
     windowValues(() => ({
         phoneLayout: (window: Window) => window.innerWidth < TODAY_PHONE_MAX_WIDTH,
@@ -308,6 +319,24 @@ export const todayShellLogic = kea<todayShellLogicType>([
             } else {
                 actions.setSidebarOpen(!values.sidebarOpen)
             }
+        },
+        toggleSidebarFrom: ({ source }) => {
+            actions.toggleSidebar()
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today sidebar toggled', {
+                source,
+                open: values.sidebarVisible,
+                mobile_layout: values.mobileLayout,
+            })
+        },
+        collapseSidebarAfterPick: () => {
+            // The drawer closes on the route change, so only the docked sidebar needs to close here.
+            if (values.mobileLayout || !values.sidebarOpen) {
+                return
+            }
+            actions.setSidebarOpen(false)
+            const source: TodaySidebarToggleSource = 'row_pick'
+            posthog.capture('today sidebar toggled', { source, open: false, mobile_layout: false })
         },
         setMobileSidebarOpen: ({ open }) => {
             if (!open) {
