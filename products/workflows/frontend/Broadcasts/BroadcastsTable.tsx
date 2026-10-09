@@ -3,13 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +23,6 @@ import {
     isEligibleWorkflow,
 } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
-import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
     { title: 'Sent', metricName: 'email_sent' },
@@ -36,14 +33,11 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending, loadFailed } =
         useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
     const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
-    const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
@@ -159,23 +153,8 @@ export function BroadcastsTable(): JSX.Element {
         !isFiltered &&
         broadcasts.count === 0
 
-    if (isEmpty && guidedOnboardingEnabled) {
-        return <BroadcastsEmptyState />
-    }
-
     if (isEmpty) {
-        return (
-            <div
-                className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-12"
-                data-attr="broadcasts-empty-state"
-            >
-                <h3 className="m-0 text-lg font-semibold">No broadcasts yet</h3>
-                <p className="m-0 text-secondary">Send a one-time or scheduled email to an audience of your users.</p>
-                <LemonButton type="primary" onClick={startNewBroadcast} data-attr="broadcasts-empty-new">
-                    New broadcast
-                </LemonButton>
-            </div>
-        )
+        return <BroadcastsEmptyState />
     }
 
     return (

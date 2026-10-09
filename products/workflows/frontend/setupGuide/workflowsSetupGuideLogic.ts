@@ -270,8 +270,12 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
             posthog.capture('workflows onboarding path selected', { path })
             // A broadcast only needs a verified sender, not the rest of the messaging setup.
             const canSendBroadcast = !!values.steps?.some((step) => step.key === 'domain' && step.done)
-            if (path === 'broadcast' && canSendBroadcast) {
-                actions.startNewBroadcast()
+            if (path === 'broadcast') {
+                if (canSendBroadcast) {
+                    actions.startNewBroadcast()
+                } else {
+                    router.actions.push(onboardingWizardUrl(path))
+                }
             } else if (values.featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]) {
                 // A finished messaging setup has nothing left to guide, so it goes straight to the journeys.
                 if (path === 'messaging' && values.isComplete) {
@@ -279,8 +283,6 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
                 } else {
                     router.actions.push(onboardingWizardUrl(path))
                 }
-            } else if (path === 'broadcast') {
-                router.actions.push(urls.broadcasts())
             } else if (path === 'messaging') {
                 router.actions.push(urls.workflows('channels'))
             } else {

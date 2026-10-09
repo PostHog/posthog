@@ -4,11 +4,8 @@ import posthog from 'posthog-js'
 import { IconMegaphone } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -18,9 +15,7 @@ import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 /** The Broadcasts tab before the first broadcast: set up a verified sender first, then write one. */
 export function BroadcastsEmptyState(): JSX.Element {
     const { integrations } = useValues(integrationsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
-    const wizardEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
         AccessControlLevel.Editor
@@ -55,7 +50,7 @@ export function BroadcastsEmptyState(): JSX.Element {
                 {!senderReady && (
                     <LemonButton
                         type="primary"
-                        to={wizardEnabled ? onboardingWizardUrl('broadcast') : urls.broadcasts('channels')}
+                        to={onboardingWizardUrl('broadcast')}
                         disabledReason={editorDisabledReason}
                         onClick={() => capture('set-up-email')}
                         data-attr="broadcasts-empty-state-set-up-email"
