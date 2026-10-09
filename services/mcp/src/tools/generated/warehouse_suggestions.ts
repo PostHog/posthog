@@ -12,87 +12,6 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const WarehouseSuggestionsListSchema = () => {
-    const WarehouseSuggestionsListQueryParams = orvalSchemas.WarehouseSuggestionsListQueryParams()
-    return WarehouseSuggestionsListQueryParams
-}
-
-const warehouseSuggestionsList = (): ToolBase<
-    ReturnType<typeof WarehouseSuggestionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedWarehouseSuggestionList>
-> => ({
-    name: 'warehouse-suggestions-list',
-    schema: WarehouseSuggestionsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedWarehouseSuggestionList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/`,
-            query: {
-                kind: params.kind,
-                limit: params.limit,
-                offset: params.offset,
-                status: params.status,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'kind',
-                    'subject_kind',
-                    'subject_id',
-                    'payload',
-                    'status',
-                    'score',
-                    'can_act',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/models')
-    },
-})
-
-const WarehouseSuggestionsGetSchema = () => {
-    const WarehouseSuggestionsRetrieveParams = orvalSchemas.WarehouseSuggestionsRetrieveParams()
-    return WarehouseSuggestionsRetrieveParams.omit({ project_id: true })
-}
-
-const warehouseSuggestionsGet = (): ToolBase<
-    ReturnType<typeof WarehouseSuggestionsGetSchema>,
-    Schemas.WarehouseSuggestion
-> => ({
-    name: 'warehouse-suggestions-get',
-    schema: WarehouseSuggestionsGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseSuggestion>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const WarehouseSuggestionsStatusSchema = () => z.object({})
-
-const warehouseSuggestionsStatus = (): ToolBase<
-    ReturnType<typeof WarehouseSuggestionsStatusSchema>,
-    Schemas.WarehouseSuggestionStatus
-> => ({
-    name: 'warehouse-suggestions-status',
-    schema: WarehouseSuggestionsStatusSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseSuggestionStatus>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/status/`,
-        })
-        return result
-    },
-})
-
 const WarehouseSuggestionsAcceptSchema = () => {
     const WarehouseSuggestionsAcceptCreateBody = orvalSchemas.WarehouseSuggestionsAcceptCreateBody()
     const WarehouseSuggestionsAcceptCreateParams = orvalSchemas.WarehouseSuggestionsAcceptCreateParams()
@@ -200,6 +119,69 @@ const warehouseSuggestionsDismiss = (): ToolBase<
     },
 })
 
+const WarehouseSuggestionsGetSchema = () => {
+    const WarehouseSuggestionsRetrieveParams = orvalSchemas.WarehouseSuggestionsRetrieveParams()
+    return WarehouseSuggestionsRetrieveParams.omit({ project_id: true })
+}
+
+const warehouseSuggestionsGet = (): ToolBase<
+    ReturnType<typeof WarehouseSuggestionsGetSchema>,
+    Schemas.WarehouseSuggestion
+> => ({
+    name: 'warehouse-suggestions-get',
+    schema: WarehouseSuggestionsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseSuggestion>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const WarehouseSuggestionsListSchema = () => {
+    const WarehouseSuggestionsListQueryParams = orvalSchemas.WarehouseSuggestionsListQueryParams()
+    return WarehouseSuggestionsListQueryParams
+}
+
+const warehouseSuggestionsList = (): ToolBase<
+    ReturnType<typeof WarehouseSuggestionsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedWarehouseSuggestionList>
+> => ({
+    name: 'warehouse-suggestions-list',
+    schema: WarehouseSuggestionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedWarehouseSuggestionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/`,
+            query: {
+                kind: params.kind,
+                limit: params.limit,
+                offset: params.offset,
+                status: params.status,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'kind',
+                    'subject_kind',
+                    'subject_id',
+                    'payload',
+                    'status',
+                    'score',
+                    'can_act',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/models')
+    },
+})
+
 const WarehouseSuggestionsResumeSchema = () => {
     const WarehouseSuggestionsResumeCreateParams = orvalSchemas.WarehouseSuggestionsResumeCreateParams()
     return WarehouseSuggestionsResumeCreateParams.omit({ project_id: true })
@@ -221,12 +203,30 @@ const warehouseSuggestionsResume = (): ToolBase<
     },
 })
 
+const WarehouseSuggestionsStatusSchema = () => z.object({})
+
+const warehouseSuggestionsStatus = (): ToolBase<
+    ReturnType<typeof WarehouseSuggestionsStatusSchema>,
+    Schemas.WarehouseSuggestionStatus
+> => ({
+    name: 'warehouse-suggestions-status',
+    schema: WarehouseSuggestionsStatusSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseSuggestionStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/status/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'warehouse-suggestions-list': warehouseSuggestionsList,
-    'warehouse-suggestions-get': warehouseSuggestionsGet,
-    'warehouse-suggestions-status': warehouseSuggestionsStatus,
     'warehouse-suggestions-accept-prepare': warehouseSuggestionsAcceptPrepare,
     'warehouse-suggestions-accept-execute': warehouseSuggestionsAcceptExecute,
     'warehouse-suggestions-dismiss': warehouseSuggestionsDismiss,
+    'warehouse-suggestions-get': warehouseSuggestionsGet,
+    'warehouse-suggestions-list': warehouseSuggestionsList,
     'warehouse-suggestions-resume': warehouseSuggestionsResume,
+    'warehouse-suggestions-status': warehouseSuggestionsStatus,
 }
