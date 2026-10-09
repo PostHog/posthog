@@ -16,6 +16,8 @@ x-logging: &default-logging
 
 # HyperCache's S3 tier for the Rust readers. With no endpoint the AWS SDK dials real S3 on
 # every Redis miss and waits out its retries (~4s) before falling back to Postgres.
+# Services using this also wait for objectstorage to be healthy: it registers these
+# credentials after start and rejects them until then.
 x-hypercache-s3: &hypercache-s3
     OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
     AWS_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -654,8 +656,12 @@ services:
             # must match INTERNAL_REQUEST_TOKEN on web and worker.
             INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
         depends_on:
-            - db
-            - redis7
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            objectstorage:
+                condition: service_healthy
 
     hypercache-server:
         build:
@@ -667,7 +673,10 @@ services:
         environment:
             <<: *hypercache-s3
         depends_on:
-            - redis7
+            redis7:
+                condition: service_started
+            objectstorage:
+                condition: service_healthy
 
     kafka-init:
         image: docker.io/redpandadata/redpanda:v25.1.9
