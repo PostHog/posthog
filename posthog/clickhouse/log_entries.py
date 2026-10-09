@@ -321,6 +321,33 @@ def LOG_ENTRIES_AUX_READER_SQL():
     )
 
 
+def _as_create_or_replace(sql: str) -> str:
+    assert "CREATE TABLE IF NOT EXISTS" in sql
+    return sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1)
+
+
+def LOG_ENTRIES_DATA_NODE_READERS_SQL() -> list[str]:
+    """The data-node read layout: `log_entries` reads aux, `log_entries_distributed` reads main.
+
+    Both are Distributed tables that hold no data, so `CREATE OR REPLACE` declares the
+    target state directly. A second run, or a run on a node that already has this layout,
+    changes nothing. An EXCHANGE of the two names would swap them back on a second run.
+    """
+    return [
+        _as_create_or_replace(LOG_ENTRIES_AUX_READER_SQL()),
+        _as_create_or_replace(
+            LOG_ENTRIES_TABLE_BASE_SQL.format(
+                table_name=LOG_ENTRIES_AUX_DISTRIBUTED_TABLE,
+                on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+                extra_fields=KAFKA_COLUMNS,
+                engine=Distributed(
+                    data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"
+                ),
+            )
+        ),
+    ]
+
+
 def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():
     return LOG_ENTRIES_TABLE_BASE_SQL.format(
         table_name=LOG_ENTRIES_AUX_WRITABLE_TABLE,
