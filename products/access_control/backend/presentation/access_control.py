@@ -270,7 +270,7 @@ def is_terraform_request(request: Request) -> bool:
 def apply_access_control_rule(
     *,
     team: Team,
-    request: Request,
+    user: User,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> AccessControl | None:
@@ -282,11 +282,8 @@ def apply_access_control_rule(
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
 
-    user = cast(User, request.user)
-    terraform_request = is_terraform_request(request)
-    # All rule writes go through this function. When the lock is enabled, only the Terraform account
-    # can write. A write from Terraform enables the lock and sets the Terraform account.
-    if not terraform_request and not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
+    # Every rule write goes through here. When Terraform manages the project, only its account may write.
+    if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
@@ -303,8 +300,6 @@ def apply_access_control_rule(
         instance.delete()
         # Drop the preloaded access-control snapshot so later reads this request are fresh.
         user_access_control._clear_cache()
-        if terraform_request:
-            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
         return None
 
     if instance:
@@ -314,8 +309,6 @@ def apply_access_control_rule(
     rule = serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
-    if terraform_request:
-        access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
 
     return rule
 
@@ -323,14 +316,14 @@ def apply_access_control_rule(
 def upsert_access_control(
     *,
     team: Team,
-    request: Request,
+    user: User,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> Response:
     """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
     PUT actions expect."""
     rule = apply_access_control_rule(
-        team=team, request=request, user_access_control=user_access_control, build_serializer=build_serializer
+        team=team, user=user, user_access_control=user_access_control, build_serializer=build_serializer
     )
     if rule is None:
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -567,9 +560,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
+        user = cast(User, request.user)
+        # Terraform writes rules only through this method. A Terraform write enables the lock and
+        # sets the Terraform account before the rule is written, so the guard lets the write through.
+        if is_terraform_request(request):
+            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
+
         return upsert_access_control(
             team=team,
-            request=request,
+            user=user,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )

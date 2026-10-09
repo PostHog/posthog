@@ -784,7 +784,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         data = {**request.data, "resource": resource, "resource_id": resource_id}
         return upsert_access_control(
             team=team,
-            request=request,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
         )
@@ -892,7 +892,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             body["role"] = str(role.id)
         rule = apply_access_control_rule(
             team=team,
-            request=request,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )
