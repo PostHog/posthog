@@ -40,6 +40,7 @@ from ..dataset.validation import (
     validate_pipeline_definition as _validate_pipeline_definition,
 )
 from ..evaluation.history import latest_validation_runs, realized_auc_trends
+from ..evaluation.online_validation import LIKELY_THRESHOLD as LIKELY_THRESHOLD
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -65,6 +66,8 @@ from .contracts import (
     ArtifactStorageUnavailable,
     AutoresearchConflict,
     CalibrationBin,
+    ConfusionByCutoff,
+    ConfusionCounts,
     InvalidArtifactPath as InvalidArtifactPath,
     InvalidTarget,
     Iteration,
@@ -1033,6 +1036,7 @@ def online_performance(
         for model_id, m in sorted((run.metrics.get("per_model") or {}).items()):
             model_uuid = UUID(model_id)
             bins = m.get("calibration_bins")
+            confusion = m.get("confusion")
             rows.append(
                 OnlinePerformanceRow(
                     validation_run_id=run.id,
@@ -1053,6 +1057,12 @@ def online_performance(
                     calibration_error=m.get("calibration_error"),
                     lift_at_10=m.get("lift_at_10"),
                     lift_at_20=m.get("lift_at_20"),
+                    average_precision=m.get("average_precision"),
+                    confusion=ConfusionByCutoff(
+                        **{cutoff: ConfusionCounts(**counts) for cutoff, counts in confusion.items()}
+                    )
+                    if confusion is not None
+                    else None,
                     calibration_bins=[CalibrationBin(**b) for b in bins] if bins is not None else None,
                     warning=m.get("warning"),
                     validated_at=run.completed_at,
