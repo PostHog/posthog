@@ -966,6 +966,8 @@ impl Config {
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
+            // A count past `u16::MAX` fails the topic checks at startup.
+            partition_count: u16::try_from(self.cohort_partition_count).unwrap_or(u16::MAX),
             ..StoreConfig::default()
         }
     }

@@ -45,6 +45,7 @@ use crate::observability::metrics::{
     PARTITIONS_PAUSED, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
     PENDING_HELD_EVENTS, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
     SEED_HELD_OFFSET_GAUGE, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSE_AGE_MS,
+    SLICE_COVERED_SINCE_SECONDS,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -747,6 +748,7 @@ impl EventDispatcher {
         gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_PAUSE_AGE_MS, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => partition.to_string()).set(0.0);
+        gauge!(SLICE_COVERED_SINCE_SECONDS, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -1526,7 +1528,9 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::{
+        BehavioralShapeHash, CoverageStartMs, ReconcileScope, ReconcileTile, RunBoundaryMs, RunId,
+    };
 
     use crate::consumers::readiness::NotReady;
     use crate::consumers::seeds::SeedWork;
@@ -1545,7 +1549,8 @@ mod tests {
     use crate::stage1::{Stage1State, StatefulRecord};
     use crate::store::{
         Behavioral, BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey,
-        OffloadConfig, OffloadMode, PendingTransferKey, StoreConfig, TombstoneKey,
+        OffloadConfig, OffloadMode, PendingTransferKey, SliceCoverage, SliceCoverageKey,
+        SliceCoverages, StoreConfig, TombstoneKey,
     };
     use crate::workers::TransferRetryPolicy;
 
@@ -2015,6 +2020,12 @@ mod tests {
             .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
             .await;
         dispatcher.assign_partition(5);
+        store
+            .write_batch(|b| {
+                b.put::<SliceCoverages>(&SliceCoverageKey(5), &SliceCoverage::Complete.encode())
+            })
+            .unwrap();
+        let before_spawn = CoverageStartMs::now();
 
         dispatcher.ensure_worker(5);
         assert!(
@@ -2036,6 +2047,13 @@ mod tests {
         );
 
         dispatcher.shutdown().await;
+        assert!(
+            matches!(
+                store.slice_coverage(5).unwrap(),
+                Some(SliceCoverage::Since(since)) if since >= before_spawn
+            ),
+            "the wiped slice's complete record went with it, so the moved-in slice began again",
+        );
     }
 
     #[tokio::test]
@@ -2558,23 +2576,60 @@ mod tests {
         );
     }
 
+    /// A worker resolves its slice coverage first, so a processed offset proves it resolved.
+    async fn processed_through(dispatcher: &EventDispatcher, partition: i32, next: i64) {
+        let start = Instant::now();
+        while dispatcher.tracker.committable_offsets().get(&partition) != Some(&next) {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "offset {next} on partition {partition} was never processed",
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     #[tokio::test]
     async fn reassign_after_a_full_revoke_respawns_and_advances_offsets() {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        // Recorded by an earlier tenure.
+        let earlier = SliceCoverage::Since(CoverageStartMs(1));
+        store
+            .write_batch(|b| b.put::<SliceCoverages>(&SliceCoverageKey(0), &earlier.encode()))
+            .unwrap();
 
         dispatcher.assign_partition(0);
         dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        processed_through(&dispatcher, 0, 11).await;
+        assert_eq!(
+            store.slice_coverage(0).unwrap(),
+            Some(earlier),
+            "a spawn resumes the recorded coverage instead of beginning the slice again",
+        );
         dispatcher.revoke_partition_sync(0);
         dispatcher.revoke_partition_drain(0).await;
         assert_eq!(dispatcher.workers.len(), 0);
+        assert_eq!(
+            store.slice_coverage(0).unwrap(),
+            None,
+            "the revoke deleted it"
+        );
 
+        let before_respawn = CoverageStartMs::now();
         dispatcher.assign_partition(0);
         dispatcher.dispatch(vec![consumed(person(2), 0, 20)]).await;
         assert_eq!(
             dispatcher.workers.len(),
             1,
             "a reassigned partition respawns"
+        );
+        processed_through(&dispatcher, 0, 21).await;
+        assert!(
+            matches!(
+                store.slice_coverage(0).unwrap(),
+                Some(SliceCoverage::Since(since)) if since >= before_respawn
+            ),
+            "a revoked slice comes back without its history, never complete",
         );
 
         let tracker = dispatcher.shutdown().await;
@@ -2651,6 +2706,7 @@ mod tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
+            RunBoundaryMs(0),
         );
         let held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
             work: SeedWork::Reconcile(tile.clone()),

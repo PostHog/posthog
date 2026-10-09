@@ -11,6 +11,7 @@ It uses terms from [backfill overview](backfill-overview.md) and [backfill coord
 The processor may still be holding tiles behind the fence, and reconcile may not have re-told downstream yet.
 A run is complete for a cohort only when **every one of the 64 processor partitions** has finished reconciling that cohort for this run.
 Each partition proves it by producing a `reconcile_complete` marker.
+A partition that cannot certify the run says so with a `reconcile_withheld` marker instead, and the seeder supersedes that cohort's participation.
 
 Completion is split three ways:
 
@@ -30,8 +31,12 @@ sequenceDiagram
     S->>M: record the marker topic's start positions
     S->>K: one reconcile request per cohort per partition
     S->>PG: record request offsets and dispatch epoch
-    P->>M: reconcile_complete (cohort, run, partition)
-    S->>M: watcher folds markers into per-cohort bitmaps
+    alt the partition can certify the run
+        P->>M: reconcile_complete (cohort, run, partition)
+    else the catalog or the partition's slice rules it out
+        P->>M: reconcile_withheld (cohort, run, partition, reason)
+    end
+    S->>M: watcher folds markers into per-cohort bitmaps, supersedes withheld cohorts
     opt a cohort is short
         S->>K: read the processor's committed seed offsets
         S->>M: capture the marker topic's ends, read up to them
@@ -90,6 +95,15 @@ When a cohort reaches 64 of 64, the watcher writes its bits to Postgres at once 
 That write records the bits only.
 The observation pass, below, decides when the participation is marked complete.
 
+A `reconcile_withheld` marker is a final answer for its cohort, so it needs no settlement proof.
+The watcher supersedes the participation, with an error naming the partition and the reason.
+The first withheld marker of a cohort decides the error.
+A participation that already completed or carries a readiness stamp is left alone.
+For `partial_coverage`, the error also names the instant the partition's history begins, which is the boundary a [disaster-recovery run](backfill-overview.md) needs.
+
+The supersede rides the same transaction that persists the bits and the watcher's read positions.
+A restarted watcher resumes from the persisted positions, so a verdict persisted any later would be skipped.
+
 ## Deciding the outcome
 
 When every active participation of the run has all 64 bits, the next observation pass marks them all **complete**, and no further check is needed.
@@ -101,7 +115,8 @@ It proves that in two steps.
 1. **Liveness.**
    The processor's seed consumer must have committed past every reconcile request on all 64 partitions.
    The processor produces a partition's marker, and waits for its acknowledgment, before it lets that request's offset be committed.
-   A request the processor discarded, after a catalog refresh that began after the request arrived, or skipped because reconcile is disabled, is committed with no marker.
+   A request the processor withholds is committed only after its withheld marker is acknowledged, too.
+   Only a request skipped because reconcile is disabled is committed with no marker.
    So after this point every marker of the dispatch is already on the marker topic.
 2. **Read to the end.**
    The seeder records the marker topic's current end, and waits until the watcher has read that far.
@@ -115,7 +130,8 @@ Each short participation gets one of these outcomes:
 | Markers missing, and the cohort's current shape hash for this kind still equals the pinned one | Retryable shortfall: an error is recorded, and the participation stays open |
 | Markers missing, and this kind's shape hash moved or cannot be read, or the cohort is deleted  | Superseded                                                                  |
 
-Missing markers with an unchanged hash usually mean the processor skipped the request because reconcile was disabled on it, or discarded it after a catalog refresh that began after the request arrived.
+Missing markers with an unchanged hash usually mean the processor skipped the request because reconcile was disabled on it.
+A withheld cohort is never short: its participation is superseded before the run settles, so the finalizer finishes the run without it.
 An edit that moved only the other kind's hash also leaves this kind's hash unchanged and gives a retryable shortfall.
 A composition-only edit that owes this kind a repair run is different: Django supersedes the participation when the edit commits, so the seeder never settles it.
 For a behavioral participation, that is any composition-only edit on a cohort with a hashed behavioral leaf.

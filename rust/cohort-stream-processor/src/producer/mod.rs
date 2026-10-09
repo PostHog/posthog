@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use cohort_core::seed::RunId;
 // Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
 // wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
-pub use cohort_core::seed::ReconcileCompleteMarker;
+pub use cohort_core::seed::{ReconcileCompleteMarker, ReconcileMarker, ReconcileWithheldMarker};
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;

@@ -23,8 +23,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use chrono_tz::UTC;
 use cohort_core::seed::{
-    BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, RunId, SChunkMs,
-    SeedTile,
+    BehavioralShapeHash, ClaimEpoch, ConditionHash, CoverageStartMs, ReconcileMarker,
+    ReconcileScope, ReconcileTile, RunBoundaryMs, RunId, SChunkMs, SeedTile, WithheldReason,
 };
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
@@ -42,8 +42,8 @@ use cohort_stream_processor::partitions::{
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
     KafkaReconcileMarkerSink, KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink,
-    MembershipSink, MembershipStatus, ReconcileCompleteMarker, ReconcileMarkerSink, SeedTileSink,
-    StreamEventSink, TransferSink,
+    MembershipSink, MembershipStatus, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::stage1::bucket_tz::day_idx_in_tz;
 use cohort_stream_processor::stage2::state::Stage2State;
@@ -282,13 +282,13 @@ async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i
 
 fn split_records(
     records: Vec<(i32, Vec<u8>)>,
-) -> (Vec<CohortMembershipChange>, Vec<ReconcileCompleteMarker>) {
+) -> (Vec<CohortMembershipChange>, Vec<ReconcileMarker>) {
     let mut changes = Vec::new();
     let mut markers = Vec::new();
     for (_, payload) in records {
         let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
-            markers.push(serde_json::from_slice::<ReconcileCompleteMarker>(&payload).unwrap());
+        if value.get("type").is_some() {
+            markers.push(serde_json::from_slice::<ReconcileMarker>(&payload).unwrap());
         } else {
             changes.push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
         }
@@ -315,12 +315,17 @@ async fn drain_membership_only(topic: &str, expected: usize) -> Vec<CohortMember
     changes
 }
 
-/// Drain `expected` completion markers off the dedicated marker topic.
-async fn drain_markers(topic: &str, expected: usize) -> Vec<ReconcileCompleteMarker> {
+/// Drain `expected` reconcile markers off the dedicated marker topic.
+async fn drain_markers(topic: &str, expected: usize) -> Vec<ReconcileMarker> {
     let (changes, markers) =
         split_records(consume_all(topic, expected, Duration::from_secs(30)).await);
     assert!(changes.is_empty(), "the marker topic carries markers only");
     markers
+}
+
+/// A day ahead, so it follows the start of every slice in a store these tests create.
+fn boundary_after_slices_began() -> RunBoundaryMs {
+    RunBoundaryMs(chrono::Utc::now().timestamp_millis() + 86_400_000)
 }
 
 async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() -> bool) {
@@ -1159,6 +1164,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         let _monitor = manager.monitor_background();
 
         let dir = TempDir::new().unwrap();
+        let before_store = chrono::Utc::now().timestamp_millis();
         let instance = spawn_instance(
             &topics,
             &groups,
@@ -1203,6 +1209,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             CohortId(COHORT),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
+            boundary_after_slices_began(),
         );
         let producer = murmur2_producer();
 
@@ -1303,6 +1310,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         let marker_partitions: HashSet<u16> = snapshot_markers
             .iter()
             .map(|marker| {
+                assert!(matches!(marker, ReconcileMarker::Complete(_)), "{marker:?}");
                 assert_eq!(marker.team_id(), TeamId(TEAM));
                 assert_eq!(marker.cohort_id(), CohortId(COHORT));
                 assert_eq!(marker.run_id(), run_id);
@@ -1372,6 +1380,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         let converged_markers = drain_markers(&topics.markers, NUM_PARTITIONS as usize * 2).await;
         let mut marker_counts = HashMap::<u16, usize>::new();
         for marker in &converged_markers {
+            assert!(matches!(marker, ReconcileMarker::Complete(_)), "{marker:?}");
             assert_eq!(marker.team_id(), TeamId(TEAM));
             assert_eq!(marker.cohort_id(), CohortId(COHORT));
             assert_eq!(marker.run_id(), run_id);
@@ -1389,6 +1398,71 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
                 && change.origin == Some(ChangeOrigin::Reconcile)
                 && change.run_id == Some(run_id)
         }));
+
+        // A boundary before the store withholds every partition.
+        let early_run = RunId(Uuid::from_u128(0xB5));
+        let early = ReconcileTile::new(
+            TeamId(TEAM),
+            CohortId(COHORT),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
+            early_run,
+            RunBoundaryMs(before_store - 1),
+        );
+        for partition in 0..NUM_PARTITIONS {
+            assert_eq!(
+                produce_reconcile(&producer, &topics.seeds, partition, &early).await,
+                2,
+            );
+        }
+        wait_for(
+            "the early run's controls to be admitted",
+            Duration::from_secs(30),
+            || instance.reconcile_backlog.len() == i64::from(NUM_PARTITIONS),
+        )
+        .await;
+        instance.dispatcher.route_reconcile_drain().await;
+        wait_for(
+            "one withheld marker per partition",
+            Duration::from_secs(60),
+            || topic_message_count(&topics.markers) == i64::from(NUM_PARTITIONS) * 3,
+        )
+        .await;
+        wait_for(
+            "every seed partition commit to advance past its withheld marker",
+            Duration::from_secs(30),
+            || {
+                let offsets = seed_group_committed_offsets(&groups.seeds, &topics.seeds);
+                (0..NUM_PARTITIONS).all(|partition| offsets.get(&partition) == Some(&3))
+            },
+        )
+        .await;
+        assert_eq!(
+            topic_message_count(&topics.shadow),
+            2,
+            "a slice missing the run's history emits no rows for it",
+        );
+        let withheld_partitions: HashSet<u16> =
+            drain_markers(&topics.markers, NUM_PARTITIONS as usize * 3)
+                .await
+                .iter()
+                .filter(|marker| marker.run_id() == early_run)
+                .map(|marker| {
+                    assert!(
+                        matches!(
+                            marker,
+                            ReconcileMarker::Withheld(withheld)
+                                if matches!(
+                                    withheld.reason(),
+                                    WithheldReason::PartialCoverage { covered_since }
+                                        if covered_since >= CoverageStartMs(before_store)
+                                )
+                        ),
+                        "{marker:?}",
+                    );
+                    marker.partition()
+                })
+                .collect();
+        assert_eq!(withheld_partitions, expected_marker_partitions);
 
         shutdown.request_shutdown();
         instance.join().await;
@@ -1422,6 +1496,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
             CohortId(COHORT),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
+            boundary_after_slices_began(),
         );
         assert_eq!(
             produce_reconcile(&producer, &topics.seeds, part(alice) as i32, &reconcile,).await,

@@ -25,6 +25,8 @@ disallowed-methods = [
     { path = "cohort_stream_processor::store::rocks::CohortStore::scan_behavioral", reason = "async code must scan through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::scan_behavioral_prefix", reason = "async code must scan through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::delete_partition", reason = "async code must use StoreHandle::delete_partition (or delete_partition_blocking under a no-await guard) — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::slice_coverage", reason = "async code must not read the store on a runtime thread; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::resume_or_begin_slice", reason = "async code must use StoreHandle::resume_or_begin_slice — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::flush", reason = "async code must go through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::flush_wal_sync", reason = "async code must use StoreHandle::flush_wal_sync; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::create_checkpoint", reason = "async code must go through the checkpoint sweeper's own offload; sync contexts need a module-level allow — see store/handle.rs" },
