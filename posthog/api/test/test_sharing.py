@@ -32,6 +32,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.insight_queries import browser_filtered_pageview_query
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -2449,6 +2450,39 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 "kind": "DataTableNode",
                 "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
             }
+
+    @parameterized.expand(
+        [
+            ("dashboard_filters", True, status.HTTP_400_BAD_REQUEST),
+            ("tile_overrides", True, status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", False, status.HTTP_200_OK),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_filters_through_denied_table_on_shared_dashboard(self, target: str, shared: bool, expected: int, _flag):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        if shared:
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        filters = {"properties": [denied_filter]}
+        payload = (
+            {"filters": filters}
+            if target == "dashboard_filters"
+            else {"tiles": [{"id": tile.id, "filters_overrides": filters}]}
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", payload)
+
+        assert response.status_code == expected, response.content
+        dashboard.refresh_from_db()
+        tile.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.filters == {}
+            assert not tile.filters_overrides
+        else:
+            assert dashboard.filters == filters
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()
