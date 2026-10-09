@@ -24,7 +24,7 @@ import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
-import { isMessagingSetupTab, messagingNavTabs } from './messagingTabs'
+import { isMessagingSetupTab } from './messagingTabs'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
@@ -174,13 +174,9 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
-    const { currentTab: routeTab } = useValues(workflowsSceneLogic(props))
+    const { currentTab } = useValues(workflowsSceneLogic(props))
     const { featureFlags } = useValues(featureFlagLogic)
-    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
     const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
-    // The workflow templates page exists only behind its flag. The onboarding wizard is always reachable,
-    // because the broadcast setup links to it without a flag.
-    const currentTab: WorkflowsSceneTab = !newNavigationEnabled && routeTab === 'templates' ? 'workflows' : routeTab
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
@@ -226,9 +222,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                         // Open the template chooser on the type the list shows, so a person on the
                                         // Messaging tab sees messaging templates first.
                                         setTypeFilter(
-                                            newNavigationEnabled && currentTab === 'workflows'
-                                                ? templateTypeForListType(filters.type)
-                                                : 'all'
+                                            currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all'
                                         )
                                         startNewWorkflow()
                                     }}
@@ -246,40 +240,31 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            {newNavigationEnabled ? (
-                <LemonTabs<WorkflowsTopTab>
-                    activeKey={topTabFor(currentTab)}
-                    tabs={[
-                        workflowsTab,
-                        {
-                            label: 'Templates',
-                            key: 'templates',
-                            link: urls.workflows('library'),
-                            content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
-                        },
-                        {
-                            label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
-                            key: 'messaging-setup',
-                            link: urls.workflows('channels'),
-                            content: (
-                                <MessagingSetup
-                                    tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                    linkFor={(tab) => urls.workflows(tab)}
-                                />
-                            ),
-                        },
-                    ]}
-                    sceneInset
-                    data-attr="workflows-scene-tabs"
-                />
-            ) : (
-                <LemonTabs
-                    activeKey={currentTab}
-                    tabs={[workflowsTab, ...messagingNavTabs((tab) => urls.workflows(tab))]}
-                    sceneInset
-                    data-attr="workflows-scene-tabs"
-                />
-            )}
+            <LemonTabs<WorkflowsTopTab>
+                activeKey={topTabFor(currentTab)}
+                tabs={[
+                    workflowsTab,
+                    {
+                        label: 'Templates',
+                        key: 'templates',
+                        link: urls.workflows('library'),
+                        content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
+                    },
+                    {
+                        label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
+                        key: 'messaging-setup',
+                        link: urls.workflows('channels'),
+                        content: (
+                            <MessagingSetup
+                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
+                                linkFor={(tab) => urls.workflows(tab)}
+                            />
+                        ),
+                    },
+                ]}
+                sceneInset
+                data-attr="workflows-scene-tabs"
+            />
             <NewWorkflowModal />
         </SceneContent>
     )

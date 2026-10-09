@@ -24,6 +24,9 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |
 
+Share of total over time takes a time-series chart in its 100% form: `TimeSeriesLineChart` with `fill` series and `percentStackView` for a stacked area, or `TimeSeriesBarChart` with `barLayout: 'percent'` for bars.
+Pick the one that matches the design you are copying.
+
 Behavior notes per chart: [docs/chart-types.md](./src/docs/chart-types.md).
 
 ## Theme wiring

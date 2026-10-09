@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -81,8 +83,12 @@ export interface workflowProposalsLogicActions {
         expectedDraftUpdatedAt: string | null
         proposalId: string
     }
-    confirmRejectProposal: (proposalId: string) => {
+    confirmRejectProposal: (
+        proposalId: string,
+        reason: string
+    ) => {
         proposalId: string
+        reason: string
     }
     loadApplied: () => any
     loadAppliedFailure: (
@@ -162,8 +168,12 @@ export interface workflowProposalsLogicActions {
         rejectedResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
-    rejectProposal: (proposalId: string) => {
+    rejectProposal: (
+        proposalId: string,
+        reason?: string
+    ) => {
         proposalId: string
+        reason: string | undefined
     }
     reloadLists: () => {
         value: true
@@ -256,8 +266,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             proposalId,
             expectedDraftUpdatedAt,
         }),
-        rejectProposal: (proposalId: string) => ({ proposalId }),
-        confirmRejectProposal: (proposalId: string) => ({ proposalId }),
+        rejectProposal: (proposalId: string, reason?: string) => ({ proposalId, reason }),
+        confirmRejectProposal: (proposalId: string, reason: string) => ({ proposalId, reason }),
         removeResolvedProposal: (proposalId: string) => ({ proposalId }),
         setResolvingId: (proposalId: string | null, action: 'approve' | 'reject' | null = null) => ({
             proposalId,
@@ -549,30 +559,39 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 actions.setResolvingId(null)
             }
         },
-        rejectProposal: ({ proposalId }) => {
+        rejectProposal: ({ proposalId, reason }) => {
             if (values.resolvingId !== null) {
                 return
             }
-            LemonDialog.open({
+            LemonDialog.openForm({
                 title: 'Reject this suggestion?',
                 description: 'It stays in the workflow history as rejected. Nothing changes on the workflow.',
-                primaryButton: {
-                    children: 'Reject',
-                    status: 'danger',
-                    onClick: () => actions.confirmRejectProposal(proposalId),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
+                initialValues: { reason: reason ?? '' },
+                content: (
+                    <LemonField name="reason" label="Why not? (optional)">
+                        <LemonTextArea
+                            placeholder="For example: this is the last email in the series, so clicks are not its goal"
+                            maxLength={2000}
+                            // The dialog form submits on Enter, which would reject before the reason is finished.
+                            onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
+                            data-attr="workflow-suggestion-reject-reason"
+                        />
+                    </LemonField>
+                ),
+                primaryButtonProps: { children: 'Reject', status: 'danger' },
+                onSubmit: ({ reason }) => actions.confirmRejectProposal(proposalId, reason ?? ''),
             })
         },
-        confirmRejectProposal: async ({ proposalId }) => {
+        confirmRejectProposal: async ({ proposalId, reason }) => {
             if (values.resolvingId !== null) {
                 return
             }
             actions.setResolvingId(proposalId, 'reject')
+            let retry = false
             try {
-                await hogFlowsProposalsRejectCreate(String(values.currentTeamIdStrict), props.id, proposalId, {})
+                await hogFlowsProposalsRejectCreate(String(values.currentTeamIdStrict), props.id, proposalId, {
+                    reason: reason.trim(),
+                })
                 lemonToast.success('Suggestion rejected')
                 actions.removeResolvedProposal(proposalId)
                 actions.loadProposals()
@@ -585,9 +604,14 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     actions.loadProposals()
                 } else {
                     lemonToast.error('Could not reject this suggestion. Please try again.')
+                    retry = true
                 }
             } finally {
                 actions.setResolvingId(null)
+            }
+            if (retry) {
+                // Reopen with what they wrote, so a failed request does not cost them the reason.
+                actions.rejectProposal(proposalId, reason)
             }
         },
     })),

@@ -140,6 +140,9 @@ class TestLightdashSourceResponse:
             ("charts", ["uuid"], None),
             ("metrics_catalog", ["catalogSearchUuid"], None),
             ("org_users", ["userUuid"], "userCreatedAt"),
+            ("explores", ["projectUuid", "name"], None),
+            ("schedulers", ["schedulerUuid"], "createdAt"),
+            ("scheduler_runs", ["runId"], "scheduledTime"),
         ]
     )
     @mock.patch(
@@ -177,6 +180,41 @@ class TestLightdashSourceResponse:
 
 
 class TestLightdashSourceTransport:
+    @parameterized.expand(
+        [
+            ("explores", "/api/v1/projects/{projectUuid}/explores", {}),
+            (
+                "schedulers",
+                "/api/v1/schedulers/{projectUuid}/list",
+                {"sortBy": "createdAt", "sortDirection": "asc", "pageSize": 100},
+            ),
+            (
+                "scheduler_runs",
+                "/api/v1/schedulers/{projectUuid}/runs",
+                {"sortBy": "scheduledTime", "sortDirection": "asc", "pageSize": 100},
+            ),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_child_request_params(
+        self, endpoint: str, path: str, params: dict[str, Any], mock_rest_api_resources: mock.MagicMock
+    ) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("projects", []),
+            _FakeDltResource(endpoint, []),
+        ]
+
+        lightdash_source(
+            instance_url="https://x.lightdash.cloud", api_token="tok", endpoint=endpoint, team_id=1, job_id="job-1"
+        )
+
+        resources = mock_rest_api_resources.call_args.args[0]["resources"]
+        child = next(r for r in resources if isinstance(r, dict) and r["name"] == endpoint)
+        assert child["endpoint"]["path"] == path
+        assert {k: v for k, v in child["endpoint"]["params"].items() if k != "projectUuid"} == params
+
     def test_blocks_unsafe_host_at_runtime(self) -> None:
         with mock.patch.object(lightdash_module, "_is_host_safe", return_value=(False, "internal address")):
             with pytest.raises(LightdashHostNotAllowedError):
