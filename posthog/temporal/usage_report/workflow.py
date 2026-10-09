@@ -15,6 +15,7 @@ remains in production until billing migrates to consume the S3 layout.
 """
 
 import json
+import uuid
 import asyncio
 from datetime import UTC, datetime, time, timedelta
 
@@ -79,6 +80,14 @@ def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> 
     )
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 @workflow.defn(name="run-usage-reports")
 class RunUsageReportsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -94,6 +103,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             # non_retryable so the schedule's retry policy doesn't re-run a
             # validation error.
             raise ApplicationError(f"day_offset must be >= 0, got {inputs.day_offset}", non_retryable=True)
+        invalid_organization_ids = [value for value in inputs.organization_ids or [] if not _is_uuid(value)]
+        if invalid_organization_ids:
+            # Aggregation reads organization_ids only after every gather query has run.
+            raise ApplicationError(
+                f"organization_ids must be UUIDs, got {invalid_organization_ids}", non_retryable=True
+            )
         started_at = workflow.now()
         status = "FAILED"
         try:
