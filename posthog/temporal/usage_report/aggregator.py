@@ -3,11 +3,10 @@
 Most of this module is pure logic — turning S3-backed query results into the
 legacy `all_data` shape, fanning multi-key queries back out into their
 destination keys, and shaping per-organization JSONL lines for the chunked
-output. The Temporal-local replacement for the legacy `build_org_reports`
-also lives here so the activity can drive aggregation without touching the
-Celery code path; that one bulk-fetches `OrganizationMembership` counts so
-the per-org `count()` N+1 in the legacy helper never fires for Temporal.
-Activities import from here.
+output. `iter_org_reports` streams one report per organization without
+touching the Celery code path. It reads `OrganizationMembership` counts from
+one bulk query, so the per-org `count()` N+1 in the legacy helper never fires
+for Temporal. Activities import from here.
 """
 
 import dataclasses
@@ -84,8 +83,8 @@ def iter_chunk_lines(
 ) -> Iterator[dict[str, Any]]:
     """Yield the JSONL line dict billing consumes for each org report.
 
-    Filtering by `has_non_zero_usage` happens upstream in the activity, so
-    everything yielded here is expected to have usage.
+    `write_org_report_chunks` drops reports without usage before this step,
+    so every report here has usage.
     """
     for org_report in org_reports:
         report_dict = serialize_full_org_report(org_report, instance_metadata)
@@ -93,18 +92,6 @@ def iter_chunk_lines(
             "organization_id": org_report.organization_id,
             "usage_report": report_dict,
         }
-
-
-def filter_orgs_with_usage(org_reports: dict[str, OrgReport]) -> dict[str, OrgReport]:
-    """Drop org reports with no billable usage before serialization. Reuses
-    the legacy `has_non_zero_usage` directly on `OrgReport`s — every field
-    it checks lives on `UsageReportCounters`, the base class shared by
-    `OrgReport` and `FullUsageReport`, so we skip the
-    `dataclasses.asdict(FullUsageReport)` round-trip the legacy path forces.
-    Skipping that on the >99% of orgs without usage is the dominant CPU
-    win in the aggregation activity.
-    """
-    return {oid: report for oid, report in org_reports.items() if has_non_zero_usage(report)}
 
 
 def build_manifest(
@@ -134,22 +121,6 @@ def build_manifest(
     )
 
 
-def filter_org_reports(
-    org_reports: dict[str, OrgReport],
-    organization_ids: list[str] | None,
-) -> dict[str, OrgReport]:
-    """Apply the optional `organization_ids` filter from workflow inputs."""
-    if not organization_ids:
-        return org_reports
-    wanted = set(organization_ids)
-    return {oid: report for oid, report in org_reports.items() if oid in wanted}
-
-
-def sort_org_reports(org_reports: dict[str, OrgReport]) -> list[OrgReport]:
-    """Deterministic ordering so chunk contents are stable across retries."""
-    return sorted(org_reports.values(), key=lambda r: r.organization_id)
-
-
 def get_org_user_counts() -> dict[str, int]:
     """Bulk membership count per organization, keyed by `str(org_id)`.
 
@@ -170,26 +141,6 @@ def get_org_user_counts() -> dict[str, int]:
         .annotate(count=Count("id"))
         .iterator(chunk_size=10_000)
     }
-
-
-def build_org_reports(
-    all_data: dict[str, Any],
-    period_start: datetime,
-    org_user_counts: dict[str, int],
-) -> dict[str, OrgReport]:
-    """Temporal-local replacement for `posthog.tasks.usage_report.build_org_reports`.
-
-    Same shape and semantics as the legacy facade, but takes a pre-fetched
-    `org_user_counts` dict instead of issuing one Postgres `count()` per
-    organization. The legacy facade is intentionally left untouched so the
-    Celery flow's behavior is preserved — the parity tests pin both paths
-    against each other.
-    """
-    org_reports: dict[str, OrgReport] = {}
-    for team in _get_teams_for_usage_reports():
-        team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start, org_user_counts)
-    return org_reports
 
 
 def _add_team_report_to_org_reports(

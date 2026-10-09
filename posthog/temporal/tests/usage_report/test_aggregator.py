@@ -2,7 +2,7 @@
 
 These cover the building blocks the aggregation activity composes:
 `load_all_data`, `iter_chunk_lines`, `build_manifest`,
-`filter_org_reports`, `filter_orgs_with_usage`, `sort_org_reports`.
+`write_org_report_chunks`.
 No Django / Temporal / S3 required.
 """
 
@@ -22,11 +22,8 @@ from posthog.temporal.tests.usage_report.test_aggregate_activity import _instanc
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
-    filter_org_reports,
-    filter_orgs_with_usage,
     iter_chunk_lines,
     load_all_data,
-    sort_org_reports,
     write_org_report_chunks,
 )
 from posthog.temporal.usage_report.types import Manifest, ReportCompleteness, RunQueryToS3Result, WorkflowContext
@@ -224,38 +221,7 @@ def test_build_manifest_returns_typed_manifest() -> None:
     assert manifest.total_orgs_with_usage == 678
 
 
-# ---- filter_org_reports / sort_org_reports -------------------------------
-
-
-def test_filter_org_reports_no_filter_returns_all() -> None:
-    reports = cast(dict[str, OrgReport], {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b")})
-    assert filter_org_reports(reports, None) is reports
-    assert filter_org_reports(reports, []) is reports  # empty list also no-ops
-
-
-def test_filter_org_reports_with_ids_keeps_only_requested() -> None:
-    reports = cast(
-        dict[str, OrgReport],
-        {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b"), "c": _FakeOrgReport("c")},
-    )
-    out = filter_org_reports(reports, ["a", "c", "missing"])
-    assert set(out.keys()) == {"a", "c"}
-
-
-def test_sort_org_reports_orders_by_organization_id() -> None:
-    reports = cast(
-        dict[str, OrgReport],
-        {
-            "z": _FakeOrgReport("z"),
-            "a": _FakeOrgReport("a"),
-            "m": _FakeOrgReport("m"),
-        },
-    )
-    out = sort_org_reports(reports)
-    assert [r.organization_id for r in out] == ["a", "m", "z"]
-
-
-# ---- filter_orgs_with_usage ----------------------------------------------
+# ---- write_org_report_chunks ---------------------------------------------
 
 
 def _empty_org_report(organization_id: str, **overrides: Any) -> OrgReport:
@@ -276,21 +242,6 @@ def _empty_org_report(organization_id: str, **overrides: Any) -> OrgReport:
         teams={},
         **counter_fields,
     )
-
-
-def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None:
-    reports = {
-        "with-events": _empty_org_report("with-events", event_count_in_period=1),
-        "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
-        "idle": _empty_org_report("idle"),
-        # Counters not in `has_non_zero_usage` (dashboard counts, query
-        # bytes read, etc.) must not keep an org in.
-        "non-billable-only": _empty_org_report("non-billable-only", dashboard_count=10, query_app_bytes_read=5_000_000),
-    }
-
-    out = filter_orgs_with_usage(reports)
-
-    assert set(out.keys()) == {"with-events", "with-recordings"}
 
 
 @pytest.mark.parametrize("active_orgs", [0, 4, 5])

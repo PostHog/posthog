@@ -280,18 +280,13 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
-    """The Temporal-local `aggregator.build_org_reports` must fetch
-    organization membership counts in bulk. The legacy Celery facade still
-    runs one `OrganizationMembership.count()` per organization inside its
-    team loop — that's the cost we lifted out of the
-    `aggregate-and-chunk-org-reports` activity by routing it through the
-    aggregator's own builder instead of the shared one.
+def test_temporal_org_reports_do_not_run_per_org_membership_queries() -> None:
+    """The Temporal `aggregator.iter_org_reports` must fetch organization
+    membership counts in bulk. The legacy Celery facade still runs one
+    `OrganizationMembership.count()` per organization inside its team loop,
+    and the `aggregate-and-chunk-org-reports` activity must not.
     """
-    from posthog.temporal.usage_report.aggregator import (
-        build_org_reports as temporal_build_org_reports,
-        get_org_user_counts,
-    )
+    from posthog.temporal.usage_report.aggregator import get_org_user_counts, iter_org_reports
 
     # Create a meaningful number of fresh orgs/teams so the per-org N+1
     # would have clear daylight from the bulk-fetch path. Without this,
@@ -303,18 +298,24 @@ def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() ->
         fresh_orgs.append(org)
 
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
+    ctx = WorkflowContext(
+        run_id="membership-queries",
+        period_start=period_start,
+        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
+        date_str="2026-05-04",
+    )
     all_data: dict[str, dict[int, int]] = {key: {} for key in _all_destination_keys()}
 
     with CaptureQueriesContext(connection) as captured:
         org_user_counts = get_org_user_counts()
-        temporal_build_org_reports(all_data, period_start, org_user_counts)
+        list(iter_org_reports(all_data, ctx, org_user_counts))
 
     # The Temporal path runs ~2 queries (teams + bulk memberships)
     # regardless of org count. The legacy Celery path runs 1 + N. Cap
     # well below `1 + N` so any per-org N+1 here blows the test, while
     # leaving slack for harmless query-count drift (savepoints etc.).
     assert len(captured.captured_queries) <= 5, (
-        f"Temporal build_org_reports issued {len(captured.captured_queries)} "
+        f"Temporal iter_org_reports issued {len(captured.captured_queries)} "
         f"queries — with {len(fresh_orgs)} fresh orgs this looks like a "
         f"per-org N+1, which dominates wall-clock for the aggregation activity."
     )
