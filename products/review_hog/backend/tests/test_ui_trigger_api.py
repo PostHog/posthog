@@ -9,9 +9,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models import User
+from posthog.models import Team, User
 
-from products.review_hog.backend.facade.reviews import request_pr_review as request_pr_review_from_comment
+from products.review_hog.backend.facade.reviews import (
+    PRReviewRequestStatus,
+    request_pr_review as request_pr_review_from_comment,
+)
 from products.review_hog.backend.models import ReviewReport, ReviewSkillConfig, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import REVIEW_ARMS_BY_TIER, ReviewTier
 from products.review_hog.backend.reviewer.persistence import load_review_arm
@@ -121,6 +124,24 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(outcome.workflow_id, "wf-comment-1")
         self.assertEqual(mock_start.call_args.kwargs["trigger_source"], "comment")
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+
+    @patch(_START, return_value="wf-comment-1")
+    def test_comment_facade_gates_on_the_commented_environment_not_its_parent(self, mock_start):
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        with patch(
+            "products.review_hog.backend.facade.reviews.posthog_feature_flag_enabled",
+            side_effect=lambda *_args, team_id, **_kwargs: team_id == self.team.id,
+        ):
+            outcome = request_pr_review_from_comment(
+                team_id=environment.id,
+                requester_id=self.user.id,
+                repository="PostHog/posthog.com",
+                pr_number=123,
+                run_mode="review",
+            )
+
+        self.assertEqual(outcome.status, PRReviewRequestStatus.NOT_ALLOWED)
+        mock_start.assert_not_called()
 
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())

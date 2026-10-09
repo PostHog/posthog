@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 
+from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -23,10 +24,16 @@ __all__ = [
     "RUN_MODE_REVIEW",
     "PRReviewRequestOutcome",
     "PRReviewRequestStatus",
+    "flash_available",
     "request_pr_review",
 ]
 
 _FEATURE_FLAG = "review-hog"
+
+
+def flash_available(team_id: int) -> bool:
+    """Flash is limited to the internal ReviewHog project until that gate becomes a flag."""
+    return has_internal_features(resolve_effective_team_id(team_id))
 
 
 def request_pr_review(
@@ -41,18 +48,19 @@ def request_pr_review(
     The caller has already checked that the requester is a member of the project.
     Raises `GitHubRateLimitError` when GitHub rate-limits the App's token.
     """
-    effective_team_id = resolve_effective_team_id(team_id)
     requester = User.objects.get(id=requester_id)
-    organization_id = Team.objects.values_list("organization_id", flat=True).get(id=effective_team_id)
+    organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+    # Access is gated per environment, like the review API's permission class, while review data
+    # is shared under the parent project.
     if not posthog_feature_flag_enabled(
-        _FEATURE_FLAG, str(requester.distinct_id), organization_id=organization_id, team_id=effective_team_id
+        _FEATURE_FLAG, str(requester.distinct_id), organization_id=organization_id, team_id=team_id
     ):
         return PRReviewRequestOutcome(
             status=PRReviewRequestStatus.NOT_ALLOWED, error="PostHog Review isn't enabled for this project."
         )
     owner, _, repo = repository.partition("/")
     return _request_pr_review(
-        team_id=effective_team_id,
+        team_id=resolve_effective_team_id(team_id),
         requester_id=requester_id,
         owner=owner,
         repo=repo,
