@@ -144,6 +144,9 @@ On each check run, for every team in the batch:
 
 1. **Upsert** — Issues returned by the detector are written (or updated) as `status=active`.
 2. **Resolve** — Active issues for checked teams that were _not_ returned by the detector are marked `status=resolved`.
+3. **Record** — Each checked team gets its `posthog_healthchecklastrun` row for the kind set to the run time. A clean run leaves no issue behind, so this row is the proof that the team was checked. The Health page and the `health_issues/checks/` endpoint read it.
+
+Dry runs skip all three steps.
 
 ## Execution policies
 
