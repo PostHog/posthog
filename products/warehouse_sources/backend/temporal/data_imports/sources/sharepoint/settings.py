@@ -14,6 +14,10 @@ TOKEN_SCOPE = "https://graph.microsoft.com/.default"
 # Hard cap per collection walk so a `@odata.nextLink` that never ends can't spin forever. Far
 # above any realistic list or document library at Graph's default page sizes.
 MAX_PAGES_PER_COLLECTION = 50_000
+MAX_FILES = 1000
+FILE_EXTENSIONS = {".csv", ".tsv"}
+FILE_NOT_FOUND_ERROR = "The SharePoint file for table"
+PATTERN_ERROR = "The file pattern isn't a valid regular expression"
 
 SITE_ID_COLUMN = "site_id"
 LIST_ID_COLUMN = "list_id"

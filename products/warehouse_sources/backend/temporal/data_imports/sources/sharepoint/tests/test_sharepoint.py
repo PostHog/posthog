@@ -1,24 +1,41 @@
+import io
+import gzip
+import hashlib
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Optional, Union
+from http import HTTPStatus
+from typing import Any, Optional, Union, cast
 
 import pytest
 from unittest import mock
 
 import requests
+import responses
 from parameterized import parameterized
+from structlog.testing import capture_logs
+from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.files import (
+    SharePointFile,
+    discover_files,
+    files_by_table,
+    sharepoint_file_source,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.settings import (
     ENDPOINTS,
+    FILE_NOT_FOUND_ERROR,
     GRAPH_BASE_URL,
+    MAX_FILES,
     SHAREPOINT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.sharepoint import (
     INVALID_SITE_URL_ERROR,
     SITES_DENIED_ERROR,
+    SharePointClient,
     SharePointResumeConfig,
     SharePointSiteURLError,
     _get_rows,
@@ -35,12 +52,13 @@ CLIENT_SECRET = "super-secret"
 SITE_A = "contoso.sharepoint.com,aaaa,1111"
 SITE_B = "contoso.sharepoint.com,bbbb,2222"
 
-Route = Union[dict[str, Any], int]
+Route = Union[dict[str, Any], int, bytes]
 
 
 def _response(status: int = 200, json_body: Any = None) -> mock.MagicMock:
     response = mock.MagicMock(spec=requests.Response)
     response.status_code = status
+    response.reason = HTTPStatus(status).phrase
     response.ok = 200 <= status < 300
     response.text = ""
     response.json.return_value = json_body if json_body is not None else {}
@@ -62,6 +80,10 @@ def _session(routes: dict[str, Route], post_responses: Optional[list[mock.MagicM
         route = routes[url]
         if isinstance(route, int):
             return _response(route)
+        if isinstance(route, bytes):
+            response = _response()
+            response.raw = HTTPResponse(body=io.BytesIO(route), preload_content=False)
+            return response
         return _response(200, route)
 
     session.get.side_effect = _get
@@ -302,3 +324,292 @@ def test_canonical_descriptions_document_every_primary_key() -> None:
     assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
     for name, entry in CANONICAL_DESCRIPTIONS.items():
         assert set(SHAREPOINT_ENDPOINTS[name].primary_keys) <= set(entry["columns"])
+
+
+SITE_URL = "https://contoso.sharepoint.com/sites/a"
+
+
+def file_routes(items: list[dict[str, object]]) -> dict[str, Route]:
+    return {
+        _g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A, "displayName": "Site A"},
+        _g(f"/sites/{SITE_A}/drives"): {"value": [{"id": "drive-a", "name": "Shared Documents"}]},
+        _g("/drives/drive-a/root/delta"): {"value": items},
+    }
+
+
+def _discover(session: mock.MagicMock, pattern: str | None = None, site_urls: str = SITE_URL) -> list[SharePointFile]:
+    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        logger = mock.MagicMock()
+        client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger)
+        return discover_files(client, site_urls, pattern, logger)
+
+
+class TestSharePointFileDiscovery:
+    @parameterized.expand(
+        [
+            ("nested", "nested", "reports/2026/orders.csv"),
+            ("root", "root", "orders.csv"),
+            ("missing", "missing", "orders.csv"),
+            ("missing_ancestor", "orphan", "orders.csv"),
+            ("cycle", "cycle", "orders.csv"),
+        ]
+    )
+    def test_resolves_parent_ids_across_pages(self, _name: str, parent: str, expected: str) -> None:
+        routes = file_routes([{"id": "file-1", "name": "orders.csv", "file": {}, "parentReference": {"id": parent}}])
+        cast(dict[str, object], routes[_g("/drives/drive-a/root/delta")])["@odata.nextLink"] = _g(
+            "/drives/drive-a/root/delta?page=2"
+        )
+        routes[_g("/drives/drive-a/root/delta?page=2")] = {
+            "value": [
+                {"id": "root", "name": "Ignored root name", "root": {}, "folder": {}},
+                {"id": "reports", "name": "reports", "folder": {}, "parentReference": {"id": "root"}},
+                {"id": "nested", "name": "2026", "folder": {}, "parentReference": {"id": "reports"}},
+                {"id": "orphan", "name": "lost", "folder": {}, "parentReference": {"id": "missing"}},
+                {"id": "cycle", "name": "loop", "folder": {}, "parentReference": {"id": "cycle"}},
+            ]
+        }
+
+        files = _discover(_session(routes))
+
+        assert [file.path for file in files] == [f"Shared Documents/{expected}"]
+
+    @parameterized.expand(
+        [
+            ("all", None, ["latest.CSV", "compressed.csv.gz", "tabs.TSV.GZ"]),
+            ("search", r"Documents/latest", ["latest.CSV"]),
+            ("no_match", r"^reports/", []),
+        ]
+    )
+    def test_filters_final_delta_state(self, _name: str, pattern: str | None, expected: list[str]) -> None:
+        routes = file_routes(
+            [
+                {"id": "renamed", "name": "old.csv", "file": {}},
+                {"id": "deleted-later", "name": "gone.csv", "file": {}},
+                {"id": "folder", "name": "folder.csv", "folder": {}},
+                {"id": "text", "name": "notes.txt", "file": {}},
+                {"id": "json", "name": "data.json", "file": {}},
+                {"id": "deleted", "name": "deleted.csv", "file": {}, "deleted": {}},
+            ]
+        )
+        cast(dict[str, object], routes[_g("/drives/drive-a/root/delta")])["@odata.nextLink"] = _g(
+            "/drives/drive-a/root/delta?page=2"
+        )
+        routes[_g("/drives/drive-a/root/delta?page=2")] = {
+            "value": [
+                {"id": "renamed", "name": "latest.CSV", "file": {}},
+                {"id": "deleted-later", "deleted": {}},
+                {"id": "gzip", "name": "compressed.csv.gz", "file": {}},
+                {"id": "tsv", "name": "tabs.TSV.GZ", "file": {}},
+            ]
+        }
+
+        files = _discover(_session(routes), pattern)
+
+        assert [file.path for file in files] == [f"Shared Documents/{name}" for name in expected]
+
+    def test_prefixes_each_site_when_multiple_sites_are_selected(self) -> None:
+        routes = file_routes([{"id": "file-a", "name": "orders.csv", "file": {}}])
+        routes.update(
+            {
+                _g("/sites/contoso.sharepoint.com:/sites/b:"): {"id": SITE_B, "name": "Site B"},
+                _g(f"/sites/{SITE_B}/drives"): {"value": [{"id": "drive-b", "name": "Shared Documents"}]},
+                _g("/drives/drive-b/root/delta"): {"value": [{"id": "file-b", "name": "orders.csv", "file": {}}]},
+            }
+        )
+
+        files = _discover(_session(routes), site_urls=f"{SITE_URL}\nhttps://contoso.sharepoint.com/sites/b")
+
+        assert [file.path for file in files] == [
+            "Site A/Shared Documents/orders.csv",
+            "Site B/Shared Documents/orders.csv",
+        ]
+
+    def test_stops_after_the_matched_file_limit(self) -> None:
+        items: list[dict[str, object]] = [
+            {"id": "unmatched", "name": "skip.csv", "file": {}},
+            *[{"id": str(index), "name": f"match-{index}.csv", "file": {}} for index in range(MAX_FILES + 1)],
+        ]
+        session = _session(file_routes(items))
+        logger = mock.MagicMock()
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger)
+            files = discover_files(client, SITE_URL, "match-", logger)
+
+        assert len(files) == MAX_FILES
+        assert files[-1].item_id == str(MAX_FILES - 1)
+        logger.warning.assert_called_once()
+
+
+def _file(path: str, item_id: str = "item-a") -> SharePointFile:
+    return SharePointFile(drive_id="drive-a", item_id=item_id, path=path, size=10, modified_at=None)
+
+
+class TestSharePointFileNames:
+    @parameterized.expand(
+        [
+            ("plain", "Shared Documents/Reports/Orders.CSV.GZ", "shared_documents_reports_orders"),
+            ("static_collision", "sites.csv", "sites_" + hashlib.sha1(b"drive-a:item-a").hexdigest()[:8]),
+            ("long", "a" * 120 + ".csv", "a" * 100),
+        ]
+    )
+    def test_names_files(self, _name: str, path: str, expected: str) -> None:
+        file = _file(path)
+        assert files_by_table([file]) == {expected: file}
+
+    @parameterized.expand(
+        [
+            ("normalized", "Orders 2026.csv", "orders-2026.csv", "orders_2026"),
+            ("truncated", "a" * 101 + ".csv", "a" * 102 + ".csv", "a" * 91),
+        ]
+    )
+    def test_suffixes_every_collision_independently_of_order(
+        self, _name: str, first_path: str, second_path: str, base: str
+    ) -> None:
+        files = [_file(first_path, "item-a"), _file(second_path, "item-b")]
+        expected = {
+            f"{base}_{hashlib.sha1(f'{file.drive_id}:{file.item_id}'.encode()).hexdigest()[:8]}": file for file in files
+        }
+
+        assert files_by_table(files) == expected
+        assert files_by_table(list(reversed(files))) == expected
+        assert all(len(name) <= 100 for name in expected)
+
+    def test_literal_hash_suffix_does_not_replace_another_file(self) -> None:
+        suffix = hashlib.sha1(b"drive-a:item-a").hexdigest()[:8]
+        files = [_file("orders.csv"), _file("orders.tsv", "item-b"), _file(f"orders_{suffix}.csv", "item-c")]
+
+        tables = files_by_table(files)
+
+        assert set(tables.values()) == set(files)
+        assert tables == files_by_table(list(reversed(files)))
+
+
+class TestSharePointFileSync:
+    @parameterized.expand(
+        [
+            ("csv", "renamed.csv", b"Order ID,total\n1,20\n"),
+            ("tsv", "renamed.tsv", b"Order ID\ttotal\n1\t20\n"),
+            ("gzip", "renamed.csv.gz", gzip.compress(b"Order ID,total\n1,20\n")),
+        ]
+    )
+    def test_streams_rows_with_current_file_metadata(self, _name: str, name: str, content: bytes) -> None:
+        download = _response()
+        download.raw = HTTPResponse(body=io.BytesIO(content), preload_content=False)
+        session = _session({})
+        session.get.side_effect = [
+            _response(200, {"name": name, "size": len(content), "lastModifiedDateTime": "2026-01-02T03:04:05Z"}),
+            download,
+        ]
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            logger = mock.MagicMock()
+            response = sharepoint_file_source(
+                SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger),
+                "original_table",
+                "drive-a:item-a",
+                logger,
+            )
+            rows = [row for chunk in cast(Iterable[list[dict[str, object]]], response.items()) for row in chunk]
+
+        assert rows == [
+            {
+                "order_id": "1",
+                "total": "20",
+                "_file_name": name,
+                "_file_modified_at": datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            }
+        ]
+        assert response.name == "original_table"
+        assert response.primary_keys is None
+        assert response.supports_resume is False
+        assert session.get.call_args.args == (_g("/drives/drive-a/items/item-a/content"),)
+        assert session.get.call_args.kwargs["stream"] is True
+        assert session.get.call_args.kwargs["headers"]["Accept"] == "*/*"
+        download.json.assert_not_called()
+        download.close.assert_called_once()
+        assert download.raw.decode_content is True
+
+    @parameterized.expand([("missing_id", None, 0), ("malformed_id", "drive-a:", 0), ("deleted", "drive-a:item-a", 1)])
+    def test_reports_missing_files(self, _name: str, resource_id: str | None, expected_requests: int) -> None:
+        session = _session({_g("/drives/drive-a/items/item-a"): 404})
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            logger = mock.MagicMock()
+            with pytest.raises(ValueError, match=f"^{FILE_NOT_FOUND_ERROR}"):
+                response = sharepoint_file_source(
+                    SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger), "orders", resource_id, logger
+                )
+                list(cast(Iterable[object], response.items()))
+
+        assert session.get.call_count == expected_requests
+
+    @parameterized.expand([("refresh_success", 200), ("refresh_rejected", 401)])
+    def test_content_request_refreshes_once(self, _name: str, final_status: int) -> None:
+        first = _response(401)
+        final = _response(final_status)
+        session = _session({}, post_responses=[_token_response(), _token_response()])
+        session.get.side_effect = [first, final]
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, mock.MagicMock())
+            if final_status == 401:
+                with pytest.raises(requests.HTTPError):
+                    client.open_stream("/drives/drive-a/items/item-a/content")
+                final.close.assert_called_once()
+            else:
+                assert client.open_stream("/drives/drive-a/items/item-a/content") is final
+
+        assert session.post.call_count == 2
+        assert session.get.call_count == 2
+        first.close.assert_called_once()
+
+    def test_closes_download_when_parsing_fails(self) -> None:
+        download = _response()
+        download.raw = io.BytesIO(b"invalid gzip")
+        session = _session({})
+        session.get.side_effect = [_response(200, {"name": "orders.csv.gz"}), download]
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            logger = mock.MagicMock()
+            response = sharepoint_file_source(
+                SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger), "orders", "drive-a:item-a", logger
+            )
+            with pytest.raises(gzip.BadGzipFile):
+                list(cast(Iterable[object], response.items()))
+
+        download.close.assert_called_once()
+
+    def test_refuses_non_graph_initial_download_url(self) -> None:
+        session = _session({})
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, mock.MagicMock())
+            with pytest.raises(ValueError, match="non-Graph URL"):
+                client.open_stream("https://example.com/content")
+
+        session.get.assert_not_called()
+        session.post.assert_not_called()
+
+    @parameterized.expand([("success", 200), ("denied", 403)])
+    def test_redirect_drops_authorization_and_keeps_download_urls_out_of_logs(self, _name: str, status: int) -> None:
+        download_url = "https://download.example.com/temporary-file-secret?access=temporary-query-secret"
+        client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, mock.MagicMock())
+        content_url = _g("/drives/drive-a/items/item-a/content")
+        with responses.RequestsMock() as http, capture_logs() as logs:
+            http.post(client.token_url, json={"access_token": "token-1"})
+            http.get(content_url, status=302, headers={"Location": download_url})
+            http.get(download_url, status=status, body=b"id\n1\n")
+            http.get(_g("/sites/site-a"), json={"id": "site-a"})
+
+            if status == 200:
+                with client.open_stream(content_url) as response:
+                    assert response.content == b"id\n1\n"
+            else:
+                with pytest.raises(requests.HTTPError) as error:
+                    client.open_stream(content_url)
+                assert "temporary-file-secret" not in str(error.value)
+                assert "temporary-query-secret" not in str(error.value)
+            client.get("/sites/site-a")
+
+            assert http.calls[1].request.headers["Authorization"] == "Bearer token-1"
+            assert "Authorization" not in http.calls[2].request.headers
+
+        assert "temporary-file-secret" not in str(logs)
+        assert "temporary-query-secret" not in str(logs)
+        assert any(log.get("url") == "REDACTED" for log in logs)
+        assert any(log.get("url") == _g("/sites/site-a") for log in logs)
