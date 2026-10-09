@@ -26,12 +26,7 @@ from products.slack_app.backend.api import (
     UNTAGGED_FOLLOWUP_CONTEXT_KIND,
     _picker_context_cache_key,
 )
-from products.slack_app.backend.models import (
-    SlackSettings,
-    SlackThreadTaskMapping,
-    UnpromptedAnswerMode,
-    UntaggedFollowupMode,
-)
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -307,7 +302,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
             timeout=900,
         )
 
-    def _click(self, action_id: str, slack_user_id: str = "U_BOB") -> Any:
+    def _click(self, action_id: str, slack_user_id: str = "U_BOB", *, flag_on: bool = True) -> Any:
         payload = {
             "type": "block_actions",
             "team": {"id": self.slack_team_id},
@@ -329,6 +324,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
                 return_value={"user": {"profile": {"email": self.member_user.email}}},
             ),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
         ):
             self.client.post(
                 "/slack/interactivity-callback/",
@@ -340,10 +336,11 @@ class TestUnpromptedAnswerInteractivity(TestCase):
 
     def _stored_mode(self) -> str | None:
         row = SlackSettings.objects.filter(slack_workspace_id=self.slack_team_id, slack_user_id="U_BOB").first()
-        return row.unprompted_answer_mode if row else None
+        return row.untagged_followup_mode if row else None
 
     def test_confirmation_answers_the_original_message(self, mock_slack_cls, mock_post):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
 
         mock_start = self._click(UNPROMPTED_ANSWER_ACTION_RUN)
 
@@ -363,7 +360,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
         assert not self._click(UNPROMPTED_ANSWER_ACTION_TURN_OFF).called
-        assert self._stored_mode() == UnpromptedAnswerMode.OFF
+        assert self._stored_mode() == UntaggedFollowupMode.NEVER
         assert mock_post.call_args.kwargs["json"]["replace_original"] is True
 
     def test_confirmation_after_the_author_turned_answers_off_answers_nothing(self, mock_slack_cls, mock_post):
@@ -371,7 +368,12 @@ class TestUnpromptedAnswerInteractivity(TestCase):
         SlackSettings.objects.create(
             slack_workspace_id=self.slack_team_id,
             slack_user_id="U_BOB",
-            unprompted_answer_mode=UnpromptedAnswerMode.OFF,
+            untagged_followup_mode=UntaggedFollowupMode.NEVER,
         )
 
         assert not self._click(UNPROMPTED_ANSWER_ACTION_RUN).called
+
+    def test_confirmation_after_the_flag_was_turned_off_answers_nothing(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        assert not self._click(UNPROMPTED_ANSWER_ACTION_RUN, flag_on=False).called

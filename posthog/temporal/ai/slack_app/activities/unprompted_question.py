@@ -20,8 +20,8 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.models import UnpromptedAnswerMode
-from products.slack_app.backend.services.slack_settings import resolve_unprompted_answer_mode
+from products.slack_app.backend.models import UntaggedFollowupMode
+from products.slack_app.backend.services.slack_settings import resolve_unprompted_question_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -177,16 +177,28 @@ def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflo
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
         threshold=UNPROMPTED_QUESTION_MIN_PROBABILITY,
     )
-    return answerable
+    if not answerable:
+        return False
+
+    from products.slack_app.backend.api import (
+        claim_message_handled,  # noqa: PLC0415 — keeps the webhook module off the worker import path
+    )
+
+    # An edit of this message that adds a tag starts its own run. Whichever path claims
+    # the message first runs, and the other stops.
+    if not claim_message_handled(inputs.slack_team_id, inputs.event, "unprompted_question"):
+        logger.info("slack_app_unprompted_question_already_handled", slack_team_id=inputs.slack_team_id)
+        return False
+    return True
 
 
 @activity.defn
 @close_db_connections
 def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
-    """Apply the author's unprompted-answer mode to a message the classifier passed.
+    """Apply the stricter of the author's untagged-message mode and the channel's ceiling.
 
     Returns ``True`` when the run must stop here: the private offer now waits for the
-    author, or the author turned answers off while this run was in flight.
+    author, or the author or the channel turned answers off while this run was in flight.
     """
     from products.slack_app.backend.api import (
         _post_unprompted_answer_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
@@ -194,10 +206,10 @@ def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMent
 
     inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
-    mode = resolve_unprompted_answer_mode(inputs.slack_team_id, slack_user_id)
-    if mode == UnpromptedAnswerMode.AUTO:
+    mode = resolve_unprompted_question_mode(inputs.slack_team_id, inputs.event.get("channel"), slack_user_id)
+    if mode == UntaggedFollowupMode.AUTO:
         return False
-    if mode == UnpromptedAnswerMode.OFF:
+    if mode == UntaggedFollowupMode.NEVER:
         logger.info("slack_app_unprompted_answers_switched_off_mid_run", slack_team_id=inputs.slack_team_id)
         return True
 

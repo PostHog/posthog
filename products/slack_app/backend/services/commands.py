@@ -7,7 +7,7 @@ from products.slack_app.backend.services.slack_messages import app_home_url, pos
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
-    from products.slack_app.backend.models import ChannelWelcomeMode
+    from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 MENTION_COMMAND_PREFIX = "@PostHog"
@@ -23,6 +23,8 @@ _SLASH_EQUIVALENT = {
     "project_set_workspace": "project workspace <id>",
     "welcome_show": "welcome",
     "welcome_set": "welcome channel|private|off",
+    "answers_show": "answers",
+    "answers_set": "answers auto|ask|off",
 }
 
 
@@ -69,7 +71,11 @@ def _handle_help(
     slack_user_id: str,
     *,
     command_prefix: str,
+    user_id: int,
 ) -> None:
+    from posthog.models.user import User
+
+    from products.slack_app.backend.feature_flags import is_slack_app_unprompted_answers_enabled
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     # Task creation and thread follow-ups stay on the mention surface, and this listing is the only
@@ -86,6 +92,14 @@ def _handle_help(
     ]
 
     lines.append(f"`{command_prefix} welcome` — Show where my welcome message goes when someone adds me to a channel")
+
+    user = User.objects.filter(id=user_id).only("distinct_id").first()
+    if user is not None and is_slack_app_unprompted_answers_enabled(integration, distinct_id=user.distinct_id):
+        lines.append(f"`{command_prefix} answers` — Show what I do with questions in this channel that don't tag me")
+        lines.append(
+            f"`{command_prefix} answers auto|ask|off` — Answer them, offer privately first, or leave them alone. "
+            "Anyone can make it stricter; only Slack admins/owners can loosen it"
+        )
 
     # Workspace-wide settings are admins/owners-only, so only surface them to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
@@ -550,6 +564,100 @@ def _handle_welcome_set(
     )
 
 
+CHANNEL_ANSWERS_MODE_DESCRIPTIONS = {
+    "auto": (
+        "In this channel, I answer a question nobody tagged me in when I'm confident your PostHog data answers it. "
+        "Each person can still turn this down for their own messages in the Home tab."
+    ),
+    "ask": (
+        "In this channel, when I can answer a question nobody tagged me in, I offer privately to the person who "
+        "asked. I answer only if they say yes."
+    ),
+    "never": "In this channel, I answer only when someone tags me.",
+}
+
+
+def _handle_answers_show(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    *,
+    command_prefix: str,
+) -> None:
+    from products.slack_app.backend.services.slack_settings import resolve_channel_unprompted_answer_mode
+
+    mode = resolve_channel_unprompted_answer_mode(slack_workspace_id, channel)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"{CHANNEL_ANSWERS_MODE_DESCRIPTIONS[mode.value]}\n"
+            f"Anyone here can make this stricter with `{command_prefix} answers ask` or `{command_prefix} answers off`. "
+            f"Only Slack workspace admins can loosen it, up to `{command_prefix} answers auto`."
+        ),
+    )
+
+
+def _handle_answers_set(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    mode: "UntaggedFollowupMode",
+) -> None:
+    """Set the channel ceiling on unprompted answers.
+
+    Anyone in the channel reads the answers, so anyone may hold them back. Loosening the
+    ceiling speaks for everyone in the channel, so only a Slack workspace admin may do it.
+    """
+    from products.slack_app.backend.services.slack_settings import (
+        is_stricter_untagged_mode,
+        resolve_channel_unprompted_answer_mode,
+        set_channel_unprompted_answer_mode,
+    )
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+
+    # Direct messages have ids starting with D. There is no channel there to configure.
+    if channel.startswith("D"):
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Run this command in the channel you want to change.",
+        )
+        return
+
+    current = resolve_channel_unprompted_answer_mode(slack_workspace_id, channel)
+    if is_stricter_untagged_mode(current, mode) and not is_slack_workspace_admin(slack, integration, slack_user_id):
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=(
+                "Only Slack workspace admins or owners can let me answer more in a channel. "
+                "Anyone can make it stricter."
+            ),
+        )
+        return
+
+    set_channel_unprompted_answer_mode(slack_workspace_id, channel, mode)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=f"Done. {CHANNEL_ANSWERS_MODE_DESCRIPTIONS[mode.value]}",
+    )
+
+
 def resolve_command_target(
     *,
     slack_team_id: str,
@@ -591,6 +699,8 @@ def resolve_command_target(
         "project_set_workspace",
         "welcome_show",
         "welcome_set",
+        "answers_show",
+        "answers_set",
         "help",
     ):
         return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
@@ -653,7 +763,9 @@ def dispatch_rules_command(
     )
 
     if command.action == "help":
-        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
+        _handle_help(
+            slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix, user_id=user_id
+        )
     elif command.action == "list":
         _handle_rules_list(
             slack,
@@ -752,4 +864,25 @@ def dispatch_rules_command(
             slack_user_id,
             slack_workspace_id,
             command.welcome_mode,
+        )
+    elif command.action == "answers_show":
+        _handle_answers_show(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command_prefix=command_prefix,
+        )
+    elif command.action == "answers_set":
+        if command.answers_mode is None:
+            return
+        _handle_answers_set(
+            slack,
+            integration,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command.answers_mode,
         )

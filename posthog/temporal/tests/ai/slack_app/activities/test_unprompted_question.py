@@ -2,6 +2,7 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
@@ -14,12 +15,15 @@ from posthog.models.user import User
 from posthog.temporal.ai.slack_app.activities.unprompted_question import (
     ANSWERABLE_QUESTION_ID,
     ASKS_QUESTION_ID,
+    UnpromptedQuestionVerdict,
     classify_unprompted_question,
+    classify_unprompted_question_activity,
     request_unprompted_answer_confirmation_activity,
 )
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
-from products.slack_app.backend.models import SlackSettings, UnpromptedAnswerMode
+from products.slack_app.backend.api import claim_message_handled
+from products.slack_app.backend.models import SlackChannel, SlackSettings, UntaggedFollowupMode
 
 MODULE = "posthog.temporal.ai.slack_app.activities.unprompted_question"
 
@@ -55,6 +59,7 @@ class TestClassifyUnpromptedQuestion(SimpleTestCase):
 
 class TestRequestUnpromptedAnswerConfirmation(TestCase):
     def setUp(self):
+        cache.clear()
         organization = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=organization, name="Team")
         self.user = User.objects.create(email="alice@example.com", distinct_id="user-1")
@@ -71,19 +76,39 @@ class TestRequestUnpromptedAnswerConfirmation(TestCase):
 
     @parameterized.expand(
         [
-            ("auto answers", UnpromptedAnswerMode.AUTO, False, False),
-            ("off stays quiet", UnpromptedAnswerMode.OFF, True, False),
-            ("ask offers privately", UnpromptedAnswerMode.ASK, True, True),
-            ("unset offers privately", None, True, True),
+            (
+                "auto where the channel allows it answers",
+                UntaggedFollowupMode.AUTO,
+                UntaggedFollowupMode.AUTO,
+                False,
+                False,
+            ),
+            # An unconfigured channel caps the author's AUTO at a private offer.
+            ("auto in an unconfigured channel offers", UntaggedFollowupMode.AUTO, None, True, True),
+            ("never stays quiet", UntaggedFollowupMode.NEVER, UntaggedFollowupMode.AUTO, True, False),
+            ("a channel turned off stays quiet", UntaggedFollowupMode.AUTO, UntaggedFollowupMode.NEVER, True, False),
+            ("unset offers privately", None, None, True, True),
         ]
     )
-    def test_the_authors_mode_decides(self, _name, mode, expect_stop, expect_prompt):
-        if mode is not None:
+    def test_the_stricter_mode_decides(self, _name, user_mode, channel_mode, expect_stop, expect_prompt):
+        if user_mode is not None:
             SlackSettings.objects.create(
-                slack_workspace_id="T_WS", slack_user_id="U_ALICE", unprompted_answer_mode=mode
+                slack_workspace_id="T_WS", slack_user_id="U_ALICE", untagged_followup_mode=user_mode
+            )
+        if channel_mode is not None:
+            SlackChannel.objects.create(
+                slack_workspace_id="T_WS", slack_channel_id="C1", unprompted_answer_mode=channel_mode
             )
         with patch("products.slack_app.backend.api._post_unprompted_answer_prompt", return_value=True) as mock_prompt:
             stop = request_unprompted_answer_confirmation_activity(self.inputs)
 
         assert stop is expect_stop
         assert mock_prompt.called is expect_prompt
+
+    @parameterized.expand([("first to claim", False, True), ("an edited mention claimed it first", True, False)])
+    def test_an_answerable_question_runs_only_when_it_claims_the_message(self, _name, claimed_before, expected):
+        if claimed_before:
+            claim_message_handled("T_WS", self.inputs.event, "edited_mention")
+        verdict = UnpromptedQuestionVerdict(asks_for_information=0.99, answerable_by_posthog=0.99)
+        with patch(f"{MODULE}.classify_unprompted_question", return_value=verdict):
+            assert classify_unprompted_question_activity(self.inputs) is expected

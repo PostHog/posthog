@@ -8,6 +8,7 @@ import pytest
 
 from temporalio import activity
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -35,15 +36,19 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
+    unprompted: bool = False,
     text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
+    # A top-level post is its own thread root.
+    thread_ts = ts if unprompted else "100.0"
     return PostHogCodeSlackMentionWorkflowInputs(
-        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": text},
+        event={"channel": "C1", "ts": ts, "thread_ts": thread_ts, "user": "U1", "text": text},
         integration_id=1,
         slack_team_id="T1",
         slack_event_id=event_id,
         user_id=42,
         untagged_followup=untagged,
+        unprompted_question=unprompted,
     )
 
 
@@ -92,6 +97,10 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # What the unprompted-question classifier does: answer True/False, or raise.
+        self.unprompted_verdict: bool | Literal["raise"] = True
+        # True holds an unprompted question back on a private offer.
+        self.unprompted_awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -119,6 +128,16 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
     ) -> bool:
         return rec.awaiting_confirmation
+
+    @activity.defn(name="classify_unprompted_question_activity")
+    async def classify_unprompted(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        if rec.unprompted_verdict == "raise":
+            raise ApplicationError("classifier down", non_retryable=True)
+        return rec.unprompted_verdict
+
+    @activity.defn(name="request_unprompted_answer_confirmation_activity")
+    async def request_unprompted_confirmation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        return rec.unprompted_awaiting_confirmation
 
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
@@ -263,6 +282,8 @@ def _fake_activities(rec: _Recorder) -> list:
         quota,
         classify_followup,
         request_confirmation,
+        classify_unprompted,
+        request_unprompted_confirmation,
         forward,
         collect,
         cascade,
@@ -608,3 +629,31 @@ async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
 
     assert rec.created == []
     assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "verdict,awaiting_confirmation,expect_created",
+    [
+        # Nobody asked, so a failure says nothing in the channel either.
+        ("raise", False, False),
+        (False, False, False),
+        (True, True, False),
+        (True, False, True),
+    ],
+)
+async def test_unprompted_question_stays_silent_until_its_mode_lets_it_answer(
+    verdict, awaiting_confirmation, expect_created
+):
+    rec = _Recorder()
+    rec.unprompted_verdict = verdict
+    rec.unprompted_awaiting_confirmation = awaiting_confirmation
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", unprompted=True))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.internal_errors == []
+    assert rec.queued_marked == []
+    assert rec.processing_marked == []
+    assert bool(rec.created) is expect_created

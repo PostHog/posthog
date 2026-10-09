@@ -113,29 +113,20 @@ class SlackUserProfileCache(UUIDModel):
 
 
 class UntaggedFollowupMode(models.TextChoices):
-    """What PostHog does with an untagged reply in a thread it already owns.
+    """What PostHog does with a message that does not tag it.
 
-    Read from the thread creator's settings row, so it governs everyone
-    replying in a thread that user started. An unset row resolves to ``ASK``,
-    so the person who replied can choose whether to send their message.
+    Read from the settings row of the person who started the thread, so it governs
+    every untagged reply in a thread PostHog owns, and the author's own top-level
+    channel question. An unset row resolves to ``ASK``, so the person who wrote the
+    message chooses whether to send it.
+
+    ``SlackChannel.unprompted_answer_mode`` uses the same values as a ceiling for
+    top-level questions in one channel. The stricter of the two wins.
     """
 
     AUTO = "auto", "Always pick it up"
     ASK = "ask", "Ask before picking it up"
     NEVER = "never", "Never pick it up"
-
-
-class UnpromptedAnswerMode(models.TextChoices):
-    """What PostHog does with a top-level channel message its author did not tag the app in.
-
-    Read from the author's own settings row, so one person's choice never changes what
-    happens to anyone else's messages. An unset row resolves to ``ASK``: PostHog first
-    shows the author a private prompt and answers only after they confirm.
-    """
-
-    AUTO = "auto", "Answer automatically"
-    ASK = "ask", "Ask me first"
-    OFF = "off", "Never answer"
 
 
 class ChannelWelcomeMode(models.TextChoices):
@@ -194,14 +185,6 @@ class SlackSettings(UUIDModel):
         blank=True,
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with untagged replies in threads this user started.",
-    )
-    # NULL means the user has never picked, which resolves to ``ASK``.
-    unprompted_answer_mode = models.CharField(
-        max_length=16,
-        null=True,
-        blank=True,
-        choices=UnpromptedAnswerMode.choices,
-        help_text="What PostHog does with this user's top-level channel messages that do not tag the app.",
     )
     # Only read on the workspace-wide row. NULL resolves to ``CHANNEL``.
     channel_welcome_mode = models.CharField(
@@ -267,6 +250,15 @@ class SlackChannel(UUIDModel):
     slack_workspace_id = models.CharField(max_length=64)
     slack_channel_id = models.CharField(max_length=64)
     approved_at = models.DateTimeField(null=True, blank=True)
+    # NULL resolves to ``ASK``: in a channel nobody configured, a top-level question gets a
+    # private offer at most, and never a public answer nobody clicked for.
+    unprompted_answer_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="The most PostHog may do with a top-level question in this channel that does not tag it.",
+    )
     approved_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

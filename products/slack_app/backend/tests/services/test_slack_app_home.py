@@ -32,7 +32,6 @@ from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
-    UnpromptedAnswerMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import slack_app_home
@@ -474,7 +473,6 @@ class TestRenderHomeView:
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
-            unprompted_answer_mode=UnpromptedAnswerMode.ASK,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
             auto_model_choice=auto_model_choice,
         )

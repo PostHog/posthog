@@ -70,7 +70,6 @@ from products.slack_app.backend.models import (
     SlackChannel,
     SlackSettings,
     SlackThreadTaskMapping,
-    UnpromptedAnswerMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import (
@@ -113,9 +112,9 @@ from products.slack_app.backend.services.slack_messages import (
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
-    resolve_unprompted_answer_mode,
+    resolve_unprompted_question_mode,
     resolve_untagged_followup_mode,
-    set_unprompted_answer_mode,
+    set_untagged_followup_mode,
 )
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -292,12 +291,15 @@ class RulesCommand:
         "project_set_workspace",
         "welcome_show",
         "welcome_set",
+        "answers_show",
+        "answers_set",
     ]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
     project_team_id: int | None = None
     welcome_mode: ChannelWelcomeMode | None = None
+    answers_mode: UntaggedFollowupMode | None = None
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -922,6 +924,14 @@ WELCOME_COMMAND_VALUES: dict[str, ChannelWelcomeMode] = {
 }
 
 
+# The words people type in `/posthog answers <value>`, mapped to the stored channel ceiling.
+ANSWERS_COMMAND_VALUES: dict[str, UntaggedFollowupMode] = {
+    "auto": UntaggedFollowupMode.AUTO,
+    "ask": UntaggedFollowupMode.ASK,
+    "off": UntaggedFollowupMode.NEVER,
+}
+
+
 def parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
@@ -982,6 +992,13 @@ def parse_rules_command(text: str) -> RulesCommand | None:
         if value is None:
             return RulesCommand(action="welcome_show")
         return RulesCommand(action="welcome_set", welcome_mode=WELCOME_COMMAND_VALUES[value.lower()])
+
+    answers_match = re.fullmatch(r"answers(?:\s+(auto|ask|off))?", cleaned, flags=re.IGNORECASE)
+    if answers_match is not None:
+        value = answers_match.group(1)
+        if value is None:
+            return RulesCommand(action="answers_show")
+        return RulesCommand(action="answers_set", answers_mode=ANSWERS_COMMAND_VALUES[value.lower()])
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
@@ -1406,6 +1423,17 @@ def _message_handled_cache_key(slack_team_id: str, event: dict[str, Any]) -> str
     if not isinstance(channel, str) or not channel or not isinstance(message_ts, str) or not message_ts:
         return None
     return f"slack_app:message_handled:v1:{slack_team_id}:{channel}:{message_ts}"
+
+
+def claim_message_handled(slack_team_id: str, event: dict[str, Any], handled_as: str) -> bool:
+    """Record that the pipeline acted on this message, unless another path already did.
+
+    Atomic, so an unprompted answer and an edit of the same message that adds a tag can't both start a run.
+    """
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is None:
+        return True
+    return bool(cache.add(cache_key, handled_as, timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS))
 
 
 def _mark_message_handled(slack_team_id: str, event: dict[str, Any], handled_as: str) -> None:
@@ -2497,7 +2525,6 @@ def _route_unprompted_question(
     proxied: bool,
     incoming_host: str,
     other_domain: str,
-    can_defer: bool,
     is_ext_shared_channel: bool,
 ) -> str:
     """Start the classifier workflow for a top-level channel post nobody tagged the app in.
@@ -2509,8 +2536,8 @@ def _route_unprompted_question(
         return ROUTE_HANDLED_LOCALLY
     slack_user_id = str(event.get("user") or "")
     channel = event.get("channel") if isinstance(event.get("channel"), str) else None
-    # One indexed lookup that needs no integration, ahead of the integration and Slack calls.
-    if resolve_unprompted_answer_mode(slack_team_id, slack_user_id) == UnpromptedAnswerMode.OFF:
+    # Two indexed lookups that need no integration, ahead of the integration and Slack calls.
+    if resolve_unprompted_question_mode(slack_team_id, channel, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
 
     workspace_result = load_integrations(
@@ -2519,18 +2546,23 @@ def _route_unprompted_question(
         slack_user_id=slack_user_id,
         channel=channel,
     )
-    region_route = resolve_region_or_terminal_route(
-        request,
-        slack_team_id,
-        candidates_present=bool(workspace_result.candidates),
-        kinds=[SLACK_INTEGRATION_KIND],
-        proxied=proxied,
-        other_domain=other_domain,
-        incoming_host=incoming_host,
-        can_defer=can_defer,
-    )
-    if region_route is not None:
-        return region_route
+    # A region holding the workspace answers here, with no US-precedence hop: the other region
+    # may already hold an emit-only mirror of this post, and a full copy would emit it twice.
+    # Without a local connection no mirror went out, so the full event can cross, but only to a
+    # region that confirms it holds the workspace. The probe answer is cached per workspace.
+    if not workspace_result.candidates:
+        if proxied or not cross_region_routing_enabled():
+            return ROUTE_HANDLED_LOCALLY
+        claimed = does_other_region_claim_workspace(
+            slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND], incoming_host=incoming_host
+        )
+        if claimed is not True:
+            return ROUTE_HANDLED_LOCALLY
+        return _proxy_event_and_return_route(request, other_domain)
+    # A workspace-level check ahead of user resolution, which can call Slack's users.info for
+    # every author. The per-person check below still decides the rollout for each author.
+    if not is_slack_app_unprompted_answers_enabled(workspace_result.candidates[0]):
+        return ROUTE_HANDLED_LOCALLY
 
     resolution = resolve_user_for_workspace(
         workspace_result=workspace_result,
@@ -2833,7 +2865,6 @@ def route_posthog_code_event_to_relevant_region(
                     proxied=proxied,
                     incoming_host=incoming_host,
                     other_domain=other_domain,
-                    can_defer=can_defer_to_other_region,
                     is_ext_shared_channel=is_ext_shared_channel,
                 )
 
@@ -3879,7 +3910,7 @@ def _post_unprompted_answer_prompt(slack: SlackIntegration, integration: Integra
                 {
                     "type": "button",
                     "action_id": UNPROMPTED_ANSWER_ACTION_TURN_OFF,
-                    "text": {"type": "plain_text", "text": "Stop offering"},
+                    "text": {"type": "plain_text", "text": "Only when I tag you"},
                     "value": context_token,
                 },
             ],
@@ -3952,7 +3983,10 @@ def _handle_unprompted_answer_run(payload: dict) -> HttpResponse:
         not isinstance(event, dict)
         or posthog_user is None
         or not _can_access_team(posthog_user, integration)
-        or resolve_unprompted_answer_mode(integration.integration_id, slack_user_id) == UnpromptedAnswerMode.OFF
+        or resolve_unprompted_question_mode(integration.integration_id, context.get("slack_channel_id"), slack_user_id)
+        == UntaggedFollowupMode.NEVER
+        or not is_slack_app_unprompted_answers_enabled(integration, distinct_id=posthog_user.distinct_id)
+        or SlackIntegration(integration).missing_scopes(REQUIRED_SLACK_SCOPES)
     ):
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
@@ -3988,7 +4022,11 @@ def _handle_unprompted_answer_dismiss(payload: dict) -> HttpResponse:
 
 
 def _handle_unprompted_answer_turn_off(payload: dict) -> HttpResponse:
-    """Turn unprompted answers off for the clicker, and say where to turn them back on."""
+    """Stop picking up the clicker's untagged messages, and say where to turn it back on.
+
+    One setting covers both untagged thread replies and top-level questions, so the
+    reply says that both stop.
+    """
     response_url = payload.get("response_url", "")
     click = _unprompted_answer_click(payload)
     if click is None:
@@ -3997,13 +4035,16 @@ def _handle_unprompted_answer_turn_off(payload: dict) -> HttpResponse:
     context_token, context, integration = click
     slack_user_id = context["slack_user_id"]
     cache.delete(_picker_context_cache_key(context_token))
-    set_unprompted_answer_mode(integration.integration_id, slack_user_id, UnpromptedAnswerMode.OFF)
+    set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.NEVER)
     capture_slack_event(integration, "slack app unprompted answers turned off", slack_user_id=slack_user_id)
     inbox_interactivity.post_response_url(
         response_url,
         {
             "replace_original": True,
-            "text": "Got it. I won't offer to answer your messages anymore. You can turn this back on in the PostHog app Home tab.",
+            "text": (
+                "Got it. I'll only pick up your messages when you tag me, including replies in threads you start. "
+                "You can change this in the PostHog app Home tab."
+            ),
         },
     )
     return HttpResponse(status=200)

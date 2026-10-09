@@ -8,12 +8,16 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="slacksettings",
+            model_name="slackchannel",
             name="unprompted_answer_mode",
             field=models.CharField(
                 blank=True,
-                choices=[("auto", "Answer automatically"), ("ask", "Ask me first"), ("off", "Never answer")],
-                help_text="What PostHog does with this user's top-level channel messages that do not tag the app.",
+                choices=[
+                    ("auto", "Always pick it up"),
+                    ("ask", "Ask before picking it up"),
+                    ("never", "Never pick it up"),
+                ],
+                help_text="The most PostHog may do with a top-level question in this channel that does not tag it.",
                 max_length=16,
                 null=True,
             ),

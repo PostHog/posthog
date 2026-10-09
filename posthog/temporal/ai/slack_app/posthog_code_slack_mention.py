@@ -84,6 +84,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
         if not channel or not thread_ts or not slack_user_id:
             return
 
+        # An unprompted question stays silent, error replies included, until its author's
+        # mode lets the run answer. Old histories carry no such input, so they never skip.
+        silent_on_error = inputs.unprompted_question and not inputs.unprompted_answer_confirmed
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -153,6 +156,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 )
                 if awaiting_confirmation:
                     return
+                silent_on_error = False
 
             # Read a model or effort request ("use fable for this one", "actually run
             # this on opus") out of the message. Classified above the follow-up/new-task
@@ -364,6 +368,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     "error_type": type(exc).__name__,
                 },
             )
+            if silent_on_error:
+                return
             await _execute_posthog_code_activity(
                 post_posthog_code_internal_error_activity,
                 inputs,
