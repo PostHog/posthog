@@ -4,8 +4,8 @@ A scout config can carry a HogQL query that a scheduled run evaluates before it 
 query returns no rows, or one row with one false value (`false`, `0`, null or empty), there is
 nothing new to look at, so the run is skipped before it creates a run row, a sandbox, or an LLM
 call. Any other result starts the run. The single-value rule lets a `SELECT count() ...` gate work
-as written, because a count always returns one row. Only the coordinator's scheduled dispatch evaluates it: a
-manual, workflow, or check run already has a reason to run.
+as written, because a count always returns one row. Only the coordinator's scheduled dispatch
+evaluates it: a manual, workflow, or check run already has a reason to run.
 
 A skip writes nothing. The coordinator stamped `last_run_at` (the dispatch anchor) when it
 dispatched the run, so the next tick does not dispatch it again at once. `{since}` reads the last
