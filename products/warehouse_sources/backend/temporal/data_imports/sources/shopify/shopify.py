@@ -129,8 +129,8 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 # Appended to the raw denial, so the job error keeps the field and scope names Shopify gives.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_GUIDANCE = (
-    "Your Shopify access token is missing a permission this import needs. Grant the access scope "
-    "named above to your Shopify app, then reconnect your Shopify integration."
+    "Your Shopify access token is missing a permission this import needs. Add the missing access "
+    "scope to your Shopify app, then reconnect your Shopify integration."
 )
 
 # Shopify's Protected Customer Data restriction — an app can only read PII fields (customer
