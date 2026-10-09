@@ -59,6 +59,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     is_app_bot_author,
 )
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -623,7 +624,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         published = published_priorities_for(threshold)
         published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
-        body = render_final_body(
+        rendered = render_final_body(
             input.report_id,
             counts=counts,
             published_count=published_count,
@@ -640,6 +641,10 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             raised_elsewhere_count=input.raised_elsewhere_count,
             pr_url=report.pr_url or None,
         )
+        # The list of findings other reviewers raised carries model-written titles, which may quote sandbox output.
+        body, redacted = redact_secrets(rendered)
+        if redacted:
+            logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")

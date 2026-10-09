@@ -475,6 +475,7 @@ class TestFinalizeStatusComment(BaseTest):
         for issue, validation in verdicts:
             persist_verdict(team_id=self.team.id, report_id=report_id, issue=issue, validation=validation, run_index=1)
 
+        leaked = "ghs_" + "a" * 36
         finalize_status_comment(
             FinalizeStatusCommentInput(
                 team_id=self.team.id,
@@ -482,12 +483,19 @@ class TestFinalizeStatusComment(BaseTest):
                 run_index=1,
                 urgency_threshold=IssuePriority.SHOULD_FIX.value,
                 review_url="https://g/review",
+                raised_elsewhere=[
+                    AlreadyRaised(title=f"Token {leaked} leaks", level="P1", comment_id=9, commenter="other[bot]")
+                ],
+                raised_elsewhere_count=1,
             )
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "Found **1 must fix**, **0 should fix**, **2 consider**" in body
+        # Titles in the already-raised list are model text, so a token quoted from sandbox output must not post.
+        assert leaked not in body
+        assert "**P1 · Token [redacted] leaks**" in body
         assert "Published 1 finding ([view the review](https://g/review))" in body
         assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
