@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
@@ -46,7 +47,7 @@ import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-r
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
-import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { type CompiledRetentionRuleSet, RETENTION_MONTH_DAYS } from './retention/evaluate-retention'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
@@ -1225,13 +1226,13 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
-            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // Byte-days: ingested bytes weighted by the retention day count, only for teams that
+            // chose a retention other than the default. The default tier is covered by `bytes_ingested`,
             // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
             // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
             // leaves fixed tiers.
             if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
-                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+                this.queueRetentionByteDays(teamId, stats.bytesAllowed, stats.retentionDays)
             }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
@@ -1260,7 +1261,7 @@ export class LogsIngestionConsumer {
         ])
     }
 
-    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
+    private queueUsageMetric(teamId: number, metricName: string, count: number, timestamp?: DateTime): void {
         if (count === 0) {
             return
         }
@@ -1272,7 +1273,22 @@ export class LogsIngestionConsumer {
             metric_kind: 'usage',
             metric_name: metricName,
             count,
+            timestamp,
         })
+    }
+
+    /**
+     * Writes one `retention_byte_days` row per 30-day month of retention, each dated at the start of
+     * its month, so each month of storage bills when it starts instead of the whole period billing
+     * on the ingest day. The usage report sums these rows by timestamp, and the `app_metrics2` TTL
+     * counts from each row's own timestamp, so future rows stay until they are billed.
+     */
+    private queueRetentionByteDays(teamId: number, bytes: number, retentionDays: number): void {
+        const now = DateTime.utc()
+        for (let offsetDays = 0; offsetDays < retentionDays; offsetDays += RETENTION_MONTH_DAYS) {
+            const days = Math.min(RETENTION_MONTH_DAYS, retentionDays - offsetDays)
+            this.queueUsageMetric(teamId, 'retention_byte_days', bytes * days, now.plus({ days: offsetDays }))
+        }
     }
 
     /**
