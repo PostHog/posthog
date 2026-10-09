@@ -133,6 +133,21 @@ function noMetricChecks(input: HealthDebugInput): HealthDebugCheck[] {
     ]
 }
 
+function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    const finding = input.health?.findings.find(({ code }) => code === 'forced_variant_release_condition')
+    return [
+        {
+            check: 'forced_variant_release_condition',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'forced_variant_release_condition'),
+            note: finding
+                ? `Pinned condition sets: ${finding.evidence.pinned_condition_sets}. Variants: ${finding.evidence.pinned_variant_keys}. The users they match are not randomly assigned.`
+                : null,
+            differs: false,
+        },
+    ]
+}
+
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const { exposures } = input
     const panelCodes = new Set(input.panelFindings?.map((finding) => finding.code))
@@ -197,7 +212,12 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 
 /** One row per check and source, so a reader can see why the health panel shows what it shows. */
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
-    return [...flagStateChecks(input), ...noMetricChecks(input), ...exposureChecks(input)]
+    return [
+        ...flagStateChecks(input),
+        ...forcedVariantChecks(input),
+        ...noMetricChecks(input),
+        ...exposureChecks(input),
+    ]
 }
 
 export interface HealthDebugFact {
