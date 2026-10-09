@@ -50,6 +50,11 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
 
+UNVERIFIED_CONNECTION_WARNING = (
+    "Source saved, but the API could not reach the database. Syncs and live queries connect "
+    "from other services and can still work. Details: {error}"
+)
+
 
 def _source_unavailable_message(source_type: str) -> str:
     # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
@@ -194,6 +199,8 @@ def get_credential_account_field_names(fields: list[FieldType]) -> set[str]:
     for field in fields:
         if isinstance(field, SourceFieldCredentialAccountSelectConfig):
             names.update(field.credentialFields)
+            if field.integrationField:
+                names.add(field.integrationField)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             names.update(get_credential_account_field_names(field.fields))
         elif isinstance(field, SourceFieldSelectConfig):

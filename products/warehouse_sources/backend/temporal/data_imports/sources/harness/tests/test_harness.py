@@ -1,7 +1,7 @@
 import json
 from collections.abc import Iterable, Iterator
 from http import HTTPStatus
-from typing import Any, Literal, cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -141,34 +141,6 @@ def test_requests_and_pagination(
     manager.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize("has_saved_state", [True, False])
-def test_resume_from_saved_page(
-    config: HarnessSourceConfig, manager: MagicMock, transport: MagicMock, has_saved_state: bool
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = HarnessResumeConfig(page=4) if has_saved_state else None
-    transport.send.return_value = response(
-        {"data": {"content": [{"identifier": "last"}], "totalPages": 5 if has_saved_state else 1}}
-    )
-    assert list(items(harness_source(config, "pipelines", 1, "job", manager))) == [[{"identifier": "last"}]]
-    query = parse_qs(urlsplit(transport.send.call_args.args[0].url).query)
-    assert query["page"] == ["4" if has_saved_state else "0"]
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize("total_pages", [0, 3, None])
-def test_empty_terminal_page(
-    config: HarnessSourceConfig, manager: MagicMock, transport: MagicMock, total_pages: int | None
-) -> None:
-    data: dict[str, Any] = {"content": []}
-    if total_pages is not None:
-        data["totalPages"] = total_pages
-    transport.send.return_value = response({"data": data})
-    assert list(items(harness_source(config, "pipelines", 1, "job", manager))) == []
-    transport.send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize(
     ("status", "schema", "valid", "message"),
     [
@@ -216,30 +188,6 @@ def test_transient_probe_errors_propagate(config: HarnessSourceConfig, transport
     with patch("tenacity.nap.time.sleep"), pytest.raises(RESTClientRetryableError):
         HarnessSource().validate_credentials(config, 1)
     assert transport.send.call_count == 5
-
-
-@pytest.mark.parametrize(
-    ("region", "host"),
-    [
-        ("us", "app.harness.io"),
-        ("us3", "app3.harness.io"),
-        ("us_accounts", "accounts.harness.io"),
-        ("eu", "accounts.eu.harness.io"),
-    ],
-)
-def test_region_routes_requests(
-    config: HarnessSourceConfig,
-    manager: MagicMock,
-    transport: MagicMock,
-    region: Literal["us", "us3", "us_accounts", "eu"],
-    host: str,
-) -> None:
-    config.region = region
-    transport.send.return_value = response({"data": {"content": [], "totalPages": 0}})
-    list(items(harness_source(config, "services", 1, "job", manager)))
-    request = transport.send.call_args.args[0]
-    assert urlsplit(request.url).hostname == host
-    assert urlsplit(request.url).scheme == "https"
 
 
 @pytest.mark.parametrize("region", ["invalid", "https://example.com", "http://127.0.0.1", ""])

@@ -335,13 +335,15 @@ cd services/mcp && cp .env.example .env
 
 Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
-### Memory pressure during Claude validation
+### Memory pressure during agent validation
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
 
-Cloud Claude sessions deliver each watchdog warning separately to subagents and their parent. Shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM.
+Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
 
-Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
+Codex trusts only the PostHog memory hooks through session configuration. It does not store hook trust in the user's config file. The local tools MCP server opts out of Codex's tool catalog cache, so a subagent thread starts it before its first shell command instead of lazily on its first MCP tool call. Codex hook payloads do not include an `exec_command` `workdir`, so a Codex retry count is keyed by the thread directory and the command text. Put `cd <directory> &&` in the command to scope a retry count to a directory.
+
+Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same shell command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. This retry limit applies to every command, not only validation. Codex includes final background results in this limit. Claude background-result tools deliver warnings but lack the command text needed to count retries. Reduce the command's scope or concurrency, or report the memory limit. Validation recognition is best-effort and controls only the lock. It is not a resource limit for arbitrary shell programs.
 
 The guard recognizes validation through `timeout`, `npx`, `hogli`, `.codex/with-flox`, and `flox activate -- bash -c '…'`.
 It preserves the command's directory, arguments, and inline shell body when identifying retries.
@@ -405,6 +407,7 @@ Release reads use the configured GitHub App installation for `PostHog/posthog`, 
 The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.
 Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+The refresh sweep retries that image only when the VM base digest changes again.
 Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
 The Data sources tab lists each source's status and last successful read in UTC. Registry coverage remains unverified when the release source is unavailable or stale.
 Graph release badges compare observed versions with npm latest; cached observations say "Last seen". Select an image for its separate version-pin and base-lineage assessment.

@@ -19,7 +19,9 @@ import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
+import { SqlBarGraph } from './SqlBarGraph'
 import { SqlChartProps } from './SqlChart'
+import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 
 // Some blocks below mount the full DataVisualization tree (~7 logics). Neither timeout is set
@@ -84,7 +86,34 @@ const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => 
 
 const lowestTick = (ticks: string[]): number => Math.min(...ticks.map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
 
-// Full-mount helpers: drive a real SQL insight (VisualizationNode) through the
+it.each([
+    { name: 'line', Component: SqlLineGraph },
+    { name: 'bar', Component: SqlBarGraph },
+    { name: 'combo', Component: SqlComboGraph },
+])('drills into the selected pinned tooltip series on a $name chart', async ({ Component }) => {
+    const onPointClick = jest.fn()
+    renderWithInsights({
+        component: (
+            <Component
+                {...props({
+                    yData: [
+                        ySeries('a', [10, 20, 30], { display: { displayType: 'bar' } }),
+                        ySeries('b', [100, 200, 300], { display: { displayType: 'line' } }),
+                    ],
+                    onPointClick,
+                })}
+            />
+        ),
+    })
+    await screen.findByLabelText(/chart with 2 data series/i)
+    await sqlChart.hoverTooltip(1, 3)
+    fireEvent.click(getHogChart().element)
+    fireEvent.click(screen.getByText('b', { selector: '[data-attr="hog-chart-tooltip-series"]' }))
+    expect(onPointClick).toHaveBeenCalledWith('b-1', 1, 'Tue')
+    expect(onPointClick).toHaveBeenCalledTimes(1)
+})
+
+// Full-mount helpers: drive a real SQL insight (DataVisualizationNode) through the
 // DataVisualization tree. Used for tooltip / legend / overlay behavior that depends on the live
 // render path, with the query result injected via cachedResults (no network).
 function lineFixture(columns: { name: string; type?: string; valueAt: (i: number) => unknown }[]): DataVizFixture {

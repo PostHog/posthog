@@ -78,6 +78,9 @@ class PostImportWorkflowInputs:
     job_id: str
     schema_id: str
     source_id: str
+    # True when the load consumer recorded the table size at post-load. The default keeps the size
+    # activity for a run that a starter without this field began.
+    table_size_written: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -124,6 +127,7 @@ class PostImportGateContext:
     source_type: str
     team: Team | None
     ai_data_processing_approved: bool
+    table_size_written: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,10 +165,16 @@ def _always(gate: PostImportGateContext) -> bool:
     return True
 
 
-def _wrote_rows_gate(gate: PostImportGateContext) -> bool:
-    """Table size describes the rows this run loaded, so a run that wrote none leaves it
-    unchanged. `None` predates row counting, so it runs the step."""
-    return gate.job.rows_synced != 0
+def _table_size_gate(gate: PostImportGateContext) -> bool:
+    """The load consumer records the table size from the Delta snapshot it publishes, so this step
+    is the fallback for a run where it did not: an older consumer, or a log that could not give a
+    size for each file. The fallback follows the rows written. Table size describes the rows this
+    run loaded, so a run that wrote none leaves it unchanged. `None` predates row counting, so it
+    runs the step.
+
+    The step stays in POST_IMPORT_STEPS because recorded runs name its key.
+    """
+    return not gate.table_size_written and gate.job.rows_synced != 0
 
 
 def _data_quality_gate(gate: PostImportGateContext) -> bool:
@@ -307,7 +317,7 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
-    PostImportStep(key=TABLE_SIZE_STEP, enabled=_wrote_rows_gate, start=_start_table_size),
+    PostImportStep(key=TABLE_SIZE_STEP, enabled=_table_size_gate, start=_start_table_size),
     PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
 )
@@ -382,6 +392,7 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         source_type=source_type,
         team=team,
         ai_data_processing_approved=ai_data_processing_approved,
+        table_size_written=inputs.table_size_written,
     )
     steps = [step.key for step in POST_IMPORT_STEPS if step.enabled(gate_ctx)]
 

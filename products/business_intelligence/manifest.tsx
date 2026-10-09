@@ -7,6 +7,12 @@ import { ProductManifest } from '~/types'
 export const manifest: ProductManifest = {
     name: 'Business intelligence',
     scenes: {
+        BusinessIntelligenceHome: {
+            name: 'Worksheets',
+            import: () => import('./frontend/BIWorksheetsScene'),
+            projectBased: true,
+            iconType: 'business_intelligence',
+        },
         BusinessIntelligence: {
             name: 'Business intelligence',
             import: () => import('./frontend/BusinessIntelligenceScene'),
@@ -18,10 +24,14 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/bi': ['BusinessIntelligence', 'businessIntelligence'],
+        '/bi': ['BusinessIntelligenceHome', 'businessIntelligence'],
+        '/bi/new': ['BusinessIntelligence', 'businessIntelligenceNew'],
+        '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
     },
     redirects: {},
     urls: {
+        businessIntelligenceNew: (): string => '/bi/new',
+        businessIntelligenceWorksheet: (insightShortId: string): string => `/bi/${encodeURIComponent(insightShortId)}`,
         businessIntelligence: ({
             insightShortId,
             viewId,
@@ -47,8 +57,25 @@ export const manifest: ProductManifest = {
             return `/bi${query ? `?${query}` : ''}${hash}`
         },
     },
-    fileSystemTypes: {},
-    treeItemsNew: [],
+    fileSystemTypes: {
+        'insight/bi': {
+            name: 'Worksheet',
+            iconType: 'business_intelligence',
+            href: (ref: string) => urls.businessIntelligenceWorksheet(ref),
+            listHref: () => urls.businessIntelligence(),
+            filterKey: 'insight',
+        },
+    },
+    treeItemsNew: [
+        {
+            path: 'Worksheet',
+            type: 'insight',
+            iconType: 'business_intelligence',
+            href: `${urls.businessIntelligenceNew()}#q=`,
+            flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+            sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
+        },
+    ],
     treeItemsProducts: [
         {
             path: 'Business intelligence',

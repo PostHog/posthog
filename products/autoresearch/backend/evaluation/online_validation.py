@@ -3,8 +3,9 @@ Online validation: join autoresearch_prediction events to realized target outcom
 after the prediction horizon has elapsed.
 
 Computes per model: realized AUC with a 95% interval, Brier score, expected calibration
-error (ECE), quantile calibration bins, mean predicted probability, and lift@k, for every
-model that emitted predictions on a date.
+error (ECE), quantile calibration bins, mean predicted probability, lift@k, average
+precision, and confusion counts at three cutoffs, for every model that emitted predictions
+on a date.
 
 Architecture:
 - Pure activity functions called by AutoresearchValidationWorkflow (Temporal)
@@ -16,8 +17,10 @@ Architecture:
   say was emitted.
 """
 
+import json
 import math
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from django.db import transaction
@@ -47,9 +50,9 @@ from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, 
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does two bounded queries and a scoring run is bounded by its sandbox
-# timeouts, so a RUNNING row older than this belongs to a worker that died mid-run and the
-# exception handler never ran. Neither kind may hold a date forever.
+# A validation run does one bounded query per model plus the labels query, and a scoring run
+# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
+# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
 STALE_RUN_AFTER = timedelta(hours=6)
 
 # An outcome event timestamped just before the window closes can still be in the ingestion
@@ -472,6 +475,10 @@ def _fetch_predictions(
     ``rows_scored``: fewer means ingestion has not caught up with a backfill yet, more
     means events the run did not emit. Either way the metrics would be wrong, so the date
     fails and is retried.
+
+    Each model is fetched in its own query. HogQL returns at most 50,000 rows whatever
+    LIMIT the query asks for. One run scores fewer people than that, but the champion and
+    its shadow models together can score more.
     """
     # argMax picks the latest emission per (model, person). Backfills stamp every event of
     # a date at the same instant, so the event UUID breaks those ties rather than leaving
@@ -486,28 +493,27 @@ def _fetch_predictions(
         f" WHERE{_prediction_filter()}"
         " GROUP BY model_id, person_id"
     )
-    result = _query(
-        team=team,
-        sql=sql,
-        values=_prediction_values(pipeline, pending),
-        user=user,
-        limit=pending.expected_rows + 1,
-        what="Predictions",
-        query_context=query_context,
-    )
-
     roles: dict[str, str] = {}
     scores: dict[str, dict[str, float]] = {}
-    for model_id, person_id, p_y, emitted_role in result.rows:
-        if p_y is None:
-            raise OnlineValidationError(
-                f"Prediction for person {person_id} of model {model_id} carries a non-numeric $autoresearch_p_y; "
-                "refusing to compute metrics from it"
-            )
-        scores.setdefault(str(model_id), {})[str(person_id)] = float(p_y)
-        roles.setdefault(str(model_id), str(emitted_role or ""))
-
     for model_id, expected in pending.expected_rows_by_model.items():
+        result = _query(
+            team=team,
+            sql=sql,
+            values={**_prediction_values(pipeline, pending), "model_ids": (model_id,)},
+            user=user,
+            limit=expected + 1,
+            what="Predictions",
+            query_context=query_context,
+        )
+        for row_model_id, person_id, p_y, emitted_role in result.rows:
+            if p_y is None:
+                raise OnlineValidationError(
+                    f"Prediction for person {person_id} of model {row_model_id} carries a non-numeric "
+                    "$autoresearch_p_y; refusing to compute metrics from it"
+                )
+            scores.setdefault(str(row_model_id), {})[str(person_id)] = float(p_y)
+            roles.setdefault(str(row_model_id), str(emitted_role or ""))
+
         found = len(scores.get(model_id, {}))
         if found < expected:
             raise OnlineValidationError(
@@ -617,6 +623,10 @@ def _query(
 
 # ── Metrics ────────────────────────────────────────────────────────────────────────
 
+# The frontend reads the same file for PREDICTION_SEGMENT_THRESHOLDS, so the Likely cutoff cannot drift.
+_SEGMENT_THRESHOLDS_PATH = Path(__file__).resolve().parents[2] / "frontend" / "predictionSegmentThresholds.json"
+LIKELY_THRESHOLD: float = float(json.loads(_SEGMENT_THRESHOLDS_PATH.read_text())["high"])
+
 
 def _compute_validation_metrics(
     predictions: dict[str, float],
@@ -625,12 +635,12 @@ def _compute_validation_metrics(
     prediction_date: date,
 ) -> dict[str, Any]:
     """
-    AUC with its 95% interval, Brier score, ECE, quantile calibration bins, and lift@k
-    from scored predictions against realized labels.
+    AUC with its 95% interval, Brier score, ECE, quantile calibration bins, lift@k,
+    average precision, and confusion counts from scored predictions against realized labels.
 
-    Only the AUC and its interval need both classes. The other metrics are computed for a
-    single-class date too, because an all-negative day is exactly where calibration
-    matters for a rare target.
+    Only the AUC and its interval need both classes, and average precision needs a positive.
+    The other metrics are computed for a single-class date too, because an all-negative day
+    is exactly where calibration matters for a rare target.
     """
     person_ids = list(predictions.keys())
     y_score = np.array([predictions[pid] for pid in person_ids], dtype=np.float64)
@@ -652,7 +662,7 @@ def _compute_validation_metrics(
     metrics["mean_p_y"] = round(float(y_score.mean()), 4)
 
     # Deferred to keep the heavy dependency off the import path.
-    from sklearn.metrics import brier_score_loss, roc_auc_score  # noqa: PLC0415
+    from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score  # noqa: PLC0415
 
     if n_pos == 0 or n_neg == 0:
         metrics["warning"] = "single_class_no_auc"
@@ -667,7 +677,44 @@ def _compute_validation_metrics(
     metrics["calibration_bins"] = _quantile_calibration_bins(y_true, y_score)
     metrics["lift_at_10"] = round(_lift_at_k(y_true, y_score, k=0.10), 4)
     metrics["lift_at_20"] = round(_lift_at_k(y_true, y_score, k=0.20), 4)
+    metrics["average_precision"] = round(float(average_precision_score(y_true, y_score)), 4) if n_pos > 0 else None
+    metrics["confusion"] = {
+        "top_10": _confusion_counts(y_true, _top_k_flags(y_score, k=0.10)),
+        "top_20": _confusion_counts(y_true, _top_k_flags(y_score, k=0.20)),
+        "likely": _confusion_counts(y_true, y_score >= LIKELY_THRESHOLD),
+    }
     return metrics
+
+
+def _top_k_flags(y_score: np.ndarray, k: float) -> np.ndarray:
+    """
+    Flag the top-k fraction of scored users, plus every user tied with the last one.
+
+    The counts stay whole people and do not depend on row order, so the flagged count can
+    be a little above k. ``_lift_at_k`` splits the tie fractionally instead.
+    """
+    cutoff = max(1, math.ceil(len(y_score) * k))
+    boundary = float(np.sort(y_score)[::-1][cutoff - 1])
+    return y_score >= boundary
+
+
+def _confusion_counts(y_true: np.ndarray, flagged: np.ndarray) -> dict[str, Any]:
+    """Confusion counts for one cutoff. Precision or recall is None when its denominator is 0."""
+    positive = y_true == 1
+    tp = int((flagged & positive).sum())
+    n_flagged = int(flagged.sum())
+    n_positive = int(positive.sum())
+    fp = n_flagged - tp
+    fn = n_positive - tp
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": len(y_true) - tp - fp - fn,
+        "n_flagged": n_flagged,
+        "precision": round(tp / n_flagged, 4) if n_flagged else None,
+        "recall": round(tp / n_positive, 4) if n_positive else None,
+    }
 
 
 def _expected_calibration_error(y_true: np.ndarray, y_score: np.ndarray, n_bins: int = 10) -> float:

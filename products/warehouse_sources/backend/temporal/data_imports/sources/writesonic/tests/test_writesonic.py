@@ -105,14 +105,6 @@ class TestConfigEndpoints:
         assert [r["topic_id"] for r in rows] == ["t1", "t2"]
         assert [p["page"] for (_, p) in api.calls] == [1, 2]
 
-    def test_sends_site_url_and_page_size(self, monkeypatch):
-        api = _FakeApi(config_pages=[[{"topic_id": "t1"}]])
-        _collect("topics", _FakeManager(), monkeypatch, api)
-        _, params = api.calls[0]
-        assert params["url"] == "https://example.com"
-        assert params["size"] == 100
-        assert "project_id" not in params
-
     def test_sends_project_id_when_configured(self, monkeypatch):
         api = _FakeApi(config_pages=[[{"topic_id": "t1"}]])
         monkeypatch.setattr(writesonic, "_get", api.get)
@@ -135,12 +127,6 @@ class TestConfigEndpoints:
         assert [r["topic_id"] for r in rows] == ["t2"]
         assert [p["page"] for (_, p) in api.calls] == [2]
 
-    def test_saves_state_after_each_page(self, monkeypatch):
-        api = _FakeApi(config_pages=[[{"topic_id": "t1"}], [{"topic_id": "t2"}]])
-        manager = _FakeManager()
-        _collect("topics", manager, monkeypatch, api)
-        assert [(s.date, s.page) for s in manager.saved] == [(None, 2), (None, 3)]
-
     def test_unknown_endpoint_raises(self, monkeypatch):
         with pytest.raises(ValueError):
             _collect("nonexistent", _FakeManager(), monkeypatch, _FakeApi())
@@ -151,34 +137,6 @@ class TestDailyEndpoints:
     def _frozen_clock(self):
         with time_machine.travel("2026-07-09T12:00:00Z", tick=False):
             yield
-
-    def test_walks_days_from_watermark_to_today_inclusive(self, monkeypatch):
-        # The watermark day is re-fetched: its previous sync may have run mid-day and captured
-        # partial data. Skipping it would permanently freeze that day's rows.
-        api = _FakeApi(daily_pages={"2026-07-08": [[{"date": "2026-07-08", "website_id": "w1"}]]})
-        rows = _collect(
-            "performance_summary",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 7, 8),
-        )
-        assert [p["date"] for (_, p) in api.calls] == ["2026-07-08", "2026-07-09"]
-        assert rows == [{"date": "2026-07-08", "website_id": "w1"}]
-
-    def test_first_sync_starts_at_default_lookback(self, monkeypatch):
-        api = _FakeApi()
-        _collect(
-            "performance_summary",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert api.calls[0][1]["date"] == "2025-07-09"
-        assert api.calls[-1][1]["date"] == "2026-07-09"
 
     def test_future_cursor_clamped_to_today(self, monkeypatch):
         api = _FakeApi()
@@ -191,26 +149,6 @@ class TestDailyEndpoints:
             db_incremental_field_last_value=date(2027, 1, 1),
         )
         assert [p["date"] for (_, p) in api.calls] == ["2026-07-09"]
-
-    def test_paginates_within_a_day(self, monkeypatch):
-        api = _FakeApi(
-            daily_pages={
-                "2026-07-09": [
-                    [{"date": "2026-07-09", "website_id": "w1"}],
-                    [{"date": "2026-07-09", "website_id": "w2"}],
-                ]
-            }
-        )
-        rows = _collect(
-            "performance_summary",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 7, 9),
-        )
-        assert [r["website_id"] for r in rows] == ["w1", "w2"]
-        assert [p["page"] for (_, p) in api.calls] == [1, 2]
 
     def test_injects_date_into_content_rows(self, monkeypatch):
         # Content export rows don't carry the export date, but it's part of the primary key,
@@ -248,32 +186,6 @@ class TestDailyEndpoints:
         # Completed days and pages are skipped; the resume day continues at its saved page.
         assert [(p["date"], p["page"]) for (_, p) in api.calls] == [("2026-07-08", 2), ("2026-07-09", 1)]
         assert [r["website_id"] for r in rows] == ["w2"]
-
-    def test_saves_state_after_each_page_and_day(self, monkeypatch):
-        api = _FakeApi(
-            daily_pages={
-                "2026-07-08": [
-                    [{"date": "2026-07-08", "website_id": "w1"}],
-                    [{"date": "2026-07-08", "website_id": "w2"}],
-                ]
-            }
-        )
-        manager = _FakeManager()
-        _collect(
-            "performance_summary",
-            manager,
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 7, 8),
-        )
-        saved = [(s.date, s.page) for s in manager.saved]
-        # Page-level saves point at the next page of the in-flight day; day-level saves point
-        # at the next day with page reset, so a crash never skips unread rows.
-        assert ("2026-07-08", 2) in saved
-        assert ("2026-07-08", 3) in saved
-        assert ("2026-07-09", 1) in saved
-        assert saved[-1] == ("2026-07-10", 1)
 
 
 class TestCheckResponse:

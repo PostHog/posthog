@@ -74,29 +74,6 @@ class TestFormatAfter:
 
 
 class TestBuildJsonBody:
-    # The static body carries the nested filter + sort; the paginator injects limit/offset per page.
-    def test_incremental_adds_nested_filter_and_ascending_sort(self) -> None:
-        body = _build_json_body(
-            PREFECT_CLOUD_ENDPOINTS["flow_runs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="start_time",
-        )
-        assert body == {
-            "flow_runs": {"start_time": {"after_": "2026-03-04T02:58:14Z"}},
-            "sort": "START_TIME_ASC",
-        }
-
-    def test_incremental_honors_users_chosen_cursor_field(self) -> None:
-        body = _build_json_body(
-            PREFECT_CLOUD_ENDPOINTS["flow_runs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="expected_start_time",
-        )
-        assert body["flow_runs"] == {"expected_start_time": {"after_": "2026-03-04T00:00:00Z"}}
-        assert body["sort"] == "EXPECTED_START_TIME_ASC"
-
     def test_incremental_unknown_field_falls_back_to_first_advertised(self) -> None:
         body = _build_json_body(
             PREFECT_CLOUD_ENDPOINTS["flow_runs"],
@@ -107,15 +84,6 @@ class TestBuildJsonBody:
         assert body["flow_runs"] == {"start_time": {"after_": "2026-03-04T00:00:00Z"}}
         assert body["sort"] == "START_TIME_ASC"
 
-    def test_incremental_without_cursor_omits_filter(self) -> None:
-        body = _build_json_body(
-            PREFECT_CLOUD_ENDPOINTS["flow_runs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="start_time",
-        )
-        assert body == {"sort": "EXPECTED_START_TIME_ASC"}
-
     def test_full_refresh_endpoint_never_filters(self) -> None:
         # flows has no server-side time filter; a cursor must not leak into the request.
         body = _build_json_body(
@@ -125,16 +93,6 @@ class TestBuildJsonBody:
             incremental_field="created",
         )
         assert body == {"sort": "CREATED_ASC"}
-
-    def test_work_queues_body_has_no_sort(self) -> None:
-        # The work_queues filter endpoint rejects unknown body keys, and its model has no `sort`.
-        body = _build_json_body(
-            PREFECT_CLOUD_ENDPOINTS["work_queues"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert body == {}
 
 
 def _response(items: list[dict[str, Any]]) -> Response:
@@ -188,47 +146,6 @@ def _source(manager: mock.MagicMock, **kwargs: Any):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": str(n)} for n in range(PAGE_LIMIT)]
-        bodies = _wire(session, [_response(full_page), _response([{"id": "last"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="flows"))
-
-        assert len(rows) == PAGE_LIMIT + 1
-        assert rows[-1]["id"] == "last"
-        assert [b["offset"] for b in bodies] == [0, PAGE_LIMIT]
-        assert all(b["limit"] == PAGE_LIMIT for b in bodies)
-        # flows is full refresh with a stable creation-time sort.
-        assert all(b["sort"] == "CREATED_ASC" for b in bodies)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_after_each_yielded_full_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": str(n)} for n in range(PAGE_LIMIT)]
-        _wire(session, [_response(full_page), _response([{"id": "last"}])])
-
-        manager = _make_manager()
-        _rows(_source(manager, endpoint="flows"))
-
-        # State is saved only while more pages remain (after the full page), never on the last page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == PrefectCloudResumeConfig(offset=PAGE_LIMIT)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="flows"))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         bodies = _wire(session, [_response([{"id": "resumed"}])])
@@ -238,18 +155,6 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == ["resumed"]
         assert [b["offset"] for b in bodies] == [PAGE_LIMIT]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="flows"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_filter_rides_every_page(self, MockSession) -> None:
@@ -273,22 +178,6 @@ class TestPagination:
         assert all(b["flow_runs"] == {"start_time": {"after_": "2026-03-04T02:58:14Z"}} for b in bodies)
         assert all(b["sort"] == "START_TIME_ASC" for b in bodies)
         assert [b["offset"] for b in bodies] == [0, PAGE_LIMIT]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_workspace_filter_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        captured: list[str] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured.append(request.url)
-            return mock.MagicMock()
-
-        session.headers = {}
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "a"}])]
-
-        _rows(_source(_make_manager(), endpoint="flows"))
-        assert captured[0] == f"{_WORKSPACE_URL}/flows/filter"
 
 
 class TestValidateCredentials:

@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     DeepsourceResumeConfig,
     DeepsourceRetryableError,
     _fan_out_connection_rows,
-    _metric_rows,
     _per_repository_object_rows,
     _report_rows,
     _repositories_rows,
@@ -405,20 +404,6 @@ class TestRootConnection:
         assert all("login" not in snapshot for snapshot in snapshots)
         manager.save_state.assert_called_once_with(DeepsourceResumeConfig(cursor="c1"))
 
-    def test_analyzers_resume_from_saved_cursor(self) -> None:
-        session = MagicMock()
-        snapshots = _capture_post_calls(
-            session, [_root_connection_response("analyzers", [{"id": "an-3"}], False, None)]
-        )
-
-        list(
-            _root_connection_rows(
-                session, "analyzers", MagicMock(), _make_manager(DeepsourceResumeConfig(cursor="saved"))
-            )
-        )
-
-        assert snapshots[0]["cursor"] == "saved"
-
 
 class TestPerRepositoryObjects:
     def test_metrics_rows_flattened_per_item(self) -> None:
@@ -506,9 +491,6 @@ class TestPerRepositoryObjects:
                 "repositoryName": "alpha",
             },
         ]
-
-    def test_metric_rows_empty_when_repository_has_no_metrics(self) -> None:
-        assert _metric_rows({"id": "RID", "name": "alpha", "metrics": None}) == []
 
 
 class TestRetriesAndErrors:

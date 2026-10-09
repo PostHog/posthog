@@ -6,15 +6,18 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@post
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BIEditor } from './BIEditor'
+import { biEditorLogic } from './biEditorLogic'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -27,6 +30,7 @@ export const scene: SceneExport = {
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { chartTypesOpen } = useValues(biEditorLogic({ tabId }))
     const logic = biSceneLogic({ tabId })
     const {
         name,
@@ -38,6 +42,10 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         exportViewOpen,
         exportViewName,
         exportedViewLoading,
+        canUndo,
+        canRedo,
+        copyDisabledReason,
+        worksheet,
     } = useValues(logic)
     const {
         setName,
@@ -48,7 +56,21 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         setExportViewOpen,
         setExportViewName,
         exportView,
+        undo,
+        redo,
     } = useActions(logic)
+
+    useKeyboardHotkeys({
+        z: {
+            willHandleEvent: true,
+            action: (event) => {
+                if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.shiftKey ? canRedo : canUndo)) {
+                    event.preventDefault()
+                    event.shiftKey ? redo() : undo()
+                }
+            },
+        },
+    })
 
     if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
         return <NotFound object="page" />
@@ -64,6 +86,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         <BindLogic logic={biSceneLogic} props={{ tabId }}>
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
                 <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                    <LemonButton size="small" to={urls.businessIntelligence()}>
+                        Worksheets
+                    </LemonButton>
                     <LemonInput
                         aria-label="Worksheet name"
                         value={name}
@@ -71,6 +96,21 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         maxLength={400}
                         className="min-w-40 flex-1"
                     />
+                    <LemonButton size="small" onClick={undo} disabledReason={!canUndo ? 'Nothing to undo' : undefined}>
+                        Undo
+                    </LemonButton>
+                    <LemonButton size="small" onClick={redo} disabledReason={!canRedo ? 'Nothing to redo' : undefined}>
+                        Redo
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        onClick={() => saveInsight({ asCopy: true })}
+                        loading={insightLoading}
+                        disabledReason={copyDisabledReason}
+                        data-attr="bi-save-copy"
+                    >
+                        Save a copy
+                    </LemonButton>
                     <LemonButton
                         size="small"
                         icon={<IconShare />}
@@ -103,7 +143,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={saveInsight}
+                        onClick={() => saveInsight()}
                         loading={insightLoading}
                         disabledReason={saveDisabledReason}
                         data-attr="bi-save-insight"
@@ -132,11 +172,14 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 context={{
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
+                                    chartTypeSelectorClassName: chartTypesOpen ? '@3xl/bi-editor:hidden' : undefined,
                                 }}
                             />
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
-                                Select a table and add fields to build your worksheet.
+                                {worksheet.config.source
+                                    ? 'Press Run to see the results of this worksheet.'
+                                    : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
                     </BIEditor>

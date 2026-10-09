@@ -40,6 +40,7 @@ Hence the explicit separation between the data and view layers.
   - Reach for an existing design-system component (Lemon/quill) before hand-rolling markup — reuse is how new UI stays on-brand. When you genuinely need a custom component, build it from the system's tokens and primitives and match the surrounding scene's density; avoid the generic AI-generated look (purple gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion).
   - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
   - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
+  - Analytics overview cards in the LemonUI web app share `lib/components/AnalyticsMetricCard/AnalyticsMetricCard`. It wraps the chart library metric content with a consistent surface and loading, error, and empty states. Supply `data` and `theme` for a sparkline, `showChange` for comparisons, and `onClick` for a native button with a visible interaction cue. `selected` highlights a card that controls the displayed chart. Quill surfaces can compose `Metric` with `Card` instead.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
   - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
@@ -84,7 +85,7 @@ Every pattern below caused a real quarantine. Each one has a fix that removes th
 
 ##### What the runner already does
 
-`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, and sets the theme on `body[theme]` before each snapshot.
+`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
 Do not add your own waits for these.
 The loader wait checks only the first element that matches a loader selector.
 When a story shows more than one loader, set `waitForSelector` to content that renders after the last one.

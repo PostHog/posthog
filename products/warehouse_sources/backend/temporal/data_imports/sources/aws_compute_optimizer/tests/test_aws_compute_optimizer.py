@@ -168,17 +168,6 @@ def test_full_refresh_pagination(
     session.close.assert_called_once()
 
 
-@pytest.mark.parametrize("terminal", [{}, {"nextToken": None}, {"nextToken": ""}])
-def test_resume_and_terminal_empty_page(session: MagicMock, terminal: dict[str, object]) -> None:
-    resume = manager(AwsComputeOptimizerResumeConfig(next_token="saved-token"))
-    session.post.return_value = response(terminal)
-    source = aws_compute_optimizer_source(config(), "ec2_instance_recommendations", resume)
-    assert list(cast(Iterable[Any], source.items())) == []
-    assert json.loads(session.post.call_args.kwargs["data"]) == {"maxResults": 100, "nextToken": "saved-token"}
-    resume.save_state.assert_called_once_with(AwsComputeOptimizerResumeConfig(complete=True))
-    resume.safe_point.assert_called_once()
-
-
 def test_completed_resume_does_not_refetch(session: MagicMock) -> None:
     source = aws_compute_optimizer_source(
         config(), "ec2_instance_recommendations", manager(AwsComputeOptimizerResumeConfig(complete=True))

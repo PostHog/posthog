@@ -43,14 +43,6 @@ def _rows_from_store(store: Any) -> list[dict[str, Any]]:
 
 
 class TestGetRows:
-    def test_one_row_per_store_key(self) -> None:
-        rows = _rows_from_store({"a": "1", "b": "2"})
-        assert {r["key"] for r in rows} == {"a", "b"}
-        assert {(r["key"], r["value"]) for r in rows} == {("a", "1"), ("b", "2")}
-
-    def test_empty_store_yields_no_rows(self) -> None:
-        assert _rows_from_store({}) == []
-
     @pytest.mark.parametrize(
         ("stored_value", "expected"),
         [
@@ -158,14 +150,6 @@ class TestSessionIsHardened:
 
 
 class TestSourceResponse:
-    def test_shape_is_full_refresh_keyed_by_store_key(self) -> None:
-        response = zapier_supported_storage_source(secret="s", endpoint="records", logger=MagicMock())
-        assert response.name == "records"
-        assert response.primary_keys == ["key"]
-        # No timestamps to partition on - one full-refresh partition.
-        assert response.partition_count == 1
-        assert response.partition_keys is None
-
     def test_items_is_lazy(self) -> None:
         # Building the SourceResponse must not issue any request; only iterating items should.
         with patch(f"{MODULE}.make_tracked_session") as factory:

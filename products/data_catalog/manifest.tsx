@@ -46,7 +46,6 @@ export const manifest: ProductManifest = {
                 { name: 'Relationships', href: urls.dataCatalog('relationships') },
                 { name: 'Certifications', href: urls.dataCatalog('certifications') },
             ],
-            tags: ['beta'],
             sceneKey: 'DataCatalog',
         },
     ],

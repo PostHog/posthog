@@ -93,6 +93,7 @@ export const MarketingAnalyticsTable = ({
     const marketingAnalyticsContext: QueryContext = useMemo(
         () => ({
             ...webAnalyticsDataTableQueryContext,
+            dataTableAllowContentScroll: true,
             insightProps,
             columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
             rowProps: (record: unknown) => {

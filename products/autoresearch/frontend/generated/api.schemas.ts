@@ -84,6 +84,60 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface AutoresearchRealizedAucPointApi {
+    /** Validated prediction date. */
+    readonly prediction_date: string
+    /** Realized AUC on that date. */
+    readonly realized_auc: number
+}
+
+export interface AutoresearchPredictionCoverageApi {
+    /** People in the inference population at the run's cutoff. */
+    readonly population: number
+    /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+    readonly with_score: number
+    /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+    readonly never_scored: number
+    /**
+     * Mean age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_avg: number | null
+    /**
+     * Median age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p50: number | null
+    /**
+     * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p90: number | null
+    /**
+     * Oldest score age in days. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_max: number | null
+    /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+    readonly lookback_days: number
+}
+
+export interface AutoresearchLiveTrainingRunApi {
+    /** Unique UUID of the live training run. */
+    readonly id: string
+    /** Maximum experiments allowed for this run. */
+    readonly iteration_budget: number
+    /** Experiments the agent has recorded so far in this run. */
+    readonly experiment_count: number
+    /**
+     * Best holdout AUC so far in this run. Null before any is recorded.
+     * @nullable
+     */
+    readonly best_holdout_score: number | null
+    /** The agent's rationale for its newest experiment. */
+    readonly latest_agent_description: string
+}
+
 /**
  * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
@@ -200,6 +254,31 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly champion_realized_auc: number | null
+    /**
+     * Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.
+     * @nullable
+     */
+    readonly champion_lift_at_10: number | null
+    /**
+     * True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.
+     * @nullable
+     */
+    readonly champion_is_preliminary: boolean | null
+    /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
+    readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPointApi[]
+    /**
+     * People scored by the most recent completed inference run. Null before the first scoring run.
+     * @nullable
+     */
+    readonly people_scored: number | null
+    /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
+    /** Training runs started for this pipeline. */
+    readonly training_run_count: number
+    /** Experiments (iterations) recorded across every training run. */
+    readonly experiment_count: number
+    /** Progress of the pending or running training run. Null when no run is live. */
+    readonly live_training_run: AutoresearchLiveTrainingRunApi | null
 }
 
 export interface PaginatedAutoresearchPipelineListApi {
@@ -370,7 +449,7 @@ export interface ModelExplanationFieldApi {
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
 
 /**
- * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+ * Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts.
  */
 export type AutoresearchModelApiMetrics = { [key: string]: unknown }
 
@@ -406,7 +485,7 @@ export interface AutoresearchModelApi {
      * @nullable
      */
     calibration_error?: number | null
-    /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
+    /** Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts. */
     metrics?: AutoresearchModelApiMetrics
     /**
      * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
@@ -516,6 +595,8 @@ export interface AutoresearchRunApi {
     rows_scored?: number | null
     /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
+    /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Error message if the run failed. */
     error?: string
     /**
@@ -1367,6 +1448,38 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface ConfusionCountsApi {
+    /** True positives: flagged users who did the target event. */
+    tp: number
+    /** False positives: flagged users who did not do the target event. */
+    fp: number
+    /** False negatives: users not flagged who did the target event. */
+    fn: number
+    /** True negatives: users not flagged who did not do the target event. */
+    tn: number
+    /** Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the boundary score, so this can be a little above k. */
+    n_flagged: number
+    /**
+     * tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.
+     * @nullable
+     */
+    precision: number | null
+    /**
+     * tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it.
+     * @nullable
+     */
+    recall: number | null
+}
+
+export interface ConfusionByCutoffApi {
+    /** Counts when the top 10% of users by score are flagged. */
+    top_10: ConfusionCountsApi
+    /** Counts when the top 20% of users by score are flagged. */
+    top_20: ConfusionCountsApi
+    /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+    likely: ConfusionCountsApi
+}
+
 export interface CalibrationBinApi {
     /** Number of scored users in this bin. */
     n: number
@@ -1437,6 +1550,13 @@ export interface OnlinePerformanceRowApi {
      * @nullable
      */
     lift_at_20: number | null
+    /**
+     * Average precision: area under the precision-recall curve. Higher is better, and a random model scores about base_rate. Null when no scored user did the target event, or for dates validated before this metric existed.
+     * @nullable
+     */
+    average_precision: number | null
+    /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
+    confusion: ConfusionByCutoffApi | null
     /**
      * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
      * @nullable

@@ -1,32 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product review_hog
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product review_hog
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: ReviewHog
 feature: review_hog
 url_prefix: /code-review
 ui_apps: {}
 tools:
-    review-hog-blind-spots-list:
-        operation: review_hog_blind_spots_list
-        enabled: false
-    review-hog-blind-spots-partial-update:
-        operation: review_hog_blind_spots_partial_update
-        enabled: false
-    review-hog-perspectives-list:
-        operation: review_hog_perspectives_list
-        enabled: false
-    review-hog-perspectives-partial-update:
-        operation: review_hog_perspectives_partial_update
-        enabled: false
-    review-hog-resolution-list:
-        operation: review_hog_resolution_list
-        enabled: false
-    review-hog-resolution-partial-update:
-        operation: review_hog_resolution_partial_update
-        enabled: false
     review-hog-reviews-get:
         operation: review_hog_reviews_retrieve
         enabled: true
@@ -62,9 +42,6 @@ tools:
             opens the full review via `review-hog-reviews-get`. Defaults to the requesting user's reviews; pass
             `scope=everyone` for every review on the project, and `limit` to widen the page.
         feature_flag: review-hog
-    review-hog-reviews-perspective-stats-retrieve:
-        operation: review_hog_reviews_perspective_stats_retrieve
-        enabled: false
     review-hog-reviews-trigger:
         operation: review_hog_reviews_trigger_create
         enabled: true
@@ -91,15 +68,3 @@ tools:
             in-flight run. Poll progress with `review-hog-reviews-list` and read the finished findings with
             `review-hog-reviews-get`.
         feature_flag: review-hog
-    review-hog-settings-partial-update:
-        operation: review_hog_settings_partial_update
-        enabled: false
-    review-hog-settings-retrieve:
-        operation: review_hog_settings_retrieve
-        enabled: false
-    review-hog-validators-list:
-        operation: review_hog_validators_list
-        enabled: false
-    review-hog-validators-partial-update:
-        operation: review_hog_validators_partial_update
-        enabled: false

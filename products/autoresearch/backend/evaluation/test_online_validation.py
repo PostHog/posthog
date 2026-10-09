@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models.user import User
 
+from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME, SHADOW_MODEL_ROLE
 from products.autoresearch.backend.evaluation import online_validation
 from products.autoresearch.backend.evaluation.online_validation import (
     OUTCOME_INGESTION_GRACE,
@@ -80,6 +81,57 @@ class TestComputeValidationMetrics(SimpleTestCase):
         assert 0.0 <= metrics["brier_score"] <= 1.0
         assert 0.0 <= metrics["calibration_error"] <= 1.0
         assert "lift_at_10" in metrics
+        for counts in metrics["confusion"].values():
+            assert counts["tp"] + counts["fp"] + counts["fn"] + counts["tn"] == 2
+        if labels:
+            assert metrics["average_precision"] == 1.0
+            assert metrics["confusion"]["likely"]["recall"] == 0.5
+        else:
+            assert metrics["average_precision"] is None
+            assert metrics["confusion"]["likely"] == {
+                "tp": 0,
+                "fp": 1,
+                "fn": 0,
+                "tn": 1,
+                "n_flagged": 1,
+                "precision": 0.0,
+                "recall": None,
+            }
+
+    def test_confusion_counts_flag_every_tie_at_the_top_k_boundary(self):
+        scores = [0.9, 0.7, 0.7, 0.7, 0.5, 0.3, 0.2, 0.1, 0.1, 0.05]
+        preds = {f"user-{i}": score for i, score in enumerate(scores)}
+        positives = frozenset(["user-0", "user-3", "user-5"])
+
+        metrics = _compute_validation_metrics(preds, positives, prediction_date=date(2026, 9, 1))
+        reversed_metrics = _compute_validation_metrics(
+            dict(reversed(list(preds.items()))), positives, prediction_date=date(2026, 9, 1)
+        )
+
+        assert metrics["confusion"] == reversed_metrics["confusion"]
+        assert metrics["confusion"]["top_10"] == {
+            "tp": 1,
+            "fp": 0,
+            "fn": 2,
+            "tn": 7,
+            "n_flagged": 1,
+            "precision": 1.0,
+            "recall": 0.3333,
+        }
+        assert metrics["confusion"]["top_20"] == {
+            "tp": 2,
+            "fp": 2,
+            "fn": 1,
+            "tn": 5,
+            "n_flagged": 4,
+            "precision": 0.5,
+            "recall": 0.6667,
+        }
+        assert metrics["confusion"]["likely"] == metrics["confusion"]["top_20"]
+        for counts in metrics["confusion"].values():
+            assert counts["tp"] + counts["fp"] + counts["fn"] + counts["tn"] == metrics["n_scored"]
+            assert counts["tp"] + counts["fn"] == metrics["n_positive"]
+        assert 0.0 < metrics["average_precision"] <= 1.0
 
 
 class TestAucConfidenceInterval(SimpleTestCase):
@@ -549,3 +601,43 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
 
         hogql.assert_not_called()
         assert not AutoresearchRun.objects.filter(run_type=AutoresearchRun.RunType.VALIDATION).exists()
+
+
+@time_machine.travel(FROZEN_NOW, tick=False)
+class TestPredictionFetchAgainstClickhouse(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
+    def test_a_group_larger_than_the_hogql_row_cap_validates_every_model(self):
+        pipeline = _make_pipeline(self.team, self.user)
+        champion = _make_model(pipeline)
+        shadow = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHALLENGER, model_recipe={"stub": True}, recipe_hash="def"
+        )
+        persons = ["person-0", "person-1", "person-2"]
+        for model, role in ((champion, "champion"), (shadow, SHADOW_MODEL_ROLE)):
+            _inference_run(pipeline, model, date(2026, 9, 1), rows_scored=len(persons))
+            for i, person_id in enumerate(persons):
+                _create_event(
+                    team=self.team,
+                    event=PREDICTION_EVENT_NAME,
+                    distinct_id=person_id,
+                    timestamp=datetime(2026, 9, 1, 1, tzinfo=UTC),
+                    properties={
+                        "$autoresearch_pipeline_id": str(pipeline.pk),
+                        "$autoresearch_model_id": str(model.pk),
+                        "$autoresearch_model_role": role,
+                        "$autoresearch_horizon_days": 7,
+                        "$autoresearch_p_y": 0.2 * (i + 1),
+                        "$autoresearch_prediction_date": "2026-09-01",
+                        "$autoresearch_person_id": person_id,
+                    },
+                )
+
+        # The two models emitted six predictions together, one more than the cap.
+        with patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 5):
+            runs = run_online_validation_for_pipeline(pipeline)
+
+        assert [(r.status, r.error) for r in runs] == [(AutoresearchRun.Status.COMPLETED, "")]
+        per_model = runs[0].metrics["per_model"]
+        assert {model_id: metrics["n_scored"] for model_id, metrics in per_model.items()} == {
+            str(champion.pk): 3,
+            str(shadow.pk): 3,
+        }
