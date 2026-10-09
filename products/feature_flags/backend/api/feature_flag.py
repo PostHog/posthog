@@ -3564,7 +3564,10 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     )
     search = serializers.CharField(
         required=False,
-        help_text="Search by feature flag key or name (case-insensitive).",
+        help_text=(
+            "Search by feature flag key or name (case-insensitive). "
+            "Spaces, underscores, and hyphens count as the same separator."
+        ),
     )
     type = serializers.ChoiceField(
         choices=["boolean", "multivariant", "experiment", "remote_config"],
@@ -4118,7 +4121,10 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Search by feature flag key or name. Case insensitive.",
+                description=(
+                    "Search by feature flag key or name. Case insensitive. "
+                    "Spaces, underscores, and hyphens count as the same separator."
+                ),
             ),
             OpenApiParameter(
                 "key",
@@ -5395,8 +5401,12 @@ class FeatureFlagViewSet(
                             raise serializers.ValidationError("Search term cannot exceed 200 characters")
 
                         # Treat spaces, hyphens, and underscores as one separator class, so a pasted
-                        # MY_FLAG_KEY finds my-flag-key
-                        regex_pattern = r"[\s\-_]*".join(re.escape(part) for part in re.split(r"[\s\-_]+", value))
+                        # MY_FLAG_KEY finds my-flag-key. A query of only separators has no parts, and an empty
+                        # join matches every flag, which bulk_delete would then delete, so match it literally.
+                        parts = [part for part in re.split(r"[\s\-_]+", value) if part]
+                        regex_pattern = (
+                            r"[\s\-_]*".join(re.escape(part) for part in parts) if parts else re.escape(value)
+                        )
                         queryset = queryset.filter(
                             Q(key__iregex=regex_pattern)
                             | Q(name__iregex=regex_pattern)

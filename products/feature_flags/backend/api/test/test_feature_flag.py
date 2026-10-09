@@ -7254,6 +7254,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         matched_keys = {result["key"] for result in response.json()["results"]}
         assert "web_dashboard" in matched_keys, matched_keys
 
+        # A separator-only query matches that separator literally instead of matching every flag
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=_")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert "web_dashboard" in matched_keys, matched_keys
+        assert not {"web-analytics", "mobile-analytics"} & matched_keys, matched_keys
+
         # Test single word still works
         response = self.client.get(f"/api/projects/@current/feature_flags?search=web")
         data = response.json()

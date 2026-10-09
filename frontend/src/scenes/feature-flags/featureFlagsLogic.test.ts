@@ -84,6 +84,8 @@ describe('flagMatchesSearch', () => {
             [webUnderscoreFlag, 'web mobile', false], // "mobile" not in flag
             [flagWithExperiment, 'mobile test', false], // "mobile" not in flag or experiment
             [webAnalyticsFlag, 'WEB_MOBILE', false],
+            [webAnalyticsFlag, '_', false], // Separator-only query matches literally, not every flag
+            [webUnderscoreFlag, '_', true],
 
             // Single word searches (existing behavior)
             [webAnalyticsFlag, 'web', true],

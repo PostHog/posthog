@@ -123,7 +123,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
     key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('Search by feature flag key or name. Case insensitive.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.'
+        ),
     tags: zod.string().optional().describe('JSON-encoded list of tag names to filter feature flags by.'),
     type: zod.enum(['boolean', 'experiment', 'multivariant', 'remote_config']).optional(),
 })
@@ -1182,7 +1187,12 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                     "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
                 ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
-            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            search: zod
+                .string()
+                .optional()
+                .describe(
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
                 .describe(

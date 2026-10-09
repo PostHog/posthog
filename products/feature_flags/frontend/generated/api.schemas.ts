@@ -1617,7 +1617,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
     search?: string
     /** Filter by flag type.
      *
@@ -2174,7 +2174,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string
     /**
