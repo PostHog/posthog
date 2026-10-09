@@ -486,7 +486,12 @@ export async function getInsightWithRetry(
                         if (insightResponse?.query_status?.id) {
                             let finalStatus: QueryStatus
                             try {
-                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                                finalStatus = await pollForResults(
+                                    insightResponse.query_status.id,
+                                    methodOptions,
+                                    undefined,
+                                    runRequest
+                                )
                             } catch (e) {
                                 // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
                                 // The insights endpoint ignores client_query_id and names the run by its cache key, so
@@ -509,7 +514,12 @@ export async function getInsightWithRetry(
                                         !rerunResponse.query_status.complete
                                     ) {
                                         return await readCachedInsight(
-                                            await pollForResults(rerunResponse.query_status.id, methodOptions)
+                                            await pollForResults(
+                                                rerunResponse.query_status.id,
+                                                methodOptions,
+                                                undefined,
+                                                runRequest
+                                            )
                                         )
                                     }
                                     if (rerunResponse?.result == null) {

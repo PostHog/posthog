@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 
 import { BreakdownFilter, DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema/schema-general'
 import {
@@ -31,6 +32,8 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+
+jest.unmock('lib/utils/concurrencyController')
 
 describe('searchParamsWithUrlFilters', () => {
     const propertyFilter: AnyPropertyFilter[] = [
@@ -653,6 +656,77 @@ describe('getInsightWithRetry', () => {
             { insight_short_id: 'abc123', dashboard_id: 60, attempts: 1 },
             undefined
         )
+    })
+
+    it.each([false, true])('limits async status requests too (expired status: %s)', async (expiredStatus) => {
+        const concurrency = new ConcurrencyController(4)
+        let priority = 0
+        let activePolls = 0
+        let peakPolls = 0
+        let releasePolls!: () => void
+        const pendingPolls = new Promise<void>((resolve) => {
+            releasePolls = resolve
+        })
+        jest.spyOn(api, 'getResponse').mockImplementation(async (url) =>
+            insightResponse({
+                ...insight,
+                result: url.includes('refresh=force_cache') ? [] : null,
+                query_status: url.includes('refresh=force_cache') ? undefined : capacityStatus,
+            })
+        )
+        jest.spyOn(api, 'get').mockImplementation(async (url) => ({
+            ...insight,
+            query_status: {
+                ...capacityStatus,
+                id: new URL(url, 'http://localhost').searchParams.get('client_query_id'),
+                complete: false,
+                error: false,
+            },
+        }))
+        const expiredQueries = new Set<string>()
+        jest.spyOn(api.queryStatus, 'get').mockImplementation(async (queryId) => {
+            if (expiredStatus && !expiredQueries.has(queryId)) {
+                expiredQueries.add(queryId)
+                throw new ApiError('Query not found', 404)
+            }
+            activePolls++
+            peakPolls = Math.max(peakPolls, activePolls)
+            await pendingPolls
+            activePolls--
+            return {
+                query_status: { ...capacityStatus, error: false, error_code: null, error_message: null },
+            }
+        })
+
+        const requests = Array.from({ length: 6 }, (_, index) => {
+            const controller = new AbortController()
+            return getInsightWithRetry(
+                1,
+                { ...insight, id: insight.id + index },
+                60,
+                `query-${index}`,
+                'blocking',
+                {
+                    signal: controller.signal,
+                    runRequest: (fn) => concurrency.run({ fn, priority: priority++, abortController: controller }),
+                },
+                undefined,
+                undefined,
+                undefined,
+                1,
+                1
+            )
+        })
+        try {
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(activePolls).toBe(4)
+        } finally {
+            releasePolls()
+            await jest.runAllTimersAsync()
+            const results = await Promise.all(requests)
+            expect(results.map((result) => result?.result)).toEqual(Array(6).fill([]))
+        }
+        expect(peakPolls).toBe(4)
     })
 
     describe.each([
