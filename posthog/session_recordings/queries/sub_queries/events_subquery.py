@@ -219,7 +219,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """One row per distinct id and minute with matching events that carry no session id.
 
         Grouping before the row cap keeps a flood of events from a few people from pushing other
-        people's events out of the scan, and the per distinct id cap bounds the join for very busy ids.
+        people's events out of the scan. The per distinct id cap keeps the most recent minutes, which
+        bounds the join for very busy ids and gives the same rows on every run.
         """
         exprs: list[ast.Expr] = [
             # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
@@ -248,6 +249,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=exprs),
             group_by=[ast.Field(chain=["distinct_id"]), parse_expr("toStartOfMinute(timestamp)")],
+            order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=["distinct_id"]), order="ASC"),
+                ast.OrderExpr(expr=parse_expr("toStartOfMinute(timestamp)"), order="DESC"),
+            ],
             limit_by=ast.LimitByExpr(
                 n=ast.Constant(value=UNSESSIONED_MINUTES_PER_DISTINCT_ID_LIMIT),
                 exprs=[ast.Field(chain=["distinct_id"])],
@@ -255,14 +260,39 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
         )
 
+    def _unsessioned_person_mapping(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """The current person of every distinct id that may share a person with a matching event.
+
+        The raw rows nominate candidates without resolving versions, so the set can only be too
+        wide. The latest-version resolution then runs over those candidates only, not over the
+        team's whole mapping.
+        """
+        query = parse_select(
+            """
+            SELECT distinct_id, argMax(person_id, version) AS person_id
+            FROM raw_person_distinct_ids
+            WHERE distinct_id IN (
+                SELECT distinct_id FROM raw_person_distinct_ids
+                WHERE person_id IN (
+                    SELECT person_id FROM raw_person_distinct_ids
+                    WHERE distinct_id IN (SELECT distinct_id FROM {unsessioned})
+                )
+            )
+            GROUP BY distinct_id
+            HAVING argMax(is_deleted, version) = 0
+            """,
+            placeholders={"unsessioned": self._unsessioned_events_query(filter_expr)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _unsessioned_sessions_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
         """Recordings of the person who sent a matching event without a session id, around its time.
 
         A recording matches when the event falls inside the recording window of one of that
         person's distinct ids. Both sides resolve the person through the current distinct id
         mapping, so a merge after the event is followed in every persons-on-events mode. The
-        mapping is read only for the persons that sent such an event. The minute grouping can
-        widen the match by up to one minute past the margin.
+        minute grouping can widen the match by up to one minute past the margin.
         """
         query = parse_select(
             """
@@ -273,13 +303,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                        min(s.min_first_timestamp) AS window_start,
                        max(s.max_last_timestamp) AS window_end
                 FROM raw_session_replay_events AS s
-                INNER JOIN (
-                    SELECT distinct_id, person_id FROM person_distinct_ids
-                    WHERE person_id IN (
-                        SELECT person_id FROM person_distinct_ids
-                        WHERE distinct_id IN (SELECT distinct_id FROM {recording_person_ids})
-                    )
-                ) AS recording_person ON recording_person.distinct_id = s.distinct_id
+                INNER JOIN {recording_person} AS recording_person ON recording_person.distinct_id = s.distinct_id
                 WHERE {scope}
                 GROUP BY s.session_id, recording_person.person_id
             ) AS recording
@@ -288,10 +312,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                        unsessioned.first_timestamp AS first_timestamp,
                        unsessioned.last_timestamp AS last_timestamp
                 FROM {unsessioned} AS unsessioned
-                INNER JOIN (
-                    SELECT distinct_id, person_id FROM person_distinct_ids
-                    WHERE distinct_id IN (SELECT distinct_id FROM {event_person_ids})
-                ) AS event_person ON event_person.distinct_id = unsessioned.distinct_id
+                INNER JOIN {event_person} AS event_person ON event_person.distinct_id = unsessioned.distinct_id
             ) AS backend ON backend.person_id = recording.person_id
             WHERE backend.last_timestamp >= subtractMinutes(recording.window_start, {margin})
               AND backend.first_timestamp <= addMinutes(recording.window_end, {margin})
@@ -300,8 +321,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             """,
             placeholders={
                 "scope": self._recording_scope(),
-                "recording_person_ids": self._unsessioned_events_query(filter_expr),
-                "event_person_ids": self._unsessioned_events_query(filter_expr),
+                "recording_person": self._unsessioned_person_mapping(filter_expr),
+                "event_person": self._unsessioned_person_mapping(filter_expr),
                 "unsessioned": self._unsessioned_events_query(filter_expr),
                 "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
                 "limit": ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
