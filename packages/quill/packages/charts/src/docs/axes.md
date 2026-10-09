@@ -62,7 +62,8 @@ A single object stays single-axis.
 ## Margins and sizing
 
 - Charts fill their container and need a parent with real dimensions. A zero-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, or `flex-1` in a sized column). `Sparkline` alone takes `height` and `width` props.
-- `ChartConfig.margins` overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). Pass a module-level constant.
+- A wrapper that measures under one pixel wide or high does not resize the chart. `useChartCanvas` keeps the last painted frame and waits for the next real size, so a chart whose container collapses for a moment (an ancestor set to `display: none`, Chromium capturing a screenshot taller than the viewport) does not go blank or lay out again.
+- `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). Pass a module-level constant.
 
 ## When the plot is blank
 

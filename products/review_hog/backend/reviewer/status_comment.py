@@ -17,6 +17,8 @@ retry a review, so all exceptions are swallowed after logging.
 
 import random
 import logging
+from collections.abc import Sequence
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
@@ -29,11 +31,13 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
+    finding_heading,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
@@ -47,12 +51,15 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
 )
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +77,9 @@ _STAGE_LABELS = {
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
+    "single_agent_preparing": "Step 1/3 · Preparing the diff",
+    "single_agent_reviewing": "Step 2/3 · Reviewing the pull request",
+    "single_agent_finalizing": "Step 3/3 · Finalizing the review",
 }
 
 # The UI's urgency-threshold labels (`URGENCY_STOPS`), for the held-back explanation.
@@ -171,10 +181,28 @@ def _plural(count: int, noun: str) -> str:
 
 
 def render_in_progress_body(
-    report_id: str, progress: dict[str, Any] | None, *, review_mode: str = REVIEW_MODE_FULL
+    report_id: str,
+    progress: dict[str, Any] | None,
+    *,
+    review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> str:
     """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
-    label = _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS["fetching"]
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
+    # The kickoff body has no progress yet. A single-agent turn starts its sessions right after the
+    # kickoff and the next refresh waits for the first session result, so the kickoff shows the
+    # reviewing step instead of the preparing step.
+    kickoff_stage = "single_agent_reviewing" if single_agent else "fetching"
+    label = (
+        _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS[kickoff_stage]
+    )
+    explainer = (
+        "A main reviewer and two focused reviewers read the pull request in parallel. "
+        "The most important findings are published back to it."
+        if single_agent
+        else "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
+        "catches what they missed, and only validated findings are published back to this pull request."
+    )
     done = progress.get("done") if progress else None
     total = progress.get("total") if progress else None
     counter = f" · {done}/{total}" if done is not None and total else ""
@@ -184,8 +212,7 @@ def render_in_progress_body(
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
-            "catches what they missed, and only validated findings are published back to this pull request.",
+            explainer,
             "",
             "<sub>This comment updates as the review progresses.</sub>",
             "",
@@ -207,6 +234,10 @@ def render_final_body(
     review_mode: str = REVIEW_MODE_FULL,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
+    capped_lens_parts: int | None = None,
+    raised_elsewhere: Sequence[AlreadyRaised] = (),
+    raised_elsewhere_count: int = 0,
+    pr_url: str | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -215,14 +246,20 @@ def render_final_body(
     sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
+    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
+    lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
+    linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
+    if found_total == 0 and raised_elsewhere:
+        lines.append("Nothing new to raise.")
     # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
-    if found_total == 0 and review_mode == REVIEW_MODE_FLASH:
+    elif found_total == 0 and review_mode == REVIEW_MODE_FLASH:
         lines.append("Nothing worth raising.")
     elif found_total == 0 and celebrate_clean_reviews:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
@@ -254,6 +291,22 @@ def render_final_body(
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
+    if capped_lens_parts is not None:
+        lines.extend(
+            [
+                "",
+                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
+            ]
+        )
+    if raised_elsewhere:
+        shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
+        lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
+        for raised in shown:
+            link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
+            lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
+        hidden = max(raised_elsewhere_count, len(raised_elsewhere)) - len(shown)
+        if hidden > 0:
+            lines.append(f"- and {hidden} more")
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -435,7 +488,13 @@ def _split_repository(repository: str) -> tuple[str, str]:
     return owner, repo
 
 
-def ensure_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
+def ensure_status_comment(
+    team_id: int,
+    report_id: str,
+    *,
+    review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> None:
     """Post (or reset) the report's status comment at run kickoff and remember its id.
 
     Reuses the previous turn's comment when one exists — by the stored id, falling back to a marker
@@ -452,7 +511,7 @@ def ensure_status_comment(team_id: int, report_id: str, *, review_mode: str = RE
         token, installation_id = auth
         owner, repo = _split_repository(report.repository)
         marker = status_marker(report_id)
-        body = render_in_progress_body(report_id, None, review_mode=review_mode)
+        body = render_in_progress_body(report_id, None, review_mode=review_mode, review_design=review_design)
 
         comment_id = report.status_comment_id
         if comment_id is None:
@@ -477,7 +536,13 @@ def ensure_status_comment(team_id: int, report_id: str, *, review_mode: str = RE
         logger.exception("Could not post the ReviewHog status comment; the review continues without it")
 
 
-def maybe_refresh_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
+def maybe_refresh_status_comment(
+    team_id: int,
+    report_id: str,
+    *,
+    review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> None:
     """Refresh the status comment with the turn's current stage, at most once per interval.
 
     Called after pipeline activities persist progress artefacts. The debounce is an atomic claim on
@@ -517,7 +582,7 @@ def maybe_refresh_status_comment(team_id: int, report_id: str, *, review_mode: s
             owner,
             repo,
             report.status_comment_id,
-            render_in_progress_body(report_id, progress, review_mode=review_mode),
+            render_in_progress_body(report_id, progress, review_mode=review_mode, review_design=review_design),
             token=token,
             installation_id=installation_id,
         )
@@ -539,6 +604,9 @@ class FinalizeStatusCommentInput:
     review_mode: str = REVIEW_MODE_FULL
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
+    capped_lens_parts: int | None = None
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -556,7 +624,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         published = published_priorities_for(threshold)
         published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
-        body = render_final_body(
+        rendered = render_final_body(
             input.report_id,
             counts=counts,
             published_count=published_count,
@@ -568,7 +636,15 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_mode=input.review_mode,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
+            capped_lens_parts=input.capped_lens_parts,
+            raised_elsewhere=input.raised_elsewhere,
+            raised_elsewhere_count=input.raised_elsewhere_count,
+            pr_url=report.pr_url or None,
         )
+        # The list of findings other reviewers raised carries model-written titles, which may quote sandbox output.
+        body, redacted = redact_secrets(rendered)
+        if redacted:
+            logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")

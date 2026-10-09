@@ -3209,9 +3209,12 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
         help_text=(
             "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
             "For boolean flags this means at least one release condition targets 100% with no property "
-            "filters (or there are no release conditions); for multivariate flags it means a single variant "
-            "is served to 100% via a fully rolled out release condition. This is the signal for "
-            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+            "filters, or there are no release conditions. For multivariate flags it means every release "
+            "condition a user can reach, up to the first one at 100% with no property filters, serves the "
+            "same variant. In a flag of either type that mixes person and group aggregation, only a "
+            "person-level condition counts as that 100% condition. This is the signal for "
+            "'fully rolled out' / GA, unlike `status`, "
+            "which only reflects recent evaluation."
         )
     )
     has_targeting_conditions = serializers.BooleanField(

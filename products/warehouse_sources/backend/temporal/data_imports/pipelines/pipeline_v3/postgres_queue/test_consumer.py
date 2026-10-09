@@ -1363,6 +1363,59 @@ class TestQueueOperationTimeouts:
         mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_startup_connect_retries_a_dns_blip_instead_of_crashing(self):
+        # Reproduces the reported issue: the queue DB being unreachable for a DNS blip when
+        # this process starts used to raise straight out of run() uncaught -- crashing the
+        # whole consumer -- even though every other connect path here (the poll loop, the
+        # recovery loop, _ensure_poll_conn/_ensure_recovery_conn) already redials through the
+        # identical error instead of giving up.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        polling_started = asyncio.Event()
+        connect_attempts = 0
+
+        async def flaky_connect(**kwargs: Any) -> Any:
+            nonlocal connect_attempts
+            connect_attempts += 1
+            if connect_attempts == 1:
+                raise psycopg.OperationalError("[Errno -3] Temporary failure in name resolution")
+            return _make_healthy_conn()
+
+        async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            polling_started.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", side_effect=flaky_connect),
+            patch(f"{batch_consumer_module.__name__}._queue_retry_delay", return_value=0),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # Polling can only begin if the startup DNS blip was retried instead of crashing run().
+            await asyncio.wait_for(polling_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        assert connect_attempts >= 2
+
+    @pytest.mark.asyncio
     async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):
         # psycopg's async wait loop can catch the CancelledError that
         # asyncio.timeout() raises on expiry and re-raise it as a generic
@@ -3929,6 +3982,49 @@ class TestShutdown:
 
         mock_release.assert_awaited_once_with(main_conn, owner_token=consumer._owner_token)
         main_conn.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,conn_closed,expected_calls",
+        [
+            (None, False, 1),
+            (psycopg.OperationalError("server closed the connection unexpectedly"), False, 1),
+            (TimeoutError(), False, 1),
+            (None, True, 0),
+        ],
+    )
+    async def test_close_releases_gauge_slot_once_and_survives_failure(self, error, conn_closed, expected_calls):
+        consumer = _make_consumer()
+        recovery_conn = _make_healthy_conn(closed=conn_closed)
+        consumer._recovery_conn = recovery_conn
+
+        with (
+            patch.object(
+                consumer._adapter, "release_queue_gauges_slot", new_callable=AsyncMock, side_effect=error
+            ) as mock_release,
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock),
+        ):
+            await consumer._close()
+
+        assert mock_release.await_count == expected_calls
+        if expected_calls:
+            mock_release.assert_awaited_once_with(recovery_conn)
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_wait_on_a_slow_gauge_slot_release(self):
+        consumer = _make_consumer()
+
+        async def hang(conn):
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(batch_consumer_module, "GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS", 0.01),
+            patch.object(consumer._adapter, "release_queue_gauges_slot", side_effect=hang),
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock) as mock_release_all,
+        ):
+            await asyncio.wait_for(consumer._close(), timeout=5.0)
+
+        mock_release_all.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_close_drains_in_flight_tasks(self):

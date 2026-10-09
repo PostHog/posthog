@@ -243,6 +243,7 @@ from .chatwoot.source import ChatwootSource
 from .checkly.source import ChecklySource
 from .checkmarx.source import CheckmarxSource
 from .checkout_com.source import CheckoutComSource
+from .chess_com.source import ChessComSource
 from .chift.source import ChiftSource
 from .chorus.source import ChorusSource
 from .churnkey.source import ChurnkeySource
@@ -1025,6 +1026,7 @@ from .retently.source import RetentlySource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource
+from .rewardful.source import RewardfulSource
 from .ringcentral.source import RingCentralSource
 from .rippling.source import RipplingSource
 from .rki_covid.source import RKICovidSource
@@ -1163,6 +1165,7 @@ from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
+from .steam.source import SteamSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
@@ -1281,6 +1284,7 @@ from .us_census.source import USCensusSource
 from .us_eia.source import UsEiaSource
 from .us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
 from .user_com.source import UserComSource
+from .userback.source import UserbackSource
 from .usersnap.source import UsersnapSource
 from .uservoice.source import UservoiceSource
 from .vanta.source import VantaSource

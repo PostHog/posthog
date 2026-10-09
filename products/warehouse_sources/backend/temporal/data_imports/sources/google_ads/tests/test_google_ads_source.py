@@ -2075,6 +2075,67 @@ class TestResourceSchemaInvariants:
         assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
         assert "segments.date" in contents["field_names"]
 
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_top_impression_metrics_use_a_compatible_resource_and_segments(self, alias):
+        # Google rejects the whole query when these metrics meet a resource or segment outside their
+        # "Selectable with" list, so every sync of the table fails.
+        contents = RESOURCE_SCHEMAS[alias]
+        if not _TOP_IMPRESSION_METRICS & set(contents["field_names"]):
+            return
+        assert contents["resource_name"] in _TOP_IMPRESSION_SELECTABLE_RESOURCES
+        segments = {field for field in contents["field_names"] if field.startswith("segments.")}
+        assert segments <= _TOP_IMPRESSION_SELECTABLE_SEGMENTS
+
+
+_TOP_IMPRESSION_METRICS = {"metrics.top_impression_percentage", "metrics.absolute_top_impression_percentage"}
+
+# The "Selectable with" list that both metrics share in the Google Ads API v25 metrics reference:
+# https://developers.google.com/google-ads/api/fields/v25/metrics#metrics.top_impression_percentage
+_TOP_IMPRESSION_SELECTABLE_RESOURCES = {
+    "ad_group",
+    "ad_group_ad",
+    "ad_group_asset",
+    "ad_group_audience_view",
+    "asset_set_asset",
+    "campaign",
+    "campaign_asset",
+    "campaign_audience_view",
+    "campaign_search_term_view",
+    "customer",
+    "customer_asset",
+    "geographic_view",
+    "keyword_view",
+    "location_interest_view",
+    "search_term_view",
+    "targeting_expansion_view",
+    "webpage_view",
+}
+_TOP_IMPRESSION_SELECTABLE_SEGMENTS = {
+    "segments.ad_network_type",
+    "segments.ad_sub_network_type",
+    "segments.asset_interaction_target.asset",
+    "segments.asset_interaction_target.interaction_on_this_asset",
+    "segments.date",
+    "segments.day_of_week",
+    "segments.device",
+    "segments.geo_target_city",
+    "segments.geo_target_country",
+    "segments.geo_target_metro",
+    "segments.geo_target_region",
+    "segments.hour",
+    "segments.keyword.ad_group_criterion",
+    "segments.keyword.info.match_type",
+    "segments.keyword.info.text",
+    "segments.match_type",
+    "segments.month",
+    "segments.quarter",
+    "segments.search_term_match_source",
+    "segments.search_term_match_type",
+    "segments.search_term_targeting_status",
+    "segments.week",
+    "segments.year",
+}
+
 
 class TestConversionActionSegmentedStats:
     @pytest.mark.parametrize(

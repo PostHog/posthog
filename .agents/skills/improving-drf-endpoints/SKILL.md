@@ -127,6 +127,8 @@ this — just register under `routers.projects` and the middleware handles the a
 For products using the facade pattern (e.g., `visual_review`) with `DataclassSerializer` wrapping frozen dataclasses from `contracts.py`:
 
 - Field types are auto-derived from the dataclass — fewer typing issues by design
+- Subclass `LabeledChoicesDataclassSerializer` from `posthog/api/dataclass_serializers.py`, not the library `DataclassSerializer`.
+  The library labels enum choices with member names, so a `LabeledStrEnum` field gets no class-derived OpenAPI name and falls back to the field name.
 - Focus on **`help_text`** (dataclass fields don't carry it; add it on the serializer field overrides)
 - **`@validated_request`** is already the standard pattern — verify response serializers are declared
 - `@extend_schema` tags and descriptions still need to be set on viewset methods

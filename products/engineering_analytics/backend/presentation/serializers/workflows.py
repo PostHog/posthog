@@ -1,6 +1,6 @@
 """Payloads for workflow/run/job-scoped reads: health, activity, jobs, costs, and master state."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
@@ -26,17 +26,16 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
-    ci_engine_field,
 )
 
 
-class WorkflowRunDetailSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
+class WorkflowRunDetailSerializer(LabeledChoicesDataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
             "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
             "id": {"help_text": "Integer run id; unique only together with ci_engine."},
@@ -80,12 +79,11 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
         }
 
 
-class WorkflowRunActivityPointSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
+class WorkflowRunActivityPointSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
@@ -106,7 +104,7 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
         }
 
 
-class WorkflowRunActivitySerializer(DataclassSerializer):
+class WorkflowRunActivitySerializer(LabeledChoicesDataclassSerializer):
     points = WorkflowRunActivityPointSerializer(
         many=True, help_text="Per-run chart points, newest first, capped at `limit`."
     )
@@ -122,12 +120,11 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
         }
 
 
-class WorkflowJobSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
+class WorkflowJobSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
             "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
@@ -161,7 +158,7 @@ class WorkflowJobSerializer(DataclassSerializer):
         }
 
 
-class WorkflowRunnerCostSerializer(DataclassSerializer):
+class WorkflowRunnerCostSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowRunnerCost
         extra_kwargs = {
@@ -176,7 +173,7 @@ class WorkflowRunnerCostSerializer(DataclassSerializer):
         }
 
 
-class WorkflowHealthBucketSerializer(DataclassSerializer):
+class WorkflowHealthBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthBucket
         extra_kwargs = {
@@ -193,8 +190,7 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
         }
 
 
-class WorkflowHealthItemSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
+class WorkflowHealthItemSerializer(LabeledChoicesDataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -203,6 +199,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
             "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
@@ -277,7 +274,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         }
 
 
-class CostPerMergeBucketSerializer(DataclassSerializer):
+class CostPerMergeBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CostPerMergeBucket
         extra_kwargs = {
@@ -299,7 +296,7 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
-class TimeToGreenBucketSerializer(DataclassSerializer):
+class TimeToGreenBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TimeToGreenBucket
         extra_kwargs = {
@@ -316,7 +313,7 @@ class TimeToGreenBucketSerializer(DataclassSerializer):
         }
 
 
-class PassRateBucketSerializer(DataclassSerializer):
+class PassRateBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PassRateBucket
         extra_kwargs = {
@@ -332,7 +329,7 @@ class PassRateBucketSerializer(DataclassSerializer):
         }
 
 
-class OpenToMergeBucketSerializer(DataclassSerializer):
+class OpenToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = OpenToMergeBucket
         extra_kwargs = {
@@ -347,7 +344,7 @@ class OpenToMergeBucketSerializer(DataclassSerializer):
         }
 
 
-class ReadyToMergeBucketSerializer(DataclassSerializer):
+class ReadyToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = ReadyToMergeBucket
         extra_kwargs = {
@@ -363,7 +360,7 @@ class ReadyToMergeBucketSerializer(DataclassSerializer):
         }
 
 
-class DeliveryStageTimingSerializer(DataclassSerializer):
+class DeliveryStageTimingSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = DeliveryStageTiming
         extra_kwargs = {
@@ -389,7 +386,7 @@ class DeliveryStageTimingSerializer(DataclassSerializer):
         }
 
 
-class DeliveryPipelineSerializer(DataclassSerializer):
+class DeliveryPipelineSerializer(LabeledChoicesDataclassSerializer):
     stages = DeliveryStageTimingSerializer(
         many=True,
         help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
@@ -407,7 +404,7 @@ class DeliveryPipelineSerializer(DataclassSerializer):
         }
 
 
-class RepoOverviewSerializer(DataclassSerializer):
+class RepoOverviewSerializer(LabeledChoicesDataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
@@ -649,7 +646,7 @@ class RepoOverviewSerializer(DataclassSerializer):
         }
 
 
-class CurrentBranchHealthSerializer(DataclassSerializer):
+class CurrentBranchHealthSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CurrentBranchHealth
         extra_kwargs = {
@@ -667,13 +664,13 @@ class CurrentBranchHealthSerializer(DataclassSerializer):
         }
 
 
-class MasterFailureGroupSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
+class MasterFailureGroupSerializer(LabeledChoicesDataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
         dataclass = MasterFailureGroup
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
                 "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
@@ -687,8 +684,7 @@ class MasterFailureGroupSerializer(DataclassSerializer):
         }
 
 
-class RunFailureLogsSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
+class RunFailureLogsSerializer(LabeledChoicesDataclassSerializer):
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )
@@ -696,6 +692,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunFailureLogs
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
                 "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "
@@ -705,7 +702,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
         }
 
 
-class WorkflowJobAggregateSerializer(DataclassSerializer):
+class WorkflowJobAggregateSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowJobAggregate
         extra_kwargs = {

@@ -198,6 +198,279 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
+
+- **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and
+  replies. Other reviewers' comments, from people and bots, are left out. Dedup still matches findings against them
+  afterwards and lists the overlaps (entry below).
+- **Why.** The prompt used to quote every comment "to understand what has already been discussed". A reviewer that
+  reads another bot's finding tends to agree with it or skip it, so Full's own judgment and its agreement both lost
+  meaning. Seeing comments and posting duplicates are separate choices: detection stays independent, and the output
+  is consolidated after it.
+- **Also.** The chunking prompt gets the same author-only comments, because its free-text chunk summary reaches every
+  review prompt. Dedup treats a PR comment anywhere in a finding's file as a possible repeat, not only one on
+  overlapping lines, because a review that never saw the comment often anchors the same problem elsewhere.
+- **Measure.** Compare `reviewhog-full-1-4` with `1-3` on findings per turn, overlaps listed per turn, and how often
+  authors act on Full's findings.
+
+### ✅ BUILT 2026-10-09 — Full lists what other reviewers already raised; Flash never reads PR comments (`reviewhog-full-1-3`)
+
+- **What.** A Full turn reads the PR's inline comments again at dedup time, skips outdated ones, and still keeps a
+  finding another comment already raises off the PR. The final status comment now lists those findings with the
+  comment they repeat ("Also found in comments already on this pull request"), and a turn with nothing new says
+  "Nothing new to raise." instead of celebrating. Flash, in both designs, never reads PR comments. The
+  `dedupe_against_pr_comments` switch from the entry below is gone: no trigger ever set it, and a flag that changed
+  Flash but not Full would have meant two things.
+- **Why.** How people run Full (Sep 25 to Oct 9, human-authored PRs): 85% of runs are a label the author adds about
+  6 minutes after opening the PR, and another review bot is active on 85% of PRs, so Full almost always has company.
+  Posting duplicates would cost authors double replies; dropping them silently hid that ReviewHog agreed. Listing
+  them keeps one thread per issue and shows the agreement. When Full is the only reviewer, nothing changes.
+- **Next.** Full's review prompt still shows every PR comment, so its reviewers can still lean on what others said.
+  Showing only the PR author's own comments is the follow-up, measured under its own version.
+
+### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
+
+- **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of
+  ReviewHog's own earlier findings. A per-trigger switch on the review input, `dedupe_against_pr_comments` (default
+  off), brings the old behavior back for a review that should add only what is not on the PR yet; the status comment
+  then counts the findings it skipped. No setting stores it. The `@posthog review` comment command is the planned way
+  to set it.
+- **Why.** A finding that repeated another bot's comment dropped silently, so the PR showed that bot's P1 next to
+  ReviewHog's "Nothing worth raising" although ReviewHog found the same issue. No vendor we checked dedups against
+  other bots' comments; each dedups only against its own earlier comments. On PostHog PRs, 16% of bot comments repeat
+  another bot's, almost all from bots running in parallel on the same commit, and no bot acknowledged another.
+- **Not chosen.** A reply in the other bot's thread (Greptile answers bot replies about half the time, which starts
+  a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
+  its chunker and dedup prompts both read PR comments, so it is a separate change.
+
+### ✅ DECIDED 2026-10-09 — resolution fix profiles as canonical skills
+
+- **What.** Two new canonical resolution-criteria skills, `review-hog-resolution-criteria-gaps` and
+  `review-hog-resolution-criteria-small`, sit next to the default `review-hog-resolution-criteria`.
+  A user picks one in the existing per-user criteria picker.
+  - **gaps** fixes real, reachable `should_fix` and `must_fix` bugs.
+    It leaves typos, nits, wording, stale docs and style to the author.
+  - **small** fixes small, contained issues, typos included.
+    It leaves a finding only when the fix needs a design choice that the code and conventions do not settle.
+  - Only the default auto-seeds active. The loader treats every name in `CANONICAL_RESOLUTION_SKILL_NAMES` as
+    visible, so a selected profile drives the run instead of falling back to the default.
+- **Why skills, not settings.** The resolution stage already applies one selected skill per user.
+  A profile changes the bar, and the bar lives in the skill text.
+  A skill needs no new setting, migration or UI control, and a team can copy a profile into a custom skill.
+- **Why a leave uses `escalate`.** `escalate` keeps the thread open, and the driver never resolves it.
+  `wont_fix` resolves the thread and hides it from the author and from an observing agent.
+  The reply opens "Left for the author:" and says what was checked and why the profile left it,
+  so an observing agent can act on it.
+- **Trial evidence.** A coarse offline trial ran the same 10 bot threads from 3 merged PRs under each profile,
+  with Opus and Sonnet at high effort, one run each, on API keys. No tests ran.
+  - The first gaps text fixed only the one `must_fix` thread and left 4 real bugs.
+    Version 2 states that a confirmed, reachable `should_fix` or `must_fix` bug is a gap.
+    With it, gaps fixes the reachable bugs and leaves the copy, docs and logging nits.
+    The two models agree on 9 of 10 threads.
+  - The first small text made Sonnet escalate contained fixes.
+    Version 2 says that several correct small fixes are not a design choice.
+    With it, Sonnet fixes those threads, and both models leave the one thread whose fix needs a design choice.
+    The two models agree on 8 of the 9 threads that ran.
+  - Both profiles cost about the same as the default criteria on the same model, or slightly less.
+  - The leave replies give code evidence and a reason.
+    One run in the first trial returned `wont_fix` for a leave, so both profiles now forbid `wont_fix` for a leave.
+- **Rejected.** A code-level skip of P2 and P3 findings before the resolution turn.
+  In the trial it matched 0 of 10 threads, because older comments carry their level as a badge or a priority line,
+  not as the `**P{n} · title**` heading. The skill rubric handles priority for now.
+- **Caveats.** Each thread and model ran once. Production runs one warm session per PR, not one session per thread.
+  Like the default, gaps still fixes one ask that the author declined on the original PR.
+  Watch the resolution outcomes per profile on the dashboard after users pick them.
+
+### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
+
+- **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+  lines from any code that changed since the head the last completed turn reviewed drops as `old_code` before dedup.
+  P0 and P1 findings still post. The two heads' PR diffs are compared by line content per file
+  (`ChangedSinceReview`), so lines that a base merge or a rebase only moved stay old. A first review, a re-run at the
+  reviewed head, a missing snapshot, or a file whose patch GitHub left out skips the check.
+- **Why.** Each follow-up turn re-reviews the whole PR, and a fresh review picks different issues out of the same
+  code, so findings on code from the first commit trickled in push after push. An offline study of 12 PRs found that
+  51% of later-turn findings sat on code unchanged since the first review (66% on PRs with three or more posting
+  turns). Authors acted on 34% of those, against 70% of first-turn findings and 73% of later findings on new code,
+  which are often bugs in the author's fixes. Performance and security findings on old code: 0 of 8 acted on.
+- **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
+  would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
+  reason to raise a level to get a finding posted.
+
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
+### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
+
+- **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
+  marker. A pipeline finding's `suggestion` joins its body with one space. The `### {title}` heading, the
+  "Should fix · category" line, the "Suggested fix" header, and the GitHub suggestion block are gone. The body's
+  "Other findings" section uses the same heading, then the file and lines, then the same paragraph, with no collapsed
+  blocks and no category.
+- **Why.** Every published finding is meant to be fixed, so a "should fix" label adds nothing, and the category does
+  not change what the author does. Coding agents read most of these comments and apply the fix from the wording, so
+  the suggestion block added length without value. `suggestion_code` stays stored on the finding for a later UI. The
+  comment stays plain text, so it reads the same in email notifications.
+- **P level.** A single-agent finding shows its own P0-P3 while that level still folds into the effective priority
+  (validator override first, as before). A validator override or a dedup survivor raised by a more severe duplicate
+  shows the mapped level instead: `must_fix` P1, `should_fix` P2, `consider` P3. Pipeline findings always map.
+- **Matching.** `find_finding_comment` accepts the whole first line as `**P{n} · {title}**` for P0-P3 or as the old
+  `### {title}`, so comments already on open PRs still match. The level is not checked, because it can change after
+  publish. The resolution stage finds ReviewHog threads by the hidden marker, and the body-only fallback copies the
+  comment text, so neither depends on the heading.
+
+### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
+
+- **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts
+  and security) in parallel, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` at medium effort). Parallel lens sessions
+  add breadth that one session misses; one prioritized list keeps comments few. Higher effort found the same
+  important issues as medium in more time, so every session runs at medium. Ships together with the 2026-10-06 entry
+  below as `reviewhog-flash-2-0` and replaces its arm, its P3 handling, and its fixed size fallback.
+- **Lens prompts.** `lens_performance_reliability.md` and `lens_contracts_security.md` are DevEx-owned copies of the two
+  pipeline perspective skills with the pipeline's review framing in front, and `lens_priority.md` follows the finding
+  format: it maps the severity guide onto P0-P3 and limits findings to issues the change causes. The text matches the
+  version the design was measured with. Skill edits do not reach the copies.
+- **Fetched files.** The design was measured with test and `.txt` files in the diff, but the PR fetch dropped both for
+  every design. A single-agent turn now fetches them (`PRFilter(review_tests_and_text=True)`), with their PR comments
+  so dedup sees the comments on every reviewed file; the pipeline keeps the old filter. Lockfiles, minified assets,
+  snapshots, `*.schema.py`, build dirs, and images stay out for both. The fetch activity therefore picks the design
+  before it fetches. A full and a Flash turn at the same head each persist their own `pr_snapshot`, tagged with the
+  design, and the review and dedup stages read only their own design's snapshot. Body build and publish still read
+  the newest snapshot at the head, so when a full turn fetches the same head after Flash, a Flash finding on a test
+  file can land in the body's "Other findings" instead of inline.
+- **Lens parts.** `plan_lens_chunks` counts reviewable lines only: everything except lockfiles, snapshots, generated
+  code, binary and image assets, and `max_migration.txt`. Markdown, JSON, tests, docs, CI config, and `tools/` count,
+  because a general reviewer cannot assume what a repository's other files are: Markdown can be the product (prompt
+  files), and `tools/` can hold real code. Up to 600 lines: one part with every file. Above: parts over the reviewable files,
+  directories kept together, at most 4, growing to about equal size past that. The plan is deterministic, recomputed
+  from the PR snapshot, and never persisted as a chunk set (`split_chunks_activity` reuses any chunk set for a head).
+  Fetch records the part count on `ReviewMeta`, and the fan-out sits behind the `flash-lens-sessions-2026-10` patch.
+- **Failures.** A failed or timed-out lens session costs only its findings; a failed main session fails the turn.
+  A lens session has its own `FLASH_LENS_SESSION_TIMEOUT` (10 minutes) as a schedule-to-close timeout, so the retry
+  falls inside the same window and a slow lens cannot hold the turn for the full sandbox timeout.
+- **Dedup and merge.** Two dedup calls run in parallel, both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna`
+  at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
+  The lens findings also dedup against the main findings as anchors, and an anchor is never removed, so a main finding
+  never loses to a lens finding. A Flash dedup sends every finding to the LLM, not only the positional colliders the
+  pipeline sends: a lens finding often states a main finding's root cause on other lines or in another file, and a
+  missed duplicate can take a real finding's slot under the cap. The positional pre-filter stays as the fallback when
+  the call fails. `compose_flash_findings`
+  then ranks the findings highest first, a reported P0 before a P1, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
+  lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A larger PR gets a few more comments because each
+  extra part covers more code.
+  It runs before anything persists, because a persisted finding that never posts counts as already raised and would
+  stay off the PR on every later turn.
+- **Survivor priority.** Dedup keeps the most complete statement of a problem, not the most severe, so a lens P1
+  that repeated a main P3 anchor dropped and the problem posted as a P3, or not at all once the cap cut it. The Flash
+  dedup output (`FlashIssueDeduplication`) now names what each duplicate repeats (`duplicate_of`), and the survivor
+  takes the highest priority of the duplicates removed in its favor, anchors and siblings alike. Prior findings carry
+  their issue key as `id` in the Flash prompt so the dedup can name them. The pipeline's dedup output is unchanged.
+  `reported_priority` stays the reviewer's own P level, so a raised finding reads `must_fix` with its original P3.
+- **Survivor rule.** The dedup can name a finding it also removes. Two lens findings that named each other both
+  dropped, and a problem both lenses raised left the review. A removal now holds only when what it names survives: a
+  kept main or lens finding, an earlier turn's finding, or a PR comment. A finding that names itself or an id its call
+  was never shown stays, and the turn logs it, because a guess at the target could drop the only statement of a
+  problem. In a loop of findings that name each other, the first in the compose order (priority, P level, main before
+  lens, session order) stays, so the choice is deterministic and matches what the cap would prefer. A removal whose target
+  also drops follows the chain, and its `dropped_finding` record and the priority raise name the final survivor. This
+  replaced the `dedup_unmatched` disposition, which recorded an unknown id as a drop.
+- **Dedup fallback.** The Flash dedup depends on one model through the LLM gateway. A non-retryable error there (the
+  gateway rejects the model, a 4xx) used to fail the turn after every review session had already run and paid. A
+  failed call now falls back to the positional pre-filter alone, right away for a non-retryable error and on the
+  activity's last attempt for a transient one: a finding on the lines of an earlier turn's finding or a PR comment
+  drops as its repeat, and findings of the turn itself all stay, because only the LLM can tell two problems on the
+  same lines apart. The turn logs the failure, marks those drops `dedup_fallback`, and reports
+  `flash_dedup_fallback` on the completed event.
+- **Cap rule.** Must-fix (P0/P1) findings always post, outside the cap, so the cap never hides a
+  finding that blocks the merge. A hard ceiling of `FLASH_MUST_FIX_CAP_MULTIPLIER` (2) times the cap still bounds
+  them, because a lens prompt maps its skill's "Must fix" onto P1 and a session that marks everything must-fix would
+  otherwise void the cap. P2 and then P3 findings fill the slots left under the cap. This reverses the earlier rule
+  that dropped every P3: a P3 posts when the turn has room for it.
+- **Publishing.** Every kept finding posts inline. `review_priorities_for` and the status comment's low-priority list
+  are removed. Both designs now publish the same way, so the publish path, its inputs, and the standalone
+  `publish_review` command no longer carry the design.
+- **Dropped findings.** Every finding that dedup or the cap drops persists as a `dropped_finding` artefact with its
+  disposition, what it repeats, its rank and the cap, so a later analysis and a judge pass can measure what each rule
+  costs. A new artefact type, not a disposition column on `issue_finding`, because every reader of `issue_finding`
+  would then need a filter, and one missed filter would post a dropped finding or let it suppress a later turn. The
+  dispositions follow the survivor each removal resolves to (see the survivor rule). Findings that scope cleaning drops
+  before dedup are not recorded. The choices are callable, so the new
+  type needs no migration.
+- **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
+  to the file list with a git command to read the changes. The command fetches the PR's merge base by its commit id
+  and diffs it against the head, which works in the sandbox's depth-1 clone; a three-dot diff against the base branch
+  fails there with no merge base, and a base branch name in a shell command is repository-controlled text. The
+  prompt renders only a full commit id. A PR past the lens part cap gets one line in the status
+  comment, because a clean turn posts no review and a note in the review body would never show. A Flash turn never
+  falls back to the pipeline for size: the lens parts cap keeps a big PR to a fixed number of sessions, and on big PRs
+  the single-agent design matched the pipeline on high-severity findings with far fewer comments. The
+  `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` switch, the 2,500-line and 40-file limits, and the `size_fallback` reason are
+  removed. The kill-switch flag still moves Flash turns to the pipeline.
+- **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
+  the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits. `reviewhog_review_completed`
+  carries the turn's finding funnel (candidates and must-fix count and share per session, after dedup, dropped per
+  disposition, kept, the cap and lens parts, reviewable lines) and session health (lens failures and timeouts, the
+  slowest session). The must-fix share per session is the early sign of priority inflation, before the must-fix
+  ceiling cuts anything. ReviewHog does not see the token counts or cost of a sandbox session, so the event carries
+  neither; cost stays on `$ai_generation`, per `ai_stage`.
+- **Known gaps.** Storage folds P0 and P1 into `must_fix`. The compose order reads `reported_priority` (on `Issue` and
+  `ReviewIssueFinding`) within a stored priority, so a lens P0 ranks above a main P1 before the must-fix ceiling. A
+  survivor that dedup raised to must-fix keeps its own reported level, so it ranks after the reported P0 and P1 findings. The cap holds per turn, so a later push can post more.
+  The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
+  measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
+  serving ReviewHog allows it before rollout; until it does, every Flash dedup runs on the positional fallback.
+
+### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
+
+- **What.** Every Flash turn runs the single-agent design (`REVIEW_DESIGN_SINGLE_AGENT`, version `reviewhog-flash-2-0`):
+  one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` at `xhigh`) gets the PR title, description, and
+  the whole numbered diff, and returns findings in one JSON answer. No chunking, perspective selection, blind-spot
+  sweep, or validator. Dedup against earlier turns and PR comments and the publish path stay.
+  `single_agent_review_activity` persists the answer as one `perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so
+  the shared dedup activity combines it; dedup then writes an accept-as-found verdict per survivor, because no
+  validator runs. Full turns are unchanged.
+- **Prompt.** Three files in `prompts/single_agent_review/`, so prompt iterations edit no code: `core.md` (the DevEx-owned
+  rubric, adapted from OpenAI's Apache-2.0 Codex review rubric with attribution, sent as the system prompt),
+  `prompt.jinja` (the PR, earlier findings, the finding format), and the generated `schema.json`.
+  No team slot: Flash v2 runs only the DevEx-owned core rubric, so every team gets the same review and no team's
+  skill edit changes its fingerprint. A prompt edit, a model pin, or a Flash limit still does.
+- **Finding format.** Title (at most 80 characters, imperative), priority P0-P3, file and line range, one body
+  paragraph that names trigger, consequence, and anchor, and an optional `suggestion_code`. Storage maps P0/P1 to
+  `must_fix`, P2 to `should_fix`, P3 to `consider`. The finding's `suggestion` is empty; `suggestion_code` posts as a
+  GitHub suggestion block only when the inline comment covers exactly the finding's range.
+- **Publishing.** P0-P2 post inline as before. P3 findings stay out of the review (`review_priorities_for`) and the
+  status comment lists them in a collapsed block.
+- **Fallback.** A Flash PR over `FLASH_SINGLE_AGENT_MAX_CHANGED_LINES` (2,500 changed lines) or
+  `FLASH_SINGLE_AGENT_MAX_FILES` (40 files), counted over the reviewable files, runs the Flash pipeline (`reviewhog-flash-1-1`).
+  The single-chunk gate (400 added lines) was too small for a one-session review.
+- **Rollback.** The `reviewhog-flash-pipeline-kill-switch` PostHog feature flag, evaluated per organization in the
+  fetch activity (never in workflow code, so a replay reads the recorded choice), moves Flash turns back to the pipeline
+  without a deploy. A flag evaluation error reads as off and keeps the single agent. `FLASH_DESIGN_DEFAULT` stays as the
+  code default. `reviewhog_review_started` carries `review_design_reason`.
+- **Decision point.** The fetch activity picks the design, so the workflow branches on a recorded activity result,
+  behind the `flash-single-agent-2026-10` patch.
+- **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
+  prompt files, the dedup prompt, the stage pins, and its arm. Events carry `review_design`
+  and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
+- **Superseded.** The arm, the P3 status-comment list, the fixed size fallback, and the republish design read changed in
+  the 2026-10-08 entry above.
+- **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
+  stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
+  accept-as-found note as the validator note. The standalone `publish_review` command reads the turn's design from its
+  findings, and outcome classification counts single-agent P3 findings as not posted.
+
 ### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
 
 - **What.** The resolution prompt (`prompts/thread_resolution/prompt.jinja`, `<reply_shape>`) fixes the reply's shape:

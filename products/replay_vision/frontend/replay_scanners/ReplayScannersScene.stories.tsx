@@ -71,7 +71,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
-        created_at: '2026-05-12T00:00:00Z',
+        // Older than the Overview's 14-day default, so its range matches the 14 days in the trend mock.
+        created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
         credits_this_month: 0,
@@ -1110,23 +1111,9 @@ export const UsageTab: StoryObj = {
 // The home page lands on the What to watch feed.
 export const HomeWatchFeed: StoryObj = {}
 
-const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
-
-// The same feed as thumbnail cards, each closing with why the recording was picked.
-export const HomeWatchFeedGrid: StoryObj = {
-    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
-    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
-    // later feed story renders as a grid too.
-    beforeEach: () => {
-        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
-        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
-    },
-}
-
-// The jev ranker arm serves the simplified card: the scan's own sentence plus a scanner chip and
-// person line, with the question and verdict behind the chip's tooltip. The first card leads with
-// the scan's notability sentence, the second falls back to the derived headline, and the filler
-// row reads muted with no finding claim.
+// The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
+// first row leads with the scan's notability sentence, the second falls back to the derived headline,
+// and the filler row reads muted with no finding claim or reason.
 export const HomeWatchFeedJevArm: StoryObj = {
     decorators: [
         mswDecorator({
@@ -1165,6 +1152,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 jev_probability: 0.91,
                                 notability_reason:
                                     'The card form rejected a valid card three times before the user abandoned the checkout.',
+                                watch_reason: 'visible_error',
                             },
                         },
                         {
@@ -1192,7 +1180,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 },
                                 viewed: true,
                             }),
-                            reason: { kind: 'jev_watchable', jev_probability: 0.48 },
+                            reason: { kind: 'jev_watchable', jev_probability: 0.48, watch_reason: 'success' },
                         },
                         {
                             observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
@@ -2115,12 +2103,29 @@ export const ObservationDetailTimeline: StoryObj = {
     },
 }
 
+// The experiment scanner's variant analysis scout, so the Variants tab offers Run now.
+const variantAnalysisScoutMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [
+            {
+                ...digestScoutConfig,
+                id: '00000000-0000-0000-0000-0000000000c9',
+                skill_name: 'signals-scout-post-exposure-friction-variant-analysis',
+                display_name: 'Post-exposure friction / variant analysis',
+                description: 'Compares what users in each experiment variant do.',
+                source_id: experimentScanner.id,
+                tags: ['replay-vision-variant-analysis'],
+            },
+        ],
+    },
+})
+
 export const ExperimentVariants: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(experimentScanner.id),
         featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
-    decorators: [variantsDecorator(variantsReadout())],
+    decorators: [variantsDecorator(variantsReadout()), variantAnalysisScoutMocks],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.
@@ -2139,6 +2144,7 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+        variantAnalysisScoutMocks,
     ],
 }
 

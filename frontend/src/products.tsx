@@ -67,7 +67,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
-    '/ai-gateway': ['AIGateway', 'aiGateway'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -108,6 +107,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/platform-alerts': ['PlatformAlerts', 'platformAlerts'],
+    '/platform-alerts/:id': ['PlatformAlert', 'platformAlert'],
     '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
@@ -522,13 +523,6 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
-    AIGateway: {
-        projectBased: true,
-        name: 'AI gateway',
-        description: 'Every major LLM through one endpoint, billed at cost \u2014 usage tracked per project.',
-        layout: 'app-container',
-        iconType: 'ai_gateway',
-    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -650,6 +644,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
         name: 'Precompute debug',
@@ -1232,7 +1228,6 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
-    aiGateway: (): string => '/ai-gateway',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
@@ -1318,6 +1313,8 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    platformAlerts: (): string => '/platform-alerts',
+    platformAlert: (id: string): string => `/platform-alerts/${id}`,
     precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
@@ -1397,6 +1394,7 @@ export const productUrls = {
     warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
         `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
     dashboards: (): string => '/dashboard',
+    dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
@@ -2182,7 +2180,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export type ProductTreePath =
-    | 'AI gateway'
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
@@ -2235,19 +2232,6 @@ export type ProductTreePath =
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    {
-        path: 'AI gateway',
-        intents: [ProductKey.AI_GATEWAY],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'ai_gateway',
-        iconType: 'ai_gateway' as FileSystemIconType,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
-        href: urls.aiGateway(),
-        flag: FEATURE_FLAGS.AI_GATEWAY,
-        tags: ['alpha'],
-        sceneKey: 'AIGateway',
-        sceneKeys: ['AIGateway'],
-    },
     {
         path: 'Apps',
         intents: [ProductKey.STREAMLIT_APPS],
