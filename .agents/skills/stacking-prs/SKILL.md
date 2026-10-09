@@ -58,6 +58,12 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Place a CI-heavy layer by how CI diffs it:
   - Most jobs pick their work from the layer's own diff against its parent, so such a layer does not make the layers above it heavy. A push to any layer below it starts its jobs again (see the duplicate-run note under "Iterate and keep in sync"). Put it low, unless it is the layer that still changes most.
   - A few steps diff against master, so they repeat on layers above the change. Trunk's impacted-targets job runs on every layer and computes affected crates when `rust/` or `proto/` differs. Backend jobs build the HogQL parser from source when `common/hogql_parser/` or `rust/hogql/parser/` differs, and Playwright jobs when `common/hogql_parser/` differs. Those builds repeat only on upper layers whose own diff starts backend or Playwright jobs. If upper layers do, put the parser change in the top layer.
+- Put every change that moves a Storybook snapshot in the top layer.
+  - Visual review needs an approval per layer, then commits the new baseline to `frontend/snapshots.yml` on that layer's branch.
+  - That bot commit moves the layer's head, so every layer above it needs a restack, and the restack runs their CI again.
+  - Before the restack, an upper layer that renders the same stories shows them as changed again, and its approval edits the same baseline entries.
+  - With the visual changes in the top layer, one approval and one bot commit cover the stack, and no layer sits above it.
+  - When visual changes must sit in several layers, finalize them bottom-up, and restack after each baseline commit.
 
 ## Publish
 
