@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import time_machine
@@ -248,6 +248,65 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY
             claim_deadline = mock_validation.call_args.kwargs["claim_deadline"]
             assert django_timezone.now() < claim_deadline < django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT
+
+    @parameterized.expand(
+        [
+            ("open_scheduled_row_is_reused", {}, True),
+            ("other_date_is_not_reused", {"prediction_date": "2026-09-10"}, False),
+            ("manual_row_is_not_reused", {"scheduled": False}, False),
+            ("finished_row_is_not_reused", {"status": AutoresearchRun.Status.FAILED}, False),
+            ("row_past_the_workflow_timeout_is_not_reused", {"age": timedelta(hours=6)}, False),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
+    def test_scheduled_retry_reuses_the_row_of_the_lost_attempt(
+        self, _name: str, row: dict[str, Any], reused: bool, mock_inference: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+        )
+        earlier = AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            scheduled=row.get("scheduled", True),
+            status=row.get("status", AutoresearchRun.Status.RUNNING),
+            started_at=django_timezone.now() - row.get("age", timedelta(minutes=10)),
+            metrics={"prediction_date": row.get("prediction_date", "2026-09-11"), "horizon_days": 30},
+        )
+        mock_inference.return_value = MagicMock(pk="run-1", rows_scored=0, status="completed", error="")
+
+        ActivityEnvironment().run(
+            activity_run_inference,
+            RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+        )
+
+        assert mock_inference.call_args.kwargs["run"] == (earlier if reused else None)
+
+    def test_load_active_pipelines_fails_inference_runs_left_running(self) -> None:
+        pipeline = self._create_pipeline()
+
+        def _running(age: timedelta) -> AutoresearchRun:
+            return AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.RUNNING,
+                started_at=django_timezone.now() - age,
+                metrics={"prediction_date": "2026-09-10", "horizon_days": 30},
+            )
+
+        lost = _running(timedelta(hours=6))
+        live = _running(timedelta(hours=1))
+
+        activity_load_active_pipelines(LoadActivePipelinesInput())
+
+        lost.refresh_from_db()
+        live.refresh_from_db()
+        assert lost.status == AutoresearchRun.Status.FAILED
+        assert lost.completed_at is not None
+        assert lost.metrics["failure_kind"] == "other"
+        assert live.status == AutoresearchRun.Status.RUNNING
 
     @parameterized.expand([("scheduled", False), ("manual", True)])
     @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")

@@ -44,16 +44,17 @@ from products.autoresearch.backend.dataset.labeling import (
     _own_events_excluded_clause,
     build_target_condition,
 )
+from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does one bounded query per model plus the labels query, and a scoring run
-# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
-# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
-STALE_RUN_AFTER = timedelta(hours=6)
+# The inference and validation workflows both end by this timeout, so a RUNNING row older than
+# this belongs to a worker that died mid-run and the exception handler never ran. Neither kind
+# may hold a date forever.
+STALE_RUN_AFTER = INFERENCE_WORKFLOW_TIMEOUT
 
 # An outcome event timestamped just before the window closes can still be in the ingestion
 # queue when the window closes. Maturity waits this long past the window end so it lands
