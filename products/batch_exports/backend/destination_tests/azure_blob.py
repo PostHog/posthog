@@ -2,7 +2,7 @@ import collections.abc
 
 from posthog.models.integration.azure_blob import strip_leading_whitespace, validate_azure_blob_connection_string
 
-from products.batch_exports.backend.presentation.views.destination_tests.base import (
+from products.batch_exports.backend.destination_tests.base import (
     DestinationTest,
     DestinationTestStep,
     DestinationTestStepResult,

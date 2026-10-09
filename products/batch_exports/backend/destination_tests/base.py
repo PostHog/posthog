@@ -1,9 +1,10 @@
 import abc
 import enum
-import dataclasses
 import collections.abc
 
 from asgiref.sync import async_to_sync
+
+from posthog.dataclasses import frozen
 
 
 class Status(enum.StrEnum):
@@ -12,10 +13,7 @@ class Status(enum.StrEnum):
     SKIPPED = "Skipped"
 
 
-DestinationTestStepResultDict = dict[str, str | None]
-
-
-@dataclasses.dataclass
+@frozen
 class DestinationTestStepResult:
     """The result of a test step.
 
@@ -27,16 +25,6 @@ class DestinationTestStepResult:
 
     status: Status
     message: str | None = None
-
-    def as_dict(self) -> DestinationTestStepResultDict:
-        """Serialize this as a dictionary."""
-        return {
-            "status": str(self.status),
-            "message": self.message,
-        }
-
-
-DestinationTestStepDict = dict[str, str | DestinationTestStepResultDict | None]
 
 
 class DestinationTestStep:
@@ -89,18 +77,6 @@ class DestinationTestStep:
             )
         return result
 
-    def as_dict(self) -> DestinationTestStepDict:
-        """Serialize this as a dictionary."""
-        base: dict[str, str | DestinationTestStepResultDict | None] = {
-            "name": self.name,
-            "description": self.description,
-        }
-        if self.result:
-            base["result"] = self.result.as_dict()
-        else:
-            base["result"] = None
-        return base
-
 
 class DestinationTest:
     """Interface representing a test executed for a particular destination.
@@ -147,7 +123,3 @@ class DestinationTest:
 
         test_step.result = step_result
         return test_step
-
-    def as_dict(self) -> dict[str, list[DestinationTestStepDict]]:
-        """Serialize this as a dictionary."""
-        return {"steps": [step.as_dict() for step in self.steps]}
