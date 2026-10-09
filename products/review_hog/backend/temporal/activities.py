@@ -42,6 +42,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
+    NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     SINGLE_AGENT_CHUNK_ID,
@@ -170,6 +171,7 @@ from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCoun
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
@@ -584,6 +586,11 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     review, its children, and every sandbox run; a failed sandbox workflow is self-describing.
     """
     return f"{activity.info().workflow_id}:{step_name}".lower()
+
+
+def _raise_if_non_retryable_unit_failure(exc: BaseException) -> None:
+    if isinstance(exc, AgentTurnFailed) and exc.category in NON_RETRYABLE_UNIT_FAILURE_CATEGORIES:
+        raise ApplicationError(str(exc), non_retryable=True, type=exc.category) from exc
 
 
 async def _refresh_status_comment(
@@ -1217,21 +1224,25 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
-        review = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
-            model_to_validate=IssuesReview,
-            step_name=step_name,
-            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
-            runtime_adapter=arm.runtime_adapter,
-            model=arm.model,
-            reasoning_effort=arm.reasoning_effort,
-            initial_permission_mode=arm.initial_permission_mode,
-        )
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=REVIEW_SYSTEM_PROMPT,
+                model_to_validate=IssuesReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
     for issue in review.issues:
@@ -1604,9 +1615,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model_to_validate=IssueValidation,
                             label=issue.id,
                         )
-                except Exception:
+                except Exception as exc:
+                    _raise_if_non_retryable_unit_failure(exc)
                     if session is None:
-                        # Session never opened (sandbox-level) — raise so Temporal retries the chunk
+                        # Session never opened (sandbox-level) — raise so Temporal retries a retryable failure
                         # and the failure floor catches a real outage, not just one bad issue.
                         raise
                     if not final_attempt:
