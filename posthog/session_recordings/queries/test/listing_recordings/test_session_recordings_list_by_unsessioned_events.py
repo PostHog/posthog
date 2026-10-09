@@ -22,6 +22,10 @@ RECORDING_END = RECORDING_START + timedelta(minutes=30)
 INSIDE_WINDOW = RECORDING_START + timedelta(minutes=10)
 ORDER_PAID = {"id": "order paid", "type": "events", "order": 0, "name": "order paid"}
 PAGEVIEW = {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"}
+ORDER_PAID_EXCLUDING_TEST_PLANS = {
+    **ORDER_PAID,
+    "properties": [{"key": "plan", "value": ["test"], "operator": "is_not", "type": "event"}],
+}
 REFUND_EXCLUDED = {"id": "order refunded", "type": "events", "order": 1, "name": "order refunded", "negation": True}
 
 
@@ -69,6 +73,15 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             ("other_session_id_on_event", True, "user-1", INSIDE_WINDOW, "other", [ORDER_PAID], False),
             ("flag_off", False, "user-1", INSIDE_WINDOW, None, [ORDER_PAID], False),
             ("exclusion_turns_match_off", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, REFUND_EXCLUDED], False),
+            (
+                "negative_property_turns_match_off",
+                True,
+                "user-1",
+                INSIDE_WINDOW,
+                None,
+                [ORDER_PAID_EXCLUDING_TEST_PLANS],
+                False,
+            ),
             ("and_with_a_sessioned_filter", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, PAGEVIEW], True),
         ]
     )
@@ -111,3 +124,15 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         flush_persons_and_events()
 
         self._assert_matches([ORDER_PAID], ["recording-of-user-1"])
+
+    def test_events_of_people_without_recordings_do_not_fill_the_row_cap(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1"])
+        busy = create_person(team=self.team, distinct_ids=["no-recording"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW)
+        for minute in range(50):
+            self._create_order_paid("no-recording", busy.uuid, RECORDING_START + timedelta(minutes=minute))
+        flush_persons_and_events()
+
+        with patch("posthog.session_recordings.queries.sub_queries.events_subquery.EVENTS_SUBQUERY_ROW_LIMIT", 1):
+            self._assert_matches([ORDER_PAID], ["recording-of-user-1"])

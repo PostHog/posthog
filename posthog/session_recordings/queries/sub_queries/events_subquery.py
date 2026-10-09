@@ -67,7 +67,6 @@ COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
 # Matches an event filter to a recording through the event's person and time when the event
 # carries no $session_id, as server-side events usually do.
 UNSESSIONED_EVENTS_FLAG = "replay-match-unsessioned-events"
-UNSESSIONED_MINUTES_PER_DISTINCT_ID_LIMIT = 1000
 EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
@@ -208,6 +207,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # Exclusions remove sessions by session id only, so a time match could keep a recording
             # that an excluded event without a session id should remove.
             or self.negated_entities
+            or self._collect_negative_properties()
             or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
         ):
             return False
@@ -218,15 +218,27 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
         """One row per distinct id and minute with matching events that carry no session id.
 
-        Grouping before the row cap keeps a flood of events from a few people from pushing other
-        people's events out of the scan. The per distinct id cap keeps the most recent minutes, which
-        bounds the join for very busy ids and gives the same rows on every run.
+        Only the distinct ids of persons with a recording in scope are read, so events from people
+        without recordings cannot fill the row cap and push a matching event out of the scan.
+        Grouping by minute keeps a flood of events from one person from doing the same.
         """
         exprs: list[ast.Expr] = [
             # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
             parse_expr("coalesce(properties.$session_id, '') = ''"),
             parse_expr("timestamp <= now()"),
             clone_expr(filter_expr),
+            parse_expr(
+                """
+                distinct_id IN (
+                    SELECT distinct_id FROM raw_person_distinct_ids
+                    WHERE person_id IN (
+                        SELECT person_id FROM raw_person_distinct_ids
+                        WHERE distinct_id IN (SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope})
+                    )
+                )
+                """,
+                placeholders={"scope": self._recording_scope()},
+            ),
         ]
         events_date_from = self._events_date_from()
         if events_date_from is not None:
@@ -249,14 +261,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=exprs),
             group_by=[ast.Field(chain=["distinct_id"]), parse_expr("toStartOfMinute(timestamp)")],
-            order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["distinct_id"]), order="ASC"),
-                ast.OrderExpr(expr=parse_expr("toStartOfMinute(timestamp)"), order="DESC"),
-            ],
-            limit_by=ast.LimitByExpr(
-                n=ast.Constant(value=UNSESSIONED_MINUTES_PER_DISTINCT_ID_LIMIT),
-                exprs=[ast.Field(chain=["distinct_id"])],
-            ),
             limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
         )
 
