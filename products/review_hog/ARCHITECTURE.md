@@ -861,8 +861,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   opt-ins stay visible without it until switched off, and settings reads without it do not query Stamphog. A flag
   service failure reads as off.
 - **`REVIEWHOG_GITHUB_BOT_LOGIN`** (`posthog/settings/access.py`) names the app's `<slug>[bot]` login per region.
-  `is_app_bot_author` trusts only that login; unset, it trusts no author in production (local development and tests
-  fall back to any `Bot`-typed author).
+  `is_app_bot_author` trusts only that login. Unset, production falls back to the PostHog GitHub App's
+  `<GITHUB_APP_SLUG>[bot]` login, because ReviewHog posts with the core integration's token. With neither set, it
+  trusts no author in production (local development and tests fall back to any `Bot`-typed author).
 
 **Customer setup path.** Nothing in ReviewHog's behavior depends on a per-deploy team id, so any project can enable it:
 

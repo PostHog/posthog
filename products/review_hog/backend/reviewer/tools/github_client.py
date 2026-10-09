@@ -16,6 +16,7 @@ import requests
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.models.instance_setting import get_instance_setting
 
 logger = logging.getLogger(__name__)
 
@@ -25,20 +26,26 @@ def is_app_bot_author(user: dict[str, Any] | None) -> bool:
 
     Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
     spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
-    human spoofers; when `REVIEWHOG_GITHUB_BOT_LOGIN` is configured (the app's `<slug>[bot]` login),
-    markers pasted by OTHER installed bots are rejected too. Unset, it fails closed in production,
-    because any installed bot would pass. Local development and tests fall back to the type check:
-    the app's own login isn't derivable from an installation token without extra API calls.
+    human spoofers, and the login check rejects markers pasted by OTHER installed bots. The login is
+    `REVIEWHOG_GITHUB_BOT_LOGIN`, else the PostHog GitHub App's `<GITHUB_APP_SLUG>[bot]`: ReviewHog posts
+    with the core GitHub integration's installation token, so both name the same identity. With neither
+    set, it fails closed in production, because any installed bot would pass. Local development and
+    tests fall back to the type check.
     """
     author = user or {}
     if author.get("type") != "Bot":
         return False
     expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
+    if not expected and not (settings.DEBUG or settings.TEST):
+        slug = get_instance_setting("GITHUB_APP_SLUG")
+        expected = f"{slug}[bot]" if slug else ""
     if expected:
-        return author.get("login") == expected
+        return str(author.get("login") or "").lower() == expected.lower()
     if settings.DEBUG or settings.TEST:
         return True
-    logger.warning("REVIEWHOG_GITHUB_BOT_LOGIN is not set; no GitHub author counts as the ReviewHog app")
+    logger.warning(
+        "Neither REVIEWHOG_GITHUB_BOT_LOGIN nor GITHUB_APP_SLUG is set; no GitHub author counts as the ReviewHog app"
+    )
     return False
 
 
