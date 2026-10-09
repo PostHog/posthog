@@ -248,6 +248,28 @@ export interface DashboardSettings {
     variables: Record<string, HogQLVariable>
 }
 
+interface DashboardPreview {
+    settings: DashboardSettings
+    tiles: Map<number, Promise<boolean>>
+}
+
+function trackPreviewTile(preview: DashboardPreview | undefined, tileId: number): (succeeded: boolean) => void {
+    let complete = (_succeeded: boolean): void => {}
+    preview?.tiles.set(tileId, new Promise<boolean>((resolve) => (complete = resolve)))
+    return complete
+}
+
+async function waitForPreview(preview: DashboardPreview): Promise<boolean> {
+    // A tile override can replace a request again while the other preview tiles finish.
+    while (true) {
+        const tiles = [...preview.tiles]
+        const results = await Promise.all(tiles.map(([, request]) => request))
+        if (tiles.every(([id, request]) => preview.tiles.get(id) === request)) {
+            return results.every(Boolean)
+        }
+    }
+}
+
 export type DashboardSettingsState = 'unsavedChanges' | 'saved'
 
 export interface DashboardEditing {
@@ -4350,8 +4372,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Cache values before the long-running await — the logic may unmount
-            const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
-            const urlVariables = settingsForRefresh.variables
+            const { currentTeamId, externalFilters, settingsForRefresh, urlFilters } = values
+            const preview: DashboardPreview | undefined = cache.dashboardPreview?.tiles.has(tile.id)
+                ? cache.dashboardPreview
+                : undefined
+            const settings = preview?.settings ?? settingsForRefresh
+            const effectiveRefreshFilters = combineDashboardFilters(settings.filters, externalFilters)
+            const urlVariables = settings.variables
+            const completePreview = trackPreviewTile(preview, tile.id)
+            let succeeded = false
             const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
             const tileController = new AbortController()
             activeTileControllers.get(tile.id)?.abort()
@@ -4417,6 +4446,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } else {
                         dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                         actions.setRefreshStatus(insight.short_id)
+                        succeeded = true
                     }
                 } else {
                     actions.setRefreshError(insight.short_id)
@@ -4426,6 +4456,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshError(insight.short_id, e)
                 }
             } finally {
+                completePreview(succeeded)
                 disposables.dispose(queryId)
             }
         },
@@ -4476,6 +4507,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 actions.abortAnyRunningQuery()
+                const preview: DashboardPreview | undefined =
+                    previewUnsavedFilters || initialUrlOverridesArePreviewed
+                        ? { settings: settingsToRefresh, tiles: new Map() }
+                        : undefined
+                cache.dashboardPreview = preview
+                const completePreviewTiles = sortedTilesToRefresh.map((tile) => trackPreviewTile(preview, tile.id))
                 const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
                 const tileControllers = sortedTilesToRefresh.map((tile) => {
                     const tileController = new AbortController()
@@ -4492,6 +4529,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tileControllers.forEach((tileController) => tileController.abort())
                         if (cache.abortController === batchController) {
                             cache.abortController = null
+                        }
+                        if (cache.dashboardPreview === preview) {
+                            cache.dashboardPreview = undefined
                         }
                     },
                     'dashboardRefresh',
@@ -4516,6 +4556,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
                     let insightRefreshStartTime: number | undefined
+                    let succeeded = false
 
                     try {
                         if (tileController.signal.aborted || disposables.isDisposed) {
@@ -4570,6 +4611,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             } else {
                                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                                 actions.setRefreshStatus(insight.short_id)
+                                succeeded = true
                                 tilesRefreshedCount++
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
@@ -4614,6 +4656,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesErroredCount++
                         }
                     } finally {
+                        completePreviewTiles[index](succeeded)
                         if (isCurrentTileRefresh()) {
                             activeTileControllers.delete(tile.id)
                         }
@@ -4622,6 +4665,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // Cooldowns release request slots so later tiles can still load cached results.
                 await Promise.all(insightRefreshPromises)
+                breakpoint()
+                const previewSucceeded = preview ? await waitForPreview(preview) : true
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
@@ -4667,13 +4712,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_aborted_count: tilesAbortedCount,
                 })
 
-                if (
-                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
-                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
-                ) {
+                if (preview && !previewSucceeded) {
                     actions.previewDashboardChangesFailure()
-                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                } else if (preview) {
                     actions.setPreviewedDashboardSettings(settingsToRefresh)
+                }
+                if (cache.dashboardPreview === preview) {
+                    cache.dashboardPreview = undefined
                 }
             }
 

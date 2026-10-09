@@ -3256,6 +3256,113 @@ describe('dashboardLogic', () => {
                 }
             )
 
+            it.each(['success', 'error', 'cancelled', 'replaced again', 'superseded preview'] as const)(
+                'keeps pending preview settings when a cooling tile replacement is %s',
+                async (outcome) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    const [tile, sibling] = logic.values.insightTiles
+                    const insight = tile.insight!
+                    const saved = { filters: { date_from: '-30d' }, variables: {} }
+                    const preview = {
+                        filters: { date_from: '-7d' },
+                        variables: { region: { variableId: 'region', code_name: 'region', value: 'preview' } },
+                    }
+                    const newerPreview = { ...preview, filters: { date_from: '-14d' } }
+                    logic.actions.setPreviewedDashboardSettings(saved)
+                    logic.actions.setDashboardSettingsDraft(preview)
+                    let finishReplacement!: () => void
+                    const replacementReady = new Promise<void>((resolve) => {
+                        finishReplacement = resolve
+                    })
+                    const cancelQuery = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined)
+                    const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                        const params = new URL(String(url), 'https://example.com').searchParams
+                        const filters = JSON.parse(params.get('filters_override') || '{}')
+                        const variables = JSON.parse(params.get('variables_override') || '{}')
+                        const override = JSON.parse(params.get('tile_filters_override') || '{}')
+                        const requestInsight = String(url).includes(`/insights/${insight.id}/`)
+                            ? insight
+                            : sibling.insight!
+                        if (requestInsight === insight) {
+                            if (!override.date_from && filters.date_from !== '-14d') {
+                                throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+                            }
+                            if (override.date_from) {
+                                await replacementReady
+                            }
+                            if (outcome === 'error') {
+                                throw new ApiError('Invalid query', 400)
+                            }
+                        }
+                        return new Response(
+                            JSON.stringify({ ...requestInsight, result: [{ filters, variables, override }] })
+                        )
+                    })
+                    jest.useFakeTimers()
+                    try {
+                        logic.actions.previewDashboardChanges()
+                        await jest.advanceTimersByTimeAsync(1)
+                        expect(logic.values.capacityRetryQueryIds[insight.short_id]).toBeTruthy()
+                        logic.actions.refreshDashboardItem({
+                            tile: { ...tile, filters_overrides: { date_from: '-3d' } },
+                        })
+                        await jest.advanceTimersByTimeAsync(1)
+                        if (outcome === 'replaced again') {
+                            logic.actions.refreshDashboardItem({
+                                tile: { ...tile, filters_overrides: { date_from: '-1d' } },
+                            })
+                            await jest.advanceTimersByTimeAsync(1)
+                        }
+                        expect(logic.values.previewedDashboardSettings).toEqual(saved)
+                        expect(logic.values.loadingPreview).toBe(true)
+                        if (outcome === 'cancelled') {
+                            logic.actions.cancelDashboardRefresh()
+                        } else if (outcome === 'superseded preview') {
+                            logic.actions.setDashboardSettingsDraft(newerPreview)
+                            logic.actions.previewDashboardChanges()
+                            await jest.advanceTimersByTimeAsync(1)
+                            expect(logic.values.previewedDashboardSettings).toEqual(newerPreview)
+                        }
+                        finishReplacement()
+                        await jest.advanceTimersByTimeAsync(0)
+
+                        const replacementCalls = getResponse.mock.calls.filter(([url]) =>
+                            new URL(String(url), 'https://example.com').searchParams.has('tile_filters_override')
+                        )
+                        expect(replacementCalls.length).toBe(outcome === 'replaced again' ? 2 : 1)
+                        for (const [url] of replacementCalls) {
+                            const params = new URL(String(url), 'https://example.com').searchParams
+                            expect(JSON.parse(params.get('filters_override')!)).toEqual(preview.filters)
+                            expect(JSON.parse(params.get('variables_override')!)).toEqual(preview.variables)
+                        }
+                        const succeeded = outcome === 'success' || outcome === 'replaced again'
+                        expect(logic.values.previewedDashboardSettings).toEqual(
+                            outcome === 'superseded preview' ? newerPreview : succeeded ? preview : saved
+                        )
+                        if (succeeded) {
+                            expect(
+                                logic.values.insightTiles.find((item) => item.id === tile.id)?.insight?.result
+                            ).toEqual([
+                                {
+                                    ...preview,
+                                    override: { date_from: outcome === 'replaced again' ? '-1d' : '-3d' },
+                                },
+                            ])
+                            expect(
+                                logic.values.insightTiles.find((item) => item.id === sibling.id)?.insight?.result
+                            ).toEqual([{ ...preview, override: {} }])
+                        }
+                    } finally {
+                        logic.actions.cancelDashboardRefresh()
+                        finishReplacement()
+                        await jest.advanceTimersByTimeAsync(0)
+                        cancelQuery.mockRestore()
+                        getResponse.mockRestore()
+                        jest.useRealTimers()
+                    }
+                }
+            )
+
             it('cancels only dispatched server queries when an in-flight batch unmounts', async () => {
                 const template = logic.values.insightTiles[0].insight!
                 const tiles = Array.from({ length: 5 }, (_, index) =>
