@@ -118,7 +118,6 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
-    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
     const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     const logic = workflowsLogic()
     const {
@@ -132,7 +131,6 @@ export function WorkflowsTable(): JSX.Element {
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
-        newNavigationEnabled &&
         guidedOnboardingEnabled &&
         filters.type === 'automation' &&
         !filters.search &&
@@ -406,25 +404,23 @@ export function WorkflowsTable(): JSX.Element {
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
                 {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
-                {newNavigationEnabled && (
-                    <div className="mb-3">
-                        <LemonSegmentedButton<WorkflowTypeFilter>
-                            size="small"
-                            value={filters.type}
-                            onChange={selectTypeTab}
-                            options={[
-                                { value: 'all', label: 'All', 'data-attr': 'workflows-type-tab-all' },
-                                { value: 'messaging', label: 'Messaging', 'data-attr': 'workflows-type-tab-messaging' },
-                                {
-                                    value: 'automation',
-                                    label: 'Automations',
-                                    'data-attr': 'workflows-type-tab-automation',
-                                },
-                                { value: 'loop', label: 'Loops', 'data-attr': 'workflows-type-tab-loop' },
-                            ]}
-                        />
-                    </div>
-                )}
+                <div className="mb-3">
+                    <LemonSegmentedButton<WorkflowTypeFilter>
+                        size="small"
+                        value={filters.type}
+                        onChange={selectTypeTab}
+                        options={[
+                            { value: 'all', label: 'All', 'data-attr': 'workflows-type-tab-all' },
+                            { value: 'messaging', label: 'Messaging', 'data-attr': 'workflows-type-tab-messaging' },
+                            {
+                                value: 'automation',
+                                label: 'Automations',
+                                'data-attr': 'workflows-type-tab-automation',
+                            },
+                            { value: 'loop', label: 'Loops', 'data-attr': 'workflows-type-tab-loop' },
+                        ]}
+                    />
+                </div>
                 <div className="flex justify-between gap-2 flex-wrap mb-4">
                     <LemonInput
                         type="search"
@@ -448,25 +444,6 @@ export function WorkflowsTable(): JSX.Element {
                             ]}
                             value={filters.status}
                         />
-                        {!newNavigationEnabled && (
-                            <>
-                                <span className="ml-1">
-                                    <b>Type</b>
-                                </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
-                                    size="small"
-                                    onChange={(value) => setFilters({ type: value as WorkflowTypeFilter })}
-                                    options={[
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Messaging', value: 'messaging' },
-                                        { label: 'Automation', value: 'automation' },
-                                        { label: 'Loop', value: 'loop' },
-                                    ]}
-                                    value={filters.type}
-                                />
-                            </>
-                        )}
                         <span className="ml-1">
                             <b>Trigger</b>
                         </span>
