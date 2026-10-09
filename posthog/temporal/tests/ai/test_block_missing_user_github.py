@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -52,23 +54,31 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert button["text"]["text"] == "Connect GitHub"
         assert button["url"].endswith(f"/project/{self.team.id}/settings/user-personal-integrations")
 
-    def _create_personal_github(self, *, usable: bool) -> None:
-        sensitive_config: dict = {"user_access_token": "at", "user_refresh_token": "rt"}
-        config: dict = {}
-        if not usable:
-            # Refresh token expired in the past — the row exists but can't mint a token.
-            config["user_refresh_token_expires_at"] = 1
-        UserIntegration.objects.create(
-            user=self.user,
-            kind="github",
-            integration_id="gh-1",
-            config=config,
-            sensitive_config=sensitive_config,
-        )
-
+    @parameterized.expand(
+        [
+            ("refreshable_token", [({}, {"user_access_token": "at", "user_refresh_token": "rt"})]),
+            ("non_expiring_token_without_refresh_token", [({}, {"user_access_token": "at"})]),
+            (
+                "stale_older_install_and_usable_newer_install",
+                [
+                    ({"user_refresh_token_expires_at": 1}, {"user_access_token": "at", "user_refresh_token": "rt"}),
+                    ({}, {"user_access_token": "at", "user_refresh_token": "rt"}),
+                ],
+            ),
+        ]
+    )
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
-    def test_returns_false_and_posts_nothing_when_user_has_usable_personal_github(self, mock_slack_cls):
-        self._create_personal_github(usable=True)
+    def test_returns_false_and_posts_nothing_when_user_has_usable_personal_github(
+        self, _name: str, rows: list[tuple[dict, dict]], mock_slack_cls: MagicMock
+    ) -> None:
+        for index, (config, sensitive_config) in enumerate(rows):
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="github",
+                integration_id=f"gh-{index}",
+                config=config,
+                sensitive_config=sensitive_config,
+            )
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
@@ -79,9 +89,23 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert blocked is False
         mock_slack.client.chat_postMessage.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "expired_refresh_token",
+                {"user_refresh_token_expires_at": 1},
+                {"user_access_token": "at", "user_refresh_token": "rt"},
+            ),
+            ("expiring_token_without_refresh_token", {"user_access_token_expires_at": 1}, {"user_access_token": "at"}),
+        ]
+    )
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
-    def test_stale_personal_github_blocks_with_reconnect_wording(self, mock_slack_cls):
-        self._create_personal_github(usable=False)
+    def test_stale_personal_github_blocks_with_reconnect_wording(
+        self, _name: str, config: dict, sensitive_config: dict, mock_slack_cls: MagicMock
+    ) -> None:
+        UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="gh-1", config=config, sensitive_config=sensitive_config
+        )
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
