@@ -9432,6 +9432,21 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-setup-plan": {
+        "description": "Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals. This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned connection link to complete authorization. Use refresh=true for an explicit rescan. If degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as approximate. Requires a project with the Marketing analytics setup plan enabled.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Suggest marketing sources and setup improvements",
+        "title": "Suggest marketing sources and setup improvements",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
         "category": "Marketing analytics",

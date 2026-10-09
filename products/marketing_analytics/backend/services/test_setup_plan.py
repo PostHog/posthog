@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -694,6 +696,15 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
             f"Detected {paid:,} {event_label} with paid attribution signals for Pinterest Ads in the last 7 days. "
             "Connect the platform to add spend data."
         )
+
+        assert connect.deep_link is not None
+        link = urlsplit(connect.deep_link)
+        assert link.path == f"/project/{self.team.pk}/data-warehouse/new-source"
+        assert parse_qs(link.query) == {
+            "kind": ["PinterestAds"],
+            "returnUrl": [f"/project/{self.team.pk}/marketing"],
+            "returnLabel": ["Marketing analytics"],
+        }
 
     @pytest.mark.asyncio
     async def test_healthy_integration_produces_nothing(self):

@@ -11,6 +11,14 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## MCP setup recommendations
+
+The read-only `marketing-analytics-setup-plan` tool returns ranked source connection recommendations with evidence, confidence, and a connection link.
+It also returns other setup improvements and supports `refresh=true` for an explicit rescan.
+Connection links include the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+Users complete platform authorization through the link; the tool does not connect accounts or apply changes.
+Incomplete or truncated scan results must be presented as such.
+
 ## Search performance
 
 Spend and conversions require a synced ad platform source in the current search filters.
