@@ -2489,6 +2489,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
                 "error_tracking_weekly_digest": True,
+                "conversations_ticket_assigned": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
@@ -2514,6 +2515,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
                 "error_tracking_weekly_digest": True,
+                "conversations_ticket_assigned": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
@@ -2787,6 +2789,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
                 "error_tracking_weekly_digest": True,  # Default value
+                "conversations_ticket_assigned": True,  # Default value
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "ai_evaluation_disabled": True,  # Default value

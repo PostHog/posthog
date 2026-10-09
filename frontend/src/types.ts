@@ -484,6 +484,7 @@ export interface NotificationSettings {
     error_tracking_issue_assigned: boolean
     error_tracking_weekly_digest: boolean
     error_tracking_weekly_digest_project_enabled?: Record<string, boolean>
+    conversations_ticket_assigned?: boolean
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean

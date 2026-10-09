@@ -19,6 +19,7 @@ enum NotificationBlock {
     MemberJoin = 'member-join',
     DataPipelineErrors = 'data-pipeline-errors',
     IssueAssigned = 'issue-assigned',
+    TicketAssigned = 'ticket-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
     DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
@@ -42,6 +43,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     plugin_disabled: true,
     error_tracking_issue_assigned: true,
     error_tracking_weekly_digest: true,
+    conversations_ticket_assigned: true,
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
@@ -482,6 +484,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Issue assigned"
                     description="Stay on top of your bugs with a notification every time an issue is assigned to you or your role"
                     dataAttr="error_tracking_issue_assigned_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.TicketAssigned]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="conversations_ticket_assigned"
+                    label="Support ticket assigned"
+                    description="Get an email every time a support ticket is assigned to you or to a role you belong to"
+                    dataAttr="conversations_ticket_assigned_enabled"
                 />
             </div>
         ),
