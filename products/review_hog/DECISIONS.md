@@ -213,6 +213,44 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
   its chunker and dedup prompts both read PR comments, so it is a separate change.
 
+### ✅ DECIDED 2026-10-09 — resolution fix profiles as canonical skills
+
+- **What.** Two new canonical resolution-criteria skills, `review-hog-resolution-criteria-gaps` and
+  `review-hog-resolution-criteria-small`, sit next to the default `review-hog-resolution-criteria`.
+  A user picks one in the existing per-user criteria picker.
+  - **gaps** fixes real, reachable `should_fix` and `must_fix` bugs.
+    It leaves typos, nits, wording, stale docs and style to the author.
+  - **small** fixes small, contained issues, typos included.
+    It leaves a finding only when the fix needs a design choice that the code and conventions do not settle.
+  - Only the default auto-seeds active. The loader treats every name in `CANONICAL_RESOLUTION_SKILL_NAMES` as
+    visible, so a selected profile drives the run instead of falling back to the default.
+- **Why skills, not settings.** The resolution stage already applies one selected skill per user.
+  A profile changes the bar, and the bar lives in the skill text.
+  A skill needs no new setting, migration or UI control, and a team can copy a profile into a custom skill.
+- **Why a leave uses `escalate`.** `escalate` keeps the thread open, and the driver never resolves it.
+  `wont_fix` resolves the thread and hides it from the author and from an observing agent.
+  The reply opens "Left for the author:" and says what was checked and why the profile left it,
+  so an observing agent can act on it.
+- **Trial evidence.** A coarse offline trial ran the same 10 bot threads from 3 merged PRs under each profile,
+  with Opus and Sonnet at high effort, one run each, on API keys. No tests ran.
+  - The first gaps text fixed only the one `must_fix` thread and left 4 real bugs.
+    Version 2 states that a confirmed, reachable `should_fix` or `must_fix` bug is a gap.
+    With it, gaps fixes the reachable bugs and leaves the copy, docs and logging nits.
+    The two models agree on 9 of 10 threads.
+  - The first small text made Sonnet escalate contained fixes.
+    Version 2 says that several correct small fixes are not a design choice.
+    With it, Sonnet fixes those threads, and both models leave the one thread whose fix needs a design choice.
+    The two models agree on 8 of the 9 threads that ran.
+  - Both profiles cost about the same as the default criteria on the same model, or slightly less.
+  - The leave replies give code evidence and a reason.
+    One run in the first trial returned `wont_fix` for a leave, so both profiles now forbid `wont_fix` for a leave.
+- **Rejected.** A code-level skip of P2 and P3 findings before the resolution turn.
+  In the trial it matched 0 of 10 threads, because older comments carry their level as a badge or a priority line,
+  not as the `**P{n} · title**` heading. The skill rubric handles priority for now.
+- **Caveats.** Each thread and model ran once. Production runs one warm session per PR, not one session per thread.
+  Like the default, gaps still fixes one ask that the author declined on the original PR.
+  Watch the resolution outcomes per profile on the dashboard after users pick them.
+
 ### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
 
 - **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
