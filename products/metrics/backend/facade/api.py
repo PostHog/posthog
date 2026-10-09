@@ -666,6 +666,15 @@ def get_dashboard_import(*, team: Team, user: User, import_id: str) -> Dashboard
     return DashboardImporter(team=team, user=user).status(import_id)
 
 
+def list_dashboard_imports(*, team: Team, user: User) -> list[DashboardImportStatus]:
+    """The user's recent imports that used an agent, newest first, with the progress of the ones that run."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).recent()
+
+
 def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:
     """Build the dashboard of an import whose agent task ended. Safe to call more than once."""
     from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path

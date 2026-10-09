@@ -61,7 +61,11 @@ export function MetricsDashboardImportModal(): JSX.Element {
                 <LemonButton type="secondary" onClick={resetImport} data-attr="metrics-dashboard-import-another">
                     Import another
                 </LemonButton>
-                <LemonButton type="primary" onClick={openImportedDashboard} data-attr="metrics-dashboard-import-open">
+                <LemonButton
+                    type="primary"
+                    onClick={() => currentImport.dashboard_id && openImportedDashboard(currentImport.dashboard_id)}
+                    data-attr="metrics-dashboard-import-open"
+                >
                     Open dashboard
                 </LemonButton>
             </>

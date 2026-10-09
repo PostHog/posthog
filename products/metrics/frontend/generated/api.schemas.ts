@@ -290,29 +290,6 @@ export const DashboardImportSourceEnumApi = {
     Screenshot: 'screenshot',
 } as const
 
-export interface DashboardImportCreateApi {
-    /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
-     *
-     * * `grafana` - Grafana
-     * * `screenshot` - Screenshot */
-    source: DashboardImportSourceEnumApi
-    /**
-     * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
-     * @maxLength 400
-     */
-    name?: string
-    /**
-     * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
-     * @maxLength 5242880
-     */
-    grafana_json?: string
-    /**
-     * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
-     * @maxLength 7340032
-     */
-    image_base64?: string
-}
-
 /**
  * * `running` - Running
  * * `completed` - Completed
@@ -409,6 +386,29 @@ export interface DashboardImportApi {
     summary: DashboardImportSummaryApi | null
     /** The outcome for each panel, when the import ended. */
     panels: DashboardImportPanelApi[]
+}
+
+export interface DashboardImportCreateApi {
+    /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
+     * @maxLength 5242880
+     */
+    grafana_json?: string
+    /**
+     * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
+     * @maxLength 7340032
+     */
+    image_base64?: string
 }
 
 /**
