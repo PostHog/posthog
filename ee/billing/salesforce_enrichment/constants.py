@@ -156,8 +156,8 @@ SALESFORCE_MOMENTUM_MAX = 99_999.99
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 
 
+# Account.Name is not mapped, because the billing customer's name is the organization's name and not the company's.
 STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
-    "billing_customer_name": "Name",
     "stripe_customer_id": "Stripe_id__c",
     "address_city": "BillingCity",
     "address_state": "BillingState",

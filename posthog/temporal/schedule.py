@@ -304,8 +304,8 @@ async def create_salesforce_usage_enrichment_schedule(client: Client):
 async def create_salesforce_stripe_enrichment_schedule(client: Client):
     """Create or update the schedule for the Salesforce stripe enrichment workflow.
 
-    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
-    names to Salesforce Accounts. The workflow is incremental via a Redis
+    Runs daily at 4 AM UTC to push Stripe customer ids and billing addresses
+    to Salesforce Accounts. The workflow is incremental via a Redis
     watermark, so a long backfill run is only expected on the first execution;
     ``SKIP`` prevents the next day's run from starting while a backfill is still
     in progress.
