@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from contextlib import nullcontext
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
@@ -125,7 +126,7 @@ class TestProcessorRamp:
         [
             ("from_zero", 0, 256, 64, [64, 128, 192, 256]),
             ("partial_last_step", 0, 150, 64, [64, 128, 150]),
-            ("resumes_from_current", 200, 512, 128, [328, 456, 512]),
+            ("holds_at_current_before_stepping", 200, 512, 128, [200, 328, 456, 512]),
             ("target_below_one_step", 0, 8, 64, [8]),
             ("scale_down_is_direct", 512, 256, 64, [256]),
         ]
@@ -135,8 +136,8 @@ class TestProcessorRamp:
 
 
 class _ScalingAppsApi:
-    def __init__(self, ready_cap: int | None = None) -> None:
-        self.replicas = {SHADOW_PROCESSOR_DEPLOYMENT: 0, SHADOW_CONSUMER_DEPLOYMENT: 0}
+    def __init__(self, ready_cap: int | None = None, processor_replicas: int = 0) -> None:
+        self.replicas = {SHADOW_PROCESSOR_DEPLOYMENT: processor_replicas, SHADOW_CONSUMER_DEPLOYMENT: 0}
         self.ready_cap = ready_cap
         self.scales: list[tuple[str, int]] = []
 
@@ -150,12 +151,32 @@ class _ScalingAppsApi:
         self.scales.append((name, self.replicas[name]))
 
 
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
 @pytest.fixture
 def scaling_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _ScalingAppsApi]:
     def install(**kwargs: int) -> _ScalingAppsApi:
         apps = _ScalingAppsApi(**kwargs)
+        clock = _FakeClock()
         monkeypatch.setattr("posthog.dags.personhog_shadow_lane.apps_api", lambda: apps)
         monkeypatch.setattr("posthog.dags.personhog_shadow_lane.pushed_metrics_registry", lambda _job: nullcontext())
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.time", clock)
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_lane.wait_for_deployments",
+            partial(wait_for_deployments, sleep=clock.sleep),
+        )
         return apps
 
     return install
@@ -175,11 +196,12 @@ def test_start_steps_processors_up_before_any_consumer(scaling_apps: Callable[..
     ]
 
 
-def test_start_leaves_consumers_down_when_processors_never_become_ready(
-    scaling_apps: Callable[..., _ScalingAppsApi],
+@pytest.mark.parametrize("processor_replicas", [0, 64], ids=["fresh_start", "retry_with_pods_still_pending"])
+def test_start_leaves_consumers_down_while_a_processor_step_is_unready(
+    scaling_apps: Callable[..., _ScalingAppsApi], processor_replicas: int
 ) -> None:
-    apps = scaling_apps(ready_cap=0)
-    config = ShadowLaneStartConfig(processor_replicas=150, consumer_replicas=4, ready_timeout_seconds=0)
+    apps = scaling_apps(ready_cap=0, processor_replicas=processor_replicas)
+    config = ShadowLaneStartConfig(processor_replicas=150, consumer_replicas=4, ready_timeout_seconds=60)
 
     with pytest.raises(dagster.Failure, match="did not reach 64 ready replicas"):
         start_shadow_lane(dagster.build_op_context(), config)

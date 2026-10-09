@@ -407,11 +407,14 @@ def _reset_consumer_offsets(
 def processor_ramp(current: int, target: int, step: int) -> list[int]:
     """Replica counts to scale the processors through, ending at target.
 
-    A scale down goes straight to target, since removing pods needs no new nodes.
+    A partly scaled deployment repeats its current count first, so a retried run waits for
+    pods still pending from the last run before it adds more. A scale down goes straight to
+    target, since removing pods needs no new nodes.
     """
     if target <= current:
         return [target]
-    return [*range(current + step, target, step), target]
+    first = current if current > 0 else step
+    return [*range(first, target, step), target]
 
 
 def _scale_and_wait(
