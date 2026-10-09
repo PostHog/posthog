@@ -133,6 +133,14 @@ pub enum Commands {
     /// Update posthog-cli to the latest version
     Update,
 
+    /// Open the PostHog TUI in this folder: a terminal command centre for your tasks and agent chats.
+    /// Runs the latest `@posthog/tui` from npm, so it needs Node.js 22.19 or newer on PATH.
+    Code {
+        /// Arguments passed through to the TUI.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Experimental commands, not quite ready for prime time
     Exp {
         #[command(subcommand)]
@@ -272,6 +280,7 @@ impl Commands {
         match self {
             Commands::Login => "login",
             Commands::Update => "update",
+            Commands::Code { .. } => "code",
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -392,6 +401,8 @@ impl Cli {
                 // Updating talks to the release bucket, never to PostHog, so
                 // requiring credentials would lock out anyone without a token.
                 | Commands::Update
+                // The TUI signs in on its own, with the desktop app's OAuth client.
+                | Commands::Code { .. }
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -414,6 +425,9 @@ impl Cli {
             }
             Commands::Update => {
                 crate::update::update()?;
+            }
+            Commands::Code { args } => {
+                api_exit_code = crate::code::code(args)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
