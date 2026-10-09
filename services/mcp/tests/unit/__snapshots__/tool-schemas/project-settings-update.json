@@ -4289,6 +4289,30 @@
                     "enum": ["off", "opt_out", "opt_in"],
                     "type": "string"
                 },
+                "marketing_frequency_cap_max_messages": {
+                    "anyOf": [
+                        {
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Most marketing messages one person can get in the window, across all workflows. Null disables the cap."
+                },
+                "marketing_frequency_cap_window_days": {
+                    "anyOf": [
+                        {
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Length of the rolling frequency cap window in days. Null disables the cap."
+                },
                 "workflow_task_rate_limit_per_day": {
                     "anyOf": [
                         {
