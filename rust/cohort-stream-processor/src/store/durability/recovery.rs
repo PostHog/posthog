@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::KafkaError;
 use tracing::{error, info, warn};
@@ -228,9 +228,14 @@ async fn restore_until_ready(
     let restore = tokio::task::spawn_blocking(move || {
         runtime.block_on(async {
             let mut rejected = HashSet::new();
+            // Every round measures the candidate windows up to the first round's start. If the
+            // windows moved, a candidate that failed could leave them between rounds, and a round
+            // that finds nothing creates the store without the history the checkpoint holds.
+            let searched_at = Utc::now();
             let mut backoff = RETRY_START;
             loop {
-                let attempt = match prepare_store(&config, lineage, &mut rejected).await {
+                let attempt = match prepare_store(&config, lineage, searched_at, &mut rejected).await
+                {
                     Ok(BootStore::Restored(pending)) => pending
                         .position_followers(&groups)
                         .map(|()| BootStore::Restored(pending))
@@ -263,14 +268,16 @@ async fn restore_until_ready(
     }
 }
 
-/// Decide where the live store comes from, and materialize it for a restore. `rejected` holds the
-/// candidates that failed validation after their download, so a later round fails them without
-/// downloading them again.
+/// Decide where the live store comes from, and materialize it for a restore. The local staleness
+/// window and the S3 listing window both end at `searched_at`. `rejected` holds the candidates that
+/// failed validation after their download, so a later round fails them without downloading them
+/// again.
 ///
 /// Blocks on file and Kafka I/O; see [`restore_until_ready`].
 async fn prepare_store(
     config: &Config,
     lineage: Option<CheckpointLineage>,
+    searched_at: DateTime<Utc>,
     rejected: &mut HashSet<Rejected>,
 ) -> Result<BootStore, RestoreBlocked> {
     let started = Instant::now();
@@ -324,8 +331,11 @@ async fn prepare_store(
     };
     let mut search = Search::default();
 
-    let local =
-        newest_fresh_local_checkpoint(&local_dir, durability.local_checkpoint_max_staleness);
+    let local = newest_fresh_local_checkpoint(
+        &local_dir,
+        durability.local_checkpoint_max_staleness,
+        searched_at,
+    );
     if let Some(attempt) = local {
         if let ControlFlow::Break(pending) = search.record(restore.local(attempt)?) {
             return Ok(prepared(BootStore::Restored(pending), "local", started));
@@ -341,6 +351,7 @@ async fn prepare_store(
         .search_s3(
             &importer,
             durability.checkpoint_import_attempt_depth,
+            searched_at,
             &mut search,
         )
         .await?
@@ -412,10 +423,11 @@ impl Restore<'_> {
         &mut self,
         importer: &CheckpointImporter,
         depth: usize,
+        searched_at: DateTime<Utc>,
         search: &mut Search,
     ) -> Result<ControlFlow<Box<PendingRestore>>, RestoreBlocked> {
         let candidates = importer
-            .candidates()
+            .candidates(searched_at)
             .await
             .map_err(RestoreBlocked::Listing)?;
         let mut tried = 0;
@@ -557,13 +569,14 @@ fn remove_dir_if_present(path: &Path) -> io::Result<()> {
 }
 
 /// The newest complete attempt under `lineage_dir` whose manifest was captured within
-/// `max_staleness`. An older one is distrusted, because the broker has likely moved past what it
-/// would replay. An attempt cut short before its `metadata.json` is passed over for the one before.
+/// `max_staleness` before `now`. An older one is distrusted, because the broker has likely moved
+/// past what it would replay. An attempt cut short before its `metadata.json` is passed over for
+/// the one before.
 fn newest_fresh_local_checkpoint(
     lineage_dir: &Path,
     max_staleness: Duration,
+    now: DateTime<Utc>,
 ) -> Option<LocalAttempt> {
-    let now = Utc::now();
     std::fs::read_dir(lineage_dir)
         .ok()?
         .flatten()
@@ -763,6 +776,7 @@ mod tests {
             prepare_store(
                 &self.config,
                 Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                Utc::now(),
                 &mut HashSet::new(),
             )
             .await
@@ -778,7 +792,10 @@ mod tests {
 
     #[async_trait]
     impl CheckpointDownloader for FakeS3 {
-        async fn list_recent_checkpoints(&self) -> anyhow::Result<Vec<String>> {
+        async fn list_recent_checkpoints(
+            &self,
+            _now: DateTime<Utc>,
+        ) -> anyhow::Result<Vec<String>> {
             Ok(self.listing.clone())
         }
 
@@ -834,7 +851,7 @@ mod tests {
 
         let outcome = boot
             .restore(&mut rejected)
-            .search_s3(&importer, 1, &mut search)
+            .search_s3(&importer, 1, Utc::now(), &mut search)
             .await
             .unwrap();
 

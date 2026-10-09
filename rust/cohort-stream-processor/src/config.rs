@@ -13,6 +13,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
+use crate::store::durability::stage::staging_path;
 use crate::store::durability::{CheckpointLineage, DurabilityConfig, NotAnOrdinalPod, PodOrdinal};
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::seed_run::RunBudget;
@@ -518,8 +519,9 @@ pub struct Config {
     #[envconfig(default = "900000")]
     pub checkpoint_s3_upload_interval_ms: u64,
 
-    /// Base directory for local checkpoints. Must be an absolute path outside `store_path`, on the
-    /// same filesystem (RocksDB refuses to checkpoint into its own directory and hard-links SSTs).
+    /// Base directory for local checkpoints. Must be an absolute path outside `store_path` and its
+    /// `<store_path>.restore` staging directory, on the same filesystem (RocksDB refuses to
+    /// checkpoint into its own directory and hard-links SSTs, and every boot deletes the stage).
     #[envconfig(default = "cohort-checkpoints")]
     pub checkpoint_local_dir: String,
 
@@ -1002,6 +1004,12 @@ impl Config {
             !checkpoints.starts_with(store) && !store.starts_with(checkpoints),
             "CHECKPOINT_LOCAL_DIR {checkpoints:?} and STORE_PATH {store:?} must not contain one \
              another: RocksDB refuses a checkpoint inside its own directory.",
+        );
+        let staging = staging_path(store);
+        ensure!(
+            !checkpoints.starts_with(&staging),
+            "CHECKPOINT_LOCAL_DIR {checkpoints:?} must not be inside {staging:?}, where a restore \
+             stages a checkpoint: every boot deletes that directory.",
         );
         self.checkpoint_lineage().context(
             "POD_NAME must end in a StatefulSet ordinal, or be unset outside Kubernetes",
@@ -2023,7 +2031,7 @@ mod tests {
         enabled().validate_startup().unwrap();
 
         type Misconfigure = fn(&mut Config);
-        let cases: [(&str, Misconfigure, &str); 7] = [
+        let cases: [(&str, Misconfigure, &str); 8] = [
             (
                 "no bucket",
                 |c| c.checkpoint_s3_bucket.clear(),
@@ -2053,6 +2061,11 @@ mod tests {
                 "a store inside the checkpoint dir",
                 |c| c.checkpoint_local_dir = "/data".to_string(),
                 "contain",
+            ),
+            (
+                "a checkpoint dir inside the restore's staging dir",
+                |c| c.checkpoint_local_dir = "/data/store.restore/checkpoints".to_string(),
+                "stages",
             ),
             (
                 "a pod name without an ordinal",
