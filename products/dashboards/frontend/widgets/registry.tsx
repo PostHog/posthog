@@ -15,6 +15,7 @@ export type DashboardWidgetTileFiltersProps = {
     canMutateErrorTrackingIssues?: boolean
 }
 import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { parseCanvasAppWidgetConfigApiError } from './canvas/canvasAppWidgetConfigValidation'
 import { parseConversationsWidgetConfigApiError } from './conversations/conversationsWidgetConfigValidation'
 import type {
     WidgetIssueMetadataContext,
@@ -50,6 +51,12 @@ const EditNotebookWidgetModal = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
         default: m.EditNotebookWidgetModal,
     }))
+)
+const CanvasAppWidget = lazyWithRetry(() =>
+    import('./canvas/CanvasAppWidget').then((m) => ({ default: m.CanvasAppWidget }))
+)
+const EditCanvasAppWidgetModal = lazyWithRetry(() =>
+    import('./canvas/EditCanvasAppWidgetModal').then((m) => ({ default: m.EditCanvasAppWidgetModal }))
 )
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
@@ -308,6 +315,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditLogsWidgetModal,
         productAccess: 'logs',
         parseConfigApiError: parseLogsWidgetConfigApiError,
+    },
+    canvas_app: {
+        Component: CanvasAppWidget,
+        // The canvas owns its whole frame; the card body adds no padding around the iframe.
+        bodyPadding: false,
+        EditModal: EditCanvasAppWidgetModal,
+        parseConfigApiError: parseCanvasAppWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

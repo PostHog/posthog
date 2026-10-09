@@ -138,12 +138,8 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
         selectedCanvas: [
             null as CanvasApi | null,
             {
-                loadSelectedCanvas: async ({ canvasId }: { canvasId: string }, breakpoint): Promise<CanvasApi> => {
-                    const canvas = await canvasesRetrieve(String(values.currentProjectId), canvasId)
-                    // A newer selection started its own request, so drop this stale response.
-                    breakpoint()
-                    return canvas
-                },
+                loadSelectedCanvas: async ({ canvasId }: { canvasId: string }): Promise<CanvasApi> =>
+                    canvasesRetrieve(String(values.currentProjectId), canvasId),
             },
         ],
     })),
@@ -158,7 +154,7 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
             }
         },
         ensureSelectedLoaded: ({ canvasId }) => {
-            if (values.selectedCanvas?.id === canvasId && !values.selectedCanvasLoading) {
+            if (values.selectedCanvas?.id === canvasId || values.selectedCanvasLoading) {
                 return
             }
             actions.loadSelectedCanvas({ canvasId })
