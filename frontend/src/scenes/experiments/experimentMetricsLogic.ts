@@ -527,19 +527,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => {
-        /**
-         * Recalculations only make sense once an experiment has launched: a draft has no results to fetch.
-         * A stopped experiment still has final results to compute and display, so it is included here — this
-         * mirrors the backend, which only rejects recalculation for drafts (`is_launched`). Gates both the
-         * latest-fetch and triggering a new run.
-         */
         const experimentIsLaunched = (): boolean => isLaunched(props.experiment)
 
-        /**
-         * Results for a launched experiment are on screen, so the review results setup task is done. Only a
-         * terminal run counts, the way the legacy loader counted a finished load. Mounted check first: a poll
-         * can outlive the page.
-         */
         const markResultsReviewed = (recalculation: RecalculationPayload): void => {
             const terminal =
                 recalculation.status === RECALCULATION_STATUSES.completed ||
@@ -549,13 +538,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             }
         }
 
-        /**
-         * some local helpers for the listeners closure
-         */
-
-        /**
-         * extracts project id and experiment id from values and props.
-         */
         const ids = (): { projectId: number; experimentId: number } | null => {
             const projectId = values.currentProjectId
             const experimentId = props.experiment.id
@@ -565,10 +547,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             return { projectId, experimentId }
         }
 
-        /**
-         * Emit the terminal analytics event for a recalc run. Reads duration_ms / poll_count off the cache
-         * fields set on trigger; both are 0 on a terminal-on-create run because no poll ever happened.
-         */
         const emitTerminalEvent = (recalculation: RecalculationPayload): void => {
             const startMs = cache.recalcStartMs ?? Date.now()
             reportExperimentMetricRecalculation(
@@ -585,10 +563,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             )
         }
 
-        /**
-         * apply per-metric results and errors by setting primary and secondary metric results and errors.
-         * Partial failures will load the metrics that succeeded, and failed metrics get a nice error view.
-         */
         const applyResults = (recalculation: RecalculationPayload): void => {
             const resultFor = resolveResultByUuid(recalculation.results)
             const errorFor = resolveErrorByUuid(recalculation)
@@ -596,14 +570,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             const alignPrimary = alignByMetricPosition(props.experiment, 'primary')
             const alignSecondary = alignByMetricPosition(props.experiment, 'secondary')
 
-            /**
-             * Merge, don't overwrite: keep whatever is already shown for a metric until its real result or
-             * error lands. A run that is still pending (or a cold_run mid-flight) carries an empty `results`
-             * list, so a plain overwrite would blank cells we already populated (e.g. timeseries cold-start
-             * placeholders), flipping them back to a loading spinner. A slot is updated only when this payload
-             * has a result OR an error for that metric; a new error clears the old result and vice versa, so a
-             * cell never shows a stale result alongside a fresh error.
-             */
             const nextResults = alignPrimary(resultFor)
             const nextSecondaryResults = alignSecondary(resultFor)
             const nextErrors = alignPrimary(errorFor)
@@ -624,6 +590,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
                     return current[i]
                 })
+
             const mergeErrors = (
                 current: (unknown | null)[],
                 nextError: MetricErrorState[],
@@ -783,13 +750,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setQueuedRerun(trigger)
                     return
                 }
-                /**
-                 * Mark the metrics that already show something (a value or an error) as recalculating, so
-                 * they keep their value and show a loading tag until the new result streams in. Cold runs
-                 * have nothing prior, so nothing to mark.
-                 */
-                // Marks that already belong to a run being polled (set by loadLatestRecalculation when it
-                // found an active run) must survive a rejected create, so keep them for the catch block.
+
                 const previousRecalculatingMetricUuids = new Set(values.recalculatingMetricUuids)
                 if (trigger !== 'cold_run') {
                     actions.setRecalculatingMetricUuids(

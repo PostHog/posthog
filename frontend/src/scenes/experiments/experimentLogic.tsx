@@ -248,10 +248,6 @@ function generateRefreshId(): string {
     })
 }
 
-/**
- * Positional uuid list for one section's results arrays: inline metrics first,
- * then shared metrics of that type, the layout experimentMetricsLogic maps results against.
- */
 export function getSectionMetricUuids(experiment: Experiment, isSecondary: boolean): (string | undefined)[] {
     const inlineMetrics = (isSecondary ? experiment.metrics_secondary : experiment.metrics) || []
     const sharedMetrics = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).filter(
@@ -1850,9 +1846,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
 
-            // A breakdown config change alters how the metric is computed, so re-run results. The run reuses
-            // the current window (metric_config_change), so this metric recomputes on its changed fingerprint
-            // while unchanged metrics load from cache.
             actions.refreshExperimentResults(true, 'metric_config_change')
         },
     })),
@@ -2114,15 +2107,10 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let caughtError = false
             try {
-                /**
-                 * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
-                 * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
-                 */
                 if (isRecalculationTrigger(triggeredBy) && values.experiment) {
                     experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(triggeredBy)
                 }
-                // Metric results come from experimentMetricsLogic (mounted by the metrics view);
-                // here we only refresh exposures, which still live in experimentLogic.
+
                 await asyncActions.loadExposures(forceRefresh)
             } catch (error) {
                 caughtError = true
@@ -2130,10 +2118,6 @@ export const experimentLogic = kea<experimentLogicType>([
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
 
-                // The exposures load above can outlive the page: navigating to another experiment
-                // unmounts this logic and detaches its reducers, so any `values` read below would
-                // throw "[KEA] Can not find path ... in the store". The remaining bookkeeping only
-                // concerns a page that's still showing, so skip it when unmounted.
                 if (experimentLogic.findMounted(props)) {
                     const primaryCount =
                         (values.experiment?.metrics?.length || 0) +
@@ -2173,9 +2157,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     const finalState: FinishedRefreshState = caughtError ? 'errored' : 'completed'
                     actions.markRefreshFinished(refreshId, finalState)
 
-                    // A warming-up experiment can show a stale "no exposures yet" snapshot on load, so fetch
-                    // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
-                    // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
                     if (refreshIfStale && !forceRefresh && !caughtError && !values.hasMinimumExposureForResults) {
                         actions.refreshExperimentResults(true, 'page_load')
                     }
@@ -2189,25 +2170,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 update_feature_flag_params: false,
             })
             const outcome = await inflightUpdateOutcome(cache)
-            // After most failures the previous experiment and its results remain valid and visible. After a
-            // conflict the loader has swapped in the server's metric lists, so the previous results no longer
-            // pair with them.
             if (outcome === 'failed') {
                 return
             }
 
-            // Metric results are positional. Once the metric list has changed, keeping the previous arrays
-            // around can briefly pair a result with the wrong metric (and gives no feedback while the
-            // updated results are computed). Clear both result stores so every metric in the updated list
-            // renders its existing per-variant loading skeleton.
             const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
             metricsLogic.actions.setPrimaryMetricsResults([])
             metricsLogic.actions.setPrimaryMetricsResultsErrors([])
             metricsLogic.actions.setSecondaryMetricsResults([])
             metricsLogic.actions.setSecondaryMetricsResultsErrors([])
 
-            // Reload results for added/edited metrics. After a conflict this edit did not save, so nothing
-            // needs a recompute and cached results are enough.
             actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateExposureCriteria: async () => {
@@ -2219,9 +2191,6 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const outcome = await inflightUpdateOutcome(cache)
             if (outcome !== 'saved') {
-                // The modal closes before the save settles. After a conflict the loader keeps the edit for
-                // review. After any other failure, put back the saved criteria, so the page does not show
-                // criteria that the server does not have.
                 if (outcome === 'failed' && values.unmodifiedExperiment) {
                     actions.setExperiment({ exposure_criteria: values.unmodifiedExperiment.exposure_criteria })
                 }
@@ -2230,23 +2199,22 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update, fromModal }) => {
-            // Settings like stats config, CUPED, and conversion-window handling change
-            // how metrics and exposures are computed, so persist then re-query.
-            // A save sends the whole stats_config object, also the keys that this user did not edit. After a conflict,
-            // a kept copy would send those stale keys over the other edit, so the controls show the server's copy.
             actions.updateExperiment({ ...update, update_feature_flag_params: false, discardOnConflict: true })
+
             if (!(await inflightUpdateSaved(cache))) {
                 return
             }
+
             if (fromModal === 'cuped') {
                 actions.closeCupedModal()
             } else if (fromModal === 'statsMethod') {
                 actions.closeStatsEngineModal()
             }
-            // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
+
             lemonToast.success(
                 values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
             )
+
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {
@@ -2688,10 +2656,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
             )
 
-            // The ordering arrays are a display hint: a removed metric's stale entry matches nothing,
-            // and a moved metric needs no entry in the target section, where it renders last. The
-            // source array is pruned on a move so readers that rank across both sections do not keep
-            // placing the metric among its old neighbours.
             const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 [sourceField]: remainingInlineMetrics,
                 update_feature_flag_params: false,
@@ -2726,10 +2690,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
 
-            // Results are positional per section, so the moved metric's result no longer lines up with the
-            // new layout. Moving a metric is metric-scoped: reuse the window so unchanged metrics stay cached.
-            // After a conflict the loader has swapped in the server's metric lists, and this edit did not save,
-            // so the run computes the server's layout and cached results are enough.
             actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateMetricBreakdown: [
@@ -2784,8 +2744,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 }
             )
-            // Re-fetch results since the variant set changed. This advances the window
-            // (experiment_config_change), so every metric recomputes. Exposures refresh too.
+
             if (values.experiment) {
                 experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
                     'experiment_config_change'
