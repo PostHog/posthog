@@ -28,7 +28,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -289,6 +289,29 @@ class ChannelAssignment(BaseModel):
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
+# The inbox renders the reason as one line under the report's evidence, so it is one sentence.
+MAX_SOURCE_SUGGESTION_REASON_LENGTH = 300
+
+
+class SourceSuggestion(BaseModel):
+    """A product the team does not use that would have given this report better evidence.
+
+    The latest suggestion wins. The report API hides it while the product is in use, so a
+    suggestion stops showing once the team turns the product on, without a second write.
+    """
+
+    product: SuggestedSourceProduct = Field(description="The product the team should turn on.")
+    reason: str = Field(
+        min_length=1,
+        max_length=MAX_SOURCE_SUGGESTION_REASON_LENGTH,
+        description=(
+            "One sentence on what this product would have shown for this report, specific to its "
+            "evidence. For example: 'Logs from the checkout service could show whether the timeout "
+            "starts at the payment provider.'"
+        ),
+    )
+
+
 # A scoring pass runs several models over one report (one served, the rest challengers), and every
 # one of them lands in a single row. The cap bounds that row, so a manifest that grew past what a
 # reader could order cannot make every report read expensive.
@@ -334,6 +357,15 @@ class RankingModelResult(BaseModel):
     scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,
         description="Outcome head name to its calibrated probability. Empty on a skipped model.",
+    )
+    # No upper bound: a lift reaches `1 / base_rate`.
+    lifts: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Outcome head name to its probability divided by the head's base rate "
+            "(`refit_classification_threshold`) from the model's metadata. Empty on a skipped model. "
+            "A head without a saved threshold has no entry."
+        ),
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -1039,9 +1071,9 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
-        description="Which path stopped the check."
-    )
+    reason: Literal[
+        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+    ] = Field(description="Which path stopped the check.")
 
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
@@ -1110,6 +1142,7 @@ StatusArtefactContent = (
     | ImplementationDecision
     | ImplementationDispatch
     | RankingScore
+    | SourceSuggestion
 )
 LogArtefactContent = (
     CodeReference
@@ -1170,6 +1203,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
     "impact_measurement_plan": ImpactMeasurementPlan,
+    "source_suggestion": SourceSuggestion,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -1216,20 +1250,26 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 
 
-def artefact_type_for(content: BaseModel) -> str:
-    """The artefact type a content model persists as (exact class match).
+def artefact_type_for_model(model: type[BaseModel]) -> str:
+    """The artefact type a content model class persists as (exact class match).
 
     Deriving the row's type from the model class makes a type/content mismatch unrepresentable.
     Raises `ArtefactContentValidationError` for models that aren't artefact content schemas.
     """
-    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(type(content))
+    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(model)
     if artefact_type is None:
-        raise ArtefactContentValidationError(f"{type(content).__name__} is not an artefact content model")
+        raise ArtefactContentValidationError(f"{model.__name__} is not an artefact content model")
     return artefact_type
+
+
+def artefact_type_for(content: BaseModel) -> str:
+    """The artefact type a content model instance persists as. See `artefact_type_for_model`."""
+    return artefact_type_for_model(type(content))
 
 
 def parse_artefact_content(artefact_type: str, content: str | dict | list) -> ArtefactContent:

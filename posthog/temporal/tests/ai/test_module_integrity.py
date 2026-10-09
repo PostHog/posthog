@@ -103,6 +103,9 @@ class TestSignalsProductModuleIntegrity:
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
+            "RunScoutTrialEvaluationWorkflow",
+            "RunScoutTrialJudgeWorkflow",
+            "RunScoutTrialComparisonWorkflow",
             "SignalsScoutCoordinatorWorkflow",
             "RunScoutSuggestionsWorkflow",
             "ScoutSuggestionsCoordinatorWorkflow",
@@ -174,7 +177,16 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
+            "evaluate_signals_scout_precheck_activity",
             "run_signals_scout_activity",
+            "load_scout_trial_evaluation_activity",
+            "dispatch_scout_trial_comparison_activity",
+            "fail_scout_trial_comparison_activity",
+            "prepare_scout_trial_comparison_evaluation_activity",
+            "finish_scout_trial_comparison_activity",
+            "judge_scout_trial_run_activity",
+            "poll_scout_trial_judge_activity",
+            "finish_scout_trial_evaluation_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",
@@ -193,11 +205,12 @@ class TestSignalsProductModuleIntegrity:
 
     def test_every_scout_coordinator_activity_is_registered(self):
         """A name list cannot catch an activity nobody added, and the worker rejects an unknown one."""
-        from products.signals.backend.temporal.agentic import scout_coordinator
+        from products.signals.backend.temporal.agentic import scout_coordinator, scout_trial_evaluation
 
         defined = {
             name
-            for name, value in vars(scout_coordinator).items()
+            for module in (scout_coordinator, scout_trial_evaluation)
+            for name, value in vars(module).items()
             if callable(value) and getattr(value, "__temporal_activity_definition", None) is not None
         }
         missing = defined - {a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES}

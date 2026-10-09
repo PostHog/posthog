@@ -94,10 +94,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     onSendPrompt: handleSendPrompt,
   });
 
-  const slackThreadUrl =
-    typeof task.latest_run?.state?.slack_thread_url === "string"
-      ? task.latest_run.state.slack_thread_url
-      : undefined;
   const canRecoverGithubTask = canControlTask(task, session?.isTaskAuthor);
   const githubRecoveryAvailable =
     githubConnectionRequired && canRecoverGithubTask;
@@ -218,7 +214,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
-              slackThreadUrl={slackThreadUrl}
             />
           </ErrorBoundary>
         </Box>

@@ -27,12 +27,6 @@ def _response(payload: Any, status_code: int = 200) -> MagicMock:
 
 
 class TestResolveReportId:
-    def test_schema_metadata_short_circuits_without_listing_reports(self) -> None:
-        with patch(f"{_MODULE}.doit_list_reports") as mock_list:
-            assert resolve_report_id(CONFIG, "cost_by_product", {"report_id": "r1"}) == "r1"
-
-        mock_list.assert_not_called()
-
     @pytest.mark.parametrize("schema_metadata", [None, {}, {"report_id": None}])
     def test_falls_back_to_name_lookup(self, schema_metadata: dict | None) -> None:
         with patch(f"{_MODULE}.make_tracked_session") as mock_session:

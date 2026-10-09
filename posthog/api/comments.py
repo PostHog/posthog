@@ -45,7 +45,7 @@ from posthog.models.comment.utils import (
     send_mention_notifications,
 )
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -199,7 +199,7 @@ def _record_task_comment_activity(
         )
 
         if comment.scope in CANVAS_COMMENT_SCOPES and comment.item_id:
-            from products.canvas.backend.comment_access import canvas_owner_id  # noqa: PLC0415
+            from products.canvas.backend.facade.access import canvas_owner_id  # noqa: PLC0415
 
             owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
 
@@ -252,7 +252,7 @@ def _mentions_allowed_for_comment_target(
     if scope in CANVAS_COMMENT_SCOPES:
         if not item_id:
             return []
-        from products.canvas.backend.comment_access import visible_canvas_user_ids
+        from products.canvas.backend.facade.access import visible_canvas_user_ids  # noqa: PLC0415
 
         visible_ids = visible_canvas_user_ids(
             team_id=team_id,
@@ -471,6 +471,7 @@ class CommentSerializer(serializers.ModelSerializer):
                 scope=target_scope,
                 item_id=target_item_id,
                 sandbox=is_sandbox_oauth_request(request),
+                sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
             ):
                 raise exceptions.PermissionDenied("You do not have access to this task comment target")
 
@@ -885,7 +886,13 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         try:
             ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
-        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+        except Ticket.DoesNotExist:
+            # The live manager hides soft-deleted tickets. Their comments are still ticket
+            # content, so a detail fetch must not keep serving them.
+            if Ticket.all_objects.filter(team_id=self.team_id, id=item_id, deleted_at__isnull=False).exists():
+                raise exceptions.NotFound()
+            return
+        except (ValueError, django_exceptions.ValidationError):
             return
         if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
             # Match the list path, where a denied ticket's comments are simply absent.
@@ -908,6 +915,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             scope=comment.scope,
             item_id=comment.item_id,
             sandbox=is_sandbox_oauth_request(self.request),
+            sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
         ):
             raise exceptions.NotFound()
 
@@ -923,6 +931,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 scope=comment.scope,
                 item_id=comment.item_id,
                 sandbox=is_sandbox_oauth_request(self.request),
+                sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
             ):
                 raise exceptions.NotFound()
         return comment
@@ -986,6 +995,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                     scope=scope,
                     item_id=item_id,
                     sandbox=is_sandbox_oauth_request(self.request),
+                    sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
                 ):
                     return queryset.none()
                 # A canvas thread belongs to the canvas, which `item_id` already selects. Its `taskId`
@@ -1215,6 +1225,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 rich_content=comment.rich_content,
                 author_name=author_name,
                 author_email=author_email,
+                workspace=integration.integration_id,
                 item_url=build_comment_item_url(comment.scope, comment.item_id),
                 item_label=comment_scope_display_name(comment.scope),
                 organization_id=self.team.organization_id,

@@ -28,6 +28,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
+import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -62,6 +63,7 @@ export interface WorkflowLogicProps {
     templateId?: string
     editTemplateId?: string
     triggerPrefill?: string
+    entrySource?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -593,6 +595,15 @@ export interface workflowLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1449,6 +1460,15 @@ export interface workflowLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2351,6 +2371,15 @@ export interface workflowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     }
@@ -2733,6 +2762,15 @@ export interface workflowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
     }
     setWorkflowActionEdges: (
@@ -3177,6 +3215,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                     template_id: props.templateId,
                                 })
                             }
+                            if (props.entrySource) {
+                                saveEntrySource(result.id, props.entrySource)
+                            }
+                            // pinned: analytics event name
+                            posthog.capture('workflow draft created', {
+                                workflow_id: result.id,
+                                entry_source: props.entrySource ?? null,
+                            })
                             return result
                         }
 
@@ -4064,6 +4110,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
+            cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -4092,6 +4139,7 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
             ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
+            cache.enablingWorkflow = false
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -4106,6 +4154,15 @@ export const workflowLogic = kea<workflowLogicType>([
             // second toast, and a second schedule write that can leave a duplicate schedule.
             const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
             const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
+
+            if (cache.enablingWorkflow && originalWorkflow.status === 'active') {
+                cache.enablingWorkflow = false
+                // pinned: analytics event name
+                posthog.capture('workflow enabled', {
+                    workflow_id: originalWorkflow.id,
+                    entry_source: loadEntrySource(originalWorkflow.id),
+                })
+            }
 
             if (!isAutoSave) {
                 // Save pending schedule changes (only on manual save)

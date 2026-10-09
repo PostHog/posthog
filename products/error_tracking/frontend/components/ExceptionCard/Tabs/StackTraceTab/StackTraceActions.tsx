@@ -5,7 +5,6 @@ import { IconCode, IconInfo, IconWrench } from '@posthog/icons'
 
 import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -15,18 +14,6 @@ import { buildExplainPrompt, buildFixPrompt } from '../../aiPrompts'
 
 export interface StackTraceActionsProps {
     issue: ErrorTrackingRelationalIssue
-}
-
-function getReleaseRepository(release?: ErrorTrackingRelease | null): string | undefined {
-    const git = release?.metadata?.git
-    if (!git) {
-        return undefined
-    }
-    if (git.repo_name) {
-        return git.repo_name
-    }
-    const parsedRemoteUrl = git.remote_url ? GitMetadataParser.parseRemoteUrl(git.remote_url) : undefined
-    return parsedRemoteUrl ? `${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}` : undefined
 }
 
 export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Element {
@@ -42,7 +29,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                     defaultAgentKey="clipboard"
                     size="sm"
                     data-attr="error-tracking-fix-with-ai"
-                    repository={getReleaseRepository(release)}
+                    repository={GitMetadataParser.getGitHubRepositorySlug(release?.metadata?.git?.remote_url)}
                     actions={[
                         {
                             key: 'fix',

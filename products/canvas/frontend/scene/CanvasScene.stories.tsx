@@ -1,10 +1,15 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect, userEvent } from 'storybook/test'
 
 import type { CanvasApi, CanvasBuildApi, CanvasVersionApi, CanvasViewResponseApi } from '../generated/api.schemas'
 
@@ -25,7 +30,11 @@ const canvas: CanvasApi = {
     current_version_id: null,
     published_build_id: null,
     component_meta: null,
-    created_by: { id: 1, uuid: 'user-uuid', email: 'someone@example.com' } as CanvasApi['created_by'],
+    created_by: {
+        id: MOCK_DEFAULT_USER.id,
+        uuid: MOCK_DEFAULT_USER.uuid,
+        email: MOCK_DEFAULT_USER.email,
+    } as CanvasApi['created_by'],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     url: `https://app.example.com/canvases/${CANVAS_ID}`,
@@ -76,7 +85,53 @@ const liveBuild: CanvasBuildApi = {
     finished_at: '2026-01-02T00:01:00Z',
 }
 
-function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
+function canvasComment(
+    id: string,
+    content: string,
+    createdAt: string,
+    itemContext: Record<string, unknown>,
+    sourceComment: string | null = null
+): Record<string, unknown> {
+    return {
+        id,
+        content,
+        rich_content: null,
+        version: 0,
+        created_at: createdAt,
+        created_by: canvas.created_by,
+        scope: 'canvas',
+        item_id: CANVAS_ID,
+        item_context: itemContext,
+        source_comment: sourceComment,
+        is_task: false,
+        completed_at: null,
+        completed_by: null,
+    }
+}
+
+const QUOTE = 'Weekly active users'
+const comments = [
+    canvasComment('comment-1', 'Can we split this by plan?', '2026-01-02T00:05:00Z', {
+        anchor: { kind: 'text', quote: QUOTE, prefix: '', suffix: '', start: 0, end: QUOTE.length },
+        canvasVersionId: 'version-2',
+        taskId: TASK_ID,
+    }),
+    canvasComment(
+        'comment-2',
+        'Yes, I will add it to the next version.',
+        '2026-01-02T00:07:00Z',
+        { taskId: TASK_ID },
+        'comment-1'
+    ),
+]
+
+const PERSONAL_SPACE = { id: SPACE_ID, name: 'me', system_role: 'personal', channel_type: 'personal' }
+
+function mocks(
+    view: CanvasViewResponseApi,
+    threadComments: Record<string, unknown>[] = [],
+    space: Record<string, unknown> = PERSONAL_SPACE
+): ReturnType<typeof mswDecorator> {
     const built = !!view.published_build
     return mswDecorator({
         get: {
@@ -86,7 +141,7 @@ function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
                 current_version_id: view.current_version_id,
                 builds: built ? [liveBuild] : [],
             },
-            '/api/projects/:team_id/task_channels/:id/': { id: SPACE_ID, name: 'me', system_role: 'personal' },
+            '/api/projects/:team_id/task_channels/:id/': space,
             '/api/projects/:team_id/canvases/:id/versions/': {
                 count: built ? versions.length : 0,
                 next: null,
@@ -94,7 +149,7 @@ function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
                 results: built ? versions : [],
             },
             '/api/projects/:team_id/canvases/:id/drafts/': [],
-            '/api/projects/:team_id/comments/': { next: null, previous: null, results: [] },
+            '/api/projects/:team_id/comments/': { next: null, previous: null, results: threadComments },
             '/api/projects/:team_id/tasks/:id/': {
                 id: TASK_ID,
                 title: 'Weekly active users',
@@ -149,6 +204,31 @@ export const Built: Story = {
     ],
 }
 
+export const BuiltPublicByTeammate: Story = {
+    decorators: [
+        mocks(
+            {
+                ...viewResponse({
+                    name: 'Weekly active users',
+                    generation_task_id: TASK_ID,
+                    current_version_id: 'version-2',
+                    published_build_id: liveBuild.id,
+                    created_by: {
+                        id: 1,
+                        uuid: 'teammate-uuid',
+                        first_name: 'Sam',
+                        email: 'sam@example.com',
+                    } as CanvasApi['created_by'],
+                }),
+                published_build: liveBuild,
+                current_version_id: 'version-2',
+            },
+            [],
+            { id: SPACE_ID, name: 'general', system_role: 'general', channel_type: 'public' }
+        ),
+    ],
+}
+
 export const BuiltWithTimeline: Story = {
     ...Built,
     parameters: { pageUrl: `${urls.canvasDetail(CANVAS_ID)}#panel=canvas-timeline` },
@@ -166,4 +246,33 @@ export const NewCanvas: Story = {
             },
         }),
     ],
+}
+
+export const BuiltWithComments: Story = {
+    decorators: [
+        mocks(
+            {
+                ...viewResponse({
+                    name: 'Weekly active users',
+                    generation_task_id: TASK_ID,
+                    current_version_id: 'version-2',
+                    published_build_id: liveBuild.id,
+                }),
+                published_build: liveBuild,
+                current_version_id: 'version-2',
+            },
+            comments
+        ),
+    ],
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            async () => {
+                const menu = canvasElement.querySelector<HTMLElement>('[data-attr="canvas-comments-menu"]')
+                expect(menu).not.toBeNull()
+                await userEvent.click(menu!)
+                expect(document.querySelector('[data-attr="canvas-comments-menu-thread"]')).not.toBeNull()
+            },
+            { timeout: 15_000 }
+        )
+    },
 }

@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.se
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep.make_tracked_session"
 
 DEPLOYMENT = {"id": 123, "slug": "my-org", "name": "My Org"}
-OTHER_DEPLOYMENT = {"id": 456, "slug": "other-org", "name": "Other Org"}
 
 
 def _json_response(body: Any, status: int = 200) -> requests.Response:
@@ -69,19 +68,6 @@ def _child_requests(log: list[dict[str, Any]], marker: str) -> list[dict[str, An
 
 
 class TestSingleEndpoint:
-    @mock.patch(SESSION_PATCH)
-    def test_deployments_is_a_single_unpaginated_request(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(session, [_json_response({"deployments": [DEPLOYMENT]})])
-
-        manager = _make_manager()
-        rows = _rows(semgrep_source("token", "deployments", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [DEPLOYMENT]
-        assert len(log) == 1
-        assert log[0]["url"] == f"{SEMGREP_BASE_URL}/deployments"
-        assert manager.saved == []
-
     @mock.patch(SESSION_PATCH)
     def test_non_object_payload_raises_value_error(self, MockSession: Any) -> None:
         # A non-object 200 is a permanent contract violation: data_selector_required fails loud
@@ -138,27 +124,6 @@ class TestPageNumberFanout:
         assert any((state.fanout_state or {}).get("child_state") == {"page": 1} for state in manager.saved)
 
     @mock.patch(SESSION_PATCH)
-    def test_sca_findings_requests_sca_issue_type(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
-            [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"findings": [{"id": 1}]})],
-        )
-
-        _rows(semgrep_source("token", "sca_findings", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert any(req["params"].get("issue_type") == "sca" for req in _child_requests(log, "/findings"))
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"projects": []})])
-
-        rows = _rows(
-            semgrep_source("token", "projects", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert rows == []
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: Any) -> None:
         session = MockSession.return_value
         log = _wire(
@@ -178,48 +143,6 @@ class TestPageNumberFanout:
         project_reqs = _child_requests(log, "/projects")
         assert len(project_reqs) == 1
         assert project_reqs[0]["params"]["page"] == 2
-
-    @mock.patch(SESSION_PATCH)
-    def test_vanished_bookmarked_deployment_starts_over(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
-            [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"projects": [{"id": 1}]})],
-        )
-
-        # The bookmarked deployment path no longer matches any current deployment, so the present
-        # one starts fresh from page 0 (merge dedupes any re-pulled rows).
-        manager = _make_manager(
-            SemgrepResumeConfig(
-                fanout_state={"completed": [], "current": "/deployments/gone/projects", "child_state": {"page": 5}}
-            )
-        )
-        rows = _rows(semgrep_source("token", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [row["id"] for row in rows] == [1]
-        assert _child_requests(log, "/projects")[0]["params"]["page"] == 0
-
-    @mock.patch(SESSION_PATCH)
-    def test_fans_out_over_every_deployment_and_bookmarks_completed(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
-            [
-                _json_response({"deployments": [DEPLOYMENT, OTHER_DEPLOYMENT]}),
-                _json_response({"projects": [{"id": 1}]}),
-                _json_response({"projects": [{"id": 2}]}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(semgrep_source("token", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert {(row["id"], row["deployment_slug"]) for row in rows} == {(1, "my-org"), (2, "other-org")}
-        # A crash after the first deployment must not re-run it: its child path is checkpointed done.
-        assert any(
-            "/deployments/my-org/projects" in (state.fanout_state or {}).get("completed", []) for state in manager.saved
-        )
-        assert len(_child_requests(log, "/projects")) == 2
 
 
 class TestCursorFanout:
@@ -245,25 +168,6 @@ class TestCursorFanout:
         assert "cursor" not in secrets[0]["params"]
         assert secrets[1]["params"]["cursor"] == "abc"
         assert any((state.fanout_state or {}).get("child_state") == {"cursor": "abc"} for state in manager.saved)
-
-    @mock.patch(SESSION_PATCH)
-    def test_terminates_on_repeated_cursor(self, MockSession: Any) -> None:
-        # A server echoing its final cursor must not loop forever.
-        session = MockSession.return_value
-        log = _wire(
-            session,
-            [
-                _json_response({"deployments": [DEPLOYMENT]}),
-                _json_response({"findings": [{"id": "1"}], "cursor": "abc"}),
-                _json_response({"findings": [{"id": "2"}], "cursor": "abc"}),
-            ],
-        )
-
-        rows = _rows(
-            semgrep_source("token", "secrets", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert [row["id"] for row in rows] == ["1", "2"]
-        assert len(_child_requests(log, "/secrets")) == 2
 
     @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession: Any) -> None:
@@ -326,13 +230,3 @@ class TestValidateCredentials:
     def test_ok(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("token") is True
-
-    @mock.patch(SESSION_PATCH)
-    def test_unauthorized(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("token") is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False

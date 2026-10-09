@@ -1,6 +1,8 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
@@ -8,11 +10,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,15 +30,23 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
-import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
+import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
+const AddInsightToDashboardModal = lazyWithRetry(() =>
+    import('./addInsightToDashboardModal/AddInsightToDashboardModal').then((m) => ({
+        default: m.AddInsightToDashboardModal,
+    }))
+)
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
 function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
@@ -105,16 +117,26 @@ function DashboardScene({
         tiles,
         itemsLoading,
         dashboardLoading,
+        dashboardStreaming,
         layoutEditMode,
         dashboardFailedToLoad,
+        internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, retryDashboardLoad, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const closeAddInsightToDashboardModal = (): void => {
+        // Mirror AddInsightToDashboardModal.handleClose, so a close during the chunk load still
+        // emits this event. 'insight dashboard modal - closed' is a frozen event name; keep both in sync.
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
@@ -162,22 +184,34 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
-            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={addInsightToDashboardModalVisible}
+                            onClose={closeAddInsightToDashboardModal}
+                            label="Loading insights"
+                        />
+                    }
+                >
+                    <AddInsightToDashboardModal />
+                </Suspense>
+            )}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
             {placement !== DashboardPlacement.Export && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
 
-            {dashboardFailedToLoad ? (
+            {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState
-                    title="There was an error loading this dashboard"
-                    onRetry={
-                        placement === DashboardPlacement.Export
-                            ? undefined
-                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    title={
+                        internetConnectionIssue
+                            ? "We couldn't connect to PostHog. Check your connection and try again."
+                            : 'There was an error loading this dashboard'
                     }
-                    retryLoading={dashboardLoading}
+                    onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}
+                    retryLoading={dashboardLoading || dashboardStreaming}
                     placement={placement}
                 />
             ) : !tiles || tiles.length === 0 ? (
@@ -188,7 +222,26 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
+                    {dashboardFailedToLoad && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={
+                                placement === DashboardPlacement.Export
+                                    ? undefined
+                                    : {
+                                          children: 'Try again',
+                                          onClick: retryDashboardLoad,
+                                          loading: dashboardLoading || dashboardStreaming,
+                                          'data-attr': 'dashboard-load-retry',
+                                      }
+                            }
+                        >
+                            This dashboard couldn't finish loading.
+                        </LemonBanner>
+                    )}
                     <DashboardRetentionBanner />
+                    <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">

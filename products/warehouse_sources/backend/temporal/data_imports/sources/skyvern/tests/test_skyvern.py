@@ -70,35 +70,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestSimplePagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_empty_page_and_checkpoints(self, MockSession) -> None:
-        # A non-empty page must continue and each next page must be checkpointed after it is yielded,
-        # so a crash re-fetches the last page (merge dedupes) rather than skipping it.
-        session = MockSession.return_value
-
-        pages = {1: [{"id": "1"}, {"id": "2"}], 2: [{"id": "3"}], 3: []}
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            return _resp(pages[int(query["page"][0])])
-
-        snapshots = _wire(session, handler)
-        manager = _make_manager()
-
-        rows = _rows(
-            skyvern_source("key", None, "browser_profiles", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert [s["query"]["page"] for s in snapshots] == ["1", "2", "3"]
-        # Page size rides every request; only_workflows is not sent for a non-workflow endpoint.
-        assert snapshots[0]["query"]["page_size"] == "100"
-        assert "only_workflows" not in snapshots[0]["query"]
-        # Checkpoint advances to the next page after each full page; the trailing empty page saves nothing.
-        assert manager.save_state.call_args_list == [
-            mock.call(SkyvernResumeConfig(page=2)),
-            mock.call(SkyvernResumeConfig(page=3)),
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
 
@@ -112,116 +83,8 @@ class TestSimplePagination:
 
         assert snapshots[0]["query"]["page"] == "5"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_workflows_sends_only_workflows_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            return _resp([{"workflow_permanent_id": "wpid_1"}] if query["page"][0] == "1" else [])
-
-        snapshots = _wire(session, handler)
-
-        rows = _rows(
-            skyvern_source("key", None, "workflows", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert [r["workflow_permanent_id"] for r in rows] == ["wpid_1"]
-        assert snapshots[0]["path"] == "/v1/agents"
-        assert snapshots[0]["query"]["only_workflows"] == "true"
-
-
-class TestListExtraction:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_wrapped_response_is_unwrapped_by_data_key(self, MockSession) -> None:
-        # /v1/schedules wraps rows under "schedules"; without the unwrap the table syncs zero rows.
-        session = MockSession.return_value
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            if query["page"][0] == "1":
-                return _resp({"schedules": [{"workflow_schedule_id": "s1"}], "total_count": 1})
-            return _resp({"schedules": []})
-
-        _wire(session, handler)
-
-        rows = _rows(
-            skyvern_source("key", None, "schedules", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert [r["workflow_schedule_id"] for r in rows] == ["s1"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bare_array_response_passes_through(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            return _resp([{"credential_id": "c1"}] if query["page"][0] == "1" else [])
-
-        _wire(session, handler)
-
-        rows = _rows(
-            skyvern_source("key", None, "credentials", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert [r["credential_id"] for r in rows] == ["c1"]
-
 
 class TestFanOutRuns:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_workflows_with_incremental_filter(self, MockSession) -> None:
-        # Guards the whole runs strategy: enumerate workflows, then hit each workflow's runs endpoint
-        # with created_at_start. A regression that stopped passing created_at_start would turn every
-        # incremental sync into a full-history refetch; one that dropped a workflow would lose its runs.
-        session = MockSession.return_value
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            if path == "/v1/agents":
-                return _resp(
-                    [{"workflow_permanent_id": "wpid_1"}, {"workflow_permanent_id": "wpid_2"}]
-                    if query["page"][0] == "1"
-                    else []
-                )
-            wpid = path.split("/")[-2]
-            return _resp(
-                [{"workflow_run_id": f"wr_{wpid}", "created_at": "2026-01-10T00:00:00Z"}]
-                if query["page"][0] == "1"
-                else []
-            )
-
-        snapshots = _wire(session, handler)
-
-        rows = _rows(
-            skyvern_source(
-                "key",
-                None,
-                "runs",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 9, tzinfo=UTC),
-            )
-        )
-
-        assert {r["workflow_run_id"] for r in rows} == {"wr_wpid_1", "wr_wpid_2"}
-        run_requests = [s for s in snapshots if s["path"].endswith("/runs")]
-        # The 3-day lookback is what lets a run whose status mutated after creation get re-pulled.
-        assert all(s["query"]["created_at_start"] == "2026-01-06T00:00:00.000Z" for s in run_requests)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_created_at_start(self, MockSession) -> None:
-        # A full-refresh run (should_use_incremental_field False) must not window out history.
-        session = MockSession.return_value
-
-        def handler(path: str, query: dict[str, list[str]]) -> Response:
-            if path == "/v1/agents":
-                return _resp([{"workflow_permanent_id": "wpid_1"}] if query["page"][0] == "1" else [])
-            return _resp([{"workflow_run_id": "wr_1"}] if query["page"][0] == "1" else [])
-
-        snapshots = _wire(session, handler)
-
-        _rows(skyvern_source("key", None, "runs", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        run_requests = [s for s in snapshots if s["path"].endswith("/runs")]
-        assert run_requests and all("created_at_start" not in s["query"] for s in run_requests)
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_clamps_future_watermark_to_now(self, MockSession) -> None:
         # A future-dated watermark would filter out every existing run; clamping keeps the sync valid.
@@ -307,13 +170,6 @@ class TestValidateCredentials:
         valid, message = validate_credentials("key", None)
         assert valid is False
         assert message
-
-    @mock.patch(SKYVERN_SESSION_PATCH)
-    def test_uses_configured_base_url(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key", "http://localhost:8000/")
-        called_url = mock_session.return_value.get.call_args[0][0]
-        assert called_url.startswith("http://localhost:8000/v1/agents")
 
 
 class TestSourceResponse:

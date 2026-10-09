@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from products.signals.backend.artefact_schemas import MAX_SOURCE_SUGGESTION_REASON_LENGTH
+from products.signals.backend.enums import SuggestedSourceProduct
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
 from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
@@ -28,6 +30,8 @@ from products.tasks.backend.facade.api import SANDBOX_REPOSITORIES_ROOT
 # The project-scan step shared by the interactive "Suggest a scout" chat (`scout_chat.py`) and the
 # headless pre-computed suggestion run (`suggestions.py`), so the two voices never drift.
 SCOUT_PROJECT_SCAN_GUIDANCE = "take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value."
+
+SUGGESTED_SOURCE_PRODUCTS = ", ".join(f"`{product.value}`" for product in SuggestedSourceProduct)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -78,6 +82,8 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "MAX_SOURCE_SUGGESTION_REASON_LENGTH": MAX_SOURCE_SUGGESTION_REASON_LENGTH,
+    "SUGGESTED_SOURCE_PRODUCTS": SUGGESTED_SOURCE_PRODUCTS,
     "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
     "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
@@ -298,6 +304,10 @@ If the `scout_fleet` roster shows `signals-scout-inbox-validation` running here 
 _FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured. Cancel a check you wrote in error with `scout-report-check-cancel`, before its first run.
 """
 
+_FOLLOWUP_CHECKS_PRIVATE = """- **Report follow-up checks are limited in this private trial.** You cannot create or cancel checks, or record check results. Reports emitted in this trial have no supported follow-up check list. You may read existing checks on live reports. Keep planned follow-up in your private scratchpad.
+- **Typed report links are unavailable in this private trial.** Omit the `links` field from report writes. A nonempty list invalidates this comparison.
+"""
+
 _FOLLOWUP_RESURFACE_SIGNAL = (
     "emit a fresh finding via `scout-emit-signal` that cites the original finding id and leads with "
     "the numbers (baseline, expected change, what you measured instead)."
@@ -327,7 +337,9 @@ _FOLLOWUP_RESURFACE_EDIT_ONLY = (
 )
 
 
-def _self_validation_followups_section(*, report_channel: bool, can_emit_report: bool, can_edit_report: bool) -> str:
+def _self_validation_followups_section(
+    *, report_channel: bool, can_emit_report: bool, can_edit_report: bool, is_private_trial: bool
+) -> str:
     """Compose the self-validation follow-ups section with the clauses matched to the tools the scout
     actually holds — an emit-only scout is never pointed at `scout-edit-report` and vice versa, and
     only a scout holding `edit_report` is pointed at a report check, because the check endpoints fail
@@ -340,10 +352,13 @@ def _self_validation_followups_section(*, report_channel: bool, can_emit_report:
         clause = _FOLLOWUP_RESURFACE_EMIT
     else:
         clause = _FOLLOWUP_RESURFACE_EDIT_ONLY
-    return _SELF_VALIDATION_FOLLOWUPS_TEMPLATE.format(
-        resurface_clause=clause,
-        check_clause=_FOLLOWUP_CHECK_ON_REPORT if report_channel and can_edit_report else "",
-    )
+    check_clause = ""
+    if report_channel:
+        if is_private_trial:
+            check_clause = _FOLLOWUP_CHECKS_PRIVATE
+        elif can_edit_report:
+            check_clause = _FOLLOWUP_CHECK_ON_REPORT
+    return _SELF_VALIDATION_FOLLOWUPS_TEMPLATE.format(resurface_clause=clause, check_clause=check_clause)
 
 
 _RECENCY_LENS = """# Recency lens
@@ -712,6 +727,14 @@ Optional, and worth it only when you can name a prompt worth an agent run. Write
 ]
 ```"""
 
+_REPORT_SOURCE_SUGGESTION = f"""# Suggesting a product to turn on
+
+When a report would have had better evidence from a product this project does not use, record that on the report. After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {{"product": ..., "reason": ...}}`. `product` is one of {SUGGESTED_SOURCE_PRODUCTS}. The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
+
+- **Only for a gap you hit this run.** Suggest a product when it would have answered a question you could not answer, for example the backend logs around an error you saw in a replay. Confirm first that the project does not use it: a `not-in-use:` memory, or a probe that came back empty.
+- **`reason` is one sentence about this report, at most {MAX_SOURCE_SUGGESTION_REASON_LENGTH} characters.** Name what the product would have shown: "Logs from the checkout service could show whether the timeout starts at the payment provider." A generic pitch for the product does not help the reader.
+- **One per report.** A newer suggestion replaces the older one."""
+
 # Heading kept bare so the *Writing the summary* cross-references in the close-out step and the
 # edit-only guidance name it exactly; the surface it describes is the section's first sentence.
 _WRITING_SUMMARY = f"""# Writing the summary
@@ -838,6 +861,7 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
     "warehouse_view:write": "data warehouse views",
     "warehouse_table:write": "data warehouse tables",
     "replay_scanner:write": "replay vision scanners",
+    "hog_flow_proposal:write": "suggested changes to workflows, which a person approves or rejects",
 }
 
 
@@ -871,7 +895,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant whose objects spend money as they run, and the only one whose delete the API
     # refuses rather than the token.
     scanner_reach = (
-        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-get` and `vision-scanners-estimate` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
+        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-get` and `vision-scanners-estimate` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
         if "replay_scanner:write" in write_scopes
         else ""
     )
@@ -1049,6 +1073,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -1061,6 +1086,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -1072,6 +1098,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     return [
         how_a_run_works,
@@ -1267,6 +1294,7 @@ def build_run_prompt(
     run_note: str | None = None,
     repositories: Sequence[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    is_private_trial: bool = False,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -1356,7 +1384,10 @@ def build_run_prompt(
     # the per-tool booleans above refine which report guidance/tool references the prompt may name.
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     followup_section = _self_validation_followups_section(
-        report_channel=report_channel, can_emit_report=can_emit_report, can_edit_report=can_edit_report
+        report_channel=report_channel,
+        can_emit_report=can_emit_report,
+        can_edit_report=can_edit_report,
+        is_private_trial=is_private_trial,
     )
     structured_output_section = _structured_output_section(structured_output_schema)
     write_access_section = _write_access_section(write_scopes or [])
@@ -1395,12 +1426,13 @@ def build_run_prompt(
     # signal-channel scout has no reviewers field — member names/emails are PII that shouldn't
     # flow into a prompt with no feature path to use them.
     authors_line = _skill_authors_line(skill.authors) if report_channel else ""
+    check_tools_suffix = "" if is_private_trial else " and the report-check tools"
     run_identity = f"""# Your run identity
 
 - **team_id**: `{team_id}`, implicit on every MCP call.
 - **skill_name**: `{skill.name}`, your steering layer.
 - **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
-- **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}` and the report-check tools.
+- **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}`{check_tools_suffix}.
 - **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now"."""
     # Everything above this block is identical across runs of the same channel, so both runtimes'
     # prefix caches can reuse it. Every per-team and per-run interpolation belongs here, per-team

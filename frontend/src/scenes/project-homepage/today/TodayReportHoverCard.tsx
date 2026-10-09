@@ -1,9 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconLeave, IconPullRequest } from '@posthog/icons'
 import {
     Badge,
+    Button,
     Item,
     ItemActions,
     ItemContent,
@@ -22,16 +23,18 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 
-import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/components/cards/ReportCardImpactMetric'
 import { reportChartGraphQuery } from 'products/signals/frontend/inbox/utils/reportChartQuery'
 import {
     asReportMetricAggregateQuery,
     asReportMetricSeriesQuery,
     reportMetricRowParts,
+    selectReportCardImpactMetric,
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
-import { todayLogic } from './todayLogic'
+import { itemStateLabel } from './todayBriefingItems'
+import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { isSampleReportId } from './todaySampleReports'
 
 // The charts load on the first hover: the card sits in the app shell, and the query and chart code
 // they need must stay out of the bundle every page loads.
@@ -53,12 +56,32 @@ const LISTED_METRIC_COUNT = 2
  */
 export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { card } = preview
-    const { reportPreviewed } = useActions(todayLogic)
+    const { reportStateOverrides } = useValues(todayLogic)
+    const { reportPreviewed, requestReportVerdict, leaveReportReview } = useActions(todayLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
     }, [card.key, preview.surface, reportPreviewed])
 
+    // Read live, not from the card: the card stays open after a click, and keeps the payload it opened with.
+    const override = card.reportId ? reportStateOverrides[card.reportId] : undefined
+    const stateLabel = override ? itemStateLabel({ state: override }) : card.stateLabel
+    const resolved = override ? override === 'done' : card.resolved
+    const { reportId } = card
+    const giveVerdict = (verdict: TodayReportVerdict): void => {
+        if (reportId) {
+            requestReportVerdict(
+                {
+                    reportId,
+                    title: card.title,
+                    hasOpenPullRequest: card.pullRequestState === 'open' || card.pullRequestState === 'draft',
+                },
+                verdict,
+                preview.surface
+            )
+        }
+    }
+    const isSample = !!reportId && isSampleReportId(reportId)
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -85,19 +108,27 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
 
     return (
         <div className="flex flex-col" data-attr="today-report-hover-card">
-            {/* `flex-nowrap` keeps the state badge beside a long title. */}
-            <Item size="xs" className="flex-nowrap items-start">
+            <Item size="xs" className="items-start">
                 <ItemContent className="min-w-0 gap-0.5">
-                    {/* `wrap-anywhere`: the title sizes to its content, so a long title would widen the card. */}
-                    <ItemTitle className="wrap-anywhere">
-                        <span className="min-w-0 font-semibold">{card.title}</span>
-                    </ItemTitle>
+                    {/* The badge shares a row with the title alone, so it narrows the title and not the
+                        line below, which has to stay on one line. */}
+                    <div className="flex items-start justify-between gap-2">
+                        {/* `wrap-anywhere`: the title sizes to its content, so a long title would widen the card. */}
+                        <ItemTitle className="min-w-0 wrap-anywhere">
+                            <span className="min-w-0 font-semibold">{card.title}</span>
+                        </ItemTitle>
+                        {stateLabel && (
+                            <ItemActions className="shrink-0">
+                                <Badge variant={resolved ? 'completed' : 'default'}>{stateLabel}</Badge>
+                            </ItemActions>
+                        )}
+                    </div>
+                    {/* The lead gives up room to the mark, which is short and must stay whole. */}
                     {(lead || card.pullRequestUrl) && (
-                        <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
-                            {lead && <span>{lead}</span>}
+                        <ItemDescription className="flex flex-nowrap items-center gap-x-2">
+                            {lead && <span className="truncate">{lead}</span>}
                             {card.pullRequestUrl && (
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                    {lead && <span aria-hidden>·</span>}
+                                <span className="flex shrink-0 items-center gap-1.5">
                                     <LinkPrimitive
                                         to={card.pullRequestUrl}
                                         target="_blank"
@@ -119,11 +150,6 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                         </ItemDescription>
                     )}
                 </ItemContent>
-                {card.stateLabel && (
-                    <ItemActions className="self-start">
-                        <Badge variant={card.resolved ? 'completed' : 'default'}>{card.stateLabel}</Badge>
-                    </ItemActions>
-                )}
             </Item>
             {card.summary && (
                 // Its own row, so the summary uses the full card width, not the column beside the state badge.
@@ -207,6 +233,48 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     </Text>
                 )}
             </div>
+            {reportId && !stateLabel && (
+                <>
+                    <ItemSeparator className="my-0" />
+                    <div className="flex flex-wrap justify-between gap-1.5 px-3 py-2">
+                        <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={isSample}
+                            onClick={() => giveVerdict('resolve')}
+                            data-attr="today-report-hover-card-resolve"
+                        >
+                            <IconCheckCircle />
+                            Resolve
+                        </Button>
+                        {/* The click gives the report a state label, which takes this whole row off the
+                            card, so the request cannot be sent twice and needs no in-flight state. */}
+                        {card.canLeaveReview && (
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={isSample}
+                                title="Remove yourself from this report’s reviewers"
+                                onClick={() => leaveReportReview(reportId, preview.surface)}
+                                data-attr="today-report-hover-card-leave-review"
+                            >
+                                <IconLeave />
+                                Not me
+                            </Button>
+                        )}
+                        <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={isSample}
+                            onClick={() => giveVerdict('dismiss')}
+                            data-attr="today-report-hover-card-dismiss"
+                        >
+                            <IconHide />
+                            Dismiss
+                        </Button>
+                    </div>
+                </>
+            )}
         </div>
     )
 }

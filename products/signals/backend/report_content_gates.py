@@ -1,4 +1,4 @@
-"""Organization-level rollout gates for agent-authored report content.
+"""Organization-level rollout gates for report content and lifecycle.
 
 The checks live in their own module because they need `Team` and the flag client.
 Report models and Temporal payloads import `report_metrics.py` during process setup,
@@ -20,17 +20,17 @@ from posthog.ph_client import feature_enabled_or_false
 logger = structlog.get_logger(__name__)
 
 REPORT_METRICS_FLAG = "signals-report-metrics"
-EXPECTED_IMPACT_AUTHORING_FLAG = "signals-expected-impact-authoring"
+REPORT_MONITORING_FLAG = "signals-report-monitoring"
 
 
-def _organization_flag_enabled(flag: str, organization_id: UUID) -> bool:
+def _organization_flag_enabled(flag: str, organization_id: UUID, *, enable_in_debug: bool = True) -> bool:
     """Read one organization-keyed rollout flag.
 
-    The flag is evaluated for every call so a flip takes effect immediately, and is on in DEBUG for
-    local coverage. It fails closed, because a flag-service error must not add content to the reports
-    of an organization that is not opted in.
+    The flag is evaluated for every call so a flip takes effect immediately. Content flags are on
+    in DEBUG for local coverage; lifecycle flags can require explicit enablement. It fails closed,
+    because a flag-service error must not add content to reports of an organization that is not opted in.
     """
-    if settings.DEBUG:
+    if settings.DEBUG and enable_in_debug:
         return True
     try:
         return feature_enabled_or_false(
@@ -47,10 +47,10 @@ def _organization_flag_enabled(flag: str, organization_id: UUID) -> bool:
         return False
 
 
-def _team_flag_enabled(flag: str, team_id: int) -> bool:
+def _team_flag_enabled(flag: str, team_id: int, *, enable_in_debug: bool = True) -> bool:
     """The `team_id` adapter for callers that hold an id instead of a `Team`, such as a Temporal
     activity input. Fails closed, so a team that cannot be read gets no report content."""
-    if settings.DEBUG:
+    if settings.DEBUG and enable_in_debug:
         return True
     try:
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
@@ -59,7 +59,7 @@ def _team_flag_enabled(flag: str, team_id: int) -> bool:
             "signals report content flag check could not resolve the team", flag=flag, team_id=team_id, exc_info=True
         )
         return False
-    return _organization_flag_enabled(flag, organization_id)
+    return _organization_flag_enabled(flag, organization_id, enable_in_debug=enable_in_debug)
 
 
 def organization_report_metrics_enabled(organization_id: UUID) -> bool:
@@ -70,5 +70,5 @@ def team_report_metrics_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_METRICS_FLAG, team_id)
 
 
-def team_expected_impact_authoring_enabled(team_id: int) -> bool:
-    return _team_flag_enabled(EXPECTED_IMPACT_AUTHORING_FLAG, team_id)
+def team_report_monitoring_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(REPORT_MONITORING_FLAG, team_id, enable_in_debug=False)

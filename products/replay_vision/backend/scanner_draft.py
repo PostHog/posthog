@@ -635,7 +635,6 @@ def _generate(
         system_instruction=system_prompt,
         response_mime_type="application/json",
         response_json_schema=response_model.model_json_schema(),
-        temperature=0.3,
         max_output_tokens=_MAX_OUTPUT_TOKENS,
     )
 

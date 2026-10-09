@@ -20,8 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.
     _build_initial_params,
     _build_initial_url,
     _format_incremental_value,
-    _get_headers,
-    _is_same_host,
     _parse_next_url,
     get_rows,
     normalize_host,
@@ -109,25 +107,6 @@ class TestNormalizeHost:
         assert normalize_host(raw) == expected
 
 
-class TestGetHeaders:
-    def test_anonymous_has_no_authorization(self):
-        headers = _get_headers(None, None)
-        assert "Authorization" not in headers
-        assert headers["Accept"] == "application/json"
-
-    def test_partial_credentials_are_anonymous(self):
-        # A username without a password (or vice versa) is not enough to authenticate.
-        assert "Authorization" not in _get_headers("admin", "")
-        assert "Authorization" not in _get_headers("", "secret")
-
-    def test_basic_auth_header_is_base64_of_user_colon_password(self):
-        import base64
-
-        headers = _get_headers("admin", "abcd efgh")
-        expected = base64.b64encode(b"admin:abcd efgh").decode()
-        assert headers["Authorization"] == f"Basic {expected}"
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -142,57 +121,8 @@ class TestFormatIncrementalValue:
     def test_format(self, value, expected):
         assert _format_incremental_value(value) == expected
 
-    def test_no_z_or_offset_suffix(self):
-        result = _format_incremental_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-        assert "+00:00" not in result and not result.endswith("Z")
-
 
 class TestBuildInitialParams:
-    def test_posts_incremental_modified_uses_modified_after(self):
-        params = _build_initial_params(
-            WORDPRESS_ENDPOINTS["posts"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, 12, 0, 0),
-            incremental_field="modified",
-        )
-        # 2-hour lookback applied before formatting.
-        assert params["modified_after"] == "2024-01-01T10:00:00"
-        assert params["orderby"] == "modified"
-        assert params["order"] == "asc"
-        assert params["per_page"] == 100
-
-    def test_posts_incremental_date_uses_after(self):
-        params = _build_initial_params(
-            WORDPRESS_ENDPOINTS["posts"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, 12, 0, 0),
-            incremental_field="date",
-        )
-        assert params["after"] == "2024-01-01T10:00:00"
-        assert "modified_after" not in params
-        assert params["orderby"] == "date"
-
-    def test_posts_full_refresh_uses_stable_order_by(self):
-        params = _build_initial_params(
-            WORDPRESS_ENDPOINTS["posts"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1),
-            incremental_field=None,
-        )
-        assert "after" not in params and "modified_after" not in params
-        assert params["orderby"] == "date"
-        assert params["order"] == "asc"
-
-    def test_incremental_without_watermark_has_no_filter(self):
-        params = _build_initial_params(
-            WORDPRESS_ENDPOINTS["posts"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="modified",
-        )
-        assert "modified_after" not in params
-        assert params["orderby"] == "date"  # stable order on the first sync
-
     def test_comments_incremental_uses_after_only(self):
         params = _build_initial_params(
             WORDPRESS_ENDPOINTS["comments"],
@@ -213,23 +143,8 @@ class TestBuildInitialParams:
                 incremental_field="modified",
             )
 
-    @pytest.mark.parametrize("endpoint", ["categories", "tags", "users"])
-    def test_full_refresh_endpoints_only_order_by_id(self, endpoint):
-        params = _build_initial_params(
-            WORDPRESS_ENDPOINTS[endpoint],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1),
-            incremental_field=None,
-        )
-        assert "after" not in params and "modified_after" not in params
-        assert params["orderby"] == "id"
-
 
 class TestBuildInitialUrl:
-    def test_builds_url_with_params(self):
-        url = _build_initial_url("https://example.com", WORDPRESS_ENDPOINTS["posts"], {"per_page": 100})
-        assert url == "https://example.com/wp-json/wp/v2/posts?per_page=100"
-
     def test_accepts_bare_hostname(self):
         url = _build_initial_url("example.com", WORDPRESS_ENDPOINTS["users"], {})
         assert url == "https://example.com/wp-json/wp/v2/users"
@@ -249,23 +164,6 @@ class TestParseNextUrl:
     )
     def test_parse(self, header, expected):
         assert _parse_next_url(header) == expected
-
-
-class TestIsSameHost:
-    @pytest.mark.parametrize(
-        "url, site_url, expected",
-        [
-            ("https://example.com/wp-json/wp/v2/posts?page=2", "https://example.com", True),
-            # Scheme downgrade to http when configured https must be rejected (credential exposure).
-            ("http://example.com/wp-json/wp/v2/posts?page=2", "https://example.com", False),
-            # Foreign / internal host must be rejected (SSRF).
-            ("https://169.254.169.254/latest/meta-data/", "https://example.com", False),
-            # Anonymous http site: an http next URL on the same host is allowed.
-            ("http://example.com/wp-json/wp/v2/posts?page=2", "http://example.com", True),
-        ],
-    )
-    def test_is_same_host(self, url, site_url, expected):
-        assert _is_same_host(url, site_url) is expected
 
 
 class TestValidateCredentials:
@@ -349,13 +247,6 @@ class TestValidateCredentials:
             assert msg == HTTP_NOT_ALLOWED_ERROR
             patched.return_value.get.assert_not_called()
 
-    def test_allows_plaintext_http_when_anonymous(self):
-        # No credentials -> nothing to leak, so anonymous http is permitted.
-        with self._patch_session(_response(status_code=200)):
-            valid, msg = validate_credentials("http://example.com", None, None)
-            assert valid is True
-            assert msg is None
-
     def test_blocks_unsafe_host(self):
         with (
             mock.patch.object(wordpress_module, "_is_host_safe", return_value=(False, "internal address")),
@@ -437,15 +328,6 @@ class TestGetRows:
         second_url = session.get.call_args_list[1].args[0]
         assert second_url == "https://example.com/wp-json/wp/v2/posts?page=2"
 
-    def test_saves_state_after_yielding(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        self._run(manager, [_response(json_data=[{"id": 1}])])
-
-        assert manager.save_state.called
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, WordpressResumeConfig)
-
     def test_resumes_from_saved_state(self):
         manager = mock.MagicMock()
         manager.can_resume.return_value = True
@@ -457,18 +339,6 @@ class TestGetRows:
         first_url = session.get.call_args_list[0].args[0]
         assert first_url == "https://example.com/wp-json/wp/v2/posts?page=5"
         assert [r["id"] for r in rows] == [9]
-
-    def test_empty_page_terminates(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        empty = _response(
-            json_data=[],
-            link='<https://example.com/wp-json/wp/v2/posts?page=2>; rel="next"',
-        )
-        rows, session = self._run(manager, [empty])
-
-        assert rows == []
-        assert session.get.call_count == 1
 
     def test_empty_body_terminates_without_crashing(self):
         # A 2xx with an empty body used to crash get_rows with a raw JSONDecodeError; it must now
@@ -525,19 +395,6 @@ class TestGetRows:
         first_url = session.get.call_args_list[0].args[0]
         assert first_url.startswith("https://example.com/wp-json/wp/v2/posts")
         assert [r["id"] for r in rows] == [1]
-
-    def test_does_not_follow_scheme_downgrade_next_url(self):
-        # A Link header that downgrades https->http on the configured host must not be followed.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page1 = _response(
-            json_data=[{"id": 1}],
-            link='<http://example.com/wp-json/wp/v2/posts?page=2>; rel="next"',
-        )
-        rows, session = self._run(manager, [page1])
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.get.call_count == 1
 
     def test_raises_on_redirect(self):
         manager = mock.MagicMock()

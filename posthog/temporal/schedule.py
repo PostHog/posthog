@@ -79,7 +79,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
@@ -112,6 +112,7 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -126,6 +127,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
+from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -139,6 +141,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_signals_scout_coordinator_schedule,
 )
 from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -154,12 +157,6 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
-
-
-async def cleanup_replay_vision_media_backfill_schedule(client: Client):
-    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
-    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
-        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -307,8 +304,8 @@ async def create_salesforce_usage_enrichment_schedule(client: Client):
 async def create_salesforce_stripe_enrichment_schedule(client: Client):
     """Create or update the schedule for the Salesforce stripe enrichment workflow.
 
-    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
-    names to Salesforce Accounts. The workflow is incremental via a Redis
+    Runs daily at 4 AM UTC to push Stripe customer ids and billing addresses
+    to Salesforce Accounts. The workflow is incremental via a Redis
     watermark, so a long backfill run is only expected on the first execution;
     ``SKIP`` prevents the next day's run from starting while a backfill is still
     in progress.
@@ -661,6 +658,7 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
             ),
         ),
         spec=ScheduleSpec(
+            # nosemgrep: schedule-must-avoid-minute-zero -- the metric query reads a rolling hour with no cursor, so shifting the schedule skips data
             intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
         ),
     )
@@ -925,7 +923,6 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
-    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -950,6 +947,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
     cleanup_cohort_calculation_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
@@ -983,6 +981,7 @@ schedules = [
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_replay_vision_search_suggestions_schedule,
+    create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_replay_vision_jev_watch_rank_schedule,
@@ -991,6 +990,7 @@ schedules = [
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
+    create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
 ]
 

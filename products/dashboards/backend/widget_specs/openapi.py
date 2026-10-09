@@ -291,6 +291,14 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
             "that do not overlap, and include every tile you move in the same request."
         ),
     )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether to show the tile's description underneath its title on the dashboard. Works for every "
+            "tile type. The description itself is unaffected and still comes from the tile's insight, text, "
+            "or widget content — this only toggles whether it renders on the dashboard."
+        ),
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
@@ -396,10 +404,13 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.ChoiceField(
-        choices=RestrictionLevel.choices,
+    restriction_level = serializers.IntegerField(
+        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
         required=False,
-        help_text="Who can edit this dashboard.",
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
     )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
