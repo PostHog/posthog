@@ -55,7 +55,8 @@ tools:
         description: >
             Get a specific session recording by ID. Returns full recording metadata including duration, interaction
             counts, console log counts, viewing status, and a compact person summary (id, name, distinct IDs). The
-            person's full property bag is not included — use `persons-retrieve` when you need a person's properties.
+            person's full property bag is not included, and the name is left out when it is an email address. Use
+            `persons-retrieve` when you need a person's properties or email.
             Session recordings are reachable from events, errors, and persons via the `$session_id` property on events.
             Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a
             `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that
