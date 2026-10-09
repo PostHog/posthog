@@ -1105,7 +1105,7 @@ export interface experimentLogicMeta {
         hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
-        browserNoMetricsWarning: (hasMetrics: any, isExperimentLaunched: boolean) => boolean
+        browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
         statsMethod: (experiment: Experiment) => ExperimentStatsMethod
     }
 }

@@ -16,7 +16,7 @@ import type {
     RunningTimeCalculationResultApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse } from '../../../queries/schema/schema-general'
 import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -169,27 +169,13 @@ export interface runningTimeLogicMeta {
         mode: (config: RunningTimeConfig) => RunningTimeConfig['mode']
         metricsWithResults: (
             experiment: Experiment,
-            primaryMetricsResults: any,
-            primaryMetricsResultsErrors: any
+            primaryMetricsResults: CachedNewExperimentQueryResponse[],
+            primaryMetricsResultsErrors: unknown[]
         ) => MetricWithResult[]
-        currentExposures: (
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[]
-        ) => number | null
+        currentExposures: (metricsWithResults: MetricWithResult[]) => number | null
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
+            metricsWithResults: MetricWithResult[],
             numberOfVariants: number,
             mde: number
         ) => RunningTimeCalculationInputApi | null
