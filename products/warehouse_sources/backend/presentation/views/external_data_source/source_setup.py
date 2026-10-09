@@ -1611,7 +1611,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
                     )
                 try:
-                    validate_and_coerce_row_filters(row_filters, schema_metadata)
+                    validate_and_coerce_row_filters(
+                        row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
+                    )
                 except RowFilterValidationError as e:
                     new_source_model.delete()
                     return Response(

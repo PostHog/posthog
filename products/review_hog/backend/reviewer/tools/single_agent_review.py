@@ -605,10 +605,12 @@ async def dedupe_flash_findings(
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
     changed_since: ChangedSinceReview | None = None,
+    against_pr_comments: bool = False,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
-    Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
+    Two dedup calls run in parallel. The main findings dedup against earlier turns, and against PR comments
+    only with `against_pr_comments`: by default a review posts what it finds whatever other comments say.
     The lens findings dedup against those too and against the main findings as anchors, so a lens
     finding can lose to a main finding but never the other way around. A removal holds only when what
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
@@ -616,6 +618,8 @@ async def dedupe_flash_findings(
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
     On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
     """
+    if not against_pr_comments:
+        pr_comments = []
     old_code = _old_code_findings(issues, changed_since)
     old_code_ids = {issue.id for issue in old_code}
     reviewed = [issue for issue in issues if issue.id not in old_code_ids]

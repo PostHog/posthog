@@ -198,6 +198,59 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
+
+- **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of
+  ReviewHog's own earlier findings. A per-trigger switch on the review input, `dedupe_against_pr_comments` (default
+  off), brings the old behavior back for a review that should add only what is not on the PR yet; the status comment
+  then counts the findings it skipped. No setting stores it. The `@posthog review` comment command is the planned way
+  to set it.
+- **Why.** A finding that repeated another bot's comment dropped silently, so the PR showed that bot's P1 next to
+  ReviewHog's "Nothing worth raising" although ReviewHog found the same issue. No vendor we checked dedups against
+  other bots' comments; each dedups only against its own earlier comments. On PostHog PRs, 16% of bot comments repeat
+  another bot's, almost all from bots running in parallel on the same commit, and no bot acknowledged another.
+- **Not chosen.** A reply in the other bot's thread (Greptile answers bot replies about half the time, which starts
+  a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
+  its chunker and dedup prompts both read PR comments, so it is a separate change.
+
+### ✅ DECIDED 2026-10-09 — resolution fix profiles as canonical skills
+
+- **What.** Two new canonical resolution-criteria skills, `review-hog-resolution-criteria-gaps` and
+  `review-hog-resolution-criteria-small`, sit next to the default `review-hog-resolution-criteria`.
+  A user picks one in the existing per-user criteria picker.
+  - **gaps** fixes real, reachable `should_fix` and `must_fix` bugs.
+    It leaves typos, nits, wording, stale docs and style to the author.
+  - **small** fixes small, contained issues, typos included.
+    It leaves a finding only when the fix needs a design choice that the code and conventions do not settle.
+  - Only the default auto-seeds active. The loader treats every name in `CANONICAL_RESOLUTION_SKILL_NAMES` as
+    visible, so a selected profile drives the run instead of falling back to the default.
+- **Why skills, not settings.** The resolution stage already applies one selected skill per user.
+  A profile changes the bar, and the bar lives in the skill text.
+  A skill needs no new setting, migration or UI control, and a team can copy a profile into a custom skill.
+- **Why a leave uses `escalate`.** `escalate` keeps the thread open, and the driver never resolves it.
+  `wont_fix` resolves the thread and hides it from the author and from an observing agent.
+  The reply opens "Left for the author:" and says what was checked and why the profile left it,
+  so an observing agent can act on it.
+- **Trial evidence.** A coarse offline trial ran the same 10 bot threads from 3 merged PRs under each profile,
+  with Opus and Sonnet at high effort, one run each, on API keys. No tests ran.
+  - The first gaps text fixed only the one `must_fix` thread and left 4 real bugs.
+    Version 2 states that a confirmed, reachable `should_fix` or `must_fix` bug is a gap.
+    With it, gaps fixes the reachable bugs and leaves the copy, docs and logging nits.
+    The two models agree on 9 of 10 threads.
+  - The first small text made Sonnet escalate contained fixes.
+    Version 2 says that several correct small fixes are not a design choice.
+    With it, Sonnet fixes those threads, and both models leave the one thread whose fix needs a design choice.
+    The two models agree on 8 of the 9 threads that ran.
+  - Both profiles cost about the same as the default criteria on the same model, or slightly less.
+  - The leave replies give code evidence and a reason.
+    One run in the first trial returned `wont_fix` for a leave, so both profiles now forbid `wont_fix` for a leave.
+- **Rejected.** A code-level skip of P2 and P3 findings before the resolution turn.
+  In the trial it matched 0 of 10 threads, because older comments carry their level as a badge or a priority line,
+  not as the `**P{n} · title**` heading. The skill rubric handles priority for now.
+- **Caveats.** Each thread and model ran once. Production runs one warm session per PR, not one session per thread.
+  Like the default, gaps still fixes one ask that the author declined on the original PR.
+  Watch the resolution outcomes per profile on the dashboard after users pick them.
+
 ### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
 
 - **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
@@ -213,6 +266,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
   would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
   reason to raise a level to get a finding posted.
+
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
 
 ### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
 

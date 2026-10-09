@@ -241,14 +241,21 @@ class TestRenderFinalBody:
 
     @parameterized.expand(
         [
-            # A clean turn posts no review, so the status comment is the only place the note can appear.
-            ("clean_large_pr", 0, 4, True),
-            ("large_pr_with_findings", 2, 4, True),
-            ("normal_pr", 2, None, False),
+            # A clean turn posts no review, so the status comment is the only place a note can appear.
+            ("clean_large_pr", 0, 4, 0, True, False),
+            ("large_pr_with_findings", 2, 4, 0, True, False),
+            ("normal_pr", 2, None, 0, False, False),
+            ("clean_additional_review", 0, None, 2, False, True),
         ]
     )
-    def test_large_pr_note_shows_whether_or_not_a_review_posts(
-        self, _name: str, must_fix: int, capped_lens_parts: int | None, expect_note: bool
+    def test_turn_notes_show_whether_or_not_a_review_posts(
+        self,
+        _name: str,
+        must_fix: int,
+        capped_lens_parts: int | None,
+        already_raised: int,
+        expect_large_note: bool,
+        expect_skipped_note: bool,
     ) -> None:
         body = render_final_body(
             "rid",
@@ -259,10 +266,12 @@ class TestRenderFinalBody:
             review_url=None,
             review_mode=REVIEW_MODE_FLASH,
             capped_lens_parts=capped_lens_parts,
+            already_raised=already_raised,
         )
 
-        note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
-        assert (note in body) is expect_note
+        large_note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        skipped_note = "Skipped 2 findings that other comments on this pull request already raise."
+        assert ((large_note in body), (skipped_note in body)) == (expect_large_note, expect_skipped_note)
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
