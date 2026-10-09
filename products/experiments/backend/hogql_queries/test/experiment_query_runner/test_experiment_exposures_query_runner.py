@@ -1485,7 +1485,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("after_a_day", "2024-01-02T01:00:00Z", [ExperimentExposureHealthFindingCode.ZERO_EXPOSURES]),
         ]
     )
-    def test_zero_exposures_finding_waits_a_day_after_launch(self, _name, now, expected_codes):
+    def test_zero_exposures_finding_waits_a_day_after_launch(
+        self, _name: str, now: str, expected_codes: list[ExperimentExposureHealthFindingCode]
+    ) -> None:
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
