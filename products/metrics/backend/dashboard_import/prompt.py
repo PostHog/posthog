@@ -85,8 +85,8 @@ Read every panel in the screenshot: its title, chart type, unit, color threshold
 panel title usually names the metric. Find the metrics, logs or traces in this project that show the same \
 thing, write the query, and check it.
 - Give the panels the keys s1, s2, s3 and so on, in reading order.
-- Set layout on a 12-column grid: x from 0 to 11, w from 1 to 12, and h in rows of about 80 pixels. \
-A chart is usually h 4. A single number is usually h 2.
+- Set layout on a 12-column grid: x from 0 to 11, w from 2 to 12, and h in rows of about 80 pixels. \
+Give the panels of one row the same y. A chart is usually h 4. A single number is usually h 2.
 - Set display: type (line, area, bar, stat, gauge, bargauge, table or heatmap), unit, and thresholds with the \
 colors success, warning or danger.
 - For a text panel, set outcome imported, the markdown in text, and no query.
@@ -96,8 +96,31 @@ _FINISH = """\
 Finish: return the structured output, with one entry for each panel. Do not create dashboards or insights \
 yourself. PostHog builds the dashboard from your answer and checks every query again."""
 
+_LAYOUT_CHECK = """\
+After your answer, PostHog builds the dashboard and sends you a picture of it. Compare the picture with \
+screenshot.png, and correct the layout of the panels. Do not stop after the first answer."""
 
-def build_prompt(*, source: ImportSource, promql_available: bool, import_id: str | None = None) -> str:
+_LAYOUT_ROUND = """\
+{picture_name} is a picture of the dashboard that PostHog built from your answer. This is check {layout_round} \
+of {rounds}.
+
+Compare it with screenshot.png. For each panel, look at the row it is in, its order in the row, its width \
+and its height. The 12 columns of the grid span the full width of the picture, and one row of height is \
+about one twentieth of the picture width.
+
+Then return the structured output again, with the full answer: the same keys, titles, outcomes and queries. \
+Change only layout, so that the dashboard looks like the screenshot. PostHog moves the panels and does not \
+fit the other fields again. A panel needs at least w 2 and h 2. Set layout_matches to true when the picture \
+already matches the screenshot."""
+
+
+def build_layout_message(*, picture_name: str, layout_round: int, rounds: int) -> str:
+    return _LAYOUT_ROUND.format(picture_name=picture_name, layout_round=layout_round, rounds=rounds)
+
+
+def build_prompt(
+    *, source: ImportSource, promql_available: bool, import_id: str | None = None, checks_layout: bool = False
+) -> str:
     task = _GRAFANA_TASK if source == "grafana" else _SCREENSHOT_TASK
     metric_rules = _METRIC_RULES_PROMQL if promql_available else _METRIC_RULES_BUILDER
     return "\n\n".join(
@@ -109,10 +132,12 @@ def build_prompt(*, source: ImportSource, promql_available: bool, import_id: str
             metric_rules,
             _COMMON_RULES,
             _FINISH,
+            *([_LAYOUT_CHECK] if checks_layout else []),
             *(
                 [
                     f'In every metrics-dashboard-panels-validate call, set import_id to "{import_id}" and give each '
-                    "panel its title. PostHog shows the user which panels pass."
+                    "panel its title. PostHog shows the user which panels pass. Check each panel as soon as you have "
+                    "its query, one to three panels per call. Do not keep the checks for the end."
                 ]
                 if import_id
                 else []

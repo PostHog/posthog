@@ -79,6 +79,13 @@ def map_unit(grafana_unit: Any) -> tuple[str | None, str | None]:
     return None, f'The unit "{grafana_unit}" is not available, so the panel shows plain numbers.'
 
 
+def agent_unit(unit: str | None) -> str | None:
+    """The UCUM unit for a unit that an agent read from a screenshot. It sometimes writes a Grafana unit id."""
+    if unit is None:
+        return None
+    return _UNITS.get(unit, unit)
+
+
 def map_reducer(calculation: Any) -> tuple[Reducer | None, str | None]:
     if not isinstance(calculation, str) or not calculation:
         return None, None

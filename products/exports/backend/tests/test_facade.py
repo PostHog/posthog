@@ -7,8 +7,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
     get_delivery_image_url,
@@ -76,6 +78,17 @@ class TestRenderPngExportInsightLookup(BaseTest):
 
         assert asset.insight_id == insight.id
         assert png == b"png"
+
+    def test_renders_a_dashboard_of_the_team_only(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Checkout")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Checkout")
+
+        asset, png = self._render(dashboard_id=dashboard.id)
+
+        assert (asset.dashboard_id, png) == (dashboard.id, b"png")
+        with self.assertRaises(ValueError):
+            render_png_export(team=self.team, created_by=self.user, dashboard_id=other_dashboard.id)
 
     @parameterized.expand(
         [

@@ -27743,6 +27743,7 @@ export namespace Schemas {
      * * `starting` - Starting
      * * `matching` - Matching
      * * `building` - Building
+     * * `checking_layout` - Checking Layout
      */
     export type DashboardImportPhaseEnum = typeof DashboardImportPhaseEnum[keyof typeof DashboardImportPhaseEnum];
 
@@ -27751,6 +27752,7 @@ export namespace Schemas {
       Starting: 'starting',
       Matching: 'matching',
       Building: 'building',
+      CheckingLayout: 'checking_layout',
     } as const;
 
     /**
@@ -27847,14 +27849,25 @@ export namespace Schemas {
       status: DashboardImportStatusEnum;
       /** Name of the new dashboard. */
       dashboard_name: string;
-      /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard.
+      /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard, or 'checking_layout' against the screenshot.
        *
        * * `starting` - Starting
        * * `matching` - Matching
-       * * `building` - Building */
+       * * `building` - Building
+       * * `checking_layout` - Checking Layout */
       phase: DashboardImportPhaseEnum | null;
       /** Where each panel is, while the import runs. */
       panel_progress: DashboardImportPanelProgress[];
+      /**
+         * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
+         * @nullable
+         */
+      layout_rounds: number | null;
+      /**
+         * The comparison that runs, from 1, while the phase is 'checking_layout'.
+         * @nullable
+         */
+      layout_round: number | null;
       /**
          * Id of the new dashboard, when it exists.
          * @nullable

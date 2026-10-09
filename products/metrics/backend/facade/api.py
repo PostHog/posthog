@@ -684,6 +684,15 @@ def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:
     finalize_import(team_id=team_id, task_id=import_id, background=True)
 
 
+def check_dashboard_import_layout(*, team_id: int, import_id: str) -> None:
+    """Take the agent's latest answer of a screenshot import, and send it a picture of the dashboard or end it."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        check_import_layout,
+    )
+
+    check_import_layout(team_id=team_id, task_id=import_id)
+
+
 def check_dashboard_panel_queries(
     *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest], import_id: str | None = None
 ) -> list[PanelQueryCheckResult]:

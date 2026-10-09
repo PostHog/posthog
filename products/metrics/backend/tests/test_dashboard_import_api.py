@@ -19,7 +19,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry, MetricCatalog
 from products.metrics.backend.dashboard_import.importer import AGENT_MCP_SCOPES, IMPORT_STATE_KEY
-from products.metrics.backend.facade.api import finalize_dashboard_import
+from products.metrics.backend.facade.api import check_dashboard_import_layout, finalize_dashboard_import
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 from products.tasks.backend.models import Task, TaskRun
 
@@ -226,7 +226,7 @@ class TestDashboardImportAPI(APIBaseTest):
                         "outcome": "imported",
                         "reason": "",
                         "query": {"language": "promql", "promql": "sum(rate(orders_total))"},
-                        "display": {"type": "stat"},
+                        "display": {"type": "stat", "unit": "short"},
                         "layout": {"x": 6, "y": 0, "w": 6, "h": 2},
                     },
                 ],
@@ -247,10 +247,83 @@ class TestDashboardImportAPI(APIBaseTest):
                 "metricType": "histogram",
                 "unit": "s",
             },
-            {"x": 0, "y": 0, "w": 8, "h": 4},
+            {"x": 0, "y": 0, "w": 7, "h": 4},
         )
-        # The agent overlapped the two boxes, so the second one moves below the first.
-        assert tiles["Orders"][1] == {"x": 6, "y": 4, "w": 6, "h": 2}
+        # The agent overlapped the two boxes of one row, so they share the row.
+        assert tiles["Orders"][1] == {"x": 7, "y": 0, "w": 5, "h": 2}
+        assert "short" not in json.dumps(tiles["Orders"][0])
+        assert Dashboard.objects.get(id=body["dashboard_id"]).name == "Checkout"
+
+    @override_settings(BROWSERLESS_CDP_URL="ws://browserless.test")
+    def test_screenshot_import_moves_the_tiles_until_a_picture_matches_the_screenshot(self) -> None:
+        started = self._start(source="screenshot", image_base64=_png())
+        assert TaskRun.objects.get(task_id=started["id"]).state["caller_ends_run"] is True
+
+        def panel(key: str, layout: dict[str, int]) -> dict[str, Any]:
+            return {
+                "key": key,
+                "title": key,
+                "outcome": "imported",
+                "reason": "",
+                "query": {"language": "promql", "promql": "sum(rate(orders_total))"},
+                "display": {"type": "line"},
+                "layout": layout,
+            }
+
+        def answer(output: dict[str, Any]) -> dict[str, Any]:
+            run = TaskRun.objects.get(task_id=started["id"])
+            run.output = output
+            with (
+                patch(
+                    "products.metrics.backend.tasks.tasks.check_metrics_dashboard_import_layout.delay",
+                    side_effect=lambda team_id, task_id: check_dashboard_import_layout(
+                        team_id=team_id, import_id=task_id
+                    ),
+                ),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                run.save(update_fields=["output"])
+            return self.client.get(f"{self.url}{started['id']}/").json()
+
+        def layouts(dashboard_id: int) -> dict[str, dict[str, int]]:
+            return {
+                str(tile.insight.name): tile.layouts["sm"]
+                for tile in DashboardTile.objects.filter(dashboard_id=dashboard_id)
+                if tile.insight is not None
+            }
+
+        first = {
+            "dashboard_name": "Checkout",
+            "panels": [panel("s1", {"x": 0, "y": 0, "w": 12, "h": 4}), panel("s2", {"x": 0, "y": 4, "w": 12, "h": 4})],
+        }
+        with (
+            patch(f"{IMPORTER}.render_png_export", return_value=(None, b"picture")) as render,
+            patch(f"{IMPORTER}.tasks_facade.upload_task_run_artifacts", return_value=([], [])),
+            patch(f"{IMPORTER}.tasks_facade.signal_task_run_user_message", return_value=True) as send,
+            patch(f"{IMPORTER}.tasks_facade.signal_workflow_completion") as complete,
+        ):
+            checking = answer(first)
+            repeated = answer(first)
+            dashboard_id = checking["dashboard_id"]
+            side_by_side = {
+                **first,
+                "panels": [
+                    panel("s1", {"x": 0, "y": 0, "w": 6, "h": 4}),
+                    panel("s2", {"x": 6, "y": 0, "w": 6, "h": 4}),
+                ],
+            }
+            moved = answer(side_by_side)
+            matched = answer({**side_by_side, "layout_matches": True})
+
+        assert (checking["status"], checking["phase"], checking["layout_round"]) == ("running", "checking_layout", 1)
+        assert repeated["layout_round"] == 1
+        assert render.call_args.kwargs["dashboard_id"] == dashboard_id
+        assert (moved["status"], moved["layout_round"]) == ("running", 2)
+        assert "check 2 of 3" in send.call_args.kwargs["content"]
+        assert matched["status"] == "completed"
+        complete.assert_called_once()
+        assert Dashboard.objects.filter(team=self.team).count() == 1
+        assert layouts(dashboard_id) == {"s1": {"x": 0, "y": 0, "w": 6, "h": 4}, "s2": {"x": 6, "y": 0, "w": 6, "h": 4}}
 
     @parameterized.expand(
         [

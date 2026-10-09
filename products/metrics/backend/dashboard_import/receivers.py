@@ -1,4 +1,4 @@
-"""Finishes a dashboard import when its agent task run ends.
+"""Finishes a dashboard import when its agent task run ends, and checks the layout when the agent answers.
 
 This module loads at Django setup, so it imports only the light task run signal module.
 """
@@ -21,17 +21,25 @@ def schedule_import_finalization(sender: type, instance: Any, created: bool, **k
     if created or instance.origin_product != TaskOriginProduct.METRICS_IMPORT:
         return
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "status" not in update_fields:
-        return
-    if not instance.is_terminal:
+    finishes = instance.is_terminal and (update_fields is None or "status" in update_fields)
+    # A run that checks the layout stays open after an answer, so the answer itself starts the next step.
+    answers = (
+        not instance.is_terminal
+        and update_fields is not None
+        and "output" in update_fields
+        and bool((instance.state or {}).get("caller_ends_run"))
+    )
+    if not finishes and not answers:
         return
     from products.metrics.backend.tasks.tasks import (  # noqa: PLC0415 — keeps Celery task modules off the setup import path
+        check_metrics_dashboard_import_layout,
         finalize_metrics_dashboard_import,
     )
 
+    task = finalize_metrics_dashboard_import if finishes else check_metrics_dashboard_import_layout
     team_id, import_id = instance.team_id, str(instance.task_id)
 
     def enqueue() -> None:
-        finalize_metrics_dashboard_import.delay(team_id, import_id)
+        task.delay(team_id, import_id)
 
     transaction.on_commit(enqueue, robust=True)
