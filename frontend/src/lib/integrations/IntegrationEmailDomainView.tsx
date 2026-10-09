@@ -1,8 +1,11 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconGear, IconLetter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
@@ -29,6 +32,17 @@ export function IntegrationEmailDomainView({
     integration: EmailIntegrationDomainGroupedType
 }): JSX.Element {
     const { openSetupModal, deleteIntegration } = useActions(integrationsLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const defaultSenderId = currentTeam?.workflows_config?.default_email_integration_id ?? null
+
+    const makeDefault = (integrationId: number): void => {
+        updateCurrentTeam({
+            workflows_config: { ...currentTeam?.workflows_config, default_email_integration_id: integrationId },
+        })
+        // pinned: analytics event name
+        posthog.capture('workflows default email sender set', { had_default: defaultSenderId !== null })
+    }
     const { domain, integrations } = integration
     const verified = integrations.every(isVerified)
     const verificationRequired = integrations.some(isVerificationRequired)
@@ -50,6 +64,9 @@ export function IntegrationEmailDomainView({
                             <span className="text-xs text-secondary">
                                 {integrations.length} {integrations.length === 1 ? 'sender' : 'senders'}
                             </span>
+                            {integrations.some((sender) => sender.id === defaultSenderId) && (
+                                <LemonTag type="primary">Default sender</LemonTag>
+                            )}
                             {verificationRequired && (
                                 <Tooltip
                                     title={
@@ -78,6 +95,23 @@ export function IntegrationEmailDomainView({
                             <span className="flex-1">
                                 {integration.config.name} &lt;{integration.config.email}&gt;
                             </span>
+                            {integration.id === defaultSenderId ? (
+                                <Tooltip title="New broadcasts and workflow emails start with this sender">
+                                    <LemonTag type="primary" data-attr="email-sender-default-tag">
+                                        Default
+                                    </LemonTag>
+                                </Tooltip>
+                            ) : isVerified(integration) ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => makeDefault(integration.id)}
+                                    disabledReason={currentTeamLoading ? 'Saving…' : undefined}
+                                    data-attr="email-sender-make-default"
+                                >
+                                    Make default
+                                </LemonButton>
+                            ) : null}
                             <LemonButton
                                 type="primary"
                                 size="small"

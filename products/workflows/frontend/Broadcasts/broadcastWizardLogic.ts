@@ -38,6 +38,7 @@ import type {
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
     DEFAULT_STATE,
     ONE_TIME_RRULE,
@@ -260,6 +261,9 @@ export interface broadcastWizardLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    applyDefaultSender: () => {
+        value: true
+    }
     applyExternalEdit: (
         broadcast: HogFlowApi,
         base: HogFlowApi | null
@@ -275,6 +279,9 @@ export interface broadcastWizardLogicActions {
     }
     continueStep: () => {
         value: true
+    }
+    defaultSenderApplied: (integrationId: number) => {
+        integrationId: number
     }
     deleteBroadcast: () => {
         value: true
@@ -558,6 +565,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
+        applyDefaultSender: true,
+        defaultSenderApplied: (integrationId: number) => ({ integrationId }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
         setSendAtFromPicker: (pickerDate: string | null) => ({ pickerDate }),
@@ -759,6 +768,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL,
             {
                 setEmail: (_, { email }) => email,
+                defaultSenderApplied: (state, { integrationId }) =>
+                    state.from?.integrationId ? state : { ...state, from: { ...state.from, integrationId } },
                 applyExternalEdit: (state, { broadcast }) => {
                     const value = findAction(broadcast, 'function_email')?.config?.inputs?.email?.value
                     return value ? { ...DEFAULT_BROADCAST_EMAIL, ...value } : state
@@ -1124,6 +1135,26 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        applyDefaultSender: () => {
+            // Only fills an empty sender on a broadcast that is still being written. It is not an
+            // edit, so it does not autosave; the next save or launch carries it.
+            if (values.email.from?.integrationId || (values.broadcast && values.broadcast.status !== 'draft')) {
+                return
+            }
+            const team = values.currentTeam
+            const sender = resolveDefaultEmailSender(
+                values.integrations,
+                team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
+            )
+            if (!sender) {
+                return
+            }
+            actions.defaultSenderApplied(sender.integrationId)
+            // pinned: analytics event name
+            posthog.capture('email sender preselected', { surface: 'broadcast', reason: sender.reason })
+        },
+        [integrationsLogic.actionTypes.loadIntegrationsSuccess]: () => actions.applyDefaultSender(),
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => actions.applyDefaultSender(),
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
         },
@@ -1714,6 +1745,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.broadcast?.status !== 'draft') {
                 return
             }
+            actions.applyDefaultSender()
             // A draft just saved from /broadcasts/new carries the step it was on, and a composer draft says so.
             // Otherwise resume at the first incomplete step; complete drafts land on review.
             const { step, [COMPOSER_DRAFT_PARAM]: from, ...searchParams } = router.values.searchParams
@@ -1740,6 +1772,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.loadBroadcast()
             return
         }
+        actions.applyDefaultSender()
         const {
             [AUDIENCE_PREFILL_PARAM]: audience,
             [NAME_PREFILL_PARAM]: name,
