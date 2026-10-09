@@ -35,7 +35,7 @@ MEASUREMENTS_DEFAULT_WINDOW_DAYS = 90
 INCIDENTS_ISSUED_AFTER = "2000-01-01"
 
 
-@dataclass
+@dataclass(frozen=True)
 class LinearbEndpointConfig:
     name: str
     path: str
