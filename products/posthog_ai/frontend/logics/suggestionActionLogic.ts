@@ -120,7 +120,8 @@ export interface suggestionActionLogicMeta {
             notebookTitle: string,
             changePercent: number,
             scoutBody: string,
-            workflowPrompt: string
+            workflowPrompt: string,
+            arg: boolean
         ) => string | null
     }
 }
@@ -176,6 +177,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                         outcome = await acceptSuggestion({
                             suggestion,
                             projectId: currentProjectId,
+                            sessionId: props.sessionId,
                             userId: values.user?.id,
                             slackIntegrationId: values.slackIntegrationId,
                             slackChannel: values.slackChannel,
@@ -276,6 +278,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 s.changePercent,
                 s.scoutBody,
                 s.workflowPrompt,
+                (_, p) => !!p.workflowBuilderAvailable,
             ],
             (
                 suggestion: TurnSuggestion | null,
@@ -285,13 +288,17 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 notebookTitle: string,
                 changePercent: number,
                 scoutBody: string,
-                workflowPrompt: string
+                workflowPrompt: string,
+                workflowBuilderAvailable: boolean
             ): string | null => {
                 if (currentProjectId === null || !user) {
                     return 'Your project is still loading'
                 }
                 switch (suggestion?.kind) {
                     case 'workflow':
+                        if (!workflowBuilderAvailable) {
+                            return "The AI workflow builder isn't available in this view"
+                        }
                         return workflowPrompt.trim() && workflowPrompt.length <= 4000
                             ? null
                             : 'Add a workflow brief of up to 4,000 characters'

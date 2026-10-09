@@ -21,6 +21,7 @@ describe('accepting a workflow suggestion', () => {
         const projectId = projectLogic.values.currentProjectId!
         const outcome = await acceptSuggestion({
             suggestion,
+            sessionId: 'original-chat-task',
             projectId,
             userId: undefined,
             slackIntegrationId: null,
@@ -35,10 +36,22 @@ describe('accepting a workflow suggestion', () => {
         })
 
         expect(outcome.accepted.url).toBe(`${urls.workflowNew()}?mode=ai`)
+        expect(outcome.eventProperties).toEqual({
+            source: 'ai_turn_suggestion',
+            task_id: 'original-chat-task',
+            turn_index: suggestion.turnIndex,
+            team_id: String(projectId),
+        })
         expect(consumeWorkflowDraftBrief(projectId + 1)).toBeNull()
-        expect(NEW_WORKFLOW_HANDOFF.getInitialPrompt?.()).toBe(
-            'Draft a disabled signed_up workflow with a two-day delay.'
-        )
-        expect(NEW_WORKFLOW_HANDOFF.getInitialPrompt?.()).toBeNull()
+        expect(NEW_WORKFLOW_HANDOFF.getInitialSeed?.()).toEqual({
+            prompt: 'Draft a disabled signed_up workflow with a two-day delay.',
+            eventProperties: {
+                source: 'ai_turn_suggestion',
+                task_id: 'original-chat-task',
+                turn_index: suggestion.turnIndex,
+                team_id: String(projectId),
+            },
+        })
+        expect(NEW_WORKFLOW_HANDOFF.getInitialSeed?.()).toBeNull()
     })
 })
