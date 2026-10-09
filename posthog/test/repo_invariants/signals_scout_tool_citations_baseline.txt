@@ -45,6 +45,7 @@ scout-record-output
 scout-run-now
 survey-stats
 surveys-global-stats
+switch-project
 view-run-history
 vision-observations-create-task
 vision-observations-retry
