@@ -165,7 +165,7 @@ export function pooledConfusion(rows: OnlinePerformanceRowApi[], cutoff: Accurac
 }
 
 /** The group of people a cutoff flags, in words that fit "Of {group}, ...". */
-export function cutoffGroup(cutoff: AccuracyCutoff): string {
+function cutoffGroup(cutoff: AccuracyCutoff): string {
     switch (cutoff) {
         case 'top_10':
             return 'the top 10% the model flagged'
