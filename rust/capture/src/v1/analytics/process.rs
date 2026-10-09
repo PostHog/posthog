@@ -301,52 +301,41 @@ pub fn merge_publish_results(
     failures: &[SerializationFailure],
     publish_results: &[SinkResult],
 ) {
-    enum Merged<'a> {
-        Serialization(&'a SerializationFailure),
-        Publish(&'a Outcome),
-    }
-
     // Uuids are unique here: validation rejects a batch with a duplicate.
-    let by_uuid: HashMap<Uuid, Merged> = failures
-        .iter()
-        .map(|f| (f.uuid(), Merged::Serialization(f)))
-        .chain(
-            publish_results
-                .iter()
-                .map(|r| (r.uuid, Merged::Publish(&r.outcome))),
-        )
+    let mut published: HashMap<Uuid, &mut WrappedEvent> = events
+        .iter_mut()
+        .filter(|e| e.should_publish())
+        .map(|e| (e.uuid, e))
         .collect();
 
-    for event in events.iter_mut() {
-        if !event.should_publish() {
-            continue;
+    for failure in failures {
+        if let Some(event) = published.get_mut(&failure.uuid()) {
+            event.result = EventResult::Drop;
+            event.details = Some(if failure.is_panic() {
+                "rejected"
+            } else {
+                "serialization_failed"
+            });
         }
+    }
 
-        let Some(merged) = by_uuid.get(&event.uuid) else {
+    for result in publish_results {
+        let Some(event) = published.get_mut(&result.uuid) else {
             continue;
         };
-
-        match merged {
-            Merged::Publish(Outcome::Published) => {}
-            Merged::Publish(Outcome::Failed(CaptureError::RetryableSinkError)) => {
+        match &result.outcome {
+            Outcome::Published => {}
+            Outcome::Failed(CaptureError::RetryableSinkError) => {
                 event.result = EventResult::Retry;
                 event.details = Some("not_persisted");
             }
-            Merged::Publish(Outcome::Failed(CaptureError::EventTooBig(_))) => {
+            Outcome::Failed(CaptureError::EventTooBig(_)) => {
                 event.result = EventResult::Drop;
                 event.details = Some("event_too_big");
             }
-            Merged::Publish(Outcome::Failed(_)) => {
+            Outcome::Failed(_) => {
                 event.result = EventResult::Drop;
                 event.details = Some("rejected");
-            }
-            Merged::Serialization(failure) => {
-                event.result = EventResult::Drop;
-                event.details = Some(if failure.is_panic() {
-                    "rejected"
-                } else {
-                    "serialization_failed"
-                });
             }
         }
     }
