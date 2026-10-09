@@ -172,13 +172,17 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             ],
         )
         response = self.client.patch(
-            f"/api/personal_api_keys/{key.id}", {"label": "test-update", "scopes": ["insight:write"]}
+            f"/api/personal_api_keys/{key.id}",
+            {"label": "test-update", "scopes": ["insight:write"], "scoped_teams": [self.team.id, self.team.id]},
         )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == key.id
         assert data["label"] == "test-update"
         assert data["scopes"] == ["insight:write"]
+        assert data["scoped_teams"] == [self.team.id]
+        key.refresh_from_db()
+        assert key.scoped_teams == [self.team.id]
 
     def test_allows_all_scope(self):
         response = self.client.post(
