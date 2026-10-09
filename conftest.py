@@ -260,7 +260,8 @@ def pytest_collection_finish() -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     from posthog.test import authentication_checks  # noqa: PLC0415
 
-    authentication_checks.start_test()
+    marker = item.get_closest_marker("covers_authentication")
+    authentication_checks.start_test(marker.args if marker else ())
 
 
 @pytest.hookimpl(wrapper=True)
@@ -268,8 +269,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
     from posthog.test import authentication_checks  # noqa: PLC0415
 
     result = yield
-    marker = item.get_closest_marker("covers_authentication")
-    if problems := authentication_checks.finish_test(marker.args if marker else ()):
+    if problems := authentication_checks.finish_test():
         pytest.fail("\n".join(problems))
     return result
 

@@ -5,16 +5,17 @@ from typing import Any
 import pytest
 from unittest.mock import NonCallableMock, patch
 
-from django.db import connections, transaction
+from django.db import transaction
 
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.models import User
 
+_covered_classes: tuple[type, ...] = ()
 _authenticated_classes: set[type] = set()
-_problems: list[str] = []
 _replayed_classes: set[type] = set()
+_problems: list[str] = []
 _state = threading.local()
 
 
@@ -28,14 +29,17 @@ def covers_authentication(*classes: type) -> pytest.MarkDecorator:
     return pytest.mark.covers_authentication.with_args(*classes)
 
 
-def start_test() -> None:
+def start_test(covered_classes: tuple[type, ...]) -> None:
+    global _covered_classes
+    _covered_classes = covered_classes
     _authenticated_classes.clear()
+    _replayed_classes.clear()
     _problems.clear()
 
 
-def finish_test(covered_classes: tuple[type, ...]) -> list[str]:
+def finish_test() -> list[str]:
     problems = list(_problems)
-    for cls in covered_classes:
+    for cls in _covered_classes:
         if not any(issubclass(seen, cls) for seen in _authenticated_classes):
             problems.append(f"{cls.__qualname__} did not authenticate a request in this test.")
     return problems
@@ -86,24 +90,10 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
     if not user.is_active:
         _problems.append(f"{name}.authenticate() accepted a deactivated user.")
         return
-    if authentication_class in _replayed_classes:
+    if authentication_class in _replayed_classes or not issubclass(authentication_class, _covered_classes):
         return
-    problems_before = len(_problems)
-    # Keep the replay's queries out of assertNumQueries and query snapshots.
-    query_log_lengths = {
-        connection.alias: len(connection.queries_log) for connection in connections.all(initialized_only=True)
-    }
-    try:
-        _check_refusals(name, authentication_class, request, user)
-    finally:
-        for connection in connections.all(initialized_only=True):
-            while len(connection.queries_log) > query_log_lengths.get(connection.alias, 0):
-                connection.queries_log.pop()
-    if len(_problems) == problems_before:
-        _replayed_classes.add(authentication_class)
+    _replayed_classes.add(authentication_class)
 
-
-def _check_refusals(name: str, authentication_class: type, request: Any, user: Any) -> None:
     with transaction.atomic():
         try:
             User.objects.filter(pk=user.pk).update(is_active=False)

@@ -39,7 +39,7 @@ Default to the smallest permission, narrowest field set, and shortest scope that
 
 ## Authentication classes
 
-During tests, `conftest.py` wraps every authentication class's `authenticate()` and, when it returns a `User`, runs the same request again with that user deactivated and then blocked, failing the test if either run lets the user in.
+In a test marked with `@covers_authentication(<class>)`, when the class returns a `User`, the same request runs again with that user deactivated and then blocked, and the test fails if either run lets the user in.
 
 - **Mark one test per DRF authentication class.** Decorate a test that authenticates a request through the class with `@covers_authentication(<class>)` from `posthog/test/authentication_checks.py`. `test_authentication_credential_types.py` fails when a class has no marked test.
 - **Refuse inactive and blocked users.** Filter on `is_active` and call `refuse_blocked_account()`.
