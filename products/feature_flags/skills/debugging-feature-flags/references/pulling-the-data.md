@@ -1,15 +1,27 @@
 # Pulling the data
 
-Run this read-only before diagnosing or asking the customer anything. It produces the config, the
-reproduced evaluation, and the usage numbers you'll cite back to them.
+Run this read-only before diagnosing or asking the customer anything. §1 and §2 produce the config and
+the reproduced evaluation, and you need both on every ticket. §3 costs a scan of the project's events,
+so reach for it only when §2 didn't settle the question, or when the ticket is about usage itself — "I
+see no `$feature_flag_called`", "works locally but not in production", or "the value flipped".
+
+**Step 2 of the SKILL's workflow comes first.** Every call below answers for the session's **active**
+project and takes no project ID, so if `posthog:switch-project` hasn't put you on the ticket's project
+you get a complete, plausible answer about a different one — usually your own — with nothing to signal
+it. Run the entitlement check, then come back here.
 
 ## 1. Flag config — `posthog:feature-flag-get-definition-by-key`
 
 Pull these fields; they are inputs to almost every cause:
 
-- `key`, `active` — a `false` here means the flag is inactive: it returns false for everyone, and the
-  reproduction tools name that state `disabled` / `flag_not_found` (see the SKILL's `disabled`
-  expansion for why they differ).
+- `key`, `active` — a `false` here means the flag is inactive: it returns false for everyone.
+  `evaluation-reasons` names that state `disabled`, and `test-evaluation` names it `flag_not_found` —
+  but `flag_not_found` covers more than inactive, so read `evaluation_runtime` too before concluding
+  anything from it (see the SKILL's `disabled` / `flag_not_found` expansion).
+- `evaluation_runtime` — `all` (the default), `client` (client-side SDKs only), or `server` (server-side
+  SDKs only). PostHog omits the flag from the `/flags` response for callers on the other side, so a
+  mismatch against the ticket's `$lib` explains an `undefined` the release conditions don't. It's also
+  why `test-evaluation` can return `flag_not_found` for an active flag.
 - `filters.groups[]` — the **release conditions**. Per group read `properties` (the targeting),
   `rollout_percentage`, and `variant` (a non-null variant is a forced assignment for that group, not
   randomized).
@@ -20,7 +32,10 @@ Pull these fields; they are inputs to almost every cause:
   `super_condition_value`); see the SKILL's `super_condition_value` expansion. (`filters.super_groups`
   is a legacy key: dropped on write and not read by the matcher.)
 - `filters.holdout` — a global holdout; matched users return the holdout value, reason
-  `holdout_condition_value`. Cross-check `posthog:experiment-holdouts-list`.
+  `holdout_condition_value`. Cross-check `posthog:experiment-holdouts-list`. (A flag created before the
+  holdout format change still carries a legacy `holdout_groups` array alongside it — the backfill added
+  the new key without removing the old one, so read `filters.holdout` and don't quote the stale
+  percentage from `holdout_groups`.)
 - `filters.aggregation_group_type_index` — if set, the flag is **group-aggregated**: every SDK
   evaluation must pass the matching `groups`, or it returns false (`no_group_type`).
 - Flag dependencies — a property of type `flag` in `filters.groups[].properties` means this flag
@@ -31,6 +46,9 @@ Pull these fields; they are inputs to almost every cause:
 - `ensure_experience_continuity` — if `true`, assignment hashes a stored override key so a user's
   value is pinned across anonymous→identified transitions (and the offline hash check below is
   unreliable).
+- `bucketing_identifier` — `distinct_id` (the default) or `device_id`. It decides which identifier the
+  rollout and variant hashes consume, so §5 needs it; `device_id` is incompatible with
+  `ensure_experience_continuity`.
 - `payloads` — per-variant (or boolean) payload map; an empty/mismatched entry explains a blank
   payload.
 
@@ -59,7 +77,11 @@ The `$feature_flag_called` event records what real clients actually got. Useful 
 (the match reason, same enum as above), `locally_evaluated`, `$used_bootstrap_value`,
 `$feature_flag_request_id`, `$lib`, `$lib_version`.
 
-Value + reason distribution over recent traffic:
+Value + reason distribution over recent traffic. `uniq` is an approximate counter (~0.5% error), which
+is all a "roughly how many users got each value" diagnostic needs — `count(DISTINCT person_id)` compiles
+to `uniqExact` and holds every distinct person UUID in memory for the query's duration. If it still times
+out, `uniq(distinct_id)` reads a column physically on `events` and skips the person-overrides join that
+`person_id` resolves through:
 
 ```sql
 SELECT
@@ -68,7 +90,7 @@ SELECT
   coalesce(properties.$lib, '(none)') AS lib,
   countIf(toString(properties.locally_evaluated) = 'true') AS locally_evaluated,
   count() AS calls,
-  count(DISTINCT person_id) AS persons
+  uniq(person_id) AS persons
 FROM events
 WHERE event = '$feature_flag_called'
   AND properties.$feature_flag = '<flag-key>'
@@ -103,7 +125,9 @@ carrying a `'` closes the literal early and the rest is parsed as SQL. A `distin
 the SDK sent, and it usually arrives via the ticket, so it is exactly the value you must not paste
 raw: `x' OR 1=1 --` silently widens the predicate from one user to every user in the project, and
 you then diagnose the customer's problem against someone else's history. HogQL escapes a quote as
-`\'` and a backslash as `\\` inside a literal; apply that before substituting.
+`\'` and a backslash as `\\` inside a literal; apply both in a single pass over the value (never the
+quote rule and then the backslash rule over your own output, which turns `x' OR 1=1 --` into the literal
+`x\` followed by live SQL) before substituting.
 
 If the flag records **no** `$feature_flag_called` at all despite being read, that's the "no usage"
 catalog in the SKILL (events disabled, bulk/payload accessor, or local eval without per-call events)
@@ -113,9 +137,11 @@ catalog in the SKILL (events disabled, bulk/payload accessor, or local eval with
 
 `posthog:feature-flags-activity-retrieve { id: <flag_id> }` gives field-level diffs (who changed the
 conditions/rollout/variants, and when). Most "it changed / it used to work" surprises are a condition
-or rollout edit visible here. Note the `posthog:advanced-activity-logs-list` "feature flag updated" row does
-**not** carry the flag key — use the per-flag activity endpoint when you need to prove _which_ flag
-changed.
+or rollout edit visible here.
+
+`posthog:advanced-activity-logs-list` covers the same rows across the project, carrying `item_id` (the
+flag's numeric ID) and `detail.name` (its key) — sweep with `scopes: ["FeatureFlag"]` plus `search_text`
+or `detail_filters` when the customer can't name the flag, then come back here for the field-level diff.
 
 ## 5. Offline rollout / variant hash (fallback only)
 
@@ -133,11 +159,14 @@ PostHog's flag hash, verified against `rust/feature-flags/src/flags/flag_matchin
   Two things to get right: the salt (the rollout gate above uses an _empty_ one, and mixing the two
   is the classic reimplementation bug), and the stored order, since a wrong order silently inverts
   the answer. Read both from the _live_ flag.
-- **Holdout**: prefix `holdout-` with an empty salt.
+- **Holdout**: `h = sha1(f"holdout-{identifier}")`, same 15-hex-digit conversion. The flag key is
+  **not** in this one — that's what makes a holdout consistent across every flag in it. Empty salt.
+  The user is **in** the holdout if `h <= filters.holdout.exclusion_percentage / 100`.
 
-`identifier` is the `distinct_id`, or the group key for a group-aggregated flag. SHA1 isn't in
-HogQL's whitelist, so this runs outside the database. `ensure_experience_continuity = true` makes it
-unreliable (assignment hashes a stored override key).
+`identifier` is the `distinct_id`, the group key for a group-aggregated flag, or the **device ID** when
+the flag sets `bucketing_identifier: "device_id"` — read that field with the rest of the config in §1.
+SHA1 isn't in HogQL's whitelist, so this runs outside the database. `ensure_experience_continuity = true`
+makes it unreliable (assignment hashes a stored override key).
 
 ## Handing off
 
