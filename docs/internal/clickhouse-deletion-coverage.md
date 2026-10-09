@@ -264,7 +264,7 @@ Staff set the retention in Django admin, on the team and organization pages:
 
 `monthly_old_events_cleanup_job` has two steps:
 
-- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then counts each team's events per month and keeps the months that are entirely past that team's retention. It logs the teams due in each month.
+- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
 
 A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.

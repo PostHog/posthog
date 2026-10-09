@@ -650,8 +650,8 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
 
     assert plan == OldEventsCleanupPlan(
         partitions=[
-            PartitionCleanup(partition=_partition(_mid_month(15)), team_ids=[thirteen.id], events=3),
-            PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[thirteen.id, eighteen.id], events=11),
+            PartitionCleanup(partition=_partition(_mid_month(15)), team_ids=[thirteen.id]),
+            PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[thirteen.id, eighteen.id]),
         ]
     )
 
@@ -664,7 +664,7 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
         context, MonthlyCleanupConfig(team_ids=[eighteen.id, no_retention.id]), cluster
     )
     assert only_eighteen == OldEventsCleanupPlan(
-        partitions=[PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[eighteen.id], events=7)]
+        partitions=[PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[eighteen.id])]
     )
 
 
@@ -675,7 +675,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
 
-    plan = OldEventsCleanupPlan(partitions=[PartitionCleanup(partition=202406, team_ids=[400, 401], events=20)])
+    plan = OldEventsCleanupPlan(partitions=[PartitionCleanup(partition=202406, team_ids=[400, 401])])
 
     captured_delete_statements = []
     original_call = LightweightDeleteMutationRunner.__call__

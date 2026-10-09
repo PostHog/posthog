@@ -136,7 +136,6 @@ class MonthlyCleanupConfig(dagster.Config):
 class PartitionCleanup:
     partition: int
     team_ids: list[int]
-    events: int
 
 
 @frozen
@@ -1284,47 +1283,37 @@ def plan_old_events_cleanup(
         "cutoff": max(team_cutoffs.values()),
     }
     # Each events table is read on every shard of its own cluster: a month can hold events in one
-    # table or shard and none in the others. Both tables hold the same events, so the counts take
-    # the larger table total rather than adding the tables together.
-    events_by_team_month: dict[tuple[int, int], int] = defaultdict(int)
+    # table or shard and none in the others.
+    team_months: set[tuple[int, int]] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
         query = f"""
-            SELECT team_id, toYYYYMM(timestamp) AS partition, count()
+            SELECT DISTINCT team_id, toYYYYMM(timestamp) AS partition
             FROM {placement.target.data_table}
             WHERE team_id IN %(team_ids)s
             AND timestamp < %(cutoff)s
             {partition_filter}
-            GROUP BY team_id, partition
         """
-        table_counts: dict[tuple[int, int], int] = defaultdict(int)
         results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
-        for rows in results.values():
-            for team_id, partition, events in rows:
-                table_counts[(team_id, partition)] += events
-        for key, events in table_counts.items():
-            events_by_team_month[key] = max(events_by_team_month[key], events)
+        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
 
     teams_by_partition: dict[int, list[int]] = defaultdict(list)
-    events_by_partition: dict[int, int] = defaultdict(int)
-    for (team_id, partition), events in sorted(events_by_team_month.items()):
+    for team_id, partition in sorted(team_months):
         if partition < _yyyymm(team_cutoffs[team_id]):
             teams_by_partition[partition].append(team_id)
-            events_by_partition[partition] += events
 
     plan = OldEventsCleanupPlan(
         partitions=[
-            PartitionCleanup(partition=partition, team_ids=team_ids, events=events_by_partition[partition])
+            PartitionCleanup(partition=partition, team_ids=team_ids)
             for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
         ]
     )
     for item in plan.partitions:
-        context.log.info(f"{item.partition}: teams {item.team_ids}, {item.events} events")
+        context.log.info(f"{item.partition}: teams {item.team_ids}")
 
     context.add_output_metadata(
         {
             "teams": dagster.MetadataValue.int(len(team_cutoffs)),
             "partitions": dagster.MetadataValue.int(len(plan.partitions)),
-            "events": dagster.MetadataValue.int(sum(item.events for item in plan.partitions)),
         }
     )
     return plan
