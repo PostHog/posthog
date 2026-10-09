@@ -42,7 +42,10 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks, _teams_with_scanners
-from products.replay_vision.backend.temporal.jev_watch_rank.constants import MAX_JUDGE_ATTEMPTS
+from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
+    MAX_JUDGE_ATTEMPTS,
+    RATE_LIMIT_BACKOFF_AFTER,
+)
 from products.replay_vision.backend.temporal.jev_watch_rank.types import JevWatchRankSweepInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
@@ -262,6 +265,17 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.probabilities == {"watchable": 0.7, "routine": 0.1}
         assert judgment.failed_chunks == 0
         assert judgment.failed_reason_chunks == (1 if reason_error else 0)
+
+    def test_a_rate_limit_stops_the_window_and_charges_no_retry_budget(self) -> None:
+        # The rate limit is shared with every product's Jev calls, so the window must not keep
+        # sending after it. The rows it did not reach retry free on the next sweep.
+        rows = [_prose_row(uuid4(), f"summary {index}") for index in range(WINDOW_CHUNK_SIZE + 6)]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = DecisionGatewayError(429, "rate limited")
+            judgment = judge_scanner_window(1, uuid4(), rows)
+        assert api.decide_when_available.call_count == 1
+        assert judgment.rate_limited
+        assert judgment.batch_failed_ids == ()
 
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
@@ -620,6 +634,34 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.scanners_judged == 2
         assert result.observations_judged == 2
         assert result.failed_chunks == 0
+
+    def test_a_rate_limited_run_leaves_the_remaining_scanners_for_the_next_run(self) -> None:
+        # A run that keeps sending after the shared rate limit takes capacity from other features.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner_count = RATE_LIMIT_BACKOFF_AFTER + 3
+        for index in range(scanner_count):
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name=f"s{index}",
+                scanner_type=ScannerType.SUMMARIZER,
+                scanner_config={"prompt": "p", "length": "short"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            )
+            self._succeeded_observation(scanner, f"session-{index}", "The user hit an error at checkout.")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = DecisionGatewayError(429, "rate limited")
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert RATE_LIMIT_BACKOFF_AFTER <= result.scanners_rate_limited < scanner_count
+        assert api.decide_when_available.call_count == result.scanners_rate_limited
+        assert result.scanners_backed_off == scanner_count - result.scanners_rate_limited
 
     def test_a_consent_revoked_while_a_scanner_waits_sends_nothing(self) -> None:
         # Scanners are queued when their team passes the consent check but judged at their turn,
