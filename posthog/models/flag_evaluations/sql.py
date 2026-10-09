@@ -284,8 +284,9 @@ SETTINGS
 """
 )
 
-# The CREATE below and migrations that ALTER ... MODIFY QUERY both use this
-# SELECT, so a fresh install and a migrated node run the same query.
+# The CREATE below uses this SELECT. A migration that runs ALTER ... MODIFY QUERY
+# copies its SELECT instead of calling this one, because a column added here later
+# would make it fail on a node that has the migration pending (see 0350).
 FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     f"""SELECT
     uuid,
