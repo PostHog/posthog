@@ -186,7 +186,7 @@ export const InternalFeatures: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
         savedSettings: { stamphog_connected: true },
-    tab: 'settings',
+        tab: 'settings',
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
