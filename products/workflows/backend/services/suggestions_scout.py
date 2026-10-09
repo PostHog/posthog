@@ -10,7 +10,13 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
-from products.signals.backend.facade.api import disable_scout_for_product, enable_scout_for_product
+from products.signals.backend.facade.api import (
+    ScoutEnableRefusal,
+    disable_scout_for_product,
+    enable_scout_for_product,
+    scout_enable_refusal_for_product,
+    scout_status_for_product,
+)
 from products.workflows.backend.models import HogFlow, HogFlowOptimization
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
@@ -48,3 +54,25 @@ def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: b
                 acting_user=acting_user,
                 write_scopes=[PROPOSAL_WRITE_SCOPE],
             )
+
+
+def suggestions_scout_refusal(team: Team, *, acting_user: User, may_grant: bool) -> ScoutEnableRefusal | str | None:
+    """Why turning suggestions on here would leave the project with no scout, or None when it would not.
+
+    A project that already has the scout needs nothing new, so nothing is refused there.
+    """
+    project = team.parent_team or team
+    if scout_status_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT) is not None:
+        return None
+    if not may_grant:
+        return "key_cannot_grant"
+    return scout_enable_refusal_for_product(team=project, skill_name=SUGGESTIONS_SCOUT, acting_user=acting_user)
+
+
+def suggestions_scout_status(team: Team) -> str:
+    """`running`, `paused_by_user`, `paused_by_system` or `not_running` for the project's suggestions scout."""
+    project = team.parent_team or team
+    status = scout_status_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT)
+    if status in ("paused_by_user", "paused_by_system"):
+        return status
+    return "running" if status is not None else "not_running"

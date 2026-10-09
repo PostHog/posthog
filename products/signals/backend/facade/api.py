@@ -3,6 +3,7 @@ import uuid
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -1500,6 +1501,49 @@ def enable_scout_for_product(
             config.write_scopes = granted
             config.save(update_fields=["write_scopes", "updated_at"])
     return True
+
+
+class ScoutEnableRefusal(StrEnum):
+    AI_NOT_APPROVED = "ai_not_approved"
+    NO_SKILL_ACCESS = "no_skill_access"
+    AT_LIMIT = "at_limit"
+
+
+def scout_enable_refusal_for_product(
+    *, team: "Team", skill_name: str, acting_user: "User"
+) -> ScoutEnableRefusal | None:
+    """Why `enable_scout_for_product` would create no scout for this person, without writing anything.
+
+    Returns None when the project already has a config for the skill, paused or not, because switching
+    the feature on then creates nothing new. A caller asks before it saves the person's choice, so a
+    refused choice is never stored.
+    """
+    from products.signals.backend.scout_harness.config_registry import (  # noqa: PLC0415 — keeps the scout registry off the facade's import path
+        enabled_scout_count,
+    )
+    from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag payload reader off the facade's import path
+        max_enabled_scouts_for_team,
+    )
+
+    if SignalScoutConfig.objects.for_team(team.id).filter(skill_name=skill_name).exists():
+        return None
+    if team.organization.is_ai_data_processing_approved is not True:
+        return ScoutEnableRefusal.AI_NOT_APPROVED
+    if not UserAccessControl(user=acting_user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        return ScoutEnableRefusal.NO_SKILL_ACCESS
+    if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts_for_team(team.id):
+        return ScoutEnableRefusal.AT_LIMIT
+    return None
+
+
+def scout_status_for_product(*, team_id: int, skill_name: str) -> str | None:
+    """The scout config's status for the skill, or None when the project has no config for it."""
+    return (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .values_list("status", flat=True)
+        .first()
+    )
 
 
 def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: str) -> bool:

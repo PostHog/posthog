@@ -426,7 +426,18 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     }
                 },
                 setOptimizationEnabled: async ({ enabled }) => {
-                    return await hogFlowsOptimizationCreate(String(values.currentTeamIdStrict), props.id, { enabled })
+                    try {
+                        return await hogFlowsOptimizationCreate(String(values.currentTeamIdStrict), props.id, {
+                            enabled,
+                        })
+                    } catch (error) {
+                        // A refusal says why suggestions can't run here, so show it as written and keep the setting.
+                        if (error instanceof ApiError && error.status === 400 && error.detail) {
+                            lemonToast.error(error.detail)
+                            return values.optimization
+                        }
+                        throw error
+                    }
                 },
             },
         ],

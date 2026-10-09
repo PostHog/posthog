@@ -230,7 +230,12 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
-from products.workflows.backend.facade.suggestions_scout import PROPOSAL_WRITE_SCOPE, sync_suggestions_scout
+from products.workflows.backend.facade.suggestions_scout import (
+    PROPOSAL_WRITE_SCOPE,
+    suggestions_scout_refusal,
+    suggestions_scout_status,
+    sync_suggestions_scout,
+)
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
@@ -3609,8 +3614,32 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class SuggestionsScoutStatus(models.TextChoices):
+    RUNNING = "running"
+    PAUSED_BY_USER = "paused_by_user"
+    PAUSED_BY_SYSTEM = "paused_by_system"
+    NOT_RUNNING = "not_running"
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
+    scout_status = serializers.ChoiceField(
+        choices=SuggestionsScoutStatus.choices,
+        read_only=True,
+        help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
+        "workflows that have suggestions on.",
+    )
+
+
+# Why turning suggestions on would leave the project without a scout, worded for the person who tried.
+SUGGESTIONS_REFUSAL_MESSAGES: dict[str, str] = {
+    "at_limit": "This project already runs as many scouts as it can. Turn one off in scout settings, then try again.",
+    "no_skill_access": "You need editor access to skills to turn on suggestions. Ask a project admin for access.",
+    "ai_not_approved": "Suggestions use AI, and your organization hasn't approved AI data processing. "
+    "An organization admin can approve it in organization settings.",
+    "key_cannot_grant": "This API key can't turn on suggestions. Use a key with the hog_flow_proposal:write scope "
+    "and access to the whole project.",
+}
 
 
 class WorkflowProposalSerializer(serializers.Serializer):
@@ -5502,6 +5531,12 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
+            if enabled and not is_optimization_enabled(instance.id):
+                refusal = suggestions_scout_refusal(
+                    self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+                )
+                if refusal is not None:
+                    raise exceptions.ValidationError({"enabled": SUGGESTIONS_REFUSAL_MESSAGES[str(refusal)]})
             changed = set_optimization_enabled(hog_flow_id=instance.id, enabled=enabled)
             if changed:
                 self._log_activity(
@@ -5514,20 +5549,29 @@ class HogFlowViewSet(
         else:
             enabled = is_optimization_enabled(instance.id)
 
-        return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
+        return Response(
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
+            ).data
+        )
 
-    def _sync_suggestions_scout(self, request: Request) -> None:
+    def _may_grant_scout(self, request: Request) -> bool:
         # Switching the scout on grants a write scope that its runs use as this person, so a scoped API
-        # key has to carry that scope itself, whichever way it toggles. A failure never fails the toggle.
+        # key has to carry that scope itself, whichever way it toggles.
         token_scopes = get_authenticator_scopes(request.successful_authenticator)
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         # The scout lives on the project, so a key limited to one of its environments may not grant it.
         project_id = self.team.parent_team_id or self.team.id
-        may_grant = (token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes) and (
+        return (token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes) and (
             scoped_team_ids is None or project_id in scoped_team_ids
         )
+
+    def _sync_suggestions_scout(self, request: Request) -> None:
+        # A failure never fails the toggle.
         try:
-            sync_suggestions_scout(self.team, acting_user=cast(User, request.user), may_grant=may_grant)
+            sync_suggestions_scout(
+                self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+            )
         except Exception as error:
             capture_exception(error)
 

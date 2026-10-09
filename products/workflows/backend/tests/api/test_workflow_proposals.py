@@ -582,14 +582,22 @@ class TestWorkflowProposals(APIBaseTest):
     def _suggestions_scout(self) -> SignalScoutConfig | None:
         return SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").first()
 
-    def _toggle(self, flow_id: str, enabled: bool, headers: dict | None = None, team_id: int | None = None) -> None:
+    def _toggle(
+        self,
+        flow_id: str,
+        enabled: bool,
+        headers: dict | None = None,
+        team_id: int | None = None,
+        expected_status: int = 200,
+    ) -> dict:
         response = self.client.post(
             f"/api/projects/{team_id or self.team.id}/hog_flows/{flow_id}/optimization",
             {"enabled": enabled},
             format="json",
             headers=headers or {},
         )
-        assert response.status_code == 200, response.json()
+        assert response.status_code == expected_status, response.json()
+        return response.json()
 
     def test_suggestions_scout_runs_while_any_workflow_asks_for_suggestions(self, _mock_flag):
         first, second = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
@@ -613,21 +621,15 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("paused by a person", "paused"),
-            ("paused by the system", "system_paused"),
-            ("api key limited to a child environment", "child_key"),
-            ("a project at its enabled-scout limit", "at_cap"),
-            ("a person without editor access to skills", "no_skill_access"),
-            ("a member widening another person's scout", "widen"),
-            ("api key without the proposal scope turning one on", "key_on"),
-            ("api key without the proposal scope turning one off", "key_off"),
-            ("a scout a person set up", "own"),
+            ("paused by a person", "paused", "paused_by_user"),
+            ("paused by the system", "system_paused", "paused_by_system"),
+            ("a member widening another person's scout", "widen", "running"),
+            ("api key without the proposal scope turning one off", "key_off", "not_running"),
+            ("a scout a person set up", "own", "running"),
         ]
     )
-    def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str):
+    def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str, scout_status: str):
         flow_team_id = self.team.id
-        if case == "child_key":
-            flow_team_id = Team.objects.create(organization=self.organization, name="child", parent_team=self.team).id
         flow_id = self._create_active_flow(optimize=False, team_id=flow_team_id)
         headers: dict = {}
         enabled = True
@@ -655,31 +657,19 @@ class TestWorkflowProposals(APIBaseTest):
                 created_by=other,
                 enabled_by=other,
             )
-        elif case == "child_key":
-            key = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                label="child",
-                user=self.user,
-                secure_value=hash_key_value(key),
-                scopes=["*"],
-                scoped_teams=[flow_team_id],
-            )
-            headers = {"authorization": f"Bearer {key}"}
-            self.client.logout()
         elif case == "own":
             SignalScoutConfig.objects.for_team(self.team.id).create(
                 team=self.team, skill_name="signals-scout-workflows", enabled=True
             )
-        elif case in ("key_on", "key_off"):
+        elif case == "key_off":
             key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="toggle", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
             )
             headers = {"authorization": f"Bearer {key}"}
-            if case == "key_off":
-                for flow in (flow_id, self._create_active_flow(optimize=False)):
-                    HogFlowOptimization.objects.for_team(self.team.id).create(hog_flow_id=flow, enabled=True)
-                enabled = False
+            for flow in (flow_id, self._create_active_flow(optimize=False)):
+                HogFlowOptimization.objects.for_team(self.team.id).create(hog_flow_id=flow, enabled=True)
+            enabled = False
             self.client.logout()
 
         original_check = UserAccessControl.check_access_level_for_resource
@@ -699,14 +689,68 @@ class TestWorkflowProposals(APIBaseTest):
                 ),
             ),
         ):
-            self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
+            response = self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
 
         scout = self._suggestions_scout()
         assert scout is None or scout.write_scopes == []
+        assert response["scout_status"] == scout_status
         if case == "system_paused":
             assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-        if case in ("at_cap", "no_skill_access"):
-            assert scout is None
+
+    @parameterized.expand(
+        [
+            ("a project at its enabled-scout limit", "at_cap", "already runs as many scouts"),
+            ("a person without editor access to skills", "no_skill_access", "editor access to skills"),
+            ("an organization that has not approved AI", "ai_not_approved", "approved AI data processing"),
+            ("api key without the proposal scope", "key_on", "hog_flow_proposal:write"),
+            ("api key limited to a child environment", "child_key", "hog_flow_proposal:write"),
+        ]
+    )
+    def test_turning_suggestions_on_is_refused_when_no_scout_could_run(
+        self, _mock_flag, _name: str, case: str, message: str
+    ):
+        flow_team_id = self.team.id
+        if case == "child_key":
+            flow_team_id = Team.objects.create(organization=self.organization, name="child", parent_team=self.team).id
+        flow_id = self._create_active_flow(optimize=False, team_id=flow_team_id)
+        headers: dict = {}
+        if case == "ai_not_approved":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+        elif case in ("key_on", "child_key"):
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="toggle",
+                user=self.user,
+                secure_value=hash_key_value(key),
+                scopes=["*"] if case == "child_key" else ["hog_flow:write"],
+                scoped_teams=[flow_team_id] if case == "child_key" else None,
+            )
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
+
+        original_check = UserAccessControl.check_access_level_for_resource
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
+                return_value=0 if case == "at_cap" else 100,
+            ),
+            patch.object(
+                UserAccessControl,
+                "check_access_level_for_resource",
+                autospec=True,
+                side_effect=lambda uac, resource, *args, **kwargs: (
+                    resource != "llm_skill"
+                    if case == "no_skill_access"
+                    else original_check(uac, resource, *args, **kwargs)
+                ),
+            ),
+        ):
+            response = self._toggle(flow_id, True, headers, team_id=flow_team_id, expected_status=400)
+
+        assert message in response["detail"]
+        assert not HogFlowOptimization.objects.unscoped().filter(hog_flow_id=flow_id, enabled=True).exists()
+        assert self._suggestions_scout() is None
 
     @parameterized.expand(
         [

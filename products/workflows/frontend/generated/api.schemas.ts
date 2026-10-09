@@ -1249,9 +1249,32 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `running` - Running
+ * * `paused_by_user` - Paused By User
+ * * `paused_by_system` - Paused By System
+ * * `not_running` - Not Running
+ */
+export type SuggestionsScoutStatusEnumApi =
+    (typeof SuggestionsScoutStatusEnumApi)[keyof typeof SuggestionsScoutStatusEnumApi]
+
+export const SuggestionsScoutStatusEnumApi = {
+    Running: 'running',
+    PausedByUser: 'paused_by_user',
+    PausedBySystem: 'paused_by_system',
+    NotRunning: 'not_running',
+} as const
+
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+     *
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running */
+    readonly scout_status: SuggestionsScoutStatusEnumApi
 }
 
 /**
