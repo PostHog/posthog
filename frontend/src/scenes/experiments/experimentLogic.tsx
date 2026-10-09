@@ -2725,15 +2725,16 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(update)
-            // After a conflict the loader has swapped in the server's metric lists and this edit did not
-            // save, so there is no new layout to compute results for.
-            if ((await inflightUpdateOutcome(cache)) === 'failed') {
+            const outcome = await inflightUpdateOutcome(cache)
+            if (outcome === 'failed') {
                 return
             }
 
             // Results are positional per section, so the moved metric's result no longer lines up with the
             // new layout. Moving a metric is metric-scoped: reuse the window so unchanged metrics stay cached.
-            actions.refreshExperimentResults(true, 'metric_config_change')
+            // After a conflict the loader has swapped in the server's metric lists, and this edit did not save,
+            // so the run computes the server's layout and cached results are enough.
+            actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateMetricBreakdown: [
             ({ uuid, breakdown }, _breakpoint, _action, previousState): void => {
