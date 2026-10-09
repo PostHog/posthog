@@ -16,6 +16,8 @@ import {
     createMetricsIngestionPipeline,
     runMetricsIngestionPipeline,
 } from './metrics-ingestion-pipeline'
+import { MetricsUsageAccumulator } from './metrics-usage'
+import { emitMetricsUsage } from './metrics-usage-steps'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { createMetricsRateLimiterRedis } from './services/metrics-redis'
 
@@ -68,6 +70,7 @@ export class MetricsPipelineConsumer {
     protected kafkaConsumer: KafkaConsumerInterface
     private promiseScheduler: FailureLatchingPromiseScheduler
     private pipeline: MetricsIngestionPipeline
+    private outputs: MetricsIngestionOutputs
 
     constructor(config: MetricsIngestionConsumerConfig, deps: MetricsPipelineConsumerDeps) {
         // Always v2: consumer-v1 stores a batch's offsets even when its background
@@ -77,6 +80,7 @@ export class MetricsPipelineConsumer {
             groupId: config.METRICS_INGESTION_CONSUMER_GROUP_ID,
             topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
         })
+        this.outputs = deps.outputs
         this.promiseScheduler = new FailureLatchingPromiseScheduler()
         this.pipeline = createMetricsIngestionPipeline({
             outputs: deps.outputs,
@@ -108,8 +112,9 @@ export class MetricsPipelineConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<unknown> }> {
+        let usage: MetricsUsageAccumulator
         try {
-            await runMetricsIngestionPipeline(this.pipeline, messages)
+            usage = await runMetricsIngestionPipeline(this.pipeline, messages)
         } catch (error) {
             logger.error('❌', `${this.name} - batch processing failed`, {
                 error: error instanceof Error ? error.message : String(error),
@@ -125,11 +130,14 @@ export class MetricsPipelineConsumer {
         // hand them to the consumer as a background task: it fetches the next
         // batch meanwhile and only stores this batch's offsets once they settle.
         // After a side effect rejects, every later background task rejects too,
-        // so no offsets are stored past the lost message.
+        // so no offsets are stored past the lost message. Usage is billed only
+        // when the batch's writes all succeed: a failed batch replays, and the
+        // replay bills it.
         return {
-            backgroundTask: instrumentFn('metricsIngestionConsumer.awaitScheduledWork', () =>
-                this.promiseScheduler.waitForAllOrFail()
-            ),
+            backgroundTask: instrumentFn('metricsIngestionConsumer.awaitScheduledWork', async () => {
+                await this.promiseScheduler.waitForAllOrFail()
+                await emitMetricsUsage(this.outputs, usage)
+            }),
         }
     }
 

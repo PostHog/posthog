@@ -111,15 +111,27 @@ async function emitUsageRows(
 }
 
 /**
- * afterBatch step: turns the batch's usage tally into Prometheus counters
- * (synchronously) and billing rows (as a side effect that never rejects).
+ * Turns a batch's usage tally into Prometheus counters and billing rows.
+ * `MetricsPipelineConsumer` calls it only after every write of the batch has
+ * succeeded, so a batch that fails and replays is billed once. Never rejects.
  */
-export function createEmitMetricsUsageStep<T extends { batchContext: MetricsUsageBatchContext }>(
-    outputs: IngestionOutputs<AppMetricsOutput>
-): ProcessingStep<T, T> {
-    return function emitMetricsUsageStep(input) {
-        const { usage } = input.batchContext
-        incrementUsageCounters(usage)
-        return Promise.resolve(ok(input, [emitUsageRows(outputs, usage)]))
+export async function emitMetricsUsage(
+    outputs: IngestionOutputs<AppMetricsOutput>,
+    usage: MetricsUsageAccumulator
+): Promise<void> {
+    incrementUsageCounters(usage)
+    await emitUsageRows(outputs, usage)
+}
+
+/**
+ * afterBatch step that passes the batch through. The usage tally stays on the
+ * batch context, and `runMetricsIngestionPipeline` returns it to the consumer.
+ */
+export function createKeepMetricsUsageStep<T extends { batchContext: MetricsUsageBatchContext }>(): ProcessingStep<
+    T,
+    T
+> {
+    return function keepMetricsUsageStep(input) {
+        return Promise.resolve(ok(input))
     }
 }

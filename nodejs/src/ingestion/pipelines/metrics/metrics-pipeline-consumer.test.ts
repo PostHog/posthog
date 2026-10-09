@@ -62,9 +62,13 @@ describe('MetricsPipelineConsumer', () => {
         await new Promise((resolve) => setImmediate(resolve))
         expect(settled).toBe(false)
 
+        // Usage is billed only once the batch's writes have succeeded.
+        expect(outputs.queueMessages).not.toHaveBeenCalled()
+
         ack()
         await backgroundTask
         expect(outputs.produce).toHaveBeenCalledTimes(1)
+        expect(outputs.queueMessages).toHaveBeenCalled()
     })
 
     it('runs on consumer-v2, which stores no offsets when the background task rejects', () => {
@@ -83,6 +87,8 @@ describe('MetricsPipelineConsumer', () => {
 
         await expect(backgroundTask).rejects.toBe(error)
         expect(outputs.produce).toHaveBeenCalledTimes(2)
+        // The batch replays, so billing it now would bill it twice.
+        expect(outputs.queueMessages).not.toHaveBeenCalled()
     })
 
     it('fails the batch when the team lookup keeps failing with a retriable error', async () => {

@@ -10,8 +10,8 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
-import { MetricsUsageBatchContext } from './metrics-usage'
-import { createEmitMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'
+import { MetricsUsageAccumulator, MetricsUsageBatchContext } from './metrics-usage'
+import { createKeepMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'
 import { MetricsOutput } from './outputs/outputs'
 import { createPrepareMetricsMessageStep, perMessage } from './prepare-metrics-message-step'
 import { createProduceMetricsStep } from './produce-metrics-step'
@@ -49,7 +49,8 @@ export type MetricsIngestionPipeline = BatchingPipeline<
  *
  * Every stage is a chunk step (see `perMessage`), so the framework instruments
  * each stage once per batch, not once per message.
- * 4. After the batch: emit Prometheus counters and billing rows from the tally.
+ * 4. After the batch: the consumer emits Prometheus counters and billing rows
+ *    from the tally, once all of the batch's writes have succeeded.
  */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
     const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter } = config
@@ -76,23 +77,24 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, sideEffects),
-        (after) => after.pipe(createEmitMetricsUsageStep(outputs)).handleSideEffects(promiseScheduler, sideEffects),
+        (after) => after.pipe(createKeepMetricsUsageStep()),
         { concurrentBatches: 1 },
         { aggregateDebugContexts: aggregateKafkaDebugContexts }
     )
 }
 
 /**
- * Runs one Kafka batch through the pipeline. Results and batch hooks handle
- * their own side effects (scheduled on the promise scheduler, which the
- * consumer drains before committing offsets), so this driver only drains.
+ * Runs one Kafka batch through the pipeline and returns the batch's usage
+ * tally. Results handle their own side effects (scheduled on the promise
+ * scheduler, which the consumer drains before committing offsets). The caller
+ * emits the usage once those side effects succeed.
  */
 export async function runMetricsIngestionPipeline(
     pipeline: MetricsIngestionPipeline,
     messages: Message[]
-): Promise<void> {
+): Promise<MetricsUsageAccumulator> {
     if (messages.length === 0) {
-        return
+        return new MetricsUsageAccumulator()
     }
 
     const batch = createBatch(messages.map((message) => ({ message })))
@@ -103,7 +105,10 @@ export async function runMetricsIngestionPipeline(
         throw new Error(`metrics ingestion pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }
 
-    while ((await pipeline.next()) !== null) {
-        // Drain all results
+    let usage = new MetricsUsageAccumulator()
+    let batchResult
+    while ((batchResult = await pipeline.next()) !== null) {
+        usage = batchResult.batchContext.usage
     }
+    return usage
 }

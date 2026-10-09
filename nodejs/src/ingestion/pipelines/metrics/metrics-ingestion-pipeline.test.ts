@@ -14,6 +14,7 @@ import {
     createMetricsIngestionPipeline,
     runMetricsIngestionPipeline,
 } from './metrics-ingestion-pipeline'
+import { emitMetricsUsage } from './metrics-usage-steps'
 import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT } from './outputs/outputs'
 
 jest.mock('~/common/utils/logger', () => ({
@@ -61,8 +62,9 @@ describe('MetricsIngestionPipeline', () => {
 
     const runPipeline = async (messages: Message[]): Promise<void> => {
         const pipeline = createMetricsIngestionPipeline(config)
-        await runMetricsIngestionPipeline(pipeline, messages)
+        const usage = await runMetricsIngestionPipeline(pipeline, messages)
         await promiseScheduler.waitForAll()
+        await emitMetricsUsage(config.outputs, usage)
     }
 
     const producedTo = (topic: string): ProducedMessage[] =>

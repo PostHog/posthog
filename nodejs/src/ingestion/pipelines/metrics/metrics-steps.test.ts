@@ -13,7 +13,7 @@ import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
 import { MetricsUsageAccumulator } from './metrics-usage'
-import { createEmitMetricsUsageStep } from './metrics-usage-steps'
+import { emitMetricsUsage } from './metrics-usage-steps'
 import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 import { createParseMetricsHeadersStep } from './parse-metrics-headers-step'
 import { createProduceMetricsStep } from './produce-metrics-step'
@@ -319,7 +319,7 @@ describe('metrics ingestion steps', () => {
         })
     })
 
-    describe('emitMetricsUsageStep', () => {
+    describe('emitMetricsUsage', () => {
         let outputs: jest.Mocked<ReturnType<typeof createMockIngestionOutputs<AppMetricsOutput>>>
 
         beforeEach(() => {
@@ -330,8 +330,7 @@ describe('metrics ingestion steps', () => {
             usage.recordReceived(1, 100, 2)
             outputs.queueMessages.mockRejectedValueOnce(new Error('broker down'))
 
-            const result = await createEmitMetricsUsageStep(outputs)({ batchContext: { usage } })
-            await expect(Promise.all(result.sideEffects)).resolves.toBeDefined()
+            await expect(emitMetricsUsage(outputs, usage)).resolves.toBeUndefined()
             expect(logger.error).toHaveBeenCalledWith(
                 '🔴',
                 'Failed to emit usage metrics - billing data may be lost',
