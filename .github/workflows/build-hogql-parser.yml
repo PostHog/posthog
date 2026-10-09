@@ -97,7 +97,6 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         strategy:
             matrix:
-                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel]
                 include:
                     - os: macos-15
                       cibw_archs_macos: arm64
@@ -157,28 +156,11 @@ jobs:
         runs-on: ubuntu-22.04
         timeout-minutes: 10
         steps:
-            - name: Download wheels from ubuntu-22.04
+            - name: Download all wheel artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: wheels-ubuntu-22.04
-                  path: dist
-
-            - name: Download wheels from ubuntu-22.04-arm
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: wheels-ubuntu-22.04-arm
-                  path: dist
-
-            - name: Download wheels from macos-15
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: wheels-macos-15
-                  path: dist
-
-            - name: Download wheels from macos-15-intel
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: wheels-macos-15-intel
+                  pattern: wheels-*
+                  merge-multiple: true
                   path: dist
 
             - name: Publish package to PyPI
