@@ -43,6 +43,7 @@ export function ExpandedLogContent({ log }: ExpandedLogContentProps): JSX.Elemen
                         sessionId={sessionId}
                         timestamp={log.timestamp}
                         size="xsmall"
+                        type="secondary"
                         openPlayerIn={RecordingPlayerType.Modal}
                         checkRecordingExists
                         data-attr="logs-expanded-view-recording"
