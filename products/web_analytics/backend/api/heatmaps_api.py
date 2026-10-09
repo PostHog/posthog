@@ -12,6 +12,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 
+import re2
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -474,7 +475,14 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate_url_pattern(self, value: str | None) -> str | None:
         if value is None:
             return None
-        return anchor_url_pattern(value)
+        pattern = anchor_url_pattern(value)
+        options = re2.Options()
+        options.log_errors = False
+        try:
+            re2.compile(pattern, options=options)
+        except re2.error as error:
+            raise serializers.ValidationError("Enter a valid URL pattern.") from error
+        return pattern
 
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)

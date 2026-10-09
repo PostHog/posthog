@@ -18,7 +18,11 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { escapeUnescapedRegex, heatmapUrlPatternToRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
+import {
+    escapeUnescapedRegex,
+    heatmapUrlPatternToRegex,
+    resolveHeatmapUrlFilter,
+} from 'lib/components/heatmaps/heatmapUrlMatch'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
@@ -1219,7 +1223,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         enableHeatmap: () => {
-            actions.setDataHref(values.href)
+            const urlFilter = resolveHeatmapUrlFilter(values.wildcardHref)
+            actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+            actions.setDataHref(urlFilter?.href ?? '')
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
@@ -1359,8 +1365,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
-                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
-                actions.setDataHref(href)
+                const urlFilter = resolveHeatmapUrlFilter(href)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+                actions.setDataHref(urlFilter?.href ?? '')
             }
             // the area filter describes an element on the page it was picked on; carrying it
             // across navigation would filter the new page by the old page's selector and bounds
@@ -1375,8 +1382,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setWildcardHref: ({ href }) => {
             if (values.heatmapEnabled) {
-                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
-                actions.setDataHref(href)
+                const urlFilter = resolveHeatmapUrlFilter(href)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+                actions.setDataHref(urlFilter?.href ?? '')
             }
             actions.maybeLoadClickmap()
         },
