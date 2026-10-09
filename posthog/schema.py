@@ -49,17 +49,25 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
     AssistantTool as AssistantTool,
+    AssistantTrendsDisplayType as AssistantTrendsDisplayType,
     AttributionMode as AttributionMode,
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
+    BIAggregation as BIAggregation,
+    BIDateBucket as BIDateBucket,
+    BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
+    BIQueryLimit as BIQueryLimit,
+    BISortDirection as BISortDirection,
+    BITableCalculationType as BITableCalculationType,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -69,6 +77,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
@@ -92,7 +101,6 @@ from posthog.schema_enums import (
     DetailedResultsAggregationType as DetailedResultsAggregationType,
     DetectorType as DetectorType,
     Display as Display,
-    Display1 as Display1,
     DisplayType as DisplayType,
     DistanceFunc as DistanceFunc,
     DomainConnectProviderName as DomainConnectProviderName,
@@ -112,6 +120,11 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
+    ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
+    ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -135,6 +148,7 @@ from posthog.schema_enums import (
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
     GroupMathType as GroupMathType,
+    GroupTypeIndex as GroupTypeIndex,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -201,9 +215,11 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
+    MissingDates as MissingDates,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
@@ -213,6 +229,8 @@ from posthog.schema_enums import (
     NodeKind as NodeKind,
     OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
+    Operator1 as Operator1,
+    Operator2 as Operator2,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
     OrderDirection1 as OrderDirection1,
@@ -299,6 +317,7 @@ from posthog.schema_enums import (
     TraceOrderColumn as TraceOrderColumn,
     TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
     TraceSpanBreakdownType as TraceSpanBreakdownType,
+    TwitterAdsDefaultSources as TwitterAdsDefaultSources,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -586,6 +605,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
@@ -925,10 +952,6 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
-
-
 class AssistantUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -936,6 +959,60 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class BICategoryGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    values: list[str]
+
+
+class BIConditionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: list[str]
+    groups: list[BIConditionGroup]
+    operator: Operator1
+
+
+class BIDataSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connectionId: str | None = None
+    table: str
+
+
+class BILocalFieldDefinition1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    groups: list[BICategoryGroup]
+    kind: Literal["groups"] = "groups"
+    other: str
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    kind: Literal["bins"] = "bins"
+    origin: float
+    width: float
+
+
+class BITotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: bool | None = None
+    rows: bool | None = None
+    subtotals: bool | None = None
 
 
 class BaseAssistantMessage(BaseModel):
@@ -1442,6 +1519,15 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: GroupTypeIndex = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
+
+
 class ExperimentExposureEstimateConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1636,6 +1722,16 @@ class FileSystemEntry(BaseModel):
         ),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
+
+
+class FileSystemSearchTab(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    flag: str | None = None
+    href: str
+    name: str
+    searchKeywords: list[str] | None = None
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -1992,6 +2088,10 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
     clicks: float
     conversions: float | None = None
     cost: float | None = None
@@ -2000,11 +2100,19 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     ctr: float | None = None
     impressions: float
     position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
     )
     clicks: float
     conversions: float | None = None
@@ -2020,6 +2128,10 @@ class MarketingAnalyticsSearchRow(BaseModel):
     platform: Platform
     position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchSource(BaseModel):
@@ -2234,6 +2346,21 @@ class MarketingIntegrationConfig12(BaseModel):
     statsTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
 
 
+class MarketingIntegrationConfig13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["line_item_stats"] = "line_item_stats"
+    adsetTableName: Literal["line_items"] = "line_items"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["twitter"] = "twitter"
+    sourceType: Literal["TwitterAds"] = "TwitterAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2248,6 +2375,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
         | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     ]
 ):
     root: (
@@ -2263,6 +2391,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
         | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     )
 
 
@@ -2756,10 +2885,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,
@@ -2979,6 +3108,21 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: str | None = None
     static: CurrencyCode | None = None
+
+
+class SQLEditorConfiguration(BaseModel):
+    vim_mode_enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference."
+        ),
+    )
+    vimrc: constr(max_length=10000) | None = Field(
+        default=None,
+        description=(
+            "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`."
+        ),
+    )
 
 
 class SampleRatioMismatch(BaseModel):
@@ -3697,6 +3841,15 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -4728,36 +4881,44 @@ class AssistantTrendsFilter(BaseModel):
             " values will have a decimal point."
         ),
     )
-    display: Display | None = Field(
-        default=Display.ACTIONS_LINE_GRAPH,
+    display: AssistantTrendsDisplayType | None = Field(
+        default=AssistantTrendsDisplayType.ACTIONS_LINE_GRAPH,
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
             " `ActionsBar` - time-series bar chart with one bar per interval and"
             " breakdown values stacked in each bar. Do not use it to compare breakdown"
             " values or series as totals. Use `ActionsBarValue` for that."
-            " `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative`"
-            " - cumulative time-series line chart; good for cumulative metrics."
-            " `Metric` - single large number with a change pill and a sparkline. Use"
-            " for a period summary or an explicit current-versus-previous-period"
-            ' comparison ("how many X in the last 30 days", "what\'s our conversion'
-            ' rate this month", "how does this month compare to last"). Do not use for'
-            " a question about change over time, a cadence, or a pattern. Use"
-            " `ActionsLineGraph` so the person can inspect each interval. Set"
-            " `compareFilter.compare` to `true` to compare the current period with the"
-            " previous period. Without it, the pill compares the first interval with"
-            " the last interval. Configure the display with the `metric*` fields below."
-            " Single series, no breakdown. `BoldNumber` - single large number with no"
-            " change or sparkline. Use instead of `Metric` only when a trend is"
-            " meaningless, such as an all-time total or a fixed ratio. You CANNOT use"
-            " this with breakdown or if the insight has more than one series."
-            " `ActionsBarValue` - total value (NOT time-series) bar chart with one bar"
-            ' per breakdown value or series; good for categorical data such as "top'
-            ' pages" or "failures by reason". `ActionsPie` - total value pie chart;'
-            " good for visualizing proportions. `ActionsTable` - total value table;"
+            " `ActionsUnstackedBar` - time-series bar chart with series side by side in"
+            " each interval. `ActionsAreaGraph` - time-series area chart."
+            " `ActionsLineGraphCumulative` - cumulative time-series line chart; good"
+            " for cumulative metrics. `SlopeGraph` - net change from the first to the"
+            " last interval, one line per series. `BoxPlot` - quartiles of a numeric"
+            " `math_property` for each interval. `Metric` - single large number with a"
+            " change pill and a sparkline. Use for a period summary or an explicit"
+            ' current-versus-previous-period comparison ("how many X in the last 30'
+            ' days", "what\'s our conversion rate this month", "how does this month'
+            ' compare to last"). Do not use for a question about change over time, a'
+            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
+            " each interval. Set `compareFilter.compare` to `true` to compare the"
+            " current period with the previous period. Without it, the pill compares"
+            " the first interval with the last interval. Configure the display with the"
+            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
+            " single large number with no change or sparkline. Use instead of `Metric`"
+            " only when a trend is meaningless, such as an all-time total or a fixed"
+            " ratio. You CANNOT use this with breakdown or if the insight has more than"
+            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart"
+            " with one bar per breakdown value or series; good for categorical data"
+            ' such as "top pages" or "failures by reason". `ActionsPie` - total value'
+            " pie chart; good for visualizing proportions. `ActionsDonut` - total value"
+            " donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total"
+            " value chart that shows the parts of one whole as a single flat bar, with"
+            " one segment per breakdown value or series. Use it to show the share of"
+            " each part in a total. It cannot compare to a previous period, so do not"
+            " set `compareFilter.compare` with it. `ActionsTable` - total value table;"
             " good when using breakdown to list users or other entities. `WorldMap` -"
-            " total value world map; use when breaking down by country name using"
-            " property `$geoip_country_name`, and only then."
+            " total value world map; use when breaking down by country using property"
+            " `$geoip_country_code`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -4919,6 +5080,94 @@ class AutocompleteCompletionItem(BaseModel):
             " fits the comparison being written."
         ),
     )
+
+
+class BIField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateBucket: BIDateBucket | None = None
+    expression: str
+    id: str
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
+    name: str
+    source: BIDataSource
+    type: DatabaseSerializedFieldType
+
+
+class BIFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customExpression: str | None = None
+    enabled: bool | None = None
+    field: BIField
+    operator: BIFilterOperator
+    value: str
+    valueTo: str | None = None
+    values: list[str] | None = None
+
+
+class BIResultFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: bool | None = None
+    id: str
+    measureIndex: conint(ge=0)
+    operator: Operator2
+    value: str
+    valueTo: str | None = None
+
+
+class BISort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    direction: BISortDirection
+    key: str
+
+
+class BITableCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computeUsing: str | None = Field(
+        default=None,
+        description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    requireFullWindow: bool | None = Field(
+        default=None,
+        description=("Require a complete window of non-null values before displaying a moving average."),
+    )
+    type: BITableCalculationType
+    window: conint(ge=1) | None = Field(
+        default=None,
+        description=("Number of points, including the current point, in a trailing moving average."),
+    )
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: conint(ge=1)
+    fieldId: str
+    includeOther: bool
+    measureIndex: conint(ge=0)
+
+
+class BIValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: BIAggregation
+    customExpression: str | None = None
+    display: ChartSettingsDisplay | None = None
+    field: BIField
+    formatting: ChartSettingsFormatting | None = None
+    label: str | None = None
+    tableCalculation: BITableCalculation | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -5404,6 +5653,16 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
+class ExperimentApiPropertyBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiPropertyBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
+    )
+
+
 class ExperimentApiRetentionStart(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5452,12 +5711,60 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthFinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: list[ExperimentExposureHealthFindingActionKind] = Field(
+        ..., description="The actions that fix the problem, in order of preference."
+    )
+    code: ExperimentExposureHealthFindingCode = Field(
+        ...,
+        description=(
+            "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+        ),
+    )
+    detail: str = Field(
+        ...,
+        description="What is wrong, what it does to the experiment, and how to fix it.",
+    )
+    diagnostic_ref: str | None = Field(
+        ...,
+        description=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health"
+            " skill, for example 'A2'. Null when the skill has none."
+        ),
+    )
+    evidence: dict[str, str | float | None] = Field(
+        ...,
+        description=(
+            "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
+        ),
+    )
+    severity: ExperimentExposureHealthFindingSeverity = Field(
+        ...,
+        description=("How much the problem affects the results: critical, warning, or info."),
+    )
+    subcode: str | None = Field(
+        ...,
+        description=("The case within the code, when a code covers several. Null when the code has one case."),
+    )
+    title: str = Field(..., description="One-line summary of the problem.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -5637,6 +5944,10 @@ class FileSystemImport(BaseModel):
     searchKeywords: list[str] | None = Field(
         default=None,
         description=("Other terms that find this item in search, for example the names of its tabs or common synonyms"),
+    )
+    searchTabs: list[FileSystemSearchTab] | None = Field(
+        default=None,
+        description="Tabs of this item that search lists as their own results",
     )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
@@ -6583,7 +6894,10 @@ class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: MetricsAggregation
+    aggregation: MetricsAggregation | None = Field(
+        default=None,
+        description=("Omit to get one line per series (at most 100), without combining them"),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -6602,6 +6916,10 @@ class MetricsQueryClause(BaseModel):
     quantile: float | None = Field(
         default=None,
         description=("In (0, 1); required for `quantile` / `histogram_quantile` aggregations"),
+    )
+    rangeFunction: MetricsRangeFunction | None = Field(
+        default=None,
+        description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
 
 
@@ -6989,6 +7307,13 @@ class QueryResponseAlternative21(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -7126,7 +7451,10 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error, when known: the DRF exception"
+            " code, or the ClickHouse error name."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
@@ -7981,7 +8309,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: list[str] | None = None
     description: str | None = None
     descriptionContentType: SurveyQuestionDescriptionContentType | None = None
-    display: Display1 | None = None
+    display: Display | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
     isNpsQuestion: bool | None = None
@@ -9787,13 +10115,16 @@ class AssistantDataVisualizationNode(BaseModel):
         description=(
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
-            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
-            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
+            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
+            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
+            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
+            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
+            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10326,6 +10657,10 @@ class AssistantRetentionFilter(BaseModel):
             " retention means that a user coming back in period 5 makes them count"
             " towards all the previous periods."
         ),
+    )
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
     )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
@@ -10960,6 +11295,45 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
         max_length=2,
         min_length=2,
     )
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartType: ChartDisplayType
+    columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
+    filters: list[BIFilter]
+    limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
+    values: list[BIValue]
 
 
 class BehavioralPropertyFilter(BaseModel):
@@ -12094,6 +12468,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -16385,7 +16766,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
@@ -18097,9 +18479,39 @@ class EventsQueryResponse(BaseModel):
     )
 
 
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown] | None = Field(
+        default=None,
+        description="Properties to break the metric results down by.",
+        max_length=3,
+    )
+
+
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: ExperimentApiBreakdownAttributionType | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics with breakdowns: which step the breakdown value is read"
+            " from. 'all_events' is not supported for experiment funnels."
+        ),
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is 'step', the 0-indexed step to attribute from."),
+    )
+    breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
+        default=None,
+        description=("Break the metric results down by up to 3 event, person, session or group properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
@@ -25526,6 +25938,7 @@ class UsageMetricsQuery(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     sidebar: SidebarConfiguration | None = None
+    sql_editor: SQLEditorConfiguration | None = None
     version: int = Field(
         ...,
         description=("Schema version of this configuration blob, for future format migrations."),
@@ -27106,6 +27519,10 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
+    metricFilters: list[MetricsQueryFilter] | None = Field(
+        default=None,
+        description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -27831,6 +28248,10 @@ class HogQLFilters(BaseModel):
         description=(
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
@@ -28831,19 +29252,12 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted. Coarsened when the"
-            " range would need more than 10,000 buckets."
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
-    minInterval: str | None = Field(
-        default=None,
-        description=(
-            "Finest bucket size the query may use, from the same set as `interval`;"
-            " raises a finer interval or auto pick"
-        ),
-    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -30451,6 +30865,19 @@ class TraceSpansTreeQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class BIVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: ChartSettings | None = None
+    config: BIConfig
+    display: ChartDisplayType | None = None
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: HogQLQuery
+    tableSettings: TableSettings | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31079,6 +31506,10 @@ class SessionsQuery(BaseModel):
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
+
+
+class VisualizationNode(RootModel[DataVisualizationNode | BIVisualizationNode]):
+    root: DataVisualizationNode | BIVisualizationNode
 
 
 class CalendarHeatmapQuery(BaseModel):
@@ -33426,6 +33857,7 @@ class MaxInsightContext(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33571,6 +34003,7 @@ class QueryRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33708,6 +34141,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33815,6 +34249,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33927,6 +34362,7 @@ class QueryUpgradeRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34039,6 +34475,7 @@ class QueryUpgradeResponse(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34196,6 +34633,7 @@ class VisualizationArtifactContent(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34256,6 +34694,7 @@ class VisualizationArtifactContent(BaseModel):
     )
 
 
+BIConditionGroup.model_rebuild()
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()

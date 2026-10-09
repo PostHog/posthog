@@ -194,7 +194,7 @@ export class HogTransformerService implements HogTransformer {
     }
 
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
-        return instrumentFn(`hogTransformer.transformEventAndProduceMessages`, () =>
+        return instrumentFn({ key: `hogTransformer.transformEventAndProduceMessages`, span: false }, () =>
             this.transformEventAndProduceMessagesImpl(event)
         )
     }

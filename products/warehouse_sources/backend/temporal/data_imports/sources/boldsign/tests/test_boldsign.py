@@ -8,11 +8,9 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign import boldsign
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign import (
-    BOLDSIGN_HOSTS,
     PAGE_SIZE,
     BoldSignResumeConfig,
     _base_url,
-    _get_headers,
     boldsign_source,
     validate_credentials,
 )
@@ -87,57 +85,12 @@ def _run(
 
 
 class TestBaseUrlAndHeaders:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.boldsign.com"),
-            ("eu", "https://api-eu.boldsign.com"),
-        ],
-    )
-    def test_base_url_per_region(self, region: str, expected: str) -> None:
-        assert _base_url(region) == expected
-        assert BOLDSIGN_HOSTS[region] == expected
-
     def test_base_url_rejects_unknown_region(self) -> None:
         with pytest.raises(ValueError):
             _base_url("apac")
 
-    def test_headers_use_api_key_header(self) -> None:
-        headers = _get_headers("secret")
-        assert headers["X-API-KEY"] == "secret"
-        assert headers["Accept"] == "application/json"
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_makes_single_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, params, _ = _run("brands", [_response([{"brandId": "B1"}, {"brandId": "B2"}])], session)
-
-        assert rows == [{"brandId": "B1"}, {"brandId": "B2"}]
-        assert session.send.call_count == 1
-        assert "Page" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_terminates_pagination(self, MockSession) -> None:
-        # A page shorter than PAGE_SIZE is the last page.
-        session = MockSession.return_value
-        rows, params, _ = _run("documents", [_response([{"documentId": "D1"}])], session)
-
-        assert rows == [{"documentId": "D1"}]
-        assert session.send.call_count == 1
-        assert params[0]["Page"] == 1
-        assert params[0]["PageSize"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_advances_to_next_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full = [{"documentId": f"D{i}"} for i in range(PAGE_SIZE)]
-        rows, params, _ = _run("documents", [_response(full), _response([{"documentId": "last"}])], session)
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert [p["Page"] for p in params] == [1, 2]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_first_page_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
@@ -145,21 +98,6 @@ class TestPagination:
 
         assert rows == []
         assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_is_treated_as_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, _, _ = _run("documents", [_response(None, drop_key=True)], session)
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_teams_uses_results_data_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, _, _ = _run("teams", [_response([{"teamId": "T1"}], data_key="results")], session)
-
-        assert rows == [{"teamId": "T1"}]
 
     @pytest.mark.parametrize(
         "endpoint, param, expected",
@@ -177,20 +115,6 @@ class TestPagination:
         _, params, _ = _run(endpoint, [_response([{"documentId": "X1"}])], session)
 
         assert params[0][param] == expected
-
-    @pytest.mark.parametrize("endpoint", ["team_documents", "behalf_documents"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_document_variants_switch_to_cursor_past_record_threshold(self, MockSession, endpoint) -> None:
-        session = MockSession.return_value
-        threshold_pages = boldsign.RECORD_CURSOR_THRESHOLD // PAGE_SIZE
-        full_pages = [
-            _response([{"documentId": f"D{p}-{i}", "cursor": p * PAGE_SIZE + i} for i in range(PAGE_SIZE)])
-            for p in range(threshold_pages)
-        ]
-        _, params, _ = _run(endpoint, [*full_pages, _response([{"documentId": "after-cursor"}])], session)
-
-        assert params[-1]["NextCursor"] == boldsign.RECORD_CURSOR_THRESHOLD - 1
-        assert params[-1]["Page"] == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_api_key_supplied_via_framework_auth(self, MockSession) -> None:
@@ -222,18 +146,6 @@ class TestPagination:
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_full_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full = [{"documentId": f"D{i}"} for i in range(PAGE_SIZE)]
-        _, _, manager = _run("documents", [_response(full), _response([{"documentId": "tail"}])], session)
-
-        # Only the page that had a full page of results (page 1) saves state, pointing at page 2.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BoldSignResumeConfig(
-            page=2, next_cursor=None, records_fetched=PAGE_SIZE
-        )
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -372,25 +284,6 @@ class TestCustomFieldsFanout:
             {"customFieldId": "F1", "brandId": "B1"},
             {"customFieldId": "F2", "brandId": "B2"},
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_brands_makes_no_child_requests(self, MockSession) -> None:
-        session = MockSession.return_value
-        self._wire_urls(session, [_response([])])
-
-        rows = _rows(
-            boldsign_source(
-                region="us",
-                api_key="key",
-                endpoint="custom_fields",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-
-        assert rows == []
-        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:

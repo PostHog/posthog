@@ -217,6 +217,15 @@ describe('inboxFiltersLogic', () => {
             logic.unmount()
         })
 
+        it.each([{}, { search: 'trial search' }])('leaves trial URLs and inbox filters unchanged for %p', (params) => {
+            logic.actions.setFilters({ ...DEFAULT_STATE, searchQuery: 'inbox search' })
+
+            router.actions.push(urls.inboxScoutTrials(), params)
+
+            expect(router.values.searchParams).toEqual(params)
+            expect(logic.values.searchQuery).toBe('inbox search')
+        })
+
         it('clears scouts without resetting the other filters', () => {
             logic.actions.setFilters({
                 ...DEFAULT_STATE,

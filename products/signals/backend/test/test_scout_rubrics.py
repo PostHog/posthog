@@ -42,6 +42,7 @@ from products.signals.backend.scout_harness.rubrics_runner import (
     run_rubric_generation,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.models import Task, TaskRun
@@ -639,17 +640,34 @@ class TestScoutRubricsAPI(APIBaseTest):
             assert captured_reference is not None
             self.assertEqual(captured_reference.skill_id, str(skill.id))
             self.assertEqual(captured_reference.skill_version, skill.version)
+            metadata_fields = {
+                "skill_name",
+                "skill_version",
+                "description",
+                "report_channel",
+                "report_disposition_instructions",
+            }
             self.assertEqual(
-                captured_reference.model_dump(
-                    mode="json", exclude={"schema_version", "skill_id", "reference_texts", "reference_limits"}
-                ),
-                {key: value for key, value in scout_context.items() if key not in {"recent_runs", "saved_criteria"}},
+                captured_reference.model_dump(mode="json", include=metadata_fields),
+                {key: scout_context[key] for key in metadata_fields},
+            )
+            self.assertEqual(captured_reference.instructions, body)
+            self.assertFalse(captured_reference.instructions_truncated)
+            self.assertEqual(captured_reference.reference_files, tuple(reference_paths))
+            self.assertFalse(captured_reference.reference_files_truncated)
+            self.assertEqual([reference.path for reference in captured_reference.reference_texts], reference_paths)
+            self.assertEqual(
+                [reference.content_type for reference in captured_reference.reference_texts],
+                ["text/plain"] * len(reference_paths),
             )
             self.assertEqual(
-                [reference.model_dump(mode="json") for reference in captured_reference.reference_texts],
-                bundle["reference_texts"],
+                [reference.content for reference in captured_reference.reference_texts],
+                ["r" * (45_001 if truncated and index == 1 else 15_000) for index in range(len(reference_paths))],
             )
-            self.assertEqual(captured_reference.reference_limits.model_dump(mode="json"), bundle["reference_limits"])
+            self.assertEqual(
+                captured_reference.reference_limits.model_dump(mode="json"),
+                {"omitted_files": 0, "truncated_files": []},
+            )
             self.assertEqual(
                 json.JSONDecoder().raw_decode(schema_text)[0], ScoutRubricSuggestionBatch.model_json_schema()
             )
@@ -808,3 +826,16 @@ class TestScoutRubricsAPI(APIBaseTest):
                 status="failed" if failed_stage else "completed",
                 error="Rubric generation failed" if failed_stage else None,
             )
+        if name == "truncated_context":
+            assert captured_reference is not None
+            criteria = [item.model_dump(mode="json") for item in expected_criteria]
+            adopted = self.client.put(
+                self.url,
+                {"revision": state.revision, "criteria": criteria, "adopt_generation_id": generation.id},
+            )
+            self.assertEqual(adopted.status_code, 200)
+            saved = SavedScoutRubricReader(team_id=self.team.id).read(
+                config_id=self.config.id, skill_name=self.config.skill_name
+            )
+            self.assertEqual(saved["reference_context"], captured_reference.model_dump(mode="json"))
+            self.assertEqual(saved["criteria"], criteria)

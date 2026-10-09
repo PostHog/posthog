@@ -57,16 +57,16 @@ class ScoutRubricCriterionSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ScoutRubricReferenceTextDocument")
 class ScoutRubricReferenceTextSerializer(serializers.Serializer):
-    path = serializers.CharField(help_text="Path of the reference supplied to the generator.")
-    content_type = serializers.CharField(help_text="Content type of the supplied reference.")
-    content = serializers.CharField(allow_blank=True, help_text="Exact reference text supplied to the generator.")
+    path = serializers.CharField(help_text="Path of the captured reference file.")
+    content_type = serializers.CharField(help_text="Content type of the captured reference file.")
+    content = serializers.CharField(allow_blank=True, help_text="Saved reference text used for judging.")
 
 
 @extend_schema_serializer(component_name="ScoutRubricReferenceLimitsDocument")
 class ScoutRubricReferenceLimitsSerializer(serializers.Serializer):
-    omitted_files = serializers.IntegerField(min_value=0, help_text="Number of reference files not supplied.")
+    omitted_files = serializers.IntegerField(min_value=0, help_text="Number of files missing from the saved reference.")
     truncated_files = serializers.ListField(
-        child=serializers.CharField(), help_text="Reference paths whose supplied content was truncated."
+        child=serializers.CharField(), help_text="Paths of files truncated in the saved reference."
     )
 
 
@@ -76,25 +76,25 @@ class ScoutRubricReferenceContextSerializer(serializers.Serializer):
     skill_id = serializers.CharField(help_text="Exact skill record used for generation.")
     skill_name = serializers.CharField(help_text="Name of the skill used for generation.")
     skill_version = serializers.IntegerField(help_text="Skill version used for generation.")
-    description = serializers.CharField(allow_blank=True, help_text="Scout description supplied to the generator.")
-    instructions = serializers.CharField(allow_blank=True, help_text="Exact instructions supplied to the generator.")
-    instructions_truncated = serializers.BooleanField(help_text="Whether the supplied instructions were truncated.")
+    description = serializers.CharField(allow_blank=True, help_text="Scout description captured for this reference.")
+    instructions = serializers.CharField(allow_blank=True, help_text="Saved scout instructions used for judging.")
+    instructions_truncated = serializers.BooleanField(help_text="Whether the saved instructions were truncated.")
     report_channel = serializers.ChoiceField(
         choices=ScoutRubricReportChannel.choices, help_text="Report capabilities used to select the source rules."
     )
     report_disposition_instructions = serializers.CharField(
-        allow_blank=True, help_text="Exact report-disposition rules supplied to the generator."
+        allow_blank=True, help_text="Report-disposition rules captured for this reference."
     )
     reference_files = serializers.ListField(
-        child=serializers.CharField(), help_text="Reference-file inventory supplied to the generator."
+        child=serializers.CharField(), help_text="Reference-file inventory captured for this reference."
     )
     reference_files_truncated = serializers.BooleanField(
         help_text="Whether the reference-file inventory was truncated."
     )
-    reference_texts = ScoutRubricReferenceTextSerializer(
-        many=True, help_text="Reference texts supplied to the generator."
+    reference_texts = ScoutRubricReferenceTextSerializer(many=True, help_text="Saved reference texts used for judging.")
+    reference_limits = ScoutRubricReferenceLimitsSerializer(
+        help_text="Missing or truncated text in the saved reference."
     )
-    reference_limits = ScoutRubricReferenceLimitsSerializer(help_text="Limits on the supplied reference texts.")
 
 
 class ScoutRubricGenerationSerializer(serializers.Serializer):

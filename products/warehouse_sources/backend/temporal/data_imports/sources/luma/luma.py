@@ -29,10 +29,10 @@ class LumaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LumaResumeConfig:
-    # `next_cursor` from the last fully processed page, passed back as `pagination_cursor`. For the
-    # guests fan-out this is the *events list* cursor: state is saved only after every guest of an
+    # `next_cursor` from the last fully processed page, passed back as `pagination_cursor`. For
+    # fan-out endpoints this is the *events list* cursor: state is saved only after every child of an
     # events page has been yielded, so a resume re-pulls at most one page of parents and merge
     # dedupes the re-pulled rows on the primary key.
     pagination_cursor: str | None = None
@@ -54,8 +54,11 @@ def _fetch_page(
     cursor: str | None,
     logger: FilteringBoundLogger,
     extra_params: dict[str, Any] | None = None,
+    paginate: bool = True,
 ) -> tuple[list[dict[str, Any]], Optional[str]]:
-    params: dict[str, Any] = {"pagination_limit": PAGE_SIZE, **(extra_params or {})}
+    params: dict[str, Any] = {**(extra_params or {})}
+    if paginate:
+        params["pagination_limit"] = PAGE_SIZE
     # The first request omits the cursor; subsequent requests pass `next_cursor` from the previous page.
     if cursor is not None:
         params["pagination_cursor"] = cursor
@@ -102,18 +105,23 @@ def _get_event_api_ids(entries: list[dict[str, Any]]) -> list[str]:
     return api_ids
 
 
-def _get_guest_rows_for_event(
+def _get_child_rows_for_event(
     session: requests.Session,
+    config: LumaEndpointConfig,
     event_api_id: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = LUMA_ENDPOINTS["guests"]
     cursor: str | None = None
     while True:
         entries, next_cursor = _fetch_page(
-            session, config.path, cursor, logger, extra_params={"event_api_id": event_api_id}
+            session,
+            config.path,
+            cursor,
+            logger,
+            extra_params={config.event_id_param: event_api_id},
+            paginate=config.paginated,
         )
-        rows = [{**_flatten_entry(entry, config.nested_key), "event_api_id": event_api_id} for entry in entries]
+        rows = [{**_flatten_entry(entry, config.nested_key), config.event_id_param: event_api_id} for entry in entries]
         if rows:
             yield rows
         if not next_cursor or not entries:
@@ -123,13 +131,14 @@ def _get_guest_rows_for_event(
 
 def _get_fan_out_rows(
     session: requests.Session,
+    config: LumaEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[LumaResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     events_cursor = resume.pagination_cursor if resume else None
     if events_cursor is not None:
-        logger.debug(f"Luma: resuming guests fan-out from events cursor {events_cursor}")
+        logger.debug(f"Luma: resuming {config.name} fan-out from events cursor {events_cursor}")
 
     while True:
         event_entries, next_events_cursor = _fetch_page(session, EVENTS_PATH, events_cursor, logger)
@@ -137,16 +146,16 @@ def _get_fan_out_rows(
         skipped = len(event_entries) - len(event_api_ids)
         if skipped:
             logger.warning(
-                f"Luma: {skipped} of {len(event_entries)} events had no usable api_id; their guests are skipped"
+                f"Luma: {skipped} of {len(event_entries)} events had no usable api_id; their {config.name} are skipped"
             )
         for event_api_id in event_api_ids:
-            yield from _get_guest_rows_for_event(session, event_api_id, logger)
+            yield from _get_child_rows_for_event(session, config, event_api_id, logger)
 
         if not next_events_cursor or not event_entries:
             break
 
         events_cursor = next_events_cursor
-        # Save AFTER yielding every guest of this events page, so a crash re-pulls at most one page
+        # Save AFTER yielding every child row of this events page, so a crash re-pulls at most one page
         # of parents; merge dedupes the re-pulled rows on the primary key.
         resumable_source_manager.save_state(LumaResumeConfig(pagination_cursor=events_cursor))
 
@@ -189,7 +198,7 @@ def get_rows(
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     if config.fan_out_over_events:
-        yield from _get_fan_out_rows(session, logger, resumable_source_manager)
+        yield from _get_fan_out_rows(session, config, logger, resumable_source_manager)
     else:
         yield from _get_top_level_rows(session, config, logger, resumable_source_manager)
 

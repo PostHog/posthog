@@ -71,6 +71,23 @@ class ArtifactStorageUnavailable(RuntimeError):
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class LiveTrainingRun:
+    """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
+
+    id: UUID
+    iteration_budget: int
+    experiment_count: int
+    best_holdout_score: float | None
+    latest_agent_description: str
+
+
+@dataclass(frozen=True)
+class RealizedAucPoint:
+    prediction_date: date
+    realized_auc: float
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -102,6 +119,13 @@ class Pipeline:
     last_scored_at: datetime | None
     champion_holdout_auc: float | None
     champion_realized_auc: float | None
+    champion_lift_at_10: float | None
+    champion_is_preliminary: bool | None
+    champion_realized_auc_trend: list[RealizedAucPoint]
+    people_scored: int | None
+    training_run_count: int
+    experiment_count: int
+    live_training_run: LiveTrainingRun | None
 
 
 @dataclass(frozen=True)

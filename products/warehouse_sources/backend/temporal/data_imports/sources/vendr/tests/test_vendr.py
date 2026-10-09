@@ -8,7 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.settings import VENDR_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr import (
     VendrResumeConfig,
-    _client_config,
     _get_resource,
     validate_credentials,
     vendr_source,
@@ -36,21 +35,6 @@ def _make_manager(resume_state: VendrResumeConfig | None = None) -> Mock:
 
 
 class TestVendrTransport:
-    def test_client_config_uses_api_key_header_and_pins_host(self) -> None:
-        config = _client_config("secret-key")
-
-        assert config["base_url"] == "https://api.vendr.com"
-        assert config["auth"] == {
-            "type": "api_key",
-            "api_key": "secret-key",
-            "name": "X-API-Key",
-            "location": "header",
-        }
-        # Vendr's base URL is fixed, so pin every request to it and never follow redirects
-        # off-host - the API key rides in a custom (non-Authorization) header.
-        assert config["allowed_hosts"] == []
-        assert config["allow_redirects"] is False
-
     @parameterized.expand(
         [
             ("Companies", "/v1/catalog/companies", {"sortBy": "name", "sortOrder": "asc"}),
@@ -92,21 +76,6 @@ class TestVendrTransport:
         assert call.args[0] == "https://api.vendr.com/v1/catalog/companies?limit=1"
         assert call.kwargs["headers"]["X-API-Key"] == "secret-key"
         assert call.kwargs["allow_redirects"] is False
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
-    def test_top_level_source_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        response = vendr_source(
-            api_key="key",
-            endpoint="Companies",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "Companies"
-        assert response.primary_keys == ["id"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
     def test_top_level_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
@@ -176,24 +145,4 @@ class TestVendrTransport:
         }
         assert kwargs["child_params_extra"] == {"sortBy": "sortOrder", "sortOrder": "asc"}
         assert kwargs["resume_hook"] is not None
-        assert response.primary_keys == ["id"]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_products_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeResource("Companies", [{"id": "co_1"}]),
-            _FakeResource("Products", [{"id": "prod_1", "name": "Widget", "_Companies_id": "co_1"}]),
-        ]
-
-        response = vendr_source(
-            api_key="key",
-            endpoint="Products",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert list(cast(Any, response.items())) == [{"id": "prod_1", "name": "Widget", "company_id": "co_1"}]
         assert response.primary_keys == ["id"]

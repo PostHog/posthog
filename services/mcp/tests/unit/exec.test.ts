@@ -1,5 +1,5 @@
 import guidelines from '@shared/guidelines.md'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -80,6 +80,65 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('error issue rows for text-only callers', () => {
+        const issue = {
+            id: '00000000-0000-4000-8000-000000000123',
+            name: 'ExampleError',
+            status: 'active',
+            severity: 'high',
+            first_seen: '2026-01-02T12:00:00Z',
+            last_seen: '2026-01-03T12:00:00Z',
+            aggregations: { occurrences: 12, users: 4, sessions: 5, volumeRange: [3, 9] },
+        }
+
+        it.each([false, true])('exposes issue rows and pagination through exec (empty=%s)', async (empty) => {
+            const rows = empty ? [] : [issue]
+            const request = vi.fn().mockResolvedValue({
+                results: rows,
+                hasMore: !empty,
+                limit: 1,
+                offset: 0,
+                ...(!empty ? { nextOffset: 1 } : {}),
+            })
+            const context = {
+                ...mockContext,
+                stateManager: { getProjectId: async () => '1' },
+                api: { request, getProjectBaseUrl: () => 'https://example.com/project/1' },
+            } as unknown as Context
+            const tool = makeMockTool(GENERATED_TOOL_MAP['query-error-tracking-issues-list']!())
+            const exec = createExecTool([tool], context, '', '', 'posthog-code')
+            const params = { limit: 1 }
+            const result = (await exec.handler(context, {
+                command: `call query-error-tracking-issues-list ${JSON.stringify(params)}`,
+            })) as ToolResultPayload
+            const text = result.content.map((block) => block.text).join('\n')
+
+            expect(request).toHaveBeenCalledWith(expect.objectContaining({ body: expect.objectContaining(params) }))
+            expect(text).not.toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(text).toContain(`results[${rows.length}]`)
+            expect(text).toContain(`hasMore: ${!empty}`)
+            expect(text).toContain('offset: 0')
+            if (!empty) {
+                expect(text).toContain(issue.id)
+                expect(text).toContain(issue.name)
+                expect(text).toContain('occurrences: 12')
+                expect(text).toContain('users: 4')
+                expect(text).toContain('sessions: 5')
+                expect(text).toContain(issue.last_seen)
+                expect(text).toContain('nextOffset: 1')
+                expect(text).not.toContain('volumeRange')
+            }
+            expect(result.structuredContent).toBeUndefined()
+            expect(result._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: rows })
+            expect(result._meta?.ui).toEqual(tool._meta?.ui)
+
+            const jsonResult = (await exec.handler(context, {
+                command: `call --json query-error-tracking-issues-list ${JSON.stringify(params)}`,
+            })) as ToolResultPayload
+            expect(JSON.parse(jsonResult.content[0]!.text)).toMatchObject({ results: rows })
+        })
+    })
+
     describe('help command', () => {
         it('lists available commands and their argument shapes', async () => {
             const result = await createExec().handler(mockContext, { command: 'help' })
@@ -1127,14 +1186,15 @@ describe('exec tool', () => {
         }
 
         it.each([
-            ['proposed', { status: 'proposed', is_drifted: false }],
-            ['drifted approved', { status: 'approved', is_drifted: true }],
-            ['deprecated', { status: 'deprecated', is_drifted: false }],
-        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
+            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
+            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
+        ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
             const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
             expect(result).toContain('NONCANONICAL')
-            expect(result).toContain('Do not present this as the answer')
+            expect(result).toContain(guidance)
         })
 
         it('leaves an approved, non-drifted result unmarked', async () => {

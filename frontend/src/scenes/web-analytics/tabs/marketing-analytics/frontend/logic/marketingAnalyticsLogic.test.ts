@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -113,6 +114,8 @@ describe('marketingAnalyticsLogic', () => {
                             {
                                 name: 'search_analytics_by_query_page',
                                 should_sync: true,
+                                last_synced_at: dayjs(),
+                                sync_frequency: '24hour',
                                 table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
                             } as ExternalDataSourceSchema,
                         ],
@@ -521,6 +524,80 @@ describe('marketingAnalyticsLogic', () => {
         ).toFinishAllListeners()
 
         expect(logic.values.unconfiguredNativeSources).toEqual([])
+    })
+
+    it.each([
+        [false, false, true, false],
+        [true, false, true, false],
+        [false, true, true, false],
+        [true, true, false, false],
+        [true, true, true, true],
+    ])(
+        'requires both enabled marketing schemas to finish their first sync (%s, %s, %s)',
+        async (campaignSynced, statsSynced, enabled, ready) => {
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const source = {
+                id: 'meta-first-sync',
+                source_type: 'MetaAds',
+                schemas: [
+                    {
+                        id: 'campaigns',
+                        name: 'campaigns',
+                        should_sync: enabled,
+                        last_synced_at: campaignSynced ? dayjs() : null,
+                    },
+                    {
+                        id: 'campaign_stats',
+                        name: 'campaign_stats',
+                        should_sync: enabled,
+                        last_synced_at: statsSynced ? dayjs() : null,
+                    },
+                    { id: 'other', name: 'other', should_sync: true, last_synced_at: dayjs() },
+                ],
+            } as ExternalDataSource
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [source] })
+            ).toFinishAllListeners()
+            expect(logic.values.hasSyncedMarketingSources).toBe(ready)
+        }
+    )
+
+    it('does not reload analytics queries when polling only changes sync status', async () => {
+        const source = {
+            id: 'meta-health',
+            source_type: 'MetaAds',
+            status: ExternalDataJobStatus.Running,
+            schemas: ['campaigns', 'campaign_stats'].map((name) => ({
+                id: name,
+                name,
+                should_sync: true,
+                last_synced_at: dayjs(),
+            })),
+        } as ExternalDataSource
+        let results = [source]
+        useMocks({
+            get: {
+                '/api/projects/:team_id/external_data_sources/': () => [
+                    200,
+                    { count: results.length, next: null, previous: null, results },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['reloadAll']).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadSources()).toFinishAllListeners()
+        results = [{ ...source, status: ExternalDataJobStatus.Completed }]
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['reloadAll'])
+            .toDispatchActions(['loadDatabase', 'loadSourceValidation'])
+        results = []
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toFinishAllListeners()
+            .toDispatchActions(['reloadAll'])
     })
 
     it('shows validation errors for the affected connection and clears them after reload', async () => {

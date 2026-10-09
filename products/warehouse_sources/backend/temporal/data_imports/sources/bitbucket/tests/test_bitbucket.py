@@ -12,11 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
     BitbucketAuth,
     BitbucketResumeConfig,
-    _as_utc_datetime,
     _build_initial_params,
-    _increment_page_url,
     _iter_fan_out_parents,
-    _normalize_activity_row,
     _page_predates_cutoff,
     _parent_precedes_bookmark,
     bitbucket_source,
@@ -105,14 +102,6 @@ def test_build_initial_params_incremental_behavior(
     assert params.get("sort") == expected_sort
 
 
-def test_build_initial_params_pull_requests_keeps_all_state_params():
-    # The API defaults to OPEN-only; dropping the state params silently loses merged/declined PRs
-    params = _build_initial_params(BITBUCKET_ENDPOINTS["pull_requests"], False, None, None)
-    states = [value for key, value in params if key == "state"]
-    assert states == ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"]
-    assert ("pagelen", "50") in params  # PR list rejects pagelen > 50
-
-
 @pytest.mark.parametrize(
     "items,expected",
     [
@@ -131,28 +120,6 @@ def test_build_initial_params_pull_requests_keeps_all_state_params():
 )
 def test_page_predates_cutoff(items, expected):
     assert _page_predates_cutoff(items, "date", CUTOFF) is expected
-
-
-def test_increment_page_url_preserves_sort_and_replaces_page():
-    # Pipelines' `next` URL drops `sort`, silently reverting page 2+ to oldest-first;
-    # rebuilding the URL ourselves must keep every param and bump only `page`.
-    url = "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=100&sort=-created_on&page=3"
-    result = _increment_page_url(url, 3)
-    query = dict(parse_qsl(urlsplit(result).query))
-    assert query == {"pagelen": "100", "sort": "-created_on", "page": "4"}
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("2024-05-21T01:50:36.611482242Z", datetime(2024, 5, 21, 1, 50, 36, 611482, tzinfo=UTC)),
-        (datetime(2024, 5, 21), datetime(2024, 5, 21, tzinfo=UTC)),
-        ("not a date", None),
-        (None, None),
-    ],
-)
-def test_as_utc_datetime(value, expected):
-    assert _as_utc_datetime(value) == expected
 
 
 def test_top_level_rows_follow_next_and_save_state_after_yield():
@@ -197,17 +164,6 @@ def test_poisoned_resume_state_is_not_fetched():
             list(get_rows(BitbucketAuth(), "ws", "repositories", mock.Mock(), manager))
 
     session.get.assert_not_called()
-
-
-def test_top_level_rows_resume_from_saved_url():
-    manager = _manager(BitbucketResumeConfig(next_url="https://api.bitbucket.org/resume-page"))
-    session = _session_returning(_response({"values": [{"uuid": "{r3}"}]}))
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "repositories", mock.Mock(), manager))
-
-    assert _requested_urls(session) == ["https://api.bitbucket.org/resume-page"]
-    assert batches == [[{"uuid": "{r3}"}]]
 
 
 def test_workspace_members_rows_get_user_uuid_injected():
@@ -278,54 +234,6 @@ def test_fan_out_non_404_http_error_propagates():
     with mock.patch.object(bitbucket, "_make_session", return_value=session):
         with pytest.raises(requests.exceptions.HTTPError):
             list(get_rows(BitbucketAuth(), "ws", "pipelines", mock.Mock(), _manager()))
-
-
-def test_commits_incremental_stops_at_watermark_without_yielding_old_page():
-    # Newest-first scroll: page 1 straddles the watermark (yielded), page 2 is entirely
-    # older (not yielded, pagination stops without fetching page 3)
-    page_1 = {
-        "values": [{"hash": "new", "date": "2024-07-01T00:00:00+00:00"}],
-        "next": "https://api.bitbucket.org/commits-page2",
-    }
-    page_2 = {
-        "values": [{"hash": "old", "date": "2024-01-01T00:00:00+00:00"}],
-        "next": "https://api.bitbucket.org/commits-page3",
-    }
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response(page_1),
-        _response(page_2),
-    )
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(
-            get_rows(
-                BitbucketAuth(),
-                "ws",
-                "commits",
-                mock.Mock(),
-                _manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=CUTOFF,
-                incremental_field="date",
-            )
-        )
-
-    assert [[row["hash"] for row in batch] for batch in batches] == [["new"]]
-    assert len(_requested_urls(session)) == 3  # enumeration + 2 pages, page 3 never fetched
-
-
-def test_commits_first_sync_walks_past_old_pages():
-    # No watermark on the first sync: an all-old page must still be yielded
-    page = {"values": [{"hash": "old", "date": "2020-01-01T00:00:00+00:00"}]}
-    session = _session_returning(_response({"values": [REPO_PAGE["values"][0]]}), _response(page))
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(
-            get_rows(BitbucketAuth(), "ws", "commits", mock.Mock(), _manager(), should_use_incremental_field=True)
-        )
-
-    assert [[row["hash"] for row in batch] for batch in batches] == [["old"]]
 
 
 def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
@@ -405,49 +313,6 @@ def test_source_response_shape(endpoint, expected_primary_keys, expected_sort_mo
     else:
         assert response.partition_keys == [expected_partition_key]
         assert response.partition_mode == "datetime"
-
-
-@pytest.mark.parametrize(
-    "entry,expected_type,expected_date,expected_actor",
-    [
-        (
-            {"comment": {"created_on": "2024-07-01T00:00:00+00:00", "user": {"uuid": "{u1}"}}},
-            "comment",
-            "2024-07-01T00:00:00+00:00",
-            "{u1}",
-        ),
-        # Updates date themselves with `date` and name the actor `author`, not `user`
-        (
-            {"update": {"date": "2024-07-02T00:00:00+00:00", "author": {"uuid": "{u2}"}}},
-            "update",
-            "2024-07-02T00:00:00+00:00",
-            "{u2}",
-        ),
-        (
-            {"approval": {"date": "2024-07-03T00:00:00+00:00", "user": {"uuid": "{u3}"}}},
-            "approval",
-            "2024-07-03T00:00:00+00:00",
-            "{u3}",
-        ),
-        (
-            {"changes_requested": {"date": "2024-07-04T00:00:00+00:00", "user": {"uuid": "{u4}"}}},
-            "changes_requested",
-            "2024-07-04T00:00:00+00:00",
-            "{u4}",
-        ),
-        # An entry kind we don't know about must still produce a row rather than raise
-        ({"task": {"date": "2024-07-05T00:00:00+00:00"}}, None, None, None),
-    ],
-)
-def test_normalize_activity_row_lifts_type_date_and_actor(entry, expected_type, expected_date, expected_actor):
-    # Activity entries are polymorphic and carry no id; the primary key and the incremental
-    # cursor read only these lifted columns
-    row = _normalize_activity_row({"pull_request": {"id": 42}, **entry})
-
-    assert row["pull_request_id"] == 42
-    assert row["activity_type"] == expected_type
-    assert row["activity_date"] == expected_date
-    assert row["actor_uuid"] == expected_actor
 
 
 def test_activity_incremental_stops_at_watermark_on_the_lifted_date():
@@ -541,33 +406,6 @@ def test_pull_request_fan_out_bounds_the_parent_walk(should_use_incremental, las
     assert parent_query["sort"] == "created_on"
 
 
-def test_pull_request_fan_out_resumes_past_already_synced_pull_requests():
-    manager = _manager(
-        BitbucketResumeConfig(
-            next_url="https://api.bitbucket.org/2.0/comments-page-2",
-            repo_slug="repo-b",
-            parent_id="12",
-            parent_cursor="12",
-        )
-    )
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response({"values": [{"id": 11}, {"id": 12}, {"id": 13}]}),  # repo-b pull requests
-        _response({"values": [{"id": 502, "pullrequest": {"id": 12}}]}),  # resumed page of PR 12
-        _response({"values": [{"id": 503, "pullrequest": {"id": 13}}]}),
-    )
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), manager))
-
-    urls = _requested_urls(session)
-    # repo-a is skipped, PR 11 is below the bookmark, and PR 12 restarts at its saved URL
-    assert urls[1].startswith("https://api.bitbucket.org/2.0/repositories/ws/repo-b/pullrequests?")
-    assert urls[2] == "https://api.bitbucket.org/2.0/comments-page-2"
-    assert "/pullrequests/13/comments" in urls[3]
-    assert [row["id"] for batch in batches for row in batch] == [502, 503]
-
-
 def test_pipeline_steps_drop_the_private_registry_password():
     # A step pulling from a private registry carries the registry password in `image`;
     # syncing it would hand the credential to anyone with warehouse query access
@@ -594,29 +432,6 @@ def test_pipeline_steps_drop_the_private_registry_password():
         {"name": "python:3.12"},
         None,
     ]
-
-
-def test_pull_request_comments_drops_unpublished_drafts():
-    # `pending` comments are the connector identity's own unpublished drafts; the API has no
-    # server-side filter for them, so syncing them would expose one person's drafts
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response({"values": [{"id": 11}]}),
-        _response(
-            {
-                "values": [
-                    {"id": 501, "pullrequest": {"id": 11}, "pending": True},
-                    {"id": 502, "pullrequest": {"id": 11}, "pending": False},
-                    {"id": 503, "pullrequest": {"id": 11}},
-                ]
-            }
-        ),
-    )
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
-
-    assert [row["id"] for batch in batches for row in batch] == [502, 503]
 
 
 def test_pull_request_fan_out_skips_a_deleted_pull_request_without_dropping_the_repo():

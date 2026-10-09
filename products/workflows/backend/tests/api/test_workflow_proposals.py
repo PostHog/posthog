@@ -451,6 +451,11 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).exit_condition == "exit_on_trigger_not_matched"
         assert HogFlow.objects.get(id=flow_id).draft is None
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
+        )
+        assert rejected.status_code == 200, rejected.json()
+        assert rejected.json()["is_stale"] is True
 
     def test_a_field_change_still_approves_after_an_edit_elsewhere(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -773,7 +778,7 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
-        with patch("products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals") as mock_totals:
+        with patch("products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals") as mock_totals:
             mock_totals.return_value = SimpleNamespace(totals={})
             response = self.client.get(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
@@ -853,7 +858,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert outcome["after"]["versions"] == [2, 3]
         assert outcome["change_ended_at_version"] == 4
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.OUTCOME_VERSION_LIMIT", 2)
+    @patch("products.workflows.backend.services.workflow_proposals.OUTCOME_VERSION_LIMIT", 2)
     def test_the_after_side_charts_every_version_it_sums(self, _mock_flag):
         # Enough publishes after the applied one that the recent range no longer reaches it.
         flow_id = self._create_active_flow()

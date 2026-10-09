@@ -22,6 +22,7 @@ import {
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
+    getInsightQueryError,
     getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -372,9 +373,10 @@ describe('getInsightWithRetry', () => {
     })
 
     describe.each([
-        ['blocking retry', 2],
-        ['async fallback', 1],
-    ] as const)('%s recovery', (_path, maxAttempts) => {
+        ['blocking retry', 2, false],
+        ['async fallback', 1, false],
+        ['expired async fallback', 1, true],
+    ] as const)('%s recovery', (_path, maxAttempts, expiredStatus) => {
         it.each<{ name: string; response: Partial<InsightModel> | null; recovered: boolean; hasError: boolean }>([
             {
                 name: 'a usable result',
@@ -421,9 +423,12 @@ describe('getInsightWithRetry', () => {
                     error_message: null,
                 },
             })
-            jest.spyOn(api.queryStatus, 'get').mockResolvedValue({
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockResolvedValue({
                 query_status: { ...capacityStatus, error: false, error_code: null, error_message: null },
             })
+            if (expiredStatus) {
+                statusSpy.mockRejectedValueOnce(new ApiError('Query not found', 404))
+            }
 
             const request = getInsightWithRetry(
                 1,
@@ -446,7 +451,119 @@ describe('getInsightWithRetry', () => {
             ).toHaveLength(recovered ? 1 : 0)
             expect(result?.result ?? null).toEqual(response?.result ?? null)
             expect(Boolean(result?.query_status?.error)).toBe(hasError)
+            if (expiredStatus) {
+                expect(capture.mock.calls.filter(([event]) => event === 'query rerun after status expired')).toEqual([
+                    ['query rerun after status expired', { source: 'dashboard_tile', recovered }, undefined],
+                ])
+            }
         })
+    })
+
+    it.each(['failed status', 'failed cache fetch', 'cancelled cache fetch'] as const)(
+        'does not count a %s as recovery after expiry',
+        async (failure) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            jest.spyOn(lemonToast, 'error').mockImplementation()
+            const cancelled = failure === 'cancelled cache fetch'
+            const cacheError = cancelled ? new DOMException('Aborted', 'AbortError') : new ApiError('Unavailable', 503)
+            const getResponse = jest
+                .spyOn(api, 'getResponse')
+                .mockResolvedValueOnce(insightResponse({ ...insight, result: null, query_status: capacityStatus }))
+                .mockRejectedValueOnce(cacheError)
+            jest.spyOn(api, 'get').mockResolvedValue({
+                ...insight,
+                query_status: { ...capacityStatus, complete: false, error: false },
+            })
+            jest.spyOn(api.queryStatus, 'get')
+                .mockRejectedValueOnce(new ApiError('Query not found', 404))
+                .mockResolvedValueOnce({ query_status: { ...capacityStatus, error: failure === 'failed status' } })
+
+            const request = getInsightWithRetry(
+                1,
+                insight,
+                60,
+                'query-id',
+                'blocking',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                1,
+                1
+            )
+            const outcome = Promise.allSettled([request])
+            await jest.runAllTimersAsync()
+            expect((await outcome)[0].status).toBe(cancelled ? 'rejected' : 'fulfilled')
+            expect(getResponse).toHaveBeenCalledTimes(failure === 'failed status' ? 1 : 2)
+            expect(capture.mock.calls.filter(([event]) => event === 'query rerun after status expired')).toEqual(
+                cancelled
+                    ? []
+                    : [['query rerun after status expired', { source: 'dashboard_tile', recovered: false }, undefined]]
+            )
+            expect(
+                capture.mock.calls.filter(([event]) => event === 'dashboard tile recovered from capacity error')
+            ).toHaveLength(0)
+        }
+    )
+
+    it.each([
+        { description: 'available', cachedResult: ['from the cache'], queryStatus: null },
+        { description: 'missing', cachedResult: null, queryStatus: null },
+        {
+            description: 'available while refreshing',
+            cachedResult: ['from the cache'],
+            queryStatus: { id: 'refresh', complete: false, error: false },
+        },
+        {
+            description: 'empty while refreshing',
+            cachedResult: [],
+            queryStatus: { id: 'refresh', complete: false, error: false },
+        },
+    ])('handles a cached result that is $description after status expiry', async ({ cachedResult, queryStatus }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.spyOn(lemonToast, 'error').mockImplementation()
+        const rateLimited = {
+            ...insight,
+            result: null,
+            query_status: { id: 'cache_1_abc', error: true, error_message: 'concurrency_limit_exceeded' },
+        }
+        jest.spyOn(api, 'getResponse').mockResolvedValue({ json: async () => rateLimited } as Response)
+        const getSpy = jest
+            .spyOn(api, 'get')
+            .mockResolvedValueOnce({ ...insight, result: null, query_status: { id: 'cache_1_abc', complete: false } })
+            .mockResolvedValueOnce({ ...insight, result: cachedResult, query_status: queryStatus })
+        const statusSpy = jest
+            .spyOn(api.queryStatus, 'get')
+            .mockRejectedValueOnce(new ApiError('Query not found', 404))
+            .mockRejectedValue(new ApiError('Background refresh unavailable', 503))
+
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'query-id',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            1,
+            1
+        )
+        await jest.runAllTimersAsync()
+        const result = await request
+        expect(result?.result).toEqual(cachedResult)
+        expect(Boolean(result?.query_status?.error)).toBe(cachedResult === null)
+        expect(getSpy.mock.calls[1][0]).toContain('refresh=async')
+        expect(statusSpy).toHaveBeenCalledTimes(1)
+        expect(
+            capture.mock.calls.filter(([event]) => event === 'dashboard tile recovered from capacity error')
+        ).toHaveLength(cachedResult === null ? 0 : 1)
+        expect(capture).toHaveBeenCalledWith(
+            'query rerun after status expired',
+            { source: 'dashboard_tile', recovered: cachedResult !== null },
+            undefined
+        )
     })
 })
 
@@ -476,5 +593,42 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('getInsightQueryError', () => {
+    it.each([
+        ['clickhouse_memory_limit_exceeded', 513],
+        ['invalid_query', 400],
+    ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
+        const error = getInsightQueryError({
+            query_status: {
+                id: 'query-id',
+                error: true,
+                error_message: 'Query ran out of memory',
+                error_code: errorCode,
+            },
+        } as unknown as InsightModel)
+
+        expect(error?.status).toBe(expectedStatus)
+        expect(error?.data?.code).toBe(errorCode)
+    })
+
+    it('reads the memory code out of the error message when the status field is absent', () => {
+        const error = getInsightQueryError({
+            query_status: {
+                id: 'query-id',
+                error: true,
+                error_message:
+                    "[ErrorDetail(string='Query ran out of memory', code='clickhouse_memory_limit_exceeded')]",
+            },
+        } as unknown as InsightModel)
+
+        expect(error?.status).toBe(513)
+        expect(error?.data?.code).toBe('clickhouse_memory_limit_exceeded')
+    })
+
+    it('returns null when the query did not error', () => {
+        expect(getInsightQueryError({} as InsightModel)).toBeNull()
     })
 })

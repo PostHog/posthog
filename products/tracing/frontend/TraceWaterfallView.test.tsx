@@ -1,4 +1,4 @@
-import { fireEvent, render, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import { TraceWaterfallView } from './TraceWaterfallView'
 import type { Span } from './types'
@@ -99,10 +99,43 @@ describe('TraceWaterfallView', () => {
     })
 
     it('does not render a collapse toggle for leaf spans', () => {
-        const { container } = render(<TraceWaterfallView spans={[child]} />)
+        const { container } = render(<TraceWaterfallView spans={[root]} />)
 
         expect(within(container).queryByLabelText('Collapse child spans')).toBeNull()
         expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
+    })
+
+    it('does not show a parent span missing row for a root span with the all-zero parent id', () => {
+        const zeroParentRoot = { ...root, parent_span_id: '0000000000000000' }
+        const { container } = render(<TraceWaterfallView spans={[zeroParentRoot, child]} />)
+
+        expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(0)
+        expect(within(container).queryByText('<parent span missing>')).toBeNull()
+    })
+
+    it('puts spans whose parent is not loaded under one parent span missing row, which selects the missing id', async () => {
+        const onSpanSelect = jest.fn()
+        const sibling = makeSpan({
+            uuid: 'uuid-sibling',
+            span_id: 'span-sibling',
+            parent_span_id: 'span-root',
+            name: 'sibling-operation',
+        })
+        const { container } = render(<TraceWaterfallView spans={[child, sibling]} onSpanSelect={onSpanSelect} />)
+
+        expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(1)
+        const missingLabel = within(container).getAllByText('<parent span missing>')[0]
+        fireEvent.pointerEnter(missingLabel, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(missingLabel)
+        fireEvent.mouseMove(missingLabel)
+        expect(await screen.findByText('span span-root not found', undefined, { timeout: 2000 })).toBeTruthy()
+
+        clickSpanRow(container, '<parent span missing>')
+        expect(onSpanSelect).toHaveBeenCalledWith('span-root')
+
+        fireEvent.click(within(container).getByLabelText('Collapse child spans'))
+        expect(within(container).queryByText('child-operation')).toBeNull()
+        expect(within(container).queryByText('sibling-operation')).toBeNull()
     })
 
     it('does not request more spans when hasMore is false', () => {

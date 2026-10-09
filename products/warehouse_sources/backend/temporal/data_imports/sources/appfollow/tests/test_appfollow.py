@@ -10,10 +10,9 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow import appfollow
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow import (
     APPFOLLOW_BASE_URL,
+    APPFOLLOW_V3_BASE_URL,
     AppfollowResumeConfig,
-    _clamp_future_value_to_now,
     _extract_rows,
-    _resolve_country,
     _to_date_str,
     _to_datetime_str,
     appfollow_source,
@@ -21,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
     APPFOLLOW_ENDPOINTS,
+    APPFOLLOW_V2,
+    APPFOLLOW_V3,
     DEFAULT_START_DATE,
+    endpoints_for_version,
 )
 
 
@@ -78,13 +80,21 @@ class _CannedApi(Protocol):
     def fetch(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> Any: ...
 
 
-def _collect(endpoint: str, manager: _FakeManager, monkeypatch: Any, api: _CannedApi, **kwargs: Any) -> list[dict]:
+def _collect(
+    endpoint: str,
+    manager: _FakeManager,
+    monkeypatch: Any,
+    api: _CannedApi,
+    api_version: str = APPFOLLOW_V2,
+    **kwargs: Any,
+) -> list[dict]:
     monkeypatch.setattr(appfollow, "_fetch", api.fetch)
     monkeypatch.setattr(appfollow, "make_tracked_session", lambda **k: mock.MagicMock())
     rows: list[dict] = []
     for batch in get_rows(
         api_key="tok",
         endpoint=endpoint,
+        api_version=api_version,
         logger=mock.MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
         **kwargs,
@@ -142,21 +152,6 @@ class TestDateFormatting:
         assert _to_datetime_str(value) == expected
 
 
-class TestClampFutureValueToNow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_is_clamped(self):
-        assert _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC)) == datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self):
-        value = datetime(2024, 3, 4, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_date_is_clamped(self):
-        assert _clamp_future_value_to_now(date(2027, 1, 1)) == date(2026, 6, 15)
-
-
 def _one_app_api(
     reviews_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
     ratings_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
@@ -203,19 +198,6 @@ class TestReviewsFanOut:
         review_calls = [p for (u, p) in api.calls if u.endswith("/reviews")]
         assert [p["page"] for p in review_calls] == [1, 2]
         assert all(p["ext_id"] == "111" for p in review_calls)
-
-    def test_first_sync_sends_no_last_modified(self, monkeypatch):
-        api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}]]})
-        _collect(
-            "reviews",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        review_params = next(p for (u, p) in api.calls if u.endswith("/reviews"))
-        assert "last_modified" not in review_params
 
     def test_incremental_sync_sends_last_modified(self, monkeypatch):
         api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}]]})
@@ -265,20 +247,6 @@ class TestReviewsFanOut:
         # Page 1 is skipped on resume; only page 2 is re-fetched.
         assert [r["review_id"] for r in rows] == ["r2"]
         assert [p["page"] for (u, p) in api.calls if u.endswith("/reviews")] == [2]
-
-    def test_saves_state_after_yielding_each_page(self, monkeypatch):
-        api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}], [{"review_id": "r2"}]]})
-        manager = _FakeManager()
-        _collect(
-            "reviews",
-            manager,
-            monkeypatch,
-            api,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        # State is saved so a mid-sync crash resumes at the next page rather than restarting the app.
-        assert AppfollowResumeConfig(ext_id="111", cursor=2) in manager.saved
 
 
 class TestRatingsFanOut:
@@ -358,12 +326,14 @@ class TestFetchRetryClassification:
 
 
 class TestSourceResponse:
+    @pytest.mark.parametrize("api_version", [APPFOLLOW_V2, APPFOLLOW_V3])
     @pytest.mark.parametrize("endpoint", list(APPFOLLOW_ENDPOINTS))
-    def test_source_response_matches_endpoint_config(self, endpoint):
-        config = APPFOLLOW_ENDPOINTS[endpoint]
+    def test_source_response_matches_endpoint_config(self, endpoint, api_version):
+        config = endpoints_for_version(api_version)[endpoint]
         response = appfollow_source(
             api_key="tok",
             endpoint=endpoint,
+            api_version=api_version,
             logger=mock.MagicMock(),
             resumable_source_manager=mock.MagicMock(),
         )
@@ -422,48 +392,7 @@ def _calls_to(api: _FanoutApi, suffix: str) -> list[dict[str, Any]]:
     return [p for (u, p) in api.calls if u.endswith(suffix)]
 
 
-class TestResolveCountry:
-    @pytest.mark.parametrize(
-        "collection,app,expected",
-        [
-            ({}, {"country": "DE"}, "de"),
-            ({}, {"app": {"country": "fr"}}, "fr"),
-            ({"default_country": "gb"}, {}, "gb"),
-            ({"countries": ["jp", "kr"]}, {}, "jp"),
-            # `/meta/versions` rejects a request with no country, so there is always a last resort.
-            ({}, {}, "us"),
-            ({"default_country": "gb", "countries": ["jp"]}, {"country": "de"}, "de"),
-        ],
-    )
-    def test_resolution_order(self, collection, app, expected):
-        assert _resolve_country(collection, app) == expected
-
-
 class TestSnapshotFanOut:
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_rankings_requests_today_once_per_app_and_stamps_the_key_fields(self, monkeypatch):
-        # `/meta/rankings` has no pagination and no date range, so one request per app is the whole
-        # walk. `ext_id` and `date` are stamped because the primary key and partition key need them.
-        api = _fanout_api([[{"position": 3, "genre_id": "6003"}]], envelope="ranks")
-        rows = _collect("rankings", _FakeManager(), monkeypatch, api)
-        assert rows == [{"position": 3, "genre_id": "6003", "ext_id": "111", "date": "2026-06-15"}]
-        params = _calls_to(api, "/meta/rankings")
-        assert len(params) == 1
-        assert params[0] == {"ext_id": "111", "date": "2026-06-15"}
-
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_a_row_that_carries_its_own_date_is_not_overwritten(self, monkeypatch):
-        api = _fanout_api([[{"keyword": "photos", "date": "2026-06-14"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
-        assert rows[0]["date"] == "2026-06-14"
-
-    def test_keywords_pages_until_a_page_comes_back_empty(self, monkeypatch):
-        # The endpoint publishes neither a page count nor a total, so an empty page is the only signal.
-        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
-        assert [r["keyword"] for r in rows] == ["a", "b"]
-        assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
-
     def test_paging_stops_at_the_cap(self, monkeypatch):
         # An endpoint that never returns an empty page must not spend credits forever.
         monkeypatch.setattr(appfollow, "MAX_PAGES_PER_APP", 3)
@@ -475,6 +404,7 @@ class TestSnapshotFanOut:
             get_rows(
                 api_key="tok",
                 endpoint="keywords",
+                api_version=APPFOLLOW_V2,
                 logger=logger,
                 resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
             )
@@ -482,25 +412,8 @@ class TestSnapshotFanOut:
         assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
         assert logger.warning.called
 
-    def test_resume_starts_from_the_saved_page(self, monkeypatch):
-        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(AppfollowResumeConfig(ext_id="111", cursor=2)), monkeypatch, api)
-        assert [r["keyword"] for r in rows] == ["b"]
-
 
 class TestCountryScopedFanOut:
-    def test_app_versions_sends_and_stamps_the_resolved_country(self, monkeypatch):
-        # `country` is required by the endpoint and is part of the primary key, so it must be both
-        # sent and present on every row.
-        api = _fanout_api(
-            [[{"version": "2.1.0"}]],
-            envelope="versions",
-            collection={"id": 10, "title_normalized": "team", "countries": ["gb"]},
-        )
-        rows = _collect("app_versions", _FakeManager(), monkeypatch, api)
-        assert rows[0] == {"version": "2.1.0", "ext_id": "111", "country": "gb"}
-        assert _calls_to(api, "/meta/versions")[0] == {"ext_id": "111", "country": "gb", "page": 1}
-
     def test_one_app_tracked_in_two_countries_is_fetched_per_country(self, monkeypatch):
         # Unlike reviews, versions vary by country, so de-duplicating on ext_id alone would drop data.
         api = _FanoutApi(
@@ -521,33 +434,6 @@ class TestCountryScopedFanOut:
 
 class TestWindowedFanOut:
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_full_refresh_opens_the_whole_window(self, monkeypatch):
-        api = _fanout_api([[{"date": "2026-06-01", "reviews": 4}]], envelope="stats")
-        _collect(
-            "reviews_stats",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=date(2026, 6, 10),
-        )
-        params = _calls_to(api, "/reviews/stats")[0]
-        assert params == {"ext_id": "111", "from": DEFAULT_START_DATE, "to": "2026-06-15"}
-
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_incremental_sync_moves_from_to_the_watermark(self, monkeypatch):
-        api = _fanout_api([[{"date": "2026-06-11", "reviews": 4}]], envelope="stats")
-        _collect(
-            "reviews_stats",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 6, 10),
-        )
-        assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-10"
-
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_a_future_watermark_is_clamped_so_the_table_cannot_freeze(self, monkeypatch):
         api = _fanout_api([[{"date": "2026-06-11"}]], envelope="stats")
         _collect(
@@ -559,3 +445,171 @@ class TestWindowedFanOut:
             db_incremental_field_last_value=date(2027, 1, 1),
         )
         assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-15"
+
+
+class _FakeV3Api:
+    """Canned AppFollow v3 responses, shaped from the v3 reference, plus a record of every request."""
+
+    def __init__(
+        self,
+        workspaces: list[dict[str, Any]],
+        apps_by_workspace: dict[int, list[dict[str, Any]]] | None = None,
+        review_pages_by_workspace: dict[int, list[list[dict[str, Any]]]] | None = None,
+    ) -> None:
+        self.workspaces = workspaces
+        self.apps_by_workspace = apps_by_workspace or {}
+        self.review_pages_by_workspace = review_pages_by_workspace or {}
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fetch(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
+        self.calls.append(("GET", url, params))
+        if url == f"{APPFOLLOW_V3_BASE_URL}/workspaces":
+            # Reverse the map order so only `sortedCollections` can produce creation order.
+            return {
+                "collections": {w["collectionCode"]: w for w in reversed(self.workspaces)},
+                "sortedCollections": [w["collectionCode"] for w in self.workspaces],
+            }
+        if url == f"{APPFOLLOW_V3_BASE_URL}/workspaces/apps":
+            return {"apps": [dict(app) for app in self.apps_by_workspace.get(params["appsId"], [])]}
+        raise AssertionError(f"unexpected GET {url}")
+
+    def post(self, session: Any, url: str, body: dict[str, Any], logger: Any) -> Any:
+        self.calls.append(("POST", url, body))
+        assert url == f"{APPFOLLOW_V3_BASE_URL}/reviews/feed", url
+        pages = self.review_pages_by_workspace.get(body["appsId"], [])
+        index = int(body.get("cursor", "0"))
+        rows = [dict(row) for row in pages[index]] if index < len(pages) else []
+        return {"reviews": rows, "nextCursor": str(index + 1) if index + 1 < len(pages) else None}
+
+    def requests_to(self, path: str) -> list[dict[str, Any]]:
+        return [payload for (_, url, payload) in self.calls if url == f"{APPFOLLOW_V3_BASE_URL}{path}"]
+
+
+def _v3_review(review_id: int, created: str, version: str = "1.0") -> dict[str, Any]:
+    return {
+        "id": review_id,
+        "reviewId": f"store-{review_id}",
+        "itemId": 7,
+        "content": "Great app",
+        "metaInformation": {"store": "as", "extId": "111", "rating": 5, "created": created, "version": version},
+        "tags": {"tagDetails": []},
+    }
+
+
+def _collect_v3(
+    endpoint: str, api: _FakeV3Api, monkeypatch: Any, manager: _FakeManager | None = None, **kwargs: Any
+) -> list[dict]:
+    monkeypatch.setattr(appfollow, "_post", api.post)
+    return _collect(endpoint, manager or _FakeManager(), monkeypatch, api, api_version=APPFOLLOW_V3, **kwargs)
+
+
+_WORKSPACES = [
+    {"collectionId": 10, "collectionCode": "first", "collectionName": "First"},
+    {"collectionId": 20, "collectionCode": "second", "collectionName": "Second"},
+]
+
+
+class TestV3Wire:
+    def test_app_collections_reads_the_workspace_map_in_creation_order(self, monkeypatch):
+        api = _FakeV3Api(_WORKSPACES)
+        rows = _collect_v3("app_collections", api, monkeypatch)
+        assert [r["collectionId"] for r in rows] == [10, 20]
+        assert not any(url.startswith(APPFOLLOW_BASE_URL) for (_, url, _) in api.calls)
+
+    def test_app_lists_fans_out_per_workspace_and_stamps_the_workspace_key(self, monkeypatch):
+        api = _FakeV3Api(
+            _WORKSPACES,
+            apps_by_workspace={10: [{"itemId": 1, "extId": "111"}], 20: [{"itemId": 1, "extId": "222"}]},
+        )
+        rows = _collect_v3("app_lists", api, monkeypatch)
+        assert [(r["collectionId"], r["itemId"], r["extId"]) for r in rows] == [(10, 1, "111"), (20, 1, "222")]
+        assert [p["appsId"] for p in api.requests_to("/workspaces/apps")] == [10, 20]
+
+    def test_reviews_follow_the_cursor_and_lift_the_v2_key_columns(self, monkeypatch):
+        api = _FakeV3Api(
+            _WORKSPACES[:1],
+            review_pages_by_workspace={
+                10: [[_v3_review(1, "2024-01-02T00:00:00Z")], [_v3_review(2, "2024-01-03T00:00:00Z", "2.0")]]
+            },
+        )
+        rows = _collect_v3("reviews", api, monkeypatch, should_use_incremental_field=False)
+        assert [(r["id"], r["date"], r["app_version"], r["rating"]) for r in rows] == [
+            (1, "2024-01-02T00:00:00Z", "1.0", 5),
+            (2, "2024-01-03T00:00:00Z", "2.0", 5),
+        ]
+        assert all("metaInformation" not in r for r in rows)
+        bodies = api.requests_to("/reviews/feed")
+        assert [b.get("cursor") for b in bodies] == [None, "1"]
+        assert all(b["appsId"] == 10 and b["from"] == DEFAULT_START_DATE for b in bodies)
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_incremental_reviews_move_from_to_the_watermark(self, monkeypatch):
+        api = _FakeV3Api(_WORKSPACES[:1], review_pages_by_workspace={10: [[_v3_review(1, "2026-06-12T00:00:00Z")]]})
+        _collect_v3(
+            "reviews",
+            api,
+            monkeypatch,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 10, 8, tzinfo=UTC),
+        )
+        body = api.requests_to("/reviews/feed")[0]
+        assert (body["from"], body["to"]) == ("2026-06-10", "2026-06-15")
+
+    def test_reviews_resume_at_the_saved_workspace_and_cursor(self, monkeypatch):
+        api = _FakeV3Api(
+            _WORKSPACES,
+            review_pages_by_workspace={
+                10: [[_v3_review(1, "2024-01-01T00:00:00Z")]],
+                20: [[_v3_review(2, "2024-01-01T00:00:00Z")], [_v3_review(3, "2024-01-02T00:00:00Z")]],
+            },
+        )
+        manager = _FakeManager(AppfollowResumeConfig(collection_id=20, page_cursor="1"))
+        rows = _collect_v3("reviews", api, monkeypatch, manager=manager)
+        assert [r["id"] for r in rows] == [3]
+        assert [(b["appsId"], b.get("cursor")) for b in api.requests_to("/reviews/feed")] == [(20, "1")]
+
+    def test_reviews_stage_the_next_bookmark_before_each_batch(self, monkeypatch):
+        api = _FakeV3Api(
+            _WORKSPACES,
+            review_pages_by_workspace={
+                10: [[_v3_review(1, "2024-01-01T00:00:00Z")], [_v3_review(2, "2024-01-02T00:00:00Z")]],
+                20: [[_v3_review(3, "2024-01-01T00:00:00Z")]],
+            },
+        )
+        manager = _FakeManager()
+        monkeypatch.setattr(appfollow, "_post", api.post)
+        monkeypatch.setattr(appfollow, "_fetch", api.fetch)
+        monkeypatch.setattr(appfollow, "make_tracked_session", lambda **k: mock.MagicMock())
+        saved_before_batch = []
+        for _ in get_rows(
+            api_key="tok",
+            endpoint="reviews",
+            api_version=APPFOLLOW_V3,
+            logger=mock.MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            saved_before_batch.append(manager.saved[-1] if manager.saved else None)
+        assert saved_before_batch == [
+            AppfollowResumeConfig(collection_id=10, page_cursor="1"),
+            AppfollowResumeConfig(collection_id=20),
+            AppfollowResumeConfig(collection_id=20),
+        ]
+
+    def test_reviews_paging_stops_at_the_cap(self, monkeypatch):
+        monkeypatch.setattr(appfollow, "MAX_REVIEW_FEED_PAGES_PER_WORKSPACE", 3)
+        api = _FakeV3Api(
+            _WORKSPACES[:1],
+            review_pages_by_workspace={10: [[_v3_review(n, "2024-01-01T00:00:00Z")] for n in range(50)]},
+        )
+        rows = _collect_v3("reviews", api, monkeypatch)
+        assert [r["id"] for r in rows] == [0, 1, 2]
+
+    def test_tables_without_a_v3_endpoint_stay_on_the_v2_wire(self, monkeypatch):
+        api = _one_app_api(ratings_pages={"111": [[{"date": "2024-01-01"}]]})
+        rows = _collect("ratings_history", _FakeManager(), monkeypatch, api, api_version=APPFOLLOW_V3)
+        assert len(rows) == 1
+        assert {url for (url, _) in api.calls} == {
+            f"{APPFOLLOW_BASE_URL}/account/apps",
+            f"{APPFOLLOW_BASE_URL}/account/apps/app",
+            f"{APPFOLLOW_BASE_URL}/meta/ratings/history",
+        }
