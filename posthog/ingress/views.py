@@ -204,9 +204,10 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                 )
 
         unaccepted: dict[str, None] = {}
-        for delivery in deliveries:
-            dispatched = dispatcher.dispatch(delivery, budget=budget)
-            unaccepted.update(dict.fromkeys(dispatched.unaccepted_consumers))
+        with provider.dispatch_scope():
+            for delivery in deliveries:
+                dispatched = dispatcher.dispatch(delivery, budget=budget)
+                unaccepted.update(dict.fromkeys(dispatched.unaccepted_consumers))
 
         if unaccepted and provider.retry_status is not None:
             return _retry_refusal(provider, list(unaccepted))

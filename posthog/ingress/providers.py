@@ -10,6 +10,7 @@ import json
 import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse
@@ -168,6 +169,15 @@ class WebhookProvider(ABC):
         Returning `None` lets dispatch continue.
         """
         return None
+
+    def dispatch_scope(self) -> AbstractContextManager[None]:
+        """A context the view holds open around the consumer runs, once per request.
+
+        A provider whose consumers all resolve the same thing from a delivery opens a
+        request-scoped cache here, so the first consumer pays for the lookup and the others
+        read it. It must not decide anything about the delivery.
+        """
+        return nullcontext()
 
 
 def provider_specs() -> tuple[ProviderSpec, ...]:
