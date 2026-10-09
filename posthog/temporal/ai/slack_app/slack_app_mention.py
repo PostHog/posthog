@@ -134,7 +134,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     async def _react(self, message: PostHogCodeSlackMentionWorkflowInputs, reaction_activity: Any) -> None:
         """Run one of the reaction activities for a mention or DM. Untagged
-        thread followups and unconfirmed unprompted questions get no reactions,
+        thread followups and unconfirmed untagged questions get no reactions,
         because nobody addressed them to the bot and a classifier drops most of them.
         """
         channel = message.event.get("channel")

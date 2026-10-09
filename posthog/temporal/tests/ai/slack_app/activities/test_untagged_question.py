@@ -12,20 +12,20 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.unprompted_question import (
+from posthog.temporal.ai.slack_app.activities.untagged_question import (
     ANSWERABLE_QUESTION_ID,
     ASKS_QUESTION_ID,
-    UnpromptedQuestionVerdict,
-    classify_unprompted_question,
-    classify_unprompted_question_activity,
-    request_unprompted_answer_confirmation_activity,
+    UntaggedQuestionVerdict,
+    classify_untagged_question,
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
 )
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 from products.slack_app.backend.api import claim_message_handled
 from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
 
-MODULE = "posthog.temporal.ai.slack_app.activities.unprompted_question"
+MODULE = "posthog.temporal.ai.slack_app.activities.untagged_question"
 
 
 def _result(asks: Any, answerable: Any) -> SystemOneResult:
@@ -34,7 +34,7 @@ def _result(asks: Any, answerable: Any) -> SystemOneResult:
     )
 
 
-class TestClassifyUnpromptedQuestion(SimpleTestCase):
+class TestClassifyUntaggedQuestion(SimpleTestCase):
     @parameterized.expand(
         [
             ("both confident", NoulAnswer(probability=0.97), NoulAnswer(probability=0.91), True),
@@ -47,7 +47,7 @@ class TestClassifyUnpromptedQuestion(SimpleTestCase):
         client = MagicMock()
         client.decide.return_value = _result(asks, answerable)
         with patch(f"{MODULE}.build_system_one_client", return_value=client):
-            verdict = classify_unprompted_question(
+            verdict = classify_untagged_question(
                 "How many people signed up last week?", team_id=1, distinct_id="user-1"
             )
 
@@ -57,7 +57,7 @@ class TestClassifyUnpromptedQuestion(SimpleTestCase):
         assert state == {"message": "How many people signed up last week?"}
 
 
-class TestRequestUnpromptedAnswerConfirmation(TestCase):
+class TestRequestUntaggedQuestionConfirmation(TestCase):
     def setUp(self):
         cache.clear()
         organization = Organization.objects.create(name="Org")
@@ -87,8 +87,8 @@ class TestRequestUnpromptedAnswerConfirmation(TestCase):
             SlackSettings.objects.create(
                 slack_workspace_id="T_WS", slack_user_id="U_ALICE", untagged_followup_mode=user_mode
             )
-        with patch("products.slack_app.backend.api._post_unprompted_answer_prompt", return_value=True) as mock_prompt:
-            stop = request_unprompted_answer_confirmation_activity(self.inputs)
+        with patch("products.slack_app.backend.api._post_untagged_question_prompt", return_value=True) as mock_prompt:
+            stop = request_untagged_question_confirmation_activity(self.inputs)
 
         assert stop is expect_stop
         assert mock_prompt.called is expect_prompt
@@ -97,6 +97,6 @@ class TestRequestUnpromptedAnswerConfirmation(TestCase):
     def test_an_answerable_question_runs_only_when_it_claims_the_message(self, _name, claimed_before, expected):
         if claimed_before:
             claim_message_handled("T_WS", self.inputs.event, "edited_mention")
-        verdict = UnpromptedQuestionVerdict(asks_for_information=0.99, answerable_by_posthog=0.99)
-        with patch(f"{MODULE}.classify_unprompted_question", return_value=verdict):
-            assert classify_unprompted_question_activity(self.inputs) is expected
+        verdict = UntaggedQuestionVerdict(asks_for_information=0.99, answerable_by_posthog=0.99)
+        with patch(f"{MODULE}.classify_untagged_question", return_value=verdict):
+            assert classify_untagged_question_activity(self.inputs) is expected

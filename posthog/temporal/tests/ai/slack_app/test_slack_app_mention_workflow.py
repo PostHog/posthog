@@ -36,11 +36,11 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
-    unprompted: bool = False,
+    untagged_question: bool = False,
     text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
     # A top-level post is its own thread root.
-    thread_ts = ts if unprompted else "100.0"
+    thread_ts = ts if untagged_question else "100.0"
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C1", "ts": ts, "thread_ts": thread_ts, "user": "U1", "text": text},
         integration_id=1,
@@ -48,7 +48,7 @@ def _message(
         slack_event_id=event_id,
         user_id=42,
         untagged_followup=untagged,
-        untagged_question=unprompted,
+        untagged_question=untagged_question,
     )
 
 
@@ -97,10 +97,10 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
-        # What the unprompted-question classifier does: answer True/False, or raise.
-        self.unprompted_verdict: bool | Literal["raise"] = True
-        # True holds an unprompted question back on a private offer.
-        self.unprompted_awaiting_confirmation = False
+        # What the untagged-question classifier does: answer True/False, or raise.
+        self.untagged_question_verdict: bool | Literal["raise"] = True
+        # True holds an untagged question back on a private offer.
+        self.untagged_question_awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -129,15 +129,15 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return rec.awaiting_confirmation
 
-    @activity.defn(name="classify_unprompted_question_activity")
-    async def classify_unprompted(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
-        if rec.unprompted_verdict == "raise":
+    @activity.defn(name="classify_untagged_question_activity")
+    async def classify_untagged_question(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        if rec.untagged_question_verdict == "raise":
             raise ApplicationError("classifier down", non_retryable=True)
-        return rec.unprompted_verdict
+        return rec.untagged_question_verdict
 
-    @activity.defn(name="request_unprompted_answer_confirmation_activity")
-    async def request_unprompted_confirmation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
-        return rec.unprompted_awaiting_confirmation
+    @activity.defn(name="request_untagged_question_confirmation_activity")
+    async def request_untagged_question_confirmation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        return rec.untagged_question_awaiting_confirmation
 
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
@@ -282,8 +282,8 @@ def _fake_activities(rec: _Recorder) -> list:
         quota,
         classify_followup,
         request_confirmation,
-        classify_unprompted,
-        request_unprompted_confirmation,
+        classify_untagged_question,
+        request_untagged_question_confirmation,
         forward,
         collect,
         cascade,
@@ -642,15 +642,17 @@ async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
         (True, False, True),
     ],
 )
-async def test_unprompted_question_stays_silent_until_its_mode_lets_it_answer(
+async def test_untagged_question_stays_silent_until_its_mode_lets_it_answer(
     verdict, awaiting_confirmation, expect_created
 ):
     rec = _Recorder()
-    rec.unprompted_verdict = verdict
-    rec.unprompted_awaiting_confirmation = awaiting_confirmation
+    rec.untagged_question_verdict = verdict
+    rec.untagged_question_awaiting_confirmation = awaiting_confirmation
 
     async with _Harness(rec) as h:
-        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", unprompted=True))
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", untagged_question=True)
+        )
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.internal_errors == []

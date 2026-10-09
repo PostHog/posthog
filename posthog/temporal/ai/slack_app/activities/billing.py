@@ -31,7 +31,7 @@ def enforce_posthog_code_billing_quota_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    # An untagged reply or an unprompted channel question has asked PostHog for nothing
+    # An untagged reply or an untagged channel question has asked PostHog for nothing
     # yet, because both the classifier and the confirmation prompt run after this gate. The denial goes into the thread
     # where everyone in the channel reads it, so an over-quota team would collect one
     # under every reply people write in a thread PostHog owns, chitchat included. Stop

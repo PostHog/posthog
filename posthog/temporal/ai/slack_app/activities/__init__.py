@@ -42,10 +42,10 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     forward_posthog_code_followup_activity,
 )
 from posthog.temporal.ai.slack_app.activities.thread import collect_posthog_code_thread_messages_activity
-from posthog.temporal.ai.slack_app.activities.unprompted_question import (
-    classify_unprompted_question,
-    classify_unprompted_question_activity,
-    request_unprompted_answer_confirmation_activity,
+from posthog.temporal.ai.slack_app.activities.untagged_question import (
+    classify_untagged_question,
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
 )
 from posthog.temporal.ai.slack_app.activities.user_resolution import resolve_posthog_code_slack_command_user_activity
 
@@ -62,10 +62,10 @@ __all__ = [
     "classify_slack_app_project_route",
     "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
-    "classify_unprompted_question",
-    "classify_unprompted_question_activity",
+    "classify_untagged_question",
+    "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
-    "request_unprompted_answer_confirmation_activity",
+    "request_untagged_question_confirmation_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",
     "create_posthog_code_task_for_repo_activity",

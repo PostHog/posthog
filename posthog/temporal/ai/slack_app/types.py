@@ -53,7 +53,7 @@ class PostHogCodeSlackMentionWorkflowInputs:
     untagged_followup_confirmed: bool = False
     # True when the workflow was started for a top-level channel message that did not
     # tag the app. Nothing visible happens until the classifier says PostHog can answer
-    # it and the author's unprompted-answer mode allows it.
+    # it and the author's untagged-message mode allows it.
     untagged_question: bool = False
     # True when the author already accepted the private offer to answer, so the run
     # skips the classifier and the offer on the way back through.

@@ -1,34 +1,34 @@
 """Which top-level channel messages, posted without tagging the app, can PostHog answer?
 
 Every top-level message in a channel the app is in that looks like a question reaches
-`classify_unprompted_question`, which asks Jev, a System One decision model, two yes/no
-questions. Both must clear `UNPROMPTED_QUESTION_MIN_PROBABILITY`.
+`classify_untagged_question`, which asks Jev, a System One decision model, two yes/no
+questions. Both must clear `UNTAGGED_QUESTION_MIN_PROBABILITY`.
 
 Nobody asked PostHog anything, so `no_unasked_answer` is the number to watch: a wrong answer
 interrupts a conversation in public. A missed question costs the author one @PostHog.
 
 To run:
-    hogli evals eval_unprompted_question
-    hogli evals eval_unprompted_question --eval signups_last_week
+    hogli evals eval_untagged_question
+    hogli evals eval_untagged_question --eval signups_last_week
 """
 
 from __future__ import annotations
 
 import asyncio
 
-from posthog.temporal.ai.slack_app.activities import unprompted_question
+from posthog.temporal.ai.slack_app.activities import untagged_question
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
-from products.slack_app.evals.scorers import UNPROMPTED_KEY, NoUnaskedAnswer, UnpromptedQuestionMatch
+from products.slack_app.evals.scorers import UNTAGGED_QUESTION_KEY, NoUnaskedAnswer, UntaggedQuestionMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
 def _answerable(answerable: bool) -> dict:
-    return {UNPROMPTED_KEY: {"answerable": answerable}}
+    return {UNTAGGED_QUESTION_KEY: {"answerable": answerable}}
 
 
 ANSWERABLE_CASES = [
@@ -93,15 +93,15 @@ LEAVE_ALONE_CASES = [
 ]
 
 
-async def eval_unprompted_question(ctx: EvalContext) -> None:
+async def eval_untagged_question(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
-        model = unprompted_question.UNPROMPTED_QUESTION_DECISION_MODEL
+        model = untagged_question.UNTAGGED_QUESTION_DECISION_MODEL
         if task_ctx.demo_data is None:
             return {"decision_model": model, "answerable": None, "error": "No demo data team to bill the call to"}
         try:
             # Sync and blocking on the gateway, so off the event loop.
             verdict = await asyncio.to_thread(
-                unprompted_question.classify_unprompted_question,
+                untagged_question.classify_untagged_question,
                 case.prompt,
                 team_id=task_ctx.demo_data.master_team_id,
                 distinct_id=None,
@@ -122,9 +122,9 @@ async def eval_unprompted_question(ctx: EvalContext) -> None:
         }
 
     await OneShotPublicEval(
-        experiment_name="slack-app-unprompted-question",
+        experiment_name="slack-app-untagged-question",
         cases=[*ANSWERABLE_CASES, *LEAVE_ALONE_CASES],
-        scorers=[UnpromptedQuestionMatch(), NoUnaskedAnswer()],
+        scorers=[UntaggedQuestionMatch(), NoUnaskedAnswer()],
         task=task,
         ctx=ctx,
     )

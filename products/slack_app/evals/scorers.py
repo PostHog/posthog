@@ -351,17 +351,17 @@ class NoUnaskedWake(Scorer):
         )
 
 
-UNPROMPTED_KEY = "unprompted_question"
+UNTAGGED_QUESTION_KEY = "untagged_question"
 
 
-class UnpromptedQuestionMatch(Scorer):
+class UntaggedQuestionMatch(Scorer):
     """Did the classifier decide about answering the way a person in the channel would?"""
 
     def _name(self) -> str:
-        return UNPROMPTED_KEY
+        return UNTAGGED_QUESTION_KEY
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(UNPROMPTED_KEY) or {}
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
         if "answerable" not in want:
             return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
         if output and output.get("error"):
@@ -386,7 +386,7 @@ class NoUnaskedAnswer(Scorer):
         return "no_unasked_answer"
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(UNPROMPTED_KEY) or {}
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
         if want.get("answerable", True):
             return Score(name=self._name(), score=None, metadata={"reason": "Case is answerable"})
         if output and output.get("error"):

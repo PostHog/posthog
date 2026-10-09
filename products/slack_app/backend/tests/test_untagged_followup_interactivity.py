@@ -16,14 +16,14 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import (
-    UNPROMPTED_ANSWER_ACTION_RUN,
-    UNPROMPTED_ANSWER_ACTION_TURN_OFF,
-    UNPROMPTED_ANSWER_BLOCK_ID_PREFIX,
-    UNPROMPTED_ANSWER_CONTEXT_KIND,
     UNTAGGED_FOLLOWUP_ACTION_DISMISS,
     UNTAGGED_FOLLOWUP_ACTION_RUN,
     UNTAGGED_FOLLOWUP_BLOCK_ID_PREFIX,
     UNTAGGED_FOLLOWUP_CONTEXT_KIND,
+    UNTAGGED_QUESTION_ACTION_RUN,
+    UNTAGGED_QUESTION_ACTION_TURN_OFF,
+    UNTAGGED_QUESTION_BLOCK_ID_PREFIX,
+    UNTAGGED_QUESTION_CONTEXT_KIND,
     _picker_context_cache_key,
 )
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
@@ -261,11 +261,11 @@ class TestUntaggedFollowupInteractivity(TestCase):
 @override_settings(DEBUG=True)
 @patch("products.slack_app.backend.api.requests.post")
 @patch("products.slack_app.backend.api.SlackIntegration")
-class TestUnpromptedAnswerInteractivity(TestCase):
+class TestUntaggedQuestionInteractivity(TestCase):
     signing_secret = "posthog-code-test-secret"
     slack_team_id = "T12345"
     response_url = "https://hooks.slack.example/response/def"
-    context_token = "unprompted-token-123"
+    context_token = "untagged-question-token-123"
 
     def setUp(self):
         cache.clear()
@@ -291,7 +291,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
         cache.set(
             _picker_context_cache_key(self.context_token),
             {
-                "kind": UNPROMPTED_ANSWER_CONTEXT_KIND,
+                "kind": UNTAGGED_QUESTION_CONTEXT_KIND,
                 "integration_id": self.integration.id,
                 "slack_workspace_id": self.slack_team_id,
                 "slack_channel_id": "C002",
@@ -311,7 +311,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
             "actions": [
                 {
                     "action_id": action_id,
-                    "block_id": f"{UNPROMPTED_ANSWER_BLOCK_ID_PREFIX}_actions:{self.context_token}",
+                    "block_id": f"{UNTAGGED_QUESTION_BLOCK_ID_PREFIX}_actions:{self.context_token}",
                     "value": self.context_token,
                 }
             ],
@@ -342,7 +342,7 @@ class TestUnpromptedAnswerInteractivity(TestCase):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_slack_cls.return_value.missing_scopes.return_value = set()
 
-        mock_start = self._click(UNPROMPTED_ANSWER_ACTION_RUN)
+        mock_start = self._click(UNTAGGED_QUESTION_ACTION_RUN)
 
         mock_start.assert_called_once()
         assert mock_start.call_args.args[0] == self.event
@@ -354,12 +354,12 @@ class TestUnpromptedAnswerInteractivity(TestCase):
     def test_click_from_anyone_but_the_author_answers_nothing(self, mock_slack_cls, mock_post):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
-        assert not self._click(UNPROMPTED_ANSWER_ACTION_RUN, slack_user_id="U_EVE").called
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, slack_user_id="U_EVE").called
 
     def test_stop_offering_turns_answers_off(self, mock_slack_cls, mock_post):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
-        assert not self._click(UNPROMPTED_ANSWER_ACTION_TURN_OFF).called
+        assert not self._click(UNTAGGED_QUESTION_ACTION_TURN_OFF).called
         assert self._stored_mode() == UntaggedFollowupMode.NEVER
         assert mock_post.call_args.kwargs["json"]["replace_original"] is True
 
@@ -371,9 +371,9 @@ class TestUnpromptedAnswerInteractivity(TestCase):
             untagged_followup_mode=UntaggedFollowupMode.NEVER,
         )
 
-        assert not self._click(UNPROMPTED_ANSWER_ACTION_RUN).called
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called
 
     def test_confirmation_after_the_flag_was_turned_off_answers_nothing(self, mock_slack_cls, mock_post):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
-        assert not self._click(UNPROMPTED_ANSWER_ACTION_RUN, flag_on=False).called
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, flag_on=False).called

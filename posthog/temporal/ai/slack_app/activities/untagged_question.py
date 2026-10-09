@@ -25,13 +25,13 @@ from products.slack_app.backend.services.slack_settings import resolve_user_unta
 
 logger = structlog.get_logger(__name__)
 
-UNPROMPTED_QUESTION_DECISION_MODEL = DEFAULT_DECISION_MODEL
+UNTAGGED_QUESTION_DECISION_MODEL = DEFAULT_DECISION_MODEL
 # On the path to the first reply. A miss only means no answer, so a slow call is not worth waiting for.
-UNPROMPTED_QUESTION_TIMEOUT_SECONDS = 5.0
+UNTAGGED_QUESTION_TIMEOUT_SECONDS = 5.0
 # Both judgments must clear this. Tuned for precision over recall, see
-# products/slack_app/evals/eval_unprompted_question.py.
-UNPROMPTED_QUESTION_MIN_PROBABILITY = 0.85
-UNPROMPTED_QUESTION_MAX_CHARS = 2000
+# products/slack_app/evals/eval_untagged_question.py.
+UNTAGGED_QUESTION_MIN_PROBABILITY = 0.85
+UNTAGGED_QUESTION_MAX_CHARS = 2000
 
 ASKS_QUESTION_ID = "asks_for_information"
 ANSWERABLE_QUESTION_ID = "answerable_by_posthog"
@@ -70,22 +70,22 @@ ANSWERABLE_FALSE = (
 
 
 @frozen
-class UnpromptedQuestionVerdict:
+class UntaggedQuestionVerdict:
     asks_for_information: float
     answerable_by_posthog: float
 
     @property
     def answerable(self) -> bool:
-        return min(self.asks_for_information, self.answerable_by_posthog) >= UNPROMPTED_QUESTION_MIN_PROBABILITY
+        return min(self.asks_for_information, self.answerable_by_posthog) >= UNTAGGED_QUESTION_MIN_PROBABILITY
 
 
-def classify_unprompted_question(
+def classify_untagged_question(
     event_text: str,
     *,
     team_id: int,
     distinct_id: str | None,
     trace_id: str | None = None,
-) -> UnpromptedQuestionVerdict | None:
+) -> UntaggedQuestionVerdict | None:
     """Ask the decision model whether PostHog can answer this message. ``None`` means no verdict.
 
     Raises when no System One server is configured or the call fails, so the caller can tell
@@ -96,16 +96,16 @@ def classify_unprompted_question(
         return None
     # No TypeSafe fallback: the message is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
-        model=UNPROMPTED_QUESTION_DECISION_MODEL,
+        model=UNTAGGED_QUESTION_DECISION_MODEL,
         ai_product="slack_app_routing",
         team_id=team_id,
         distinct_id=distinct_id,
         trace_id=trace_id,
-        properties={CLASSIFIER_PROPERTY: "unprompted_question"},
-        timeout=UNPROMPTED_QUESTION_TIMEOUT_SECONDS,
+        properties={CLASSIFIER_PROPERTY: "untagged_question"},
+        timeout=UNTAGGED_QUESTION_TIMEOUT_SECONDS,
     )
     result = client.decide(
-        state={"message": text[:UNPROMPTED_QUESTION_MAX_CHARS]},
+        state={"message": text[:UNTAGGED_QUESTION_MAX_CHARS]},
         questions={
             ASKS_QUESTION_ID: NoulQuestion(
                 instructions=ASKS_FOR_INFORMATION_INSTRUCTIONS,
@@ -123,11 +123,9 @@ def classify_unprompted_question(
     answerable = result.answers.get(ANSWERABLE_QUESTION_ID)
     # A refusal on either question is a no.
     if not isinstance(asks, NoulAnswer) or not isinstance(answerable, NoulAnswer):
-        logger.info("slack_app_unprompted_question_refused")
+        logger.info("slack_app_untagged_question_refused")
         return None
-    return UnpromptedQuestionVerdict(
-        asks_for_information=asks.probability, answerable_by_posthog=answerable.probability
-    )
+    return UntaggedQuestionVerdict(asks_for_information=asks.probability, answerable_by_posthog=answerable.probability)
 
 
 def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> Integration:
@@ -140,7 +138,7 @@ def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> Integrat
 
 @activity.defn
 @close_db_connections
-def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
     """Whether PostHog should answer, or offer to answer, a top-level message nobody tagged it in.
 
     Any failure returns ``False``: staying quiet is the safe default when nobody asked.
@@ -151,18 +149,18 @@ def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflo
     if user is None:
         return False
 
-    verdict: UnpromptedQuestionVerdict | None = None
+    verdict: UntaggedQuestionVerdict | None = None
     try:
-        verdict = classify_unprompted_question(
+        verdict = classify_untagged_question(
             inputs.event.get("text") or "",
             team_id=integration.team_id,
             distinct_id=user.distinct_id,
             trace_id=_thread_trace_id(inputs.slack_team_id, inputs.event.get("ts")),
         )
     except SystemOneNotConfigured:
-        logger.info("slack_app_unprompted_question_system_one_not_configured")
+        logger.info("slack_app_untagged_question_system_one_not_configured")
     except Exception:
-        logger.exception("slack_app_unprompted_question_classifier_failed")
+        logger.exception("slack_app_untagged_question_classifier_failed")
 
     answerable = verdict is not None and verdict.answerable
     # The message text stays out of this event: its author never addressed PostHog.
@@ -175,7 +173,7 @@ def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflo
         answerable=answerable,
         asks_for_information=verdict.asks_for_information if verdict else None,
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
-        threshold=UNPROMPTED_QUESTION_MIN_PROBABILITY,
+        threshold=UNTAGGED_QUESTION_MIN_PROBABILITY,
     )
     if not answerable:
         return False
@@ -186,22 +184,22 @@ def classify_unprompted_question_activity(inputs: PostHogCodeSlackMentionWorkflo
 
     # An edit of this message that adds a tag starts its own run. Whichever path claims
     # the message first runs, and the other stops.
-    if not claim_message_handled(inputs.slack_team_id, inputs.event, "unprompted_question"):
-        logger.info("slack_app_unprompted_question_already_handled", slack_team_id=inputs.slack_team_id)
+    if not claim_message_handled(inputs.slack_team_id, inputs.event, "untagged_question"):
+        logger.info("slack_app_untagged_question_already_handled", slack_team_id=inputs.slack_team_id)
         return False
     return True
 
 
 @activity.defn
 @close_db_connections
-def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+def request_untagged_question_confirmation_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
     """Apply the author's untagged-message mode to a question the classifier passed.
 
     Returns ``True`` when the run must stop here: the private offer now waits for the
     author, or the author turned untagged pickups off while this run was in flight.
     """
     from products.slack_app.backend.api import (
-        _post_unprompted_answer_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
+        _post_untagged_question_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
     )
 
     inputs = coerce_mention_workflow_inputs(inputs)
@@ -210,12 +208,12 @@ def request_unprompted_answer_confirmation_activity(inputs: PostHogCodeSlackMent
     if mode == UntaggedFollowupMode.AUTO:
         return False
     if mode == UntaggedFollowupMode.NEVER:
-        logger.info("slack_app_unprompted_answers_switched_off_mid_run", slack_team_id=inputs.slack_team_id)
+        logger.info("slack_app_untagged_questions_switched_off_mid_run", slack_team_id=inputs.slack_team_id)
         return True
 
     integration = _load_integration(inputs)
-    prompted = _post_unprompted_answer_prompt(SlackIntegration(integration), integration, inputs.event)
+    prompted = _post_untagged_question_prompt(SlackIntegration(integration), integration, inputs.event)
     if not prompted:
         # Still held back: answering without the offer the author's setting asks for would break it.
-        logger.warning("slack_app_unprompted_answer_prompt_not_delivered", integration_id=integration.id)
+        logger.warning("slack_app_untagged_question_prompt_not_delivered", integration_id=integration.id)
     return True

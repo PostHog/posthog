@@ -161,7 +161,7 @@ class TestRouteThreadMessage(TestCase):
             ("an externally shared channel", {}, True, None, True, False),
         ]
     )
-    def test_top_level_question_starts_the_unprompted_workflow(
+    def test_top_level_question_starts_the_untagged_question_workflow(
         self, _name, overrides, flag_on, author_mode, ext_shared, expect_dispatch
     ):
         if author_mode is not None:

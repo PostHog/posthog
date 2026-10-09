@@ -19,8 +19,8 @@ from posthog.temporal.ai.slack_app import (
     classify_slack_app_model_override_activity,
     classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
-    classify_unprompted_question_activity,
     classify_untagged_followup_activity,
+    classify_untagged_question_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -29,8 +29,8 @@ from posthog.temporal.ai.slack_app import (
     post_posthog_code_internal_error_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
-    request_unprompted_answer_confirmation_activity,
     request_untagged_followup_confirmation_activity,
+    request_untagged_question_confirmation_activity,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -84,7 +84,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
         if not channel or not thread_ts or not slack_user_id:
             return
 
-        # An unprompted question stays silent, error replies included, until its author's
+        # An untagged question stays silent, error replies included, until its author's
         # mode lets the run answer. Old histories carry no such input, so they never skip.
         silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
         try:
@@ -148,11 +148,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # PostHog can answer it at all, then the author's mode decides whether to
             # answer, offer privately, or stay quiet. Both run before anything visible.
             if inputs.untagged_question and not inputs.untagged_question_confirmed:
-                answerable = await _execute_posthog_code_activity(classify_unprompted_question_activity, inputs)
+                answerable = await _execute_posthog_code_activity(classify_untagged_question_activity, inputs)
                 if not answerable:
                     return
                 awaiting_confirmation = await _execute_posthog_code_activity(
-                    request_unprompted_answer_confirmation_activity, inputs
+                    request_untagged_question_confirmation_activity, inputs
                 )
                 if awaiting_confirmation:
                     return
