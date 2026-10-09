@@ -36,9 +36,8 @@ _DEVBOX_ENV_MARKERS = ("CODER", "CODER_WORKSPACE_NAME")
 
 # Ambient markers set by agent harnesses in the shells they spawn. Ordered
 # most-specific first: posthog-code drives claude/codex under the hood, so its
-# marker must win over theirs. A marker belongs here only if the harness sets
-# it in agent-spawned shells alone. One that a person's own terminal also
-# carries (ZED_TERM, CURSOR_TRACE_ID) would count that person as an agent.
+# marker must win over theirs. Harnesses without an ambient marker can
+# self-declare via HOGLI_AGENT instead.
 _AGENT_ENV_MARKERS = (
     ("POSTHOG_CODE_VERSION", "posthog-code"),
     ("CLAUDECODE", "claude-code"),
@@ -50,10 +49,7 @@ _AGENT_ENV_MARKERS = (
     ("OPENCODE", "opencode"),
 )
 
-# Cross-tool convention for a harness to name itself, listed as standard by
-# https://huggingface.co/api/agent-harnesses. Read after the markers above,
-# because each harness formats the value differently and a marker gives one
-# stable name. A harness that sets neither can export HOGLI_AGENT instead.
+# Cross-tool convention for a harness to name itself, see https://huggingface.co/api/agent-harnesses
 _STANDARD_AGENT_ENV_VARS = ("AI_AGENT", "AGENT")
 
 _ACTOR_ENV_VAR = "HOGLI_ACTOR"
@@ -97,29 +93,21 @@ def _detect_agent() -> str | None:
     for var in _STANDARD_AGENT_ENV_VARS:
         declared = _declared(var)
         if declared:
-            # Some harnesses append a version (`name@1.2`, `name_1-2_agent`),
-            # which would split one harness into a telemetry value per release.
+            # A version suffix (`name@1.2`, `name_1-2_agent`) would give each release its own value.
             name = re.split(r"[@_]\d", declared, maxsplit=1)[0]
-            # A harness can set the variable as a bare flag (`AGENT=1`) without naming itself.
+            # `AGENT=1` is a bare flag, not a name.
             return "unknown" if name in {"", "1", "true"} else name
     return None
 
 
 def _detect_actor(agent: str | None) -> Literal["agent", "human", "unknown"]:
-    """Classify who drives this invocation.
-
-    A run counts as human only on positive evidence, which is a terminal on a
-    standard stream. A run with no agent name and no terminal is unknown,
-    because an unmarked harness, a GUI git client, and a script look the same.
-    """
+    """Who drives this invocation. Human needs a terminal, so no agent and no terminal is unknown."""
     if agent is not None:
         return "agent"
-    # A nested hogli command runs with captured streams, so the outermost
-    # invocation passes its verdict down through the environment.
+    # A nested hogli command has captured streams, so it inherits the outermost verdict.
     if _declared(_ACTOR_ENV_VAR) == "human":
         return "human"
-    # Any stream, not stdin alone: git pipes the pushed refs into the stdin of
-    # a pre-push hook, so a person's push has a terminal only on stdout/stderr.
+    # git pipes the pushed refs into a pre-push hook's stdin, so stdin alone misses a person's push.
     if any(os.isatty(fd) for fd in (0, 1, 2)):
         return "human"
     return "unknown"
@@ -255,7 +243,6 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
 
 register_telemetry_properties(_posthog_telemetry_properties)
 
-# Written at import, because a write to the environment is unsafe once the
-# telemetry send thread runs. Nested hogli commands read it in _detect_actor.
+# Set at import, because an environment write is unsafe once the telemetry send thread runs.
 if _detect_actor(_detect_agent()) == "human":
     os.environ[_ACTOR_ENV_VAR] = "human"
