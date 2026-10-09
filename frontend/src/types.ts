@@ -944,6 +944,7 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    default_email_integration_id?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {

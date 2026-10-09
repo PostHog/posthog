@@ -70,6 +70,7 @@ from posthog.models.event_ingestion_restriction_config import (
 )
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
+from posthog.models.integration.model import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -994,6 +995,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    default_email_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the verified email integration that new broadcasts and workflow email steps use as "
+            "their sender. Null means no default. Set automatically when the project's first email "
+            "sender is verified, and cleared when that integration is deleted."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -1001,6 +1012,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "default_email_integration_id",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1030,6 +1042,20 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         return self._enforce_self_serve_ceiling(
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
+
+    def validate_default_email_integration_id(self, value: int | None) -> int | None:
+        if self.parent or value is None:
+            return value
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
+        if sender is None:
+            raise serializers.ValidationError("Choose an email sender from this project.")
+        if not sender.config.get("verified"):
+            raise serializers.ValidationError("Verify this sender's domain before making it the default.")
+        return value
 
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
