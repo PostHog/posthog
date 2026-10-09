@@ -156,12 +156,14 @@ The restore judges each candidate from its `metadata.json` and `offsets.json` be
 
 - its store schema must be this build's,
 - its metadata and manifest formats must be ones this build reads,
-- its manifest must belong to this pod's ordinal.
+- its manifest must belong to this pod's ordinal,
+- the broker must still hold the events the checkpoint lacks on at least one partition (see [the replay window](#the-replay-window)).
 
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
 The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
+The replay window is then checked again, because a download can outlast part of it.
 The restore writes the `restore.json` marker into the stage and renames the stage onto the store path.
 A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.
 
@@ -173,10 +175,10 @@ When none publishes:
 | None, or only unusable ones | The store is created empty, behind the coverage fence |
 | Any that failed             | The boot blocks and retries                           |
 
-Unusable means an upload that never finished, a metadata or manifest format this build does not read, or a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on.
+Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, or a checkpoint whose replay expired on every partition.
 Older candidates are no better, so a retry cannot help.
 A failed candidate is one that could restore after a fix: a download error, a stage that fails validation, a schema mismatch without the wipe flag.
-A failed listing, a failed Kafka commit and a local file error also block.
+A failed listing, a failed Kafka read and a local file error also block.
 
 ### A blocked restore
 
@@ -188,18 +190,25 @@ A candidate whose stage failed validation is not downloaded again in later round
 To give up on object storage, set `CHECKPOINT_ENABLED=false`.
 The boot then creates the store, and every slice begins behind the coverage fence.
 
-### Slices a restore resets
+### The replay window
 
-A restored slice is only correct if every input resumes from the checkpoint's position for it.
-A partition the manifest does not list has no positions, so the restore resets it.
-Every other partition resumes from its positions.
+A restored slice is only correct if the broker can still replay every input past the checkpoint's position for it.
+The restore checks each partition against the enabled inputs' watermarks:
+
+- a partition the manifest does not list is reset,
+- a partition where any enabled input's position lies outside the broker's `[low, high]` range is reset,
+- every other partition resumes from its positions.
 
 A reset deletes the slice and its coverage record, and fsyncs the write-ahead log, so the slice begins again behind the coverage fence.
-Each reset counts in `checkpoint_restore_slices_reset_total{reason}` and logs its partition and its reason.
+Each reset counts in `checkpoint_restore_slices_reset_total{reason}` and logs its partition, its reason and the watermarks.
 An input whose gate turned on after the capture has no position, so it resumes from its group's commit.
+An input that is no longer enabled is ignored.
 
-The restore does not compare a position with the broker's retention.
-A consumer whose position the broker no longer holds resets to `latest` for the events topic and `earliest` for the followers, without a trace.
+The check holds at boot, but the consumer still has to read past the oldest retained segment before retention deletes it.
+A consumer whose position falls below the low watermark resets to `latest` for the events topic and `earliest` for the followers, without a trace.
+So keep `CHECKPOINT_IMPORT_WINDOW_HOURS` below the events topic's retention by more than a restore's catch-up time.
+A pod down longer than the window then lists no candidate and creates its store behind the coverage fence, which is the safe direction.
+The window bounds only the listing: a restore already published resumes at any age, and the checks before and after the download, and at the settle, still catch a position that expired.
 
 ### Finishing a restore
 
@@ -209,11 +218,14 @@ A published restore stays pending until the events group commits the restored po
    A failure blocks the boot.
 2. The store opens, and the resets apply.
 3. The events consumer seeks each owned partition to the lower of its restored position and the first event it polled, commits that seek list, then deletes the marker.
-   A failed commit or delete keeps boot rewinding, and the next poll retries.
+   A failed watermark read, commit or delete keeps boot rewinding, and the next poll retries.
+   Before the commit it checks every restored position on the partitions it owns again, on every input.
+   If the broker expired one since the boot checked it, the consumer stops the process instead, and the next boot's check resets that slice.
 4. Boot ends only then, so no worker folds, no follower dispatches and no checkpoint runs before the marker is gone.
    The followers are assigned at their restored positions while boot settles, but they dispatch nothing.
 
-A crash before step 3 ends resumes the restore at the next boot, and the follower commits repeat.
+A crash before step 3 ends resumes the restore at the next boot.
+The replay window is checked again, because the broker may have expired more of it, and the follower commits repeat.
 An unreadable marker means the positions are unknown, so the boot deletes the store and restores again.
 It renames the store to the staging path first, so a deletion cut short never leaves a store that reopens without its marker.
 

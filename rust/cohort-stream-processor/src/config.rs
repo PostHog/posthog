@@ -586,7 +586,10 @@ pub struct Config {
     pub checkpoint_local_max_staleness_secs: u64,
 
     /// Hours prior to now the S3 importer searches for checkpoint attempts in a PVC-lost recovery.
-    #[envconfig(default = "24")]
+    /// Keep it below the `cohort_stream_events` retention by more than a restore's catch-up time: a
+    /// restore resumes about this far back, and a consumer that falls below the low watermark while
+    /// it catches up resets to `latest` without a trace.
+    #[envconfig(default = "20")]
     pub checkpoint_import_window_hours: u32,
 
     /// Historical S3 checkpoint attempts to try (newest first) before giving up on import.
@@ -1327,7 +1330,7 @@ mod tests {
             checkpoint_s3_operation_timeout_secs: 120,
             checkpoint_s3_attempt_timeout_secs: 20,
             checkpoint_local_max_staleness_secs: 7200,
-            checkpoint_import_window_hours: 24,
+            checkpoint_import_window_hours: 20,
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 1800,
             cohort_seed_consumer_enabled: false,
@@ -2105,7 +2108,7 @@ mod tests {
             defaults.checkpoint_local_max_staleness(),
             Duration::from_secs(7200),
         );
-        assert_eq!(defaults.checkpoint_import_window_hours, 24);
+        assert_eq!(defaults.checkpoint_import_window_hours, 20);
         assert_eq!(defaults.checkpoint_import_attempt_depth, 10);
 
         let env: std::collections::HashMap<String, String> = [

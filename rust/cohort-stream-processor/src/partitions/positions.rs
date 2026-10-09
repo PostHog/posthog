@@ -74,7 +74,8 @@ impl ResumeOffset {
 }
 
 /// The `[low, high]` watermarks of `partitions` on `topic`. Asks each partition leader once per
-/// bound, where `Consumer::fetch_watermarks` asks twice per partition.
+/// bound, where `Consumer::fetch_watermarks` asks twice per partition: a restore checks every
+/// partition of every input, and the boot waits on it.
 pub fn read_watermarks<C, X>(
     client: &C,
     topic: &str,
@@ -237,6 +238,7 @@ impl FollowerGroup {
 pub struct InputGroups {
     events: GroupReader,
     followers: Vec<FollowerGroup>,
+    inputs: BTreeSet<InputTopic>,
 }
 
 impl InputGroups {
@@ -272,7 +274,19 @@ impl InputGroups {
             .into_iter()
             .map(|(topic, group)| GroupReader::new(config, topic, group).map(FollowerGroup))
             .collect::<KafkaResult<Vec<_>>>()?;
-        Ok(Self { events, followers })
+
+        let inputs = std::iter::once(events.topic().clone())
+            .chain(followers.iter().map(|follower| follower.topic().clone()))
+            .collect();
+        Ok(Self {
+            events,
+            followers,
+            inputs,
+        })
+    }
+
+    pub fn inputs(&self) -> &BTreeSet<InputTopic> {
+        &self.inputs
     }
 
     pub fn followers(&self) -> &[FollowerGroup] {
@@ -287,6 +301,20 @@ impl InputGroups {
         self.readers()
             .map(|reader| reader.resume_positions(partitions))
             .collect()
+    }
+
+    /// `topic`'s watermarks on partitions `0..partition_count`.
+    pub fn watermarks(
+        &self,
+        topic: &InputTopic,
+        partition_count: u16,
+    ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+        self.readers()
+            .find(|reader| reader.topic() == topic)
+            .ok_or(KafkaError::MetadataFetch(
+                RDKafkaErrorCode::UnknownTopicOrPartition,
+            ))?
+            .watermarks(0..partition_count)
     }
 
     fn readers(&self) -> impl Iterator<Item = &GroupReader> {

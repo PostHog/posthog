@@ -7,20 +7,22 @@
 //!    boot on the restore path, so a crash never reopens the restored store at the broker's old
 //!    offsets.
 
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use metrics::counter;
 use rdkafka::error::{KafkaError, KafkaResult};
+use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use super::manifest::OffsetManifest;
 use super::metadata::CheckpointMetadata;
-use super::restore_plan::RestorePlan;
+use super::restore_plan::{ReplayWindow, RestorePlan};
 use crate::observability::metrics::CHECKPOINT_RESTORE_SLICES_RESET_TOTAL;
-use crate::partitions::InputGroups;
+use crate::partitions::{InputGroups, InputTopic, ResumeOffset};
 use crate::store::{CohortStore, StoreError};
 
 /// The marker a published restore carries inside the store directory. RocksDB ignores files it
@@ -62,8 +64,8 @@ impl RestoredFrom {
     }
 }
 
-/// What `restore.json` holds. The manifest travels with it, so a resumed restore rebuilds its plan
-/// from it.
+/// What `restore.json` holds. The manifest travels with it, so a resumed restore can check the
+/// replay window again.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RestoreRecord {
@@ -93,7 +95,7 @@ impl ValidatedStage {
 
     /// Fsyncs the staged files, writes the marker, renames the stage onto `live`, then fsyncs the
     /// parent. A kill at any point leaves either the stage, which the next boot deletes, or a
-    /// published store with its marker. `plan` says which slices the restore keeps.
+    /// published store with its marker. `plan` is the window check that admitted the candidate.
     pub fn publish(
         self,
         manifest: OffsetManifest,
@@ -148,6 +150,8 @@ pub enum ResumeError {
     /// again.
     #[error("the restore marker is unreadable")]
     Undecodable(#[source] serde_json::Error),
+    #[error("reading the replay window failed")]
+    Window(#[source] KafkaError),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -162,8 +166,14 @@ pub struct PendingRestore {
 }
 
 impl PendingRestore {
-    /// Reads the marker of a store found at boot. `None` when the store carries no marker.
-    pub(crate) fn resume(live: &Path, partition_count: u16) -> Result<Option<Self>, ResumeError> {
+    /// Reads the marker of a store found at boot and re-checks the replay window, because the
+    /// broker may have expired more of it since the restore was published. `None` when the store
+    /// carries no marker.
+    pub(crate) fn resume(
+        live: &Path,
+        window: &impl ReplayWindow,
+        partition_count: u16,
+    ) -> Result<Option<Self>, ResumeError> {
         let marker = live.join(MARKER_FILENAME);
         let bytes = match std::fs::read(&marker) {
             Ok(bytes) => bytes,
@@ -177,7 +187,8 @@ impl PendingRestore {
                 format_args!("restore record version {}", record.version),
             )));
         }
-        let plan = RestorePlan::check(&record.manifest, partition_count);
+        let plan = RestorePlan::check(&record.manifest, window, partition_count)
+            .map_err(ResumeError::Window)?;
         Ok(Some(Self {
             marker,
             record,
@@ -220,12 +231,43 @@ impl PendingRestore {
         Ok(())
     }
 
-    /// Ends the restore: `commit_events` commits the events group's restored positions, and only
-    /// then does the marker go. On any error the marker stays, so the next boot resumes the restore.
+    /// Ends the restore once every position it kept still holds. Each kept position on a partition
+    /// in `owned` is checked against its input's low watermark first: the plan was checked before
+    /// boot, and a consumer whose position fell below the low watermark since then skips ahead
+    /// without a trace. Then `commit_events` commits the events group's restored positions, and only
+    /// then does the marker go. On any error the marker stays, so the next boot resumes the restore
+    /// and its window check resets what expired.
     pub(crate) fn settle(
         &self,
+        owned: &HashSet<i32>,
+        watermarks: impl Fn(&InputTopic, &[u16]) -> KafkaResult<BTreeMap<u16, (i64, i64)>>,
         commit_events: impl FnOnce() -> KafkaResult<()>,
     ) -> Result<(), SettleError> {
+        let mut kept: BTreeMap<&InputTopic, Vec<(u16, ResumeOffset)>> = BTreeMap::new();
+        for (partition, topic, position) in self.plan.kept() {
+            if owned.contains(&i32::from(partition)) {
+                kept.entry(topic).or_default().push((partition, position));
+            }
+        }
+        let mut expired = Vec::new();
+        for (topic, positions) in kept {
+            let partitions: Vec<u16> = positions.iter().map(|&(partition, _)| partition).collect();
+            let bounds = watermarks(topic, &partitions).map_err(SettleError::Watermarks)?;
+            for (partition, position) in positions {
+                let (low, _) = bounds
+                    .get(&partition)
+                    .copied()
+                    .ok_or(SettleError::Watermarks(KafkaError::OffsetFetch(
+                        RDKafkaErrorCode::UnknownPartition,
+                    )))?;
+                if position.get() < low {
+                    expired.push((topic.clone(), partition));
+                }
+            }
+        }
+        if !expired.is_empty() {
+            return Err(SettleError::Expired(expired));
+        }
         commit_events().map_err(SettleError::Commit)?;
         match std::fs::remove_file(&self.marker) {
             Ok(()) => {}
@@ -238,6 +280,11 @@ impl PendingRestore {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SettleError {
+    /// The boot must stop rather than retry: these slices need the next boot's reset.
+    #[error("the broker expired restored positions since the restore checked them: {0:?}")]
+    Expired(Vec<(InputTopic, u16)>),
+    #[error("reading the inputs' low watermarks failed")]
+    Watermarks(#[source] KafkaError),
     #[error("committing the events group's restored positions failed")]
     Commit(#[source] KafkaError),
     #[error("deleting the restore marker failed")]
@@ -279,9 +326,12 @@ fn sync_dir(dir: &Path) -> io::Result<()> {
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::{BTreeMap, BTreeSet};
 
     use rdkafka::types::RDKafkaErrorCode;
+
+    use rdkafka::error::KafkaResult;
     use tempfile::TempDir;
 
     use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
@@ -291,6 +341,29 @@ mod tests {
 
     const EVENTS: &str = "cohort_stream_events";
     const MERGES: &str = "person_merge_events";
+
+    struct OpenWindow(BTreeSet<InputTopic>);
+
+    impl ReplayWindow for OpenWindow {
+        fn inputs(&self) -> &BTreeSet<InputTopic> {
+            &self.0
+        }
+
+        fn watermarks(
+            &self,
+            _topic: &InputTopic,
+            partition_count: u16,
+        ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+            Ok((0..partition_count).map(|p| (p, (0, i64::MAX))).collect())
+        }
+    }
+
+    fn window() -> OpenWindow {
+        OpenWindow(BTreeSet::from([
+            InputTopic::new(EVENTS),
+            InputTopic::new(MERGES),
+        ]))
+    }
 
     /// Slice 0 resumes the events at 42 and the merges at 5.
     fn manifest() -> OffsetManifest {
@@ -382,11 +455,11 @@ mod tests {
     }
 
     #[test]
-    fn a_published_restore_stays_pending_until_the_events_group_commits() {
+    fn a_published_restore_settles_only_when_its_positions_hold_and_the_events_group_commits() {
         let root = TempDir::new().unwrap();
         let live = root.path().join("store");
         let stage = staged(root.path());
-        let plan = RestorePlan::check(&manifest(), 1);
+        let plan = RestorePlan::check(&manifest(), &window(), 1).unwrap();
 
         let published = ValidatedStage::validate(stage.clone(), local())
             .unwrap()
@@ -404,23 +477,59 @@ mod tests {
         );
         drop(store);
 
-        let resumed = PendingRestore::resume(&live, 1)
+        let resumed = PendingRestore::resume(&live, &window(), 1)
             .unwrap()
             .expect("the marker survives the store's open");
         assert_eq!(resumed.plan(), &plan);
         assert_eq!(resumed.source(), &local());
 
+        let owned: HashSet<i32> = HashSet::from([0]);
+        let merges = InputTopic::new(MERGES);
+        let low = |events: i64, merge_low: i64| {
+            let merges = merges.clone();
+            move |topic: &InputTopic,
+                  partitions: &[u16]|
+                  -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+                let low = if *topic == merges { merge_low } else { events };
+                Ok(partitions.iter().map(|&p| (p, (low, i64::MAX))).collect())
+            }
+        };
+        // Every position at its low watermark still replays.
+        let held = low(42, 5);
+        let merges_expired = low(42, 6);
+        let committed = Cell::new(false);
+        let commit = || {
+            committed.set(true);
+            Ok(())
+        };
+        assert!(matches!(
+            published.settle(&owned, &merges_expired, commit),
+            Err(SettleError::Expired(ref expired)) if expired == &[(merges.clone(), 0)]
+        ));
+        assert!(
+            !committed.get(),
+            "an expired follower position stops the settle before any commit"
+        );
+
         let refused = || Err(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut));
         assert!(matches!(
-            published.settle(refused),
+            published.settle(&HashSet::new(), low(i64::MAX, i64::MAX), refused),
+            Err(SettleError::Commit(_)),
+        ));
+        assert!(matches!(
+            published.settle(&owned, &held, refused),
             Err(SettleError::Commit(_))
         ));
         assert!(
-            PendingRestore::resume(&live, 1).unwrap().is_some(),
+            PendingRestore::resume(&live, &window(), 1)
+                .unwrap()
+                .is_some(),
             "a restore that did not settle is still pending",
         );
 
-        published.settle(|| Ok(())).unwrap();
-        assert!(PendingRestore::resume(&live, 1).unwrap().is_none());
+        published.settle(&owned, &held, || Ok(())).unwrap();
+        assert!(PendingRestore::resume(&live, &window(), 1)
+            .unwrap()
+            .is_none());
     }
 }

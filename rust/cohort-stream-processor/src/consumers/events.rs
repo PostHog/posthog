@@ -21,7 +21,7 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
 
@@ -54,9 +54,9 @@ use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
-use crate::partitions::InputTopic;
+use crate::partitions::{read_watermarks, InputTopic};
 use crate::producer::MembershipSink;
-use crate::store::durability::PendingRestore;
+use crate::store::durability::{PendingRestore, SettleError};
 use crate::store::StoreHandle;
 use crate::workers::{EventNameGating, EvictionRestore, MergeWorkerDeps, Stage1Worker};
 
@@ -1186,6 +1186,7 @@ impl CohortStreamEventsConsumer {
                             resume.hold_back(&outcome.events);
                             self.rewind(resume, restore, boot_started)
                         }
+                        BootPhase::Halted => BootPhase::Halted,
                     };
                     if transport_error {
                         tokio::time::sleep(RECV_ERROR_BACKOFF).await;
@@ -1280,16 +1281,34 @@ impl CohortStreamEventsConsumer {
         }
 
         if let Some(pending) = &restore {
+            let watermarks = |topic: &InputTopic, partitions: &[u16]| {
+                read_watermarks(
+                    self.consumer.as_ref(),
+                    topic.as_str(),
+                    partitions.iter().copied(),
+                )
+            };
             let commit_events = || match &seek_list {
                 Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
                 None => Ok(()),
             };
-            match pending.settle(commit_events) {
+            match pending.settle(&owned, watermarks, commit_events) {
                 Ok(()) => info!(
                     topic = %self.topic,
                     partitions = sought,
                     "checkpoint restore settled: the events group committed the restored positions",
                 ),
+                Err(SettleError::Expired(expired)) => {
+                    // The marker stays, so the next boot's window check resets these slices before
+                    // anything reads them. Halted never settles, even if a revoke drops one of them.
+                    error!(
+                        ?expired,
+                        "the broker expired restored positions during boot; stopping so the next boot resets those slices",
+                    );
+                    self.handle
+                        .signal_failure("checkpoint restore positions expired during boot");
+                    return BootPhase::Halted;
+                }
                 Err(err) => {
                     warn!(
                         topic = %self.topic,
