@@ -204,7 +204,7 @@ def _without_unrunnable_agent_specs(report: SignalReport, specs: list[CheckSpec]
                 # `_stored_config` refuses it with the reason.
                 runnable = True
             if not runnable:
-                skill_name = spec.config.get("skill_name") if isinstance(spec.config, dict) else None
+                skill_name = spec.config.get("skill_name")
                 logger.info(
                     "signals.report_check.research_spec_skipped",
                     report_id=str(report.id),
