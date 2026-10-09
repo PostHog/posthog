@@ -4,7 +4,17 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from parameterized import parameterized
+
+from posthog.schema import (
+    AlertState,
+    BreakdownFilter,
+    ChartDisplayType,
+    EventsNode,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
@@ -130,6 +140,74 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
             "The insight value (Double Pageviews) for current interval (2) is more than upper threshold (1)"
             in anomalies[0]
         )
+
+    @parameterized.expand(
+        [
+            # (name, events as (event, day, breakdown value), breakdown, delay, expect breach, expected value)
+            ("quiet_interval_is_skipped", [("b", "2024-06-02", None)], False, 0, False, None),
+            ("real_zero_rate_breaches", [("b", "2024-06-01", None)], False, 0, True, 0.0),
+            (
+                "nonzero_rate_above_threshold",
+                [("a", "2024-06-01", None), ("b", "2024-06-01", None)],
+                False,
+                0,
+                False,
+                1.0,
+            ),
+            ("quiet_breakdown_row_is_skipped", [("b", "2024-06-02", "x")], True, 0, False, None),
+            ("quiet_delayed_interval_is_skipped", [("b", "2024-06-01", None)], False, 1, False, None),
+        ]
+    )
+    def test_rate_formula_alert_skips_intervals_with_zero_denominator(
+        self,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        events: list[tuple[str, str, Optional[str]]],
+        has_breakdown: bool,
+        delay: int,
+        expect_breach: bool,
+        expected_value: Optional[float],
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="a"), EventsNode(event="b")],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                formulaNodes=[TrendsFormulaNode(formula="A/B")],
+            ),
+            breakdownFilter=BreakdownFilter(breakdown="plan", breakdown_type="event") if has_breakdown else None,
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "rate insight", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "rate alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": False},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0.2}}},
+                "evaluation_delay_intervals": delay,
+            },
+        ).json()
+
+        for event, day, plan in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="1",
+                timestamp=f"{day}T01:00:00Z",
+                properties={"plan": plan} if plan else {},
+            )
+        flush_persons_and_events()
+
+        run_alert_check(alert["id"])
+
+        check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert check.state == (AlertState.FIRING if expect_breach else AlertState.NOT_FIRING)
+        assert mock_send_notifications_for_breaches.call_count == (1 if expect_breach else 0)
+        assert check.calculated_value == expected_value
 
     def test_alert_triggered_for_legacy_formulas(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
