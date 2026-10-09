@@ -279,7 +279,8 @@ class TestRenderFinalBody:
             held_back_count=0,
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
-            already_raised=raised,
+            raised_elsewhere=raised[:10],
+            raised_elsewhere_count=len(raised),
             pr_url="https://github.com/o/r/pull/7",
         )
 

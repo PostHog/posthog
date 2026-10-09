@@ -2,6 +2,8 @@ import json
 import logging
 from collections.abc import Sequence
 
+from django.conf import settings
+
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
@@ -47,23 +49,41 @@ class AlreadyRaised:
     commenter: str
 
 
+def _is_review_hog_finding(comment: PRComment) -> bool:
+    """ReviewHog's own finding comment. The marker is public, so it only counts on a bot's comment, and on
+    ReviewHog's own app when its login is configured; otherwise anyone could paste it to leave the list."""
+    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
+    by_review_hog = comment.user == expected if expected else comment.user.endswith("[bot]")
+    return by_review_hog and REVIEW_HOG_FINDING_MARKER in comment.body
+
+
 def already_raised(duplicates: Sequence[Duplicate], pr_comments: Sequence[PRComment]) -> list[AlreadyRaised]:
-    """The duplicates that repeat another reviewer's PR comment. ReviewHog's own comments do not count."""
+    """The other reviewers' PR comments that a turn's findings repeat.
+
+    One entry per comment, at the most severe level any of its repeating findings gave it, because several
+    perspectives often find the same problem.
+    """
     others = {
         str(comment.id): comment
         for comment in pr_comments
-        if comment.id is not None and REVIEW_HOG_FINDING_MARKER not in comment.body
+        if comment.id is not None and not _is_review_hog_finding(comment)
     }
-    return [
-        AlreadyRaised(
+    by_comment: dict[int, AlreadyRaised] = {}
+    for duplicate in duplicates:
+        comment = others.get(duplicate.duplicate_of or "")
+        if comment is None or comment.id is None:
+            continue
+        raised = AlreadyRaised(
             title=duplicate.issue.title,
             level=display_level(duplicate.issue.priority, duplicate.issue.reported_priority),
             comment_id=comment.id,
             commenter=comment.user,
         )
-        for duplicate in duplicates
-        if (comment := others.get(duplicate.duplicate_of or "")) is not None and comment.id is not None
-    ]
+        current = by_comment.get(comment.id)
+        # "P0" sorts before "P3", so the smaller level is the more severe one.
+        if current is None or raised.level < current.level:
+            by_comment[comment.id] = raised
+    return list(by_comment.values())
 
 
 @frozen

@@ -31,6 +31,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
@@ -219,10 +220,6 @@ def render_in_progress_body(
     )
 
 
-# A long list would bury the turn's own outcome, so the status comment shows this many and counts the rest.
-_ALREADY_RAISED_SHOWN = 10
-
-
 def render_final_body(
     report_id: str,
     *,
@@ -237,7 +234,8 @@ def render_final_body(
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
     capped_lens_parts: int | None = None,
-    already_raised: Sequence[AlreadyRaised] = (),
+    raised_elsewhere: Sequence[AlreadyRaised] = (),
+    raised_elsewhere_count: int = 0,
     pr_url: str | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
@@ -248,16 +246,16 @@ def render_final_body(
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
     `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
-    note goes here and not in the review body, because a clean turn posts no review. `already_raised`
+    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
     lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
-    linked to that comment under `pr_url`.
+    linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
-    if found_total == 0 and already_raised:
+    if found_total == 0 and raised_elsewhere:
         lines.append("Nothing new to raise.")
     # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
     elif found_total == 0 and review_mode == REVIEW_MODE_FLASH:
@@ -299,13 +297,15 @@ def render_final_body(
                 f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
             ]
         )
-    if already_raised:
+    if raised_elsewhere:
+        shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
         lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
-        for raised in already_raised[:_ALREADY_RAISED_SHOWN]:
+        for raised in shown:
             link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
             lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
-        if len(already_raised) > _ALREADY_RAISED_SHOWN:
-            lines.append(f"- and {len(already_raised) - _ALREADY_RAISED_SHOWN} more")
+        hidden = max(raised_elsewhere_count, len(raised_elsewhere)) - len(shown)
+        if hidden > 0:
+            lines.append(f"- and {hidden} more")
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -604,7 +604,8 @@ class FinalizeStatusCommentInput:
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
     capped_lens_parts: int | None = None
-    already_raised: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -635,7 +636,8 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
-            already_raised=input.already_raised,
+            raised_elsewhere=input.raised_elsewhere,
+            raised_elsewhere_count=input.raised_elsewhere_count,
             pr_url=report.pr_url or None,
         )
         _edit_and_stamp(input.team_id, report, body)

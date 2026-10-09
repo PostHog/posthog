@@ -156,6 +156,10 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 # HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
 REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
+
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
 FLASH_MAX_FINDINGS_BASE = 4

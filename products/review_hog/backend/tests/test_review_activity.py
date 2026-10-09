@@ -601,14 +601,15 @@ def _comment(comment_id: int, line: int | None) -> PRComment:
 @pytest.mark.parametrize(
     "fetch_fails,expected_ids",
     [
-        pytest.param(False, [2, 1], id="adds_comments_posted_during_the_turn"),
-        pytest.param(True, [1], id="keeps_the_first_read_when_github_fails"),
+        pytest.param(False, [2, 1], id="the_new_read_adds_new_comments_and_drops_deleted_ones"),
+        pytest.param(True, [1, 4], id="keeps_the_first_read_when_github_fails"),
     ],
 )
 def test_full_dedup_reads_current_comments_without_outdated_ones(fetch_fails: bool, expected_ids: list[int]) -> None:
-    # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise. A comment
-    # GitHub no longer places on a line is about code that changed, so it must not suppress a finding.
-    snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None)]})
+    # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise, and a comment
+    # deleted meanwhile must not keep a finding off the PR. A comment GitHub no longer places on a line is about
+    # code that changed, so it must not suppress a finding either.
+    snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None), _comment(4, 30)]})
     fetcher = MagicMock()
     fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
     with (

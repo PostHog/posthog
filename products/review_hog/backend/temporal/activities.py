@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
@@ -418,8 +419,10 @@ class DedupResult:
     issue_ids: list[str]
     # A single-agent turn's finding counts, which the workflow hands to the completed event.
     flash_stats: FlashTurnStats | None = None
-    # A Full turn's findings that another reviewer's PR comment already raises, for the status comment.
-    already_raised: list[AlreadyRaised] = field(default_factory=list)
+    # A Full turn's findings that another reviewer's PR comment already raises, for the status comment: the
+    # ones it shows, and how many there are in all, so the payload stays small.
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 @dataclass(frozen=False)
@@ -1449,16 +1452,14 @@ def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact
         try:
             token, installation_id = _installation_auth(input.team_id, input.repository)
             owner, repo = input.repository.split("/", 1)
-            fresh = PRFetcher(
+            # A complete read replaces the first one, so a comment deleted during the turn is gone.
+            comments = PRFetcher(
                 owner=owner, repo=repo, pr_number=pr_number, token=token, installation_id=installation_id
-            ).fetch_pr_comments(PRFilter())
+            ).fetch_pr_comments(PRFilter(), raise_errors=True)
         except Exception:
             logger.warning(
                 "Could not read the PR's comments again; deduplicating against the first read", exc_info=True
             )
-        else:
-            fresh_ids = {comment.id for comment in fresh}
-            comments = [*fresh, *(comment for comment in comments if comment.id not in fresh_ids)]
     return [comment for comment in comments if comment.line is not None or comment.start_line is not None]
 
 
@@ -1578,7 +1579,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             run_index=input.run_index,
         )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    return DedupResult(issue_ids=issue_ids, flash_stats=flash_stats, already_raised=raised_elsewhere)
+    return DedupResult(
+        issue_ids=issue_ids,
+        flash_stats=flash_stats,
+        raised_elsewhere=raised_elsewhere[:ALREADY_RAISED_SHOWN],
+        raised_elsewhere_count=len(raised_elsewhere),
+    )
 
 
 # --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------
