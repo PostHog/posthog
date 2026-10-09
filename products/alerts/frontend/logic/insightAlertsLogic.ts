@@ -415,16 +415,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             actions.loadAlertDestinationCounts(values.alerts)
         },
         setQuery: ({ query }) => {
-            if (
-                values.alerts.length === 0 ||
-                areAlertsSupportedForInsight(query, {
-                    metricsAlertsEnabled: !!values.featureFlags[FEATURE_FLAGS.METRICS],
-                })
-            ) {
-                actions.setShouldShowAlertDeletionWarning(false)
-            } else {
-                actions.setShouldShowAlertDeletionWarning(true)
-            }
+            const metricsAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.METRICS]
+            actions.setShouldShowAlertDeletionWarning(
+                values.alerts.length > 0 && !areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
+            )
         },
         setShowAlertAnomalyPoints: ({ show }) => {
             // When toggling on, reload alerts from the API to get latest check data

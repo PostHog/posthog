@@ -276,10 +276,10 @@ describe('insightAlertsLogic', () => {
     })
 
     it.each([
-        { flag: 'on', metricsEnabled: true, expectedWarning: false },
-        { flag: 'off', metricsEnabled: false, expectedWarning: true },
+        { metricsEnabled: true, expectedWarning: false },
+        { metricsEnabled: false, expectedWarning: true },
     ])(
-        'with the metrics flag $flag, a metrics query on an insight with alerts sets the deletion warning to $expectedWarning',
+        'with metrics flag $metricsEnabled, a metrics query on an insight with alerts sets the deletion warning to $expectedWarning',
         async ({ metricsEnabled, expectedWarning }) => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
