@@ -38,6 +38,7 @@ class ReviewRequestQueue:
                 and request.publish == self.active.publish
                 and request.acting_user_id == self.active.acting_user_id
                 and request.resolve_comments == self.active.resolve_comments
+                and request.dedupe_against_pr_comments == self.active.dedupe_against_pr_comments
                 and (request.trigger_source == TRIGGER_AUTOMATIC) == (self.active.trigger_source == TRIGGER_AUTOMATIC)
             ):
                 return
