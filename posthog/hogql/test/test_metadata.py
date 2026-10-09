@@ -40,14 +40,16 @@ from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
+_FLAG_CALLED_QUERY = "SELECT count() FROM events WHERE event = '$feature_flag_called'"
 
-def _move_notices(payload: dict, enabled: bool = True) -> FeatureFlagResult:
+
+def _move_notices(url: str | None = None, enabled: bool = True) -> FeatureFlagResult:
     return FeatureFlagResult(
-        key="flag-called-move-notices", enabled=enabled, variant=None, payload=payload, reason=None
+        key="flag-called-move-notices", enabled=enabled, variant=None, payload={"url": url}, reason=None
     )
 
 
-_MOVE_NOTICES_WITHOUT_URL = _move_notices({"url": None})
+_MOVE_NOTICES_WITHOUT_URL = _move_notices()
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -375,12 +377,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("equals", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 1),
+            ("equals", _FLAG_CALLED_QUERY, True, 1),
             ("in_list", "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')", True, 1),
             ("namespaced_table", "SELECT count() FROM posthog.events WHERE event = '$feature_flag_called'", True, 1),
             ("aliased_table", "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called'", True, 1),
             ("aliased_column", "SELECT event AS name FROM events WHERE name = '$feature_flag_called'", True, 1),
-            ("table_not_available", "SELECT count() FROM events WHERE event = '$feature_flag_called'", False, 1),
+            ("table_not_available", _FLAG_CALLED_QUERY, False, 1),
             (
                 "flag_evaluations_table",
                 "SELECT count() FROM posthog.flag_evaluations WHERE event = '$feature_flag_called'",
@@ -401,36 +403,24 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
-            (
-                "move_notices_off",
-                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
-                True,
-                0,
-                _move_notices({"url": None}, enabled=False),
-            ),
-            ("move_notices_missing", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, None),
+            ("move_notices_off", _FLAG_CALLED_QUERY, True, 0, _move_notices(enabled=False)),
+            ("move_notices_missing", _FLAG_CALLED_QUERY, True, 0, None),
             (
                 "announcement_url",
-                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                _FLAG_CALLED_QUERY,
                 True,
                 1,
-                _move_notices({"url": "https://example.com/announcement"}),
+                _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
             ),
             (
                 "command_announcement_url",
-                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                _FLAG_CALLED_QUERY,
                 True,
                 1,
-                _move_notices({"url": "command:editor.action.deleteLines"}),
+                _move_notices("command:editor.action.deleteLines"),
             ),
-            (
-                "malformed_announcement_url",
-                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
-                True,
-                1,
-                _move_notices({"url": "https://[broken"}),
-            ),
+            ("malformed_announcement_url", _FLAG_CALLED_QUERY, True, 1, _move_notices("https://[broken")),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(

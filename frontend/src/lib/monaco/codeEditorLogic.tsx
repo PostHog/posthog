@@ -12,6 +12,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isHttpsUrl } from 'lib/utils/url'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -236,9 +237,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 : undefined,
                             // Monaco renders the marker message as plain text.
                             // The `code` field is the only marker field that Monaco renders as a link.
+                            // Monaco runs a `command:` link as an editor command, and it assigns any other
+                            // non-http link to window.location, so only an https URL becomes a link.
+                            // Uri.parse throws on surrounding whitespace, so it gets the trimmed value that
+                            // isHttpsUrl checked.
                             code:
-                                error.url && props.monaco
-                                    ? { value: 'Learn more', target: props.monaco.Uri.parse(error.url) }
+                                error.url && props.monaco && isHttpsUrl(error.url)
+                                    ? { value: 'Learn more', target: props.monaco.Uri.parse(error.url.trim()) }
                                     : undefined,
                         }
                     }

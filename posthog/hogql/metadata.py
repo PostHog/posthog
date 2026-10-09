@@ -307,21 +307,20 @@ def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
 
 
 def _flag_called_announcement_url(payload: object) -> str | None:
-    """Only an https URL with a host passes.
+    """Only an https URL with a host passes, because the SQL editor turns the URL into a link.
 
-    Monaco runs a `command:` link as an editor command. Monaco assigns any other non-http link to
-    window.location, so a `javascript:` link would run as script in the page.
+    The result is the URL that urlparse checked. urlparse ignores surrounding whitespace, and the
+    editor's URI parser rejects it.
     """
     url = payload.get("url") if isinstance(payload, dict) else None
     if url is None:
         return None
-    if isinstance(url, str):
-        try:
-            parsed = urlparse(url)
-            if parsed.scheme == "https" and parsed.hostname:
-                return url
-        except ValueError:
-            pass
+    try:
+        parsed = urlparse(url) if isinstance(url, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is not None and parsed.scheme == "https" and parsed.hostname:
+        return parsed.geturl()
     logger.warning("hogql_flag_called_announcement_url_invalid", url=str(url))
     return None
 
