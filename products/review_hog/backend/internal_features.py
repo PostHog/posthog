@@ -6,7 +6,8 @@ from posthog.permissions import posthog_feature_flag_enabled
 logger = logging.getLogger(__name__)
 
 # Gates the parts of ReviewHog that stay internal: automatic reviews, the label trigger, resolution,
-# manual Flash, Inbox reviews, and the tiered review arms. The `review-hog` flag stays the product switch.
+# manual Flash, the Inbox rows in settings, and the tiered review arms. Inbox reviews themselves still
+# start from saved opt-ins. The `review-hog` flag stays the product switch.
 REVIEW_HOG_INTERNAL_FLAG = "review-hog-internal"
 
 
