@@ -36,7 +36,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan
+from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -114,11 +114,14 @@ class MetricResultStore:
         """
         if run.query_to is None:
             return []
-        specs = {spec.metric_id: spec for spec in plan(run.experiment)}
+        calculation_configs = {
+            calculation_config.metric_id: calculation_config
+            for calculation_config in build_calculation_configs(run.experiment)
+        }
         fingerprints = [
-            _recalc_fingerprint(specs[metric_uuid].calculation_key())
+            _recalc_fingerprint(calculation_configs[metric_uuid].calculation_key())
             for metric_uuid in run.metric_uuids or []
-            if metric_uuid in specs
+            if metric_uuid in calculation_configs
         ]
         if not fingerprints:
             return []
@@ -129,24 +132,24 @@ class MetricResultStore:
         )
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
 
-    def has_completed(self, spec: CalculationSpec, *, window: datetime) -> bool:
-        """Whether a recalculation already stored a completed result for this spec at this window."""
+    def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
+        """Whether a recalculation already stored a completed result for this calculation config at this window."""
         return ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id,
-            metric_uuid=spec.metric_id,
+            metric_uuid=calculation_config.metric_id,
             query_to=window,
-            fingerprint=_recalc_fingerprint(spec.calculation_key()),
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
             status=_COMPLETED,
         ).exists()
 
     def latest_daily_point(
-        self, spec: CalculationSpec, *, since: datetime, until: datetime
+        self, calculation_config: MetricCalculationConfig, *, since: datetime, until: datetime
     ) -> ExperimentMetricResult | None:
-        """The completed daily point of this spec with the latest query_to inside [since, until]."""
+        """The completed daily point of this calculation config with the latest query_to inside [since, until]."""
         rows = ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id,
-            metric_uuid=spec.metric_id,
-            fingerprint=spec.calculation_key(),
+            metric_uuid=calculation_config.metric_id,
+            fingerprint=calculation_config.calculation_key(),
             status=_COMPLETED,
             query_to__gte=since,
             query_to__lte=until,
@@ -175,9 +178,9 @@ class MetricResultStore:
             by_day.setdefault(day, row)
         return DailyTimeseries(by_day=by_day, earliest=rows[-1] if rows else None, latest=rows[0] if rows else None)
 
-    def current_outcome(self, spec: CalculationSpec) -> ResultSummary | None:
-        """The current result of the metric that `spec` describes. `current_outcomes` defines the rule."""
-        return self.current_outcomes({self.experiment_id: spec}).get(self.experiment_id)
+    def current_outcome(self, calculation_config: MetricCalculationConfig) -> ResultSummary | None:
+        """The current result of the metric that `calculation_config` describes. `current_outcomes` defines the rule."""
+        return self.current_outcomes({self.experiment_id: calculation_config}).get(self.experiment_id)
 
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
@@ -203,7 +206,7 @@ class MetricResultStore:
     def record_run_result(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -213,7 +216,7 @@ class MetricResultStore:
         """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing."""
         self._record_for_run(
             recalculation_id,
-            spec,
+            calculation_config,
             window=window,
             query_from=query_from,
             status=_COMPLETED,
@@ -225,7 +228,7 @@ class MetricResultStore:
     def record_run_failure(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -235,7 +238,7 @@ class MetricResultStore:
         """Store the failure of one metric of a recalculation run, unless the run is terminal or missing."""
         self._record_for_run(
             recalculation_id,
-            spec,
+            calculation_config,
             window=window,
             query_from=query_from,
             status=_FAILED,
@@ -279,17 +282,17 @@ class MetricResultStore:
     def copy_into_sync_run(
         self,
         window: datetime,
-        points: Iterable[tuple[CalculationSpec, ExperimentMetricResult]],
+        points: Iterable[tuple[MetricCalculationConfig, ExperimentMetricResult]],
         *,
         query_from: datetime,
         completed_at: datetime,
     ) -> None:
         """Copy daily points into a timeseries sync run at its window, under the salted keys a run read looks for."""
-        for spec, point in points:
+        for calculation_config, point in points:
             self._upsert(
-                spec.metric_id,
+                calculation_config.metric_id,
                 window,
-                fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
                 query_from=query_from,
                 status=_COMPLETED,
                 result=point.result,
@@ -307,7 +310,7 @@ class MetricResultStore:
     def _record_for_run(
         self,
         recalculation_id: str,
-        spec: CalculationSpec,
+        calculation_config: MetricCalculationConfig,
         *,
         window: datetime,
         query_from: datetime,
@@ -316,7 +319,7 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
     ) -> None:
-        team_id = spec.settings.team_id
+        team_id = calculation_config.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
             Experiment.objects.select_for_update(no_key=True).filter(id=self.experiment_id, team_id=team_id).exists()
@@ -330,15 +333,15 @@ class MetricResultStore:
                 logger.warning(
                     "Skipping experiment metric result write for a terminal or missing recalculation",
                     recalculation_id=recalculation_id,
-                    metric_uuid=spec.metric_id,
+                    metric_uuid=calculation_config.metric_id,
                     recalculation_status=current_status,
                 )
                 return
 
             self._upsert(
-                spec.metric_id,
+                calculation_config.metric_id,
                 window,
-                fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
                 query_from=query_from,
                 status=status,
                 result=result,
@@ -384,26 +387,26 @@ class MetricResultStore:
         return newest_point + _SYNC_COPY_OFFSET
 
     @staticmethod
-    def current_outcomes(spec_by_experiment: Mapping[int, CalculationSpec]) -> dict[int, ResultSummary]:
-        """For each experiment, the current result of the metric that its spec describes, in one query.
+    def current_outcomes(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> dict[int, ResultSummary]:
+        """For each experiment, the current result of the metric that its calculation config describes, in one query.
 
-        The current result is the completed row with the newest query_to among the rows filed under the spec's
+        The current result is the completed row with the newest query_to among the rows filed under the config's
         calculation key, by a recalculation run or by the daily workflows. A row under another key was computed from
         another configuration, for example from the start date before a relaunch, so it does not count. The newest
         window counts, not the newest write, because a backfill writes past windows after the newer ones.
         """
-        if not spec_by_experiment:
+        if not config_by_experiment:
             return {}
-        filed_under_spec = Q()
-        for experiment_id, spec in spec_by_experiment.items():
-            key = spec.calculation_key()
-            filed_under_spec |= Q(
+        filed_under_config = Q()
+        for experiment_id, calculation_config in config_by_experiment.items():
+            key = calculation_config.calculation_key()
+            filed_under_config |= Q(
                 experiment_id=experiment_id,
-                metric_uuid=spec.metric_id,
+                metric_uuid=calculation_config.metric_id,
                 fingerprint__in=[key, _recalc_fingerprint(key)],
             )
         rows = (
-            ExperimentMetricResult.objects.filter(filed_under_spec, status=_COMPLETED)
+            ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
             .order_by("experiment_id", "-query_to", F("completed_at").desc(nulls_last=True), "-id")
             .distinct("experiment_id")
             .values(

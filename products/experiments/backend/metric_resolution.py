@@ -1,8 +1,9 @@
-"""Resolve the metrics of an experiment across inline and saved/shared metrics.
+"""The effective metrics of an experiment, across inline and saved/shared metrics.
 
-Calculation (daily timeseries and recalculation), discovery, fingerprints and the API all read a metric's
-effective definition from here, so that they calculate and hash the same metric. Workflows pass metric
-uuids between activities and re-resolve the definition at the point of use.
+The effective definition of a saved metric includes the overrides of its experiment link. Calculation (daily
+timeseries and recalculation), discovery, fingerprints and the API all read a metric's effective definition
+from here, so that they calculate and hash the same metric. Workflows pass metric uuids between activities
+and read the effective definition again at the point of use.
 """
 
 import dataclasses
@@ -46,20 +47,20 @@ MetricSource = Literal["inline", "saved"]
 
 
 @frozen
-class ResolvedExperimentMetric:
+class EffectiveExperimentMetric:
     """A metric as it applies to one experiment: an inline definition, or a saved definition with the
     link's per-experiment overrides applied."""
 
     uuid: str
     role: MetricRole
     source: MetricSource
-    # The effective definition. It is the only dict that may feed a calculation spec or a query for
+    # The effective definition. It is the only dict that may feed a calculation config or a query for
     # this metric. A caller that uses the raw saved query calculates a different metric and files or
     # looks up results under a different calculation key than every other caller.
     definition: dict[str, Any]
 
 
-def resolve_saved_metric_definition(saved_query: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
+def apply_saved_metric_overrides(saved_query: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
     """Apply the per-experiment overrides from the link metadata to a saved query.
 
     - `breakdowns` always comes from the link. A link without breakdowns has none, whatever the saved
@@ -76,25 +77,25 @@ def resolve_saved_metric_definition(saved_query: dict[str, Any], metadata: dict[
     A key that is absent or null is an omitted override. Step 0 is an explicit value.
     """
     metadata = metadata or {}
-    resolved = {**saved_query}
+    effective = {**saved_query}
 
     breakdowns = metadata.get("breakdowns") or []
     breakdown_filter = {**(saved_query.get("breakdownFilter") or {}), "breakdowns": breakdowns}
     if breakdowns and metadata.get("breakdown_limit") is not None:
         breakdown_filter["breakdown_limit"] = metadata["breakdown_limit"]
-    resolved["breakdownFilter"] = breakdown_filter
+    effective["breakdownFilter"] = breakdown_filter
 
     if (
         breakdowns
         and saved_query.get("metric_type") == "funnel"
         and metadata.get("breakdownAttributionType") is not None
     ):
-        resolved["breakdownAttributionType"] = metadata["breakdownAttributionType"]
-        resolved.pop("breakdownAttributionValue", None)
+        effective["breakdownAttributionType"] = metadata["breakdownAttributionType"]
+        effective.pop("breakdownAttributionValue", None)
         if metadata.get("breakdownAttributionValue") is not None:
-            resolved["breakdownAttributionValue"] = metadata["breakdownAttributionValue"]
+            effective["breakdownAttributionValue"] = metadata["breakdownAttributionValue"]
 
-    return resolved
+    return effective
 
 
 def is_scheduled_metric(metric: dict[str, Any] | None) -> bool:
@@ -105,21 +106,21 @@ def is_scheduled_metric(metric: dict[str, Any] | None) -> bool:
     return bool(metric and metric.get("uuid") and metric.get("metric_type") in METRIC_BUILDERS)
 
 
-def _resolve_inline_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
+def _get_effective_inline_metrics(experiment: Experiment) -> list[EffectiveExperimentMetric]:
     """Inline primary metrics, then inline secondary metrics. Metrics without a uuid cannot be addressed
     and are skipped. Reads no rows."""
     sections: tuple[tuple[MetricRole, list | None], ...] = (
         ("primary", experiment.metrics),
         ("secondary", experiment.metrics_secondary),
     )
-    resolved: list[ResolvedExperimentMetric] = []
+    effective_metrics: list[EffectiveExperimentMetric] = []
     for role, metrics in sections:
         for metric in metrics or []:
             if isinstance(metric, dict) and metric.get("uuid"):
-                resolved.append(
-                    ResolvedExperimentMetric(uuid=metric["uuid"], role=role, source="inline", definition=metric)
+                effective_metrics.append(
+                    EffectiveExperimentMetric(uuid=metric["uuid"], role=role, source="inline", definition=metric)
                 )
-    return resolved
+    return effective_metrics
 
 
 def saved_metric_links(experiment: Experiment) -> list[ExperimentToSavedMetric]:
@@ -139,43 +140,45 @@ def saved_metric_link_role(link: ExperimentToSavedMetric) -> MetricRole:
     return "secondary" if metadata.get("type") == "secondary" else "primary"
 
 
-def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
+def _get_effective_saved_metrics(experiment: Experiment) -> list[EffectiveExperimentMetric]:
     """Saved/shared metrics linked to the experiment, with the link overrides applied."""
-    resolved: list[ResolvedExperimentMetric] = []
+    effective_metrics: list[EffectiveExperimentMetric] = []
     for link in saved_metric_links(experiment):
         saved_query = link.saved_metric.query
         if not isinstance(saved_query, dict) or not saved_query.get("uuid"):
             continue
         metadata = link.metadata or {}
-        resolved.append(
-            ResolvedExperimentMetric(
+        effective_metrics.append(
+            EffectiveExperimentMetric(
                 uuid=saved_query["uuid"],
                 role=saved_metric_link_role(link),
                 source="saved",
-                definition=resolve_saved_metric_definition(saved_query, metadata),
+                definition=apply_saved_metric_overrides(saved_query, metadata),
             )
         )
-    return resolved
+    return effective_metrics
 
 
-def resolve_experiment_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
+def get_effective_experiment_metrics(experiment: Experiment) -> list[EffectiveExperimentMetric]:
     """Every addressable metric on the experiment: inline primary, inline secondary, then saved/shared.
 
     Callers apply their own eligibility, for example `is_scheduled_metric` or `is_daily_timeseries_metric`.
     """
-    return _resolve_inline_metrics(experiment) + _resolve_saved_metrics(experiment)
+    return _get_effective_inline_metrics(experiment) + _get_effective_saved_metrics(experiment)
 
 
-def resolve_scheduled_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
-    """The scheduled metrics of the experiment in resolution order, resolved with at most one query.
+def get_metrics_for_calculation(experiment: Experiment) -> list[EffectiveExperimentMetric]:
+    """The metrics that the experiment calculates, in the order of `get_effective_experiment_metrics`,
+    read with at most one query. A metric is calculated when `is_scheduled_metric` accepts its effective
+    definition, and this function checks nothing else.
 
     Results are addressed by uuid, so metrics that share a uuid share one definition: the first in
-    resolution order, which makes an inline metric win over a saved metric. Each of them still has
-    its own entry, because `total_metrics` counts entries.
+    that order, which makes an inline metric win over a saved metric. Each of them still has its own
+    entry, because `total_metrics` counts entries.
     """
     definitions: dict[str, dict[str, Any]] = {}
-    scheduled: list[ResolvedExperimentMetric] = []
-    for metric in resolve_experiment_metrics(experiment):
+    scheduled: list[EffectiveExperimentMetric] = []
+    for metric in get_effective_experiment_metrics(experiment):
         if is_scheduled_metric(metric.definition):
             definition = definitions.setdefault(metric.uuid, metric.definition)
             scheduled.append(dataclasses.replace(metric, definition=definition))
@@ -183,9 +186,9 @@ def resolve_scheduled_metrics(experiment: Experiment) -> list[ResolvedExperiment
 
 
 def scheduled_metric_definitions(experiment: Experiment) -> dict[str, dict[str, Any]]:
-    """The effective definition of each scheduled metric, keyed by uuid in resolution order. Use it
-    instead of calling `find_metric_dict` once per metric."""
-    return {metric.uuid: metric.definition for metric in resolve_scheduled_metrics(experiment)}
+    """The effective definition of each metric that `get_metrics_for_calculation` returns, keyed by uuid
+    in that order. Use it instead of calling `find_metric_dict` once per metric."""
+    return {metric.uuid: metric.definition for metric in get_metrics_for_calculation(experiment)}
 
 
 def find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict[str, Any] | None:

@@ -7,9 +7,9 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from products.experiments.backend.metric_resolution import (
+    apply_saved_metric_overrides,
     find_metric_dict,
-    resolve_experiment_metrics,
-    resolve_saved_metric_definition,
+    get_effective_experiment_metrics,
     scheduled_metric_definitions,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
@@ -57,7 +57,7 @@ class TestMetricResolution(BaseTest):
         self._attach_saved(experiment, {"uuid": saved_secondary_uuid, "metric_type": "mean"}, {"type": "secondary"})
         self._attach_saved(experiment, {"uuid": saved_untyped_uuid, "metric_type": "mean"})
 
-        assert [(m.uuid, m.role, m.source) for m in resolve_experiment_metrics(experiment)] == [
+        assert [(m.uuid, m.role, m.source) for m in get_effective_experiment_metrics(experiment)] == [
             (primary["uuid"], "primary", "inline"),
             (secondary["uuid"], "secondary", "inline"),
             (saved_secondary_uuid, "secondary", "saved"),
@@ -191,7 +191,7 @@ def test_saved_metric_override_precedence(
     expected_attribution: dict[str, Any],
     expected_breakdown_filter: dict[str, Any],
 ) -> None:
-    resolved = resolve_saved_metric_definition(saved_query, metadata)
+    resolved = apply_saved_metric_overrides(saved_query, metadata)
 
     attribution = {
         key: resolved[key] for key in ("breakdownAttributionType", "breakdownAttributionValue") if key in resolved

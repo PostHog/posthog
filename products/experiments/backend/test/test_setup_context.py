@@ -24,8 +24,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
 )
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     Experiment,
@@ -81,9 +81,9 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
 
 
 def _key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _payload_of_each_section() -> dict[str, Any]:
