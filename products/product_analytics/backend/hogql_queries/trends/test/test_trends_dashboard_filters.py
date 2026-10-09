@@ -8,6 +8,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     CompareFilter,
     DashboardFilter,
     DataWarehouseNode,
@@ -521,6 +522,25 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "all"
         assert query_runner.query.compareFilter == CompareFilter(compare=False)
+
+    @parameterized.expand(
+        [
+            ("line_graph_takes_override", ChartDisplayType.ACTIONS_LINE_GRAPH, CompareFilter(compare=True)),
+            ("world_map_skips_override", ChartDisplayType.WORLD_MAP, None),
+            ("calendar_heatmap_skips_override", ChartDisplayType.CALENDAR_HEATMAP, None),
+            ("proportion_bar_skips_override", ChartDisplayType.ACTIONS_PROPORTION_BAR, None),
+        ]
+    )
+    def test_compare_override_only_applies_to_displays_that_support_compare(
+        self, _name: str, display: ChartDisplayType, expected: CompareFilter | None
+    ) -> None:
+        query_runner = self._create_query_runner(
+            "-7d", None, IntervalType.DAY, None, trends_filters=TrendsFilter(display=display)
+        )
+
+        query_runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))
+
+        assert query_runner.query.compareFilter == expected
 
     def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
         query_runner = self._create_query_runner(

@@ -1317,6 +1317,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return TrendsDisplay(display)
 
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        # These displays have no compare toggle in the insight editor (see `supportsCompare` in insightVizDataLogic)
+        # and do not draw a previous-period series. The world map keeps one series per country, so a comparison
+        # makes it show the previous period's counts.
+        display = self.query.trendsFilter.display if self.query.trendsFilter else None
+        return display not in (
+            ChartDisplayType.WORLD_MAP,
+            ChartDisplayType.CALENDAR_HEATMAP,
+            ChartDisplayType.ACTIONS_PROPORTION_BAR,
+        )
+
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
             labels = []

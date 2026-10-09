@@ -126,14 +126,14 @@ class TestDashboardFiltersCompareFilterOverride(BaseTest):
             ("forces_custom_rolling_range", CompareFilter(compare=True, compare_to="-4w")),
         ]
     )
-    def test_compare_override_written_onto_compare_supporting_query(self, _name, override):
+    def test_compare_override_written_onto_compare_supporting_query(self, _name: str, override: CompareFilter) -> None:
         runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
 
         runner.apply_dashboard_filters(DashboardFilter(compareFilter=override))
 
         assert runner.query.compareFilter == override
 
-    def test_inherit_leaves_query_compare_filter_untouched(self):
+    def test_inherit_leaves_query_compare_filter_untouched(self) -> None:
         runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
         runner.query.compareFilter = CompareFilter(compare=True, compare_to="-1m")
 
@@ -142,7 +142,9 @@ class TestDashboardFiltersCompareFilterOverride(BaseTest):
         assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-1m")
 
     @parameterized.expand(NON_COMPARE_QUERY_RUNNERS)
-    def test_compare_override_silently_skipped_for_non_compare_query(self, _name, build):
+    def test_compare_override_silently_skipped_for_non_compare_query(
+        self, _name: str, build: Callable[[Team], QueryRunner]
+    ) -> None:
         runner = self._runner(build)
 
         runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))

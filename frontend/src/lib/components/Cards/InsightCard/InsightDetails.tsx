@@ -19,6 +19,7 @@ import {
 import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,7 +28,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { dateFilterToText, dateFromToText } from 'lib/utils/dateFilters'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
@@ -710,17 +711,7 @@ export function TestAccountFilterSummary({
     )
 }
 
-const compareFilterLabel = (compareFilter: CompareFilterType): string => {
-    if (!compareFilter.compare) {
-        return 'No comparison'
-    }
-    if (compareFilter.compare_to) {
-        return `${dateFromToText(compareFilter.compare_to) ?? compareFilter.compare_to} earlier`
-    }
-    return 'Previous period'
-}
-
-export function CompareFilterSummary({
+function CompareFilterSummary({
     compareFilter,
     override,
     insightCompareFilter,

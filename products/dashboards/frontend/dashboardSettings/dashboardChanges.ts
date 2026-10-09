@@ -1,7 +1,8 @@
 import { deepEqual as equal } from 'fast-equals'
 
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { dateFilterToText, dateFromToText } from 'lib/utils/dateFilters'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { DashboardFilter, HogQLVariable, MultipleBreakdownType } from '~/queries/schema/schema-general'
@@ -173,16 +174,6 @@ function formatTestAccounts(filterTestAccounts: DashboardFilter['filterTestAccou
     return filterTestAccounts ? 'Excluded' : 'Included'
 }
 
-function formatCompareFilter(compareFilter: DashboardFilter['compareFilter']): string {
-    if (!compareFilter?.compare) {
-        return 'No comparison'
-    }
-    if (compareFilter.compare_to) {
-        return `${dateFromToText(compareFilter.compare_to) ?? compareFilter.compare_to} earlier`
-    }
-    return 'Previous period'
-}
-
 function getChangeStatus(previousExists: boolean, currentExists: boolean): DashboardFilterChange['status'] {
     if (!previousExists) {
         return 'new'
@@ -325,8 +316,8 @@ export function getDashboardFilterChanges(
         const currentHasCompareSetting = currentFilters.compareFilter != null
         changes.push({
             label: 'Compare',
-            previousValue: previousHasCompareSetting ? [formatCompareFilter(previousFilters.compareFilter)] : [],
-            value: currentHasCompareSetting ? [formatCompareFilter(currentFilters.compareFilter)] : [],
+            previousValue: previousHasCompareSetting ? [compareFilterLabel(previousFilters.compareFilter)] : [],
+            value: currentHasCompareSetting ? [compareFilterLabel(currentFilters.compareFilter)] : [],
             status: getChangeStatus(previousHasCompareSetting, currentHasCompareSetting),
         })
     }

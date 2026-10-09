@@ -7,7 +7,6 @@ import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardCompareFilter } from 'scenes/dashboard/DashboardCompareFilter'
 import { dashboardControlScopeText } from 'scenes/dashboard/dashboardControls'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -15,6 +14,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
+
+import { DashboardCompareFilter } from 'products/dashboards/frontend/components/DashboardCompareFilter/DashboardCompareFilter'
 
 type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
 
