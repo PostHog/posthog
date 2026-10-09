@@ -20,9 +20,9 @@ IOS: dict[str, Any] = {
     "rollout_percentage": 100,
 }
 
-RUNNING = {"is_launched": True, "has_ended": False}
-ENDED = {"is_launched": True, "has_ended": True}
-DRAFT = {"is_launched": False, "has_ended": False}
+RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
+ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
+DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
 
 
 def _context(
@@ -35,6 +35,7 @@ def _context(
 ) -> HealthContext:
     return HealthContext(
         **status,
+        is_paused=False,
         archived=False,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
         primary_metric_count=1,
