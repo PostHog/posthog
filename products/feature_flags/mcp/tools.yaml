@@ -853,15 +853,15 @@ tools:
             ID. To apply a change at a future time instead, use `scheduled-changes-create`.
 
 
-            Release conditions normally combine with OR: a user who matches any condition gets the flag, subject to
-            that condition's rollout percentage. When `filters.early_exit` is true, evaluation can stop after an
-            earlier condition misses its rollout, so check condition order and do not assume an edit widens access.
-            Property filters inside one condition combine with AND. To give more users access, add a new release
-            condition. Add values to an existing `exact` property filter only when that condition has no other filters,
-            has a 100% rollout, and doing so is safe given `early_exit` and condition order. A new property filter on
-            an existing condition, such as an `is_not` filter, removes access from some users who match that condition
-            today. Add a property filter to an existing condition only when the user asks to restrict access. When the
-            request can mean either, ask the user which one they mean before you write.
+            Release conditions normally combine with OR: a user who matches any condition gets the flag, subject to that
+            condition's rollout percentage. When `filters.early_exit` is true, evaluation can stop after an earlier
+            condition misses its rollout, so check condition order and do not assume an edit widens access. Property
+            filters inside one condition combine with AND. To give more users access, add a new release condition. Add
+            values to an existing `exact` property filter only when that condition has no other filters, has a 100%
+            rollout, and doing so is safe given `early_exit` and condition order. A new property filter on an existing
+            condition, such as an `is_not` filter, removes access from some users who match that condition today. Add a
+            property filter to an existing condition only when the user asks to restrict access. When the request can
+            mean either, ask the user which one they mean before you write.
         include_params:
             - key
             - name
