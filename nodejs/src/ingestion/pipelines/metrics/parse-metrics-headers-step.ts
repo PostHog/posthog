@@ -2,10 +2,10 @@ import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '~/common/kafka/consumer'
 import { logger } from '~/common/utils/logger'
-import { dlq, drop, ok } from '~/ingestion/framework/results'
+import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
-import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
+import { metricMessageDroppedCounter } from './metrics'
 
 export interface MetricsHeaders {
     token: string
@@ -51,10 +51,10 @@ export function createParseMetricsHeadersStep<T extends { message: Message }>():
             )
             if (bytesUncompressed === null || bytesCompressed === null || recordCount === null) {
                 const invalid = SIZE_HEADERS.filter((name) => parseSizeHeader(headers[name]) === null)
-                metricMessageDlqCounter.inc({ reason: 'invalid_size_header', team_id: 'unknown' })
-                return Promise.resolve(
-                    dlq('invalid_size_header', new Error(`Invalid metrics size header(s): ${invalid.join(', ')}`))
-                )
+                // A replay cannot fix a capture-side header, so drop instead of using the DLQ.
+                logger.error('invalid_size_header', { headers: invalid })
+                metricMessageDroppedCounter.inc({ reason: 'invalid_size_header', team_id: 'unknown' })
+                return Promise.resolve(drop('invalid_size_header'))
             }
             return Promise.resolve(ok({ ...input, token, bytesUncompressed, bytesCompressed, recordCount }))
         } catch (e) {

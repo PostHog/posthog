@@ -4,6 +4,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT, DLQ_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -178,9 +179,28 @@ describe('MetricsIngestionPipeline', () => {
         )
     })
 
-    it('sends a message whose produce fails to the DLQ and still emits usage', async () => {
+    it('finishes the batch before the ClickHouse-bound produce is acked', async () => {
+        let ack: () => void = () => {}
+        mockKafkaProducer.produce.mockReturnValueOnce(new Promise<void>((resolve) => (ack = resolve)))
+        const pipeline = createMetricsIngestionPipeline(config)
+
+        await runMetricsIngestionPipeline(pipeline, [createMessage(teamA.api_token, 2)])
+
+        let drained = false
+        const drain = promiseScheduler.waitForAll().then(() => (drained = true))
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(drained).toBe(false)
+
+        ack()
+        await drain
+        expect(producedTo(METRICS_TOPIC)).toHaveLength(1)
+    })
+
+    it('sends a message whose produce fails permanently to the DLQ and still emits usage', async () => {
         mockKafkaProducer.produce.mockImplementation((message: { topic: string }) =>
-            message.topic === METRICS_TOPIC ? Promise.reject(new Error('broker down')) : Promise.resolve()
+            message.topic === METRICS_TOPIC
+                ? Promise.reject(new MessageSizeTooLarge('too large', new Error('too large')))
+                : Promise.resolve()
         )
         const message = createMessage(teamA.api_token, 2)
 
@@ -190,7 +210,8 @@ describe('MetricsIngestionPipeline', () => {
         expect(dlq.map((m) => m.value)).toEqual([message.value])
         expect(dlq[0].headers).toMatchObject({
             token: 'token-a',
-            dlq_reason: 'broker down',
+            team_id: '1',
+            dlq_reason: 'too large',
             dlq_step: 'produceMetricsStep',
         })
         expect(usageRows()).toEqual(expect.arrayContaining([[1, 'bytes_ingested', 200]]))

@@ -19,7 +19,11 @@ export function createResolveMetricsTeamStep<T extends { token: string }>(
                 team = await teamManager.getTeamByToken(input.token)
             }
         } catch (e) {
-            // A lookup failure is an infrastructure fault, not a bad message: keep it replayable.
+            // Transient faults go to the pipeline retry and then fail the batch, so it replays.
+            if ((e as { isRetriable?: boolean })?.isRetriable === true) {
+                throw e
+            }
+            // Any other lookup failure is an infrastructure fault, not a bad message: keep it replayable.
             logger.error('team_lookup_error', { error: e })
             metricMessageDlqCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
             return dlq('team_lookup_error', e)

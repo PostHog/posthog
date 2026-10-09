@@ -50,7 +50,8 @@ export type MetricsIngestionPipeline = BatchingPipeline<
  * 1. Per message, concurrently: read headers, resolve the team, tally what was
  *    received, drop quota-limited teams.
  * 2. Whole batch: one Redis round trip for the token-bucket rate limit.
- * 3. Per message, concurrently: produce the Avro packet to ClickHouse as is.
+ * 3. Per message, concurrently: produce the Avro packet to ClickHouse as is,
+ *    as a side effect, so the next batch does not wait for the acks.
  * 4. After the batch: emit Prometheus counters and billing rows from the tally.
  */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
@@ -75,7 +76,9 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
                         .concurrently((b) =>
                             b
                                 .pipe(createParseMetricsHeadersStep())
-                                .pipe(createResolveMetricsTeamStep(teamManager))
+                                .pipe(createResolveMetricsTeamStep(teamManager), {
+                                    retry: { tries: 3, sleepMs: 100, name: 'resolve_metrics_team' },
+                                })
                                 .pipe(createRecordMetricsReceivedStep())
                                 .pipe(createDropQuotaLimitedStep(quotaLimiting))
                         )

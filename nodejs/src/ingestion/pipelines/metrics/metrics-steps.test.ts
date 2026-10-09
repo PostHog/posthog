@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { AppMetricsOutput } from '~/common/outputs'
+import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { PipelineResult, isDlqResult, isDropResult, isOkResult } from '~/ingestion/framework/results'
@@ -87,14 +88,17 @@ describe('metrics ingestion steps', () => {
         })
 
         it.each([['abc'], ['12abc'], ['-5'], ['1.5'], ['']])(
-            'sends a message with size header %p to the DLQ instead of poisoning the usage counters',
+            'drops a message with size header %p instead of poisoning the usage counters',
             async (value) => {
                 const result = await step({
                     message: createTestMessage({ headers: toHeaders({ token: 'tok', record_count: value }) }),
                 })
-                expect(isDlqResult(result) && result.reason).toBe('invalid_size_header')
+                expectDrop(result, 'invalid_size_header')
                 expect(
-                    await counterValue(metricMessageDlqCounter, { reason: 'invalid_size_header', team_id: 'unknown' })
+                    await counterValue(metricMessageDroppedCounter, {
+                        reason: 'invalid_size_header',
+                        team_id: 'unknown',
+                    })
                 ).toBe(1)
             }
         )
@@ -120,6 +124,15 @@ describe('metrics ingestion steps', () => {
             expect(
                 await counterValue(metricMessageDlqCounter, { reason: 'team_lookup_error', team_id: 'unknown' })
             ).toBe(1)
+        })
+
+        it('rethrows a retriable lookup error so the pipeline retries it and the batch replays', async () => {
+            const error = new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))
+            teamManager.getTeamByToken.mockRejectedValueOnce(error)
+            await expect(step({ token: 'tok' })).rejects.toBe(error)
+            expect(
+                await counterValue(metricMessageDlqCounter, { reason: 'team_lookup_error', team_id: 'unknown' })
+            ).toBe(0)
         })
 
         it('maps phc_local to team 1 only in dev', async () => {
@@ -191,7 +204,7 @@ describe('metrics ingestion steps', () => {
     })
 
     describe('produceMetricsStep', () => {
-        let outputs: jest.Mocked<ReturnType<typeof createMockIngestionOutputs<MetricsOutput>>>
+        let outputs: jest.Mocked<ReturnType<typeof createMockIngestionOutputs<MetricsOutput | DlqOutput>>>
         const value = Buffer.from('opaque avro packet')
         const input = {
             message: createTestMessage({
@@ -204,14 +217,21 @@ describe('metrics ingestion steps', () => {
             recordCount: 3,
         }
 
+        const runStep = async (): Promise<{ result: PipelineResult<void>; sideEffect: Promise<unknown> }> => {
+            const result = await createProduceMetricsStep(outputs)(input)
+            expect(isOkResult(result)).toBe(true)
+            expect(result.sideEffects).toHaveLength(1)
+            return { result, sideEffect: result.sideEffects[0] }
+        }
+
         beforeEach(() => {
-            outputs = createMockIngestionOutputs<MetricsOutput>()
+            outputs = createMockIngestionOutputs<MetricsOutput | DlqOutput>()
         })
 
-        it('produces the packet unchanged with the ClickHouse headers and credits it after the ack', async () => {
-            const result = await createProduceMetricsStep(outputs)(input)
+        it('produces the packet unchanged with the ClickHouse headers as a side effect', async () => {
+            const { sideEffect } = await runStep()
+            await sideEffect
 
-            expect(isOkResult(result)).toBe(true)
             expect(outputs.produce).toHaveBeenCalledWith(METRICS_OUTPUT, {
                 value,
                 key: null,
@@ -226,13 +246,54 @@ describe('metrics ingestion steps', () => {
             expect(recordMetricsIngested).toHaveBeenCalledWith(7, 300, 3)
         })
 
-        it('sends the message to the DLQ and does not credit it when the produce fails', async () => {
-            outputs.produce.mockRejectedValueOnce(new Error('broker down'))
-            const result = await createProduceMetricsStep(outputs)(input)
+        it('returns before the ack and credits the message only after it', async () => {
+            let ack: () => void = () => {}
+            outputs.produce.mockReturnValueOnce(new Promise<void>((resolve) => (ack = resolve)))
 
-            expect(isDlqResult(result) && result.reason).toBe('metrics_produce_failed')
+            const { sideEffect } = await runStep()
             expect(recordMetricsIngested).not.toHaveBeenCalled()
-            expect(await counterValue(metricMessageDlqCounter, { reason: 'Error', team_id: '7' })).toBe(1)
+
+            ack()
+            await sideEffect
+            expect(recordMetricsIngested).toHaveBeenCalledWith(7, 300, 3)
+        })
+
+        it('sends a non-retriable failure to the DLQ with the team headers and does not credit it', async () => {
+            outputs.produce.mockImplementation((output) =>
+                output === METRICS_OUTPUT
+                    ? Promise.reject(new MessageSizeTooLarge('too large', new Error('too large')))
+                    : Promise.resolve()
+            )
+            const { sideEffect } = await runStep()
+            await sideEffect
+
+            expect(outputs.produce).toHaveBeenCalledTimes(2)
+            expect(outputs.produce).toHaveBeenLastCalledWith(
+                DLQ_OUTPUT,
+                expect.objectContaining({
+                    value,
+                    headers: expect.objectContaining({
+                        token: 'tok',
+                        team_id: '7',
+                        dlq_reason: 'too large',
+                        dlq_step: 'produceMetricsStep',
+                    }),
+                })
+            )
+            expect(recordMetricsIngested).not.toHaveBeenCalled()
+            expect(await counterValue(metricMessageDlqCounter, { reason: 'MessageSizeTooLarge', team_id: '7' })).toBe(1)
+        })
+
+        it('retries a retriable failure, then rejects the side effect without using the DLQ', async () => {
+            const error = new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+            outputs.produce.mockRejectedValue(error)
+
+            const { sideEffect } = await runStep()
+            await expect(sideEffect).rejects.toBe(error)
+
+            expect(outputs.produce).toHaveBeenCalledTimes(3)
+            expect(outputs.produce).not.toHaveBeenCalledWith(DLQ_OUTPUT, expect.anything())
+            expect(recordMetricsIngested).not.toHaveBeenCalled()
         })
 
         it('drops a message with no value', async () => {

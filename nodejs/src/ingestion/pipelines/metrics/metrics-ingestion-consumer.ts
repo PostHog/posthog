@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
-import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
+import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
@@ -25,7 +25,13 @@ import {
     metricsRecordsReceivedCounter,
 } from './metrics'
 import { DEFAULT_USAGE_STATS, UsageStatsByTeam } from './metrics-usage'
-import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
+import {
+    DEFAULT_METRICS_RETENTION_DAYS,
+    METRICS_DLQ_OUTPUT,
+    METRICS_OUTPUT,
+    MetricsDlqOutput,
+    MetricsOutput,
+} from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { createMetricsRateLimiterRedis } from './services/metrics-redis'
 import { MetricsIngestionMessage } from './types'
@@ -34,12 +40,12 @@ export interface MetricsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
     /**
-     * Resolved outputs registry — must include `METRICS_OUTPUT`, `DLQ_OUTPUT`,
+     * Resolved outputs registry — must include `METRICS_OUTPUT`, `METRICS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
      * server via env vars — this consumer never touches a `KafkaProducerWrapper`
      * directly.
      */
-    outputs: IngestionOutputs<MetricsOutput | DlqOutput | AppMetricsOutput>
+    outputs: IngestionOutputs<MetricsOutput | MetricsDlqOutput | AppMetricsOutput>
 }
 
 /**
@@ -267,7 +273,7 @@ export class MetricsIngestionConsumer {
         metricMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
-            await this.deps.outputs.queueMessages(DLQ_OUTPUT, [
+            await this.deps.outputs.queueMessages(METRICS_DLQ_OUTPUT, [
                 {
                     value: message.message.value,
                     key: null,
