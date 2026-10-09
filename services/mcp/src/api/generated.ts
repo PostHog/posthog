@@ -13839,6 +13839,37 @@ export namespace Schemas {
       readonly realized_auc: number;
     }
 
+    export interface AutoresearchPredictionCoverage {
+      /** People in the inference population at the run's cutoff. */
+      readonly population: number;
+      /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+      readonly with_score: number;
+      /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+      readonly never_scored: number;
+      /**
+         * Mean age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_avg: number | null;
+      /**
+         * Median age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p50: number | null;
+      /**
+         * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p90: number | null;
+      /**
+         * Oldest score age in days. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_max: number | null;
+      /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+      readonly lookback_days: number;
+    }
+
     export interface AutoresearchPipeline {
       /** Unique UUID of this pipeline. */
       readonly id: string;
@@ -13946,6 +13977,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly people_scored: number | null;
+      /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
       readonly training_run_count: number;
       /** Experiments (iterations) recorded across every training run. */
@@ -14105,6 +14138,8 @@ export namespace Schemas {
       rows_scored?: number | null;
       /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
+      /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Error message if the run failed. */
       error?: string;
       /**
@@ -55564,6 +55599,11 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MarketingAnalyticsSearchConversionGoal {
+      id: string;
+      name: string;
+    }
+
     export type Platform = typeof Platform[keyof typeof Platform];
 
 
@@ -55572,6 +55612,15 @@ export namespace Schemas {
       BingAds: 'BingAds',
       GoogleSearchConsole: 'GoogleSearchConsole',
     } as const;
+
+    export interface MarketingAnalyticsSearchConversion {
+      conversions?: number | null;
+      costPerConversion?: number | null;
+      id: string;
+      name: string;
+      previousConversions?: number | null;
+      previousCostPerConversion?: number | null;
+    }
 
     export interface MarketingAnalyticsSearchMetrics {
       /** Fraction of Google Search ad impressions shown as the first ad. */
@@ -55604,6 +55653,7 @@ export namespace Schemas {
       page?: string | null;
       platform: Platform;
       position?: number | null;
+      posthogConversions?: MarketingAnalyticsSearchConversion[] | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
       /** Fraction of Google Search ad impressions shown among the top ads. */
       topImpressionRate?: number | null;
@@ -55616,6 +55666,9 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -55651,10 +55704,12 @@ export namespace Schemas {
       breakdown?: Breakdown1 | null;
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
+      includePostHogConversions?: boolean | null;
       keyword?: string | null;
       kind?: 'MarketingAnalyticsSearchQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      normalizePageUrls?: boolean | null;
       page?: string | null;
       response?: MarketingAnalyticsSearchQueryResponse | null;
       search?: string | null;
@@ -90550,6 +90605,9 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */

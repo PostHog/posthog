@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workflows", "0030_workflowproposal_rejection_reason"),
+        ("workflows", "0031_team_workflows_config_frequency_cap"),
     ]
 
     operations = [

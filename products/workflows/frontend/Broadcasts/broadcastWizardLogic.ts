@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, Breadcrumb, IntegrationType, ResourceEditedEvent, TeamPublicType, TeamType } from '~/types'
 
+import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsBatchJobsCancelCreate,
@@ -50,6 +51,7 @@ import {
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
 import {
     AUDIENCE_PREFILL_PARAM,
     type BroadcastPrefill,
@@ -209,6 +211,7 @@ export interface broadcastWizardLogicValues {
     integrationsLoading: boolean // integrationsLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    audienceCohortLaunchErrors: string[]
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -394,6 +397,9 @@ export interface broadcastWizardLogicActions {
     sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
+    setAudienceCohortLaunchErrors: (errors: string[]) => {
+        errors: string[]
+    }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
@@ -501,7 +507,8 @@ export interface broadcastWizardLogicMeta {
             integrations: IntegrationType[] | null,
             integrationsLoading: boolean,
             linkAudienceRejected: boolean,
-            audienceProperties: AnyPropertyFilter[]
+            audienceProperties: AnyPropertyFilter[],
+            audienceCohortLaunchErrors: string[]
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -558,6 +565,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
+        setAudienceCohortLaunchErrors: (errors: string[]) => ({ errors }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -697,6 +705,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             null as string | null,
             {
                 prefillFromLink: (_, { prefill }) => prefill.source ?? null,
+            },
+        ],
+        audienceCohortLaunchErrors: [
+            [] as string[],
+            {
+                setAudienceCohortLaunchErrors: (_, { errors }) => errors,
             },
         ],
         audienceProperties: [
@@ -993,6 +1007,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.integrationsLoading,
                 s.linkAudienceRejected,
                 s.audienceProperties,
+                s.audienceCohortLaunchErrors,
             ],
             (
                 goalEnabled: boolean,
@@ -1004,7 +1019,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 integrations: IntegrationType[] | null,
                 integrationsLoading: boolean,
                 linkAudienceRejected: boolean,
-                audienceProperties: AnyPropertyFilter[]
+                audienceProperties: AnyPropertyFilter[],
+                audienceCohortLaunchErrors: string[]
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1055,6 +1071,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (senderError && !errors.review.includes(senderError)) {
                     errors.review.push(senderError)
                 }
+                // Only launch waits for a list to match. Editing the other steps can go on meanwhile.
+                errors.review.push(...audienceCohortLaunchErrors)
 
                 return errors
             },
@@ -1498,6 +1516,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
+            // The cohort cards poll, so a list can finish or fail between the last poll and this click.
+            const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
+            breakpoint()
+            actions.setAudienceCohortLaunchErrors(cohortErrors)
+            if (cohortErrors.length > 0) {
+                lemonToast.error(cohortErrors[0])
+                actions.launchBroadcastFinished()
+                return
+            }
             // Same ordering as Continue: a save that trails the content step must land first.
             cache.autosaveConflict = false
             const saves = getSaveQueue(cache, values)
@@ -1805,6 +1832,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         actions.loadBlastRadius()
     }),
 ])
+
+async function loadAudienceCohortLaunchErrors(
+    projectId: string,
+    audienceProperties: AnyPropertyFilter[]
+): Promise<string[]> {
+    const ids = audienceCohortIds(audienceProperties)
+    const results = await Promise.allSettled(ids.map((id) => cohortsRetrieve(projectId, id)))
+    // A cohort that fails to load doesn't block launch, so a lookup error can't stop every send.
+    return results.flatMap((result, index) =>
+        result.status === 'fulfilled'
+            ? (audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) ?? [])
+            : []
+    )
+}
 
 function captureLaunchFailed(
     broadcastId: string | null | undefined,

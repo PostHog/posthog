@@ -223,6 +223,28 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert run.rows_scored == 2
         assert run.metrics["rows_eligible"] == 250_000
 
+    @parameterized.expand(
+        [
+            (
+                "measured",
+                {"return_value": {"population": 250_000, "with_score": 1}},
+                {"population": 250_000, "with_score": 1},
+            ),
+            ("query_failed", {"side_effect": RuntimeError("clickhouse down")}, None),
+        ]
+    )
+    def test_a_live_run_stores_coverage_and_completes_when_the_measure_fails(self, _name, measure, expected):
+        pipeline, model = self._make_pipeline_and_model()
+
+        with patch.object(scoring, "measure_prediction_coverage", **measure) as coverage:
+            run = self._run_live(pipeline, model, _capture_accepting_everything(), eligible=250_000)
+
+        run.refresh_from_db()
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.metrics.get("coverage") == expected
+        assert coverage.call_args.kwargs["eligible"] == 250_000
+        assert coverage.call_args.kwargs["cutoff_ts"] == ScoringWindow.for_date().cutoff_ts
+
     def test_run_inference_zero_rows_completes_without_emitting(self):
         pipeline, model = self._make_pipeline_and_model()
         capture = _capture_accepting_everything()
@@ -404,12 +426,14 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(scoring, "score_via_sandbox", return_value=sandbox_result) as sandbox,
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()) as capture,
+            patch.object(scoring, "measure_prediction_coverage") as coverage,
         ):
             run = run_inference_for_pipeline(
                 pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
             )
 
         assert run.status == AutoresearchRun.Status.COMPLETED
+        coverage.assert_not_called()
         assert capture.call_args.kwargs["process_person_profile"] is False
         assert isinstance(sandbox.call_args.kwargs["cutoff_ts"], int)
         pipeline.refresh_from_db()
