@@ -12,6 +12,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -79,6 +80,18 @@ def _member_team_ids(user: User, installation_id: str) -> tuple[int, ...]:
     teams = Team.objects.filter(id__in=team_ids).select_related("organization", "parent_team__organization")
     teams_by_id = {team.id: team for team in teams}
     permissions = UserPermissions(user)
+    organizations = {team.organization_id: team.organization for team in teams_by_id.values()}
+    # The product APIs refuse a member whose email is outside the organization's enforced verified
+    # domains, so a comment must not reach those projects either.
+    blocked_organization_ids = {
+        organization_id
+        for organization_id, organization in organizations.items()
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+    }
     return tuple(
-        team_id for team_id in team_ids if team_id in teams_by_id and _is_member(permissions, teams_by_id[team_id])
+        team_id
+        for team_id in team_ids
+        if team_id in teams_by_id
+        and teams_by_id[team_id].organization_id not in blocked_organization_ids
+        and _is_member(permissions, teams_by_id[team_id])
     )

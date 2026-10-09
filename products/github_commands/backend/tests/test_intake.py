@@ -55,6 +55,13 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         # A fence with an info string inside a block is displayed text, not the end of the block.
         ("```\n```python\n@posthog qa\n```", None),
         ("<pre>\n\n@posthog qa\n\n</pre>", None),
+        ("<blockquote>\n@posthog qa\n</blockquote>", None),
+        ("<blockquote>\n@posthog qa</blockquote>", None),
+        # A fence can open a list item, and its closing fence is indented to the item's content.
+        ("- ```\n  @posthog qa\n  ```", None),
+        ("```\n    ```\n@posthog qa\n```", None),
+        ("1. ```\n   @posthog qa\n   ```", None),
+        ("- ```\n  example\n  ```\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
         # Removing the code span must not move the mention to the start of the line.
         ("`Example only:` @posthog qa", None),
         ("```\n@posthog stamp\n```", None),

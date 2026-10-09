@@ -54,7 +54,7 @@ The checks that make that true:
 
 - **Who is asking.** The webhook's `author_association` filters out outside contributors before a task is queued. The task then asks GitHub for the commenter's permission on the repository and requires write access, for the commenter's numeric account id, so a login that changed hands does not count.
 - **Which PostHog user.** The match is on GitHub's numeric user id, never on the login, and only through identities GitHub confirmed to PostHog: a connected GitHub account or GitHub login. A GitHub account linked to two PostHog accounts runs nothing.
-- **Which project.** Only projects whose GitHub integration uses the installation the comment came from, that the user is a member of, and that are in the `github-commands` rollout.
+- **Which project.** Only projects whose GitHub integration uses the installation the comment came from, that the user is a member of, and that are in the `github-commands` rollout. For an environment, the user must also be a member of its parent project. An organization that enforces verified email domains gives no project to a user whose email is outside them, as the product APIs do.
 - **Which product gates.** A command applies the gates the target product's own API applies. `loop` needs Loops access, and `qa` needs PostHog Code access for the commenter's organization and PostHog Code credits left.
 - **What the person typed.** Only a new comment counts, so an edit cannot turn a reviewed comment into a command. Comments by bots, and comments a GitHub App posted with a person's token, never run a command. That covers PostHog's own replies and coding agents that act as a user.
 - **One run per comment.** Ingress dedups the delivery, and dispatch claims the comment id. If the claim cannot be written, the command does not run, so a redelivery cannot start a second paid run. When GitHub cannot answer the permission lookup, dispatch releases the claim, because nothing ran.
@@ -66,7 +66,7 @@ Several commands start an agent, and a pull request is full of text other people
 The defenses do not depend on an agent ignoring instructions:
 
 - The parser reads only lines that start with the mention.
-  Quoted replies and the lines that continue them, code blocks, tab-indented code, `<pre>` and similar HTML blocks, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
+  Quoted replies and the lines that continue them, code blocks (list-nested fences too), tab-indented code, `<pre>` and similar HTML blocks, HTML blockquotes, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
 - The command's argument is the commenter's own words, cleaned of control and invisible characters and capped in length. It is treated as their instruction, because the run uses their access.
 - Handlers pass identifiers, never the pull request title, body or other comments. The product reads that content itself and treats it as untrusted.
 - The pull request's branch name goes into prompts and payloads, so a command runs only when the name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`.

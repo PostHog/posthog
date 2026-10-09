@@ -10,6 +10,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -17,6 +18,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.integration import Integration
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.token_bucket import BucketDecision
@@ -342,17 +344,25 @@ class TestDispatchCommentCommand(BaseTest):
         assert outcome.message == expected_message
         assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
 
-    def test_a_member_of_an_environment_whose_project_denies_them_gets_no_project(self) -> None:
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        # The environment has no access rows of its own, so on its own it defaults open.
-        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
-        Integration.objects.create(team=environment, kind="github", integration_id=INSTALLATION_ID, config={})
-        create_access_control(
-            team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
-        )
+    @parameterized.expand([("environment_of_a_denied_project",), ("unverified_email_domain",)])
+    def test_a_member_the_product_apis_would_refuse_gets_no_project(self, case: str) -> None:
+        if case == "environment_of_a_denied_project":
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            # The environment has no access rows of its own, so on its own it defaults open.
+            environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+            Integration.objects.create(team=environment, kind="github", integration_id=INSTALLATION_ID, config={})
+            create_access_control(
+                team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        else:
+            OrganizationDomain.objects.create(
+                organization=self.organization, domain="verified-example.com", verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
         self._link_github_login()
 
         with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
