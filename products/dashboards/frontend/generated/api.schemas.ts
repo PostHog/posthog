@@ -4915,6 +4915,8 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
 }
 
 export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
