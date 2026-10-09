@@ -54,7 +54,7 @@ LESS_ANNOYING_CRM_RESPONSE_ACTIONS: list[ResponseAction] = [
 ]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LessAnnoyingCRMResumeConfig:
     # Next page number to request. Full refresh only, so page number is the entire cursor: on resume
     # we re-request the last saved page (merge dedupes on the primary key).

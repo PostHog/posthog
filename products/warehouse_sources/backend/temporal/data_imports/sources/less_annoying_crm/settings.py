@@ -32,7 +32,7 @@ def _group_membership_parameters(group: dict[str, Any]) -> dict[str, Any]:
     return {"GroupId": group["GroupId"]}
 
 
-@dataclass
+@dataclass(frozen=True)
 class LessAnnoyingCRMEndpointConfig:
     name: str
     # LACRM Function name sent in the request body (e.g. "GetContacts").
