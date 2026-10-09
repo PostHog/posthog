@@ -254,15 +254,29 @@ ORDER BY c.calls_30d DESC
 LIMIT 25
 ```
 
-A fixed `LIMIT` returns the same leaders on every run, so the flags below them never reach the queue. Before you run the scan, add `AND f.id NOT IN (<ids>)` with the ids that `pattern:feature-flags:stale-queue` records as reported, covered, or rejected. Leave the clause out when that list is empty.
+A fixed `LIMIT` returns the same leaders on every run, so the flags below them never reach the queue. Before you run the scan, add `AND f.id NOT IN (<ids>)` with the ids that `pattern:feature-flags:stale-queue` records as reported, covered, or rejected. A reported or covered id stays in the list only while its report is open or dismissed. Remove it when the report is resolved, so the scan finds the flag again if it goes back to a called 100% rollout. Leave the clause out when the list is empty.
 
 The SQL returns a superset. `system.feature_flags` has no `active` column, and a multivariate, group-aggregated, or holdout flag can match it and still serve more than one result. Confirm each shortlisted row before it joins the fallback bundle:
 
 - `feature-flags-status-retrieve {id}` returns `rollout.effectively_full_rollout: true`;
-- `feature-flag-get-definition` shows the flag active, an `updated_at` more than 30 days old, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration. A flag moved to 100% this week is still in its soak, not finished;
+- `feature-flag-get-definition` shows the flag active, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration;
+- the release conditions have not changed in the last 30 days. A flag moved to 100% this week is still in its soak, not finished. Find the last `filters` change in `feature-flags-activity-retrieve`, because `updated_at` also moves for a rename or a description edit. Use `updated_at` only when activity history is unavailable;
 - the definition has no setting that decides the result before the release conditions or outside them. `filters` carries no `holdout`, `holdout_groups`, `super_groups`, `early_exit`, or `feature_enrollment`, neither `filters` nor any group sets `aggregation_group_type_index`, and `bucketing_identifier` is not `device_id`. `effectively_full_rollout` ignores these settings, so a holdout flag still serves a second result that the bundle must not call the retained behavior;
-- the definition shows empty `surveys` and `features` (early access) lists and `is_used_in_replay_settings: false`. The check excludes these linked flags too;
-- `feature-flags-dependent-flags-retrieve` returns no dependents.
+- the definition shows an empty `features` (early access) list and `is_used_in_replay_settings: false`, and no survey uses the flag. The definition's `surveys` field lists only surveys that link the flag, so read `surveys-get-all` once per run and drop each candidate that a survey names as `linked_flag`, `targeting_flag`, or `internal_targeting_flag`. The check excludes all of these linked flags;
+- no other non-deleted flag depends on it, enabled or disabled. `feature-flags-dependent-flags-retrieve` returns only active dependents, and a disabled dependent can be enabled again. Check all shortlisted ids with one roster query:
+
+```sql
+SELECT id, key
+FROM system.feature_flags
+WHERE deleted = 0
+  AND arrayExists(
+      g -> arrayExists(
+          p -> JSONExtractString(p, 'type') = 'flag' AND JSONExtractString(p, 'key') IN ('<id>', '<id>'),
+          JSONExtractArrayRaw(g, 'properties')
+      ),
+      JSONExtractArrayRaw(filters, 'groups')
+  )
+```
 
 Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Record the id of each flag that fails a check above as rejected in the same entry, with the rejection date, so the next scan skips it and moves down the ranking. A soak, a payload, or a dependent can go away, so drop a rejection from the exclusion list 30 days after its date and let the flag be checked again. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
 
