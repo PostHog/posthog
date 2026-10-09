@@ -43,6 +43,7 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     parse_check_config,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -1184,6 +1185,9 @@ class ReportRankingSerializer(serializers.Serializer):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    status = serializers.SerializerMethodField(
+        help_text="Current report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
         many=True,
@@ -1379,6 +1383,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 )
             },
         }
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
+    def get_status(self, obj: SignalReport) -> str:
+        if obj.status != SignalReport.Status.MONITORING:
+            return obj.status
+        enabled_by_team = cast(dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {}))
+        if obj.team_id not in enabled_by_team:
+            enabled_by_team[obj.team_id] = team_report_monitoring_enabled(obj.team_id)
+        return obj.status if enabled_by_team[obj.team_id] else SignalReport.Status.RESOLVED
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -1618,7 +1631,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
-        if obj.status == SignalReport.Status.RESOLVED:
+        if self.get_status(obj) == SignalReport.Status.RESOLVED:
             return "done"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"

@@ -5,6 +5,8 @@ At least one merged PR resolves the report; otherwise all closed PRs suppress it
 
 The schema reserves `monitoring` and a nullable `monitoring_started_at`, but current report transitions do not enter that state. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats evaluation failures as disabled.
 
+When that gate is disabled, report list, detail, evidence, PR checks, and PR comments reads treat stored Monitoring reports as Resolved. Resolved filters and counts include them, status sorting uses the Resolved position, and their work state is done. The Monitoring gate uses local flag evaluation; a missing or unevaluable definition is disabled. The Monitoring status filter remains unavailable. The `viewed` endpoint records views of fallback reports as consumption evidence. This compatibility covers reads and their view records; status-changing actions and background processing require separate support before any production path can enter Monitoring.
+
 Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.

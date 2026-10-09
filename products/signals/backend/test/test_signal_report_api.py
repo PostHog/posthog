@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import posthoganalytics
 from parameterized import parameterized
 from rest_framework import exceptions, status
 from rest_framework.request import Request
@@ -24,7 +25,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import EventDefinition, OAuthApplication, User
+from posthog.models import EventDefinition, OAuthApplication, Organization, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -1081,6 +1082,115 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
         assert ids == {str(resolved.id)}
+
+    @parameterized.expand(
+        [("disabled", False), ("enabled", True), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_monitoring_read_fallback_matches_resolved_filters_and_counts(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        monitoring = self._create_report(status=SignalReport.Status.MONITORING, total_weight=99)
+        resolved = self._create_report(status=SignalReport.Status.RESOLVED, total_weight=1)
+        ready = self._create_report(status=SignalReport.Status.READY, total_weight=0)
+        enabled = flag_result is True
+        expected_resolved = {str(resolved.id)} if enabled else {str(monitoring.id), str(resolved.id)}
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            for query in [{"status": "resolved"}, {"view": "resolved"}]:
+                response = self.client.get(self._list_url(**query))
+                assert response.status_code == status.HTTP_200_OK
+                rows = response.json()["results"]
+                assert {row["id"] for row in rows} == expected_resolved
+                assert all(row["status"] == "resolved" and row["work_state"] == "done" for row in rows)
+                count = self.client.get(self._list_url(**query, count_only="true"))
+                assert count.status_code == status.HTTP_200_OK
+                assert count.json()["count"] == len(expected_resolved)
+
+            unclaimed = self.client.get(self._list_url(unclaimed="true"))
+            assert unclaimed.status_code == status.HTTP_200_OK
+            assert [row["id"] for row in unclaimed.json()["results"]] == [str(ready.id)]
+
+            ordered = self.client.get(self._list_url(ordering="status,-total_weight"))
+            assert ordered.status_code == status.HTTP_200_OK
+            expected_order = [str(ready.id), *([] if enabled else [str(monitoring.id)]), str(resolved.id)]
+            assert [row["id"] for row in ordered.json()["results"]] == expected_order
+
+            detail = self.client.get(f"{self._list_url()}{monitoring.id}/")
+            assert detail.status_code == (status.HTTP_404_NOT_FOUND if enabled else status.HTTP_200_OK)
+            if not enabled:
+                assert detail.json()["status"] == "resolved"
+                assert detail.json()["work_state"] == "done"
+                assert "monitoring_started_at" not in detail.json()
+            evidence = self.client.get(f"{self._list_url()}{monitoring.id}/signals/")
+            assert evidence.status_code == (status.HTTP_404_NOT_FOUND if enabled else status.HTTP_200_OK)
+            if not enabled:
+                assert evidence.json()["report"]["status"] == "resolved"
+                assert evidence.json()["report"]["work_state"] == "done"
+
+        monitoring.refresh_from_db()
+        assert monitoring.status == SignalReport.Status.MONITORING
+
+    def test_monitoring_reads_do_not_evaluate_missing_flags_remotely(self) -> None:
+        report = self._create_report(status=SignalReport.Status.MONITORING)
+        sdk = posthoganalytics.Client("phc_test_monitoring", send=False, enable_local_evaluation=False)
+        sdk.feature_flags = []
+        self.addCleanup(sdk.shutdown)
+        with (
+            patch.multiple(posthoganalytics, default_client=sdk, disabled=False),
+            patch("posthoganalytics.client.flags", return_value={"featureFlags": {}}) as remote_flags,
+        ):
+            response = self.client.get(self._list_url(status="resolved"))
+            assert response.status_code == status.HTTP_200_OK
+            assert [row["id"] for row in response.json()["results"]] == [str(report.id)]
+            count = self.client.get(self._list_url(status="resolved", count_only="true"))
+            assert count.status_code == status.HTTP_200_OK
+            assert count.json()["count"] == 1
+            detail = self.client.get(f"{self._list_url()}{report.id}/")
+            assert detail.status_code == status.HTTP_200_OK
+            assert detail.json()["status"] == "resolved"
+            evidence = self.client.get(f"{self._list_url()}{report.id}/signals/")
+            assert evidence.status_code == status.HTTP_200_OK
+            assert evidence.json()["report"]["status"] == "resolved"
+
+        remote_flags.assert_not_called()
+
+    def test_monitoring_read_fallback_takes_effect_when_the_flag_is_disabled(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_monitoring = self._create_report(team=other_team, status=SignalReport.Status.MONITORING)
+        monitoring = self._create_report(status=SignalReport.Status.MONITORING)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+        ) as evaluate:
+            enabled = self.client.get(self._list_url(status="resolved"))
+            assert enabled.status_code == status.HTTP_200_OK
+            assert enabled.json()["results"] == []
+            evaluate.return_value = False
+            disabled = self.client.get(self._list_url(status="resolved"))
+
+        assert disabled.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in disabled.json()["results"]] == [str(monitoring.id)]
+        assert str(other_monitoring.id) not in [row["id"] for row in disabled.json()["results"]]
+
+    def test_monitoring_read_fallback_is_scoped_to_each_organization(self) -> None:
+        other_organization = Organization.objects.create(name="Monitoring test organization")
+        other_organization.members.add(self.user)
+        other_team = Team.objects.create(organization=other_organization)
+        monitoring = self._create_report(status=SignalReport.Status.MONITORING)
+        self._create_report(team=other_team, status=SignalReport.Status.MONITORING)
+
+        def evaluate(flag: str, distinct_id: str, **kwargs: object) -> bool:
+            return distinct_id == str(other_organization.id)
+
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", side_effect=evaluate):
+            disabled = self.client.get(self._list_url(status="resolved"))
+            enabled = self.client.get(f"/api/projects/{other_team.id}/signals/reports/?status=resolved")
+
+        assert disabled.status_code == enabled.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in disabled.json()["results"]] == [str(monitoring.id)]
+        assert enabled.json()["results"] == []
 
     @parameterized.expand(
         [
@@ -4398,20 +4508,43 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("checks", "_checks_url", "get_pull_request_checks", "checks"),
-            ("comments", "_comments_url", "get_pull_request_comments", "comments"),
+            (f"{endpoint}_{visibility}", url_attr, fetch_name, key, report_status, flag_enabled, expected_status)
+            for endpoint, url_attr, fetch_name, key in [
+                ("checks", "_checks_url", "get_pull_request_checks", "checks"),
+                ("comments", "_comments_url", "get_pull_request_comments", "comments"),
+            ]
+            for visibility, report_status, flag_enabled, expected_status in [
+                ("suppressed", SignalReport.Status.SUPPRESSED, False, status.HTTP_200_OK),
+                ("monitoring_disabled", SignalReport.Status.MONITORING, False, status.HTTP_200_OK),
+                ("monitoring_enabled", SignalReport.Status.MONITORING, True, status.HTTP_404_NOT_FOUND),
+            ]
         ]
     )
-    def test_pr_reads_serve_a_suppressed_report(self, _name, url_attr, fetch_name, key):
-        # The Archive tab renders the PR panel of a dismissed report, so both read-only PR
-        # endpoints must reach a suppressed report by ID like `retrieve` does.
-        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
-        self.addCleanup(patch.stopall)
-        getattr(github.return_value, fetch_name).return_value = {"success": True, key: []}
-        response = self.client.get(getattr(self, url_attr)(str(report.id)))
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {key: []}
+    def test_pr_reads_follow_report_visibility(
+        self,
+        _name: str,
+        url_attr: str,
+        fetch_name: str,
+        key: str,
+        report_status: str,
+        flag_enabled: bool,
+        expected_status: int,
+    ) -> None:
+        report = self._create_report(report_status=report_status)
+        with (
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as github,
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled),
+        ):
+            fetch = getattr(github.return_value, fetch_name)
+            fetch.return_value = {"success": True, key: []}
+            response = self.client.get(getattr(self, url_attr)(str(report.id)))
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            assert response.json() == {key: []}
+            fetch.assert_called_once_with("PostHog/posthog", 7)
+        else:
+            github.assert_not_called()
 
     def test_pr_checks_maps_upstream_failure_to_502(self):
         report = self._create_report()
