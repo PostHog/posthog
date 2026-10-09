@@ -147,6 +147,8 @@ class _ScannerOutcome:
     skipped_unchanged: bool = False
     # The scanner waited past the time budget and was left for the next run.
     out_of_time: bool = False
+    # The organization revoked AI data-processing consent while the scanner waited for its turn.
+    consent_revoked: bool = False
     observations_judged: int = 0
     observations_given_up: int = 0
     cache_errors: int = 0
@@ -280,6 +282,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         async with turns:
             if monotonic() > deadline:
                 return _ScannerOutcome(out_of_time=True)
+            # A turn can wait most of the run after its team was queued, so consent is read again
+            # here: a revocation in between must stop the prose before it reaches the model.
+            if not await sync_to_async(is_ai_data_processing_approved)(team_id):
+                return _ScannerOutcome(consent_revoked=True)
             return await _sweep_scanner(team_id, scanner_id, mode, window_start)
 
     teams_enrolled = 0
@@ -320,6 +326,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         teams_seen=min(len(team_ids), MAX_TEAMS_PER_SWEEP),
         teams_enrolled=teams_enrolled,
         teams_without_consent=teams_without_consent,
+        scanners_consent_revoked=sum(outcome.consent_revoked for outcome in outcomes),
         scanners_judged=sum(outcome.judged for outcome in outcomes),
         scanners_skipped_unchanged=sum(outcome.skipped_unchanged for outcome in outcomes),
         observations_judged=sum(outcome.observations_judged for outcome in outcomes),
@@ -337,6 +344,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         teams_seen=result.teams_seen,
         teams_enrolled=result.teams_enrolled,
         teams_without_consent=result.teams_without_consent,
+        scanners_consent_revoked=result.scanners_consent_revoked,
         scanners_judged=result.scanners_judged,
         scanners_skipped_unchanged=result.scanners_skipped_unchanged,
         observations_judged=result.observations_judged,
