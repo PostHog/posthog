@@ -11,6 +11,7 @@ import { commandKSearchLogic } from './commandKSearchLogic'
 import { rowDomId } from './CommandKSearchRow'
 
 export const COMMAND_K_LISTBOX_ID = 'command-k-listbox'
+export const COMMAND_K_INPUT_ID = 'command-k-input'
 
 export function CommandKSearchInput(): JSX.Element {
     const { text, cursor, chips, selectedChipIndex, highlightedRow, highlightIsFilterRow, tabAsksAi, isPaletteEmpty } =
@@ -93,7 +94,7 @@ export function CommandKSearchInput(): JSX.Element {
                 </InputGroupAddon>
                 <InputGroupInput
                     ref={inputRef}
-                    id="command-k-input"
+                    id={COMMAND_K_INPUT_ID}
                     data-attr="command-k-input"
                     role="combobox"
                     aria-expanded
@@ -148,7 +149,7 @@ export function CommandKSearchInput(): JSX.Element {
                             data-attr="command-k-clear"
                             className="mr-1"
                             onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
-                            onClick={() => clearQuery()}
+                            onClick={() => clearQuery('clear-button')}
                         >
                             <IconX />
                         </InputGroupButton>

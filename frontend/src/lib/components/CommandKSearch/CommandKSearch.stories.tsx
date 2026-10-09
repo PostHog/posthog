@@ -23,14 +23,15 @@ const MOCK_ENTRIES = [
     },
 ]
 
-const fileSystemMock = (): [number, unknown] => [200, toPaginatedResponse(MOCK_ENTRIES)]
-
-const MOCKS = {
-    '/api/projects/:team_id/file_system/': fileSystemMock,
-    '/api/environments/:team_id/file_system/': fileSystemMock,
-    '/api/environments/:team_id/file_system/log_view/': () => [200, []],
-    '/api/environments/:team_id/persons/': () => [200, EMPTY_PAGINATED_RESPONSE],
-    '/api/environments/:team_id/groups/': () => [200, EMPTY_PAGINATED_RESPONSE],
+const mocks = (entries: typeof MOCK_ENTRIES): Record<string, () => [number, unknown]> => {
+    const fileSystemMock = (): [number, unknown] => [200, toPaginatedResponse(entries)]
+    return {
+        '/api/projects/:team_id/file_system/': fileSystemMock,
+        '/api/environments/:team_id/file_system/': fileSystemMock,
+        '/api/environments/:team_id/file_system/log_view/': () => [200, []],
+        '/api/environments/:team_id/persons/': () => [200, EMPTY_PAGINATED_RESPONSE],
+        '/api/environments/:team_id/groups/': () => [200, EMPTY_PAGINATED_RESPONSE],
+    }
 }
 
 const meta: Meta = {
@@ -44,8 +45,8 @@ export default meta
 
 type Story = StoryObj<{}>
 
-function Frame({ text }: { text?: string }): JSX.Element {
-    useStorybookMocks({ get: MOCKS })
+function Frame({ text, entries = MOCK_ENTRIES }: { text?: string; entries?: typeof MOCK_ENTRIES }): JSX.Element {
+    useStorybookMocks({ get: mocks(entries) })
     useMountedLogic(commandKSearchLogic)
     const { inputChanged } = useActions(commandKSearchLogic)
     useEffect(() => {
@@ -66,4 +67,8 @@ export const Empty: Story = {
 
 export const ChipAndValueSuggestions: Story = {
     render: () => <Frame text="is:dashboard is:" />,
+}
+
+export const FilterWithNoResults: Story = {
+    render: () => <Frame text="is:dashboard revenue" entries={[]} />,
 }
