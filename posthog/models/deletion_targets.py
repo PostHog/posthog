@@ -258,7 +258,7 @@ def _table_exists(client: Client, table: str) -> bool:
     return bool(count)
 
 
-def _table_exists_via_sync_execute(table: str) -> bool:
+def table_exists_via_sync_execute(table: str) -> bool:
     result = sync_execute(_TABLE_EXISTS_SQL, _table_exists_params(table))
     return bool(result and result[0][0])
 
@@ -408,14 +408,14 @@ def personal_data_tables(cluster: ClickhouseCluster) -> list[str]:
 
 def resolve_data_targets_via_sync_execute(targets: Sequence[DeletionTarget]) -> list[DeletionTarget]:
     """Targets whose storage table exists, for callers talking to ClickHouse via ``sync_execute``."""
-    return [target for target in targets if not target.optional or _table_exists_via_sync_execute(target.data_table)]
+    return [target for target in targets if not target.optional or table_exists_via_sync_execute(target.data_table)]
 
 
 def resolve_read_targets_via_sync_execute(
     targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS,
 ) -> list[DeletionTarget]:
     """Targets whose Distributed read table exists, for callers verifying a deletion completed."""
-    return [target for target in targets if not target.optional or _table_exists_via_sync_execute(target.read_table)]
+    return [target for target in targets if not target.optional or table_exists_via_sync_execute(target.read_table)]
 
 
 def surviving_rows_sql(read_table: str, predicate: str) -> str:
