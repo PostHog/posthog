@@ -40,6 +40,7 @@ import {
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
+import { LogsNaturalLanguageSearch } from '../LogsNaturalLanguageSearch/LogsNaturalLanguageSearch'
 
 const taxonomicFilterLogicKey = 'logs'
 const taxonomicGroupTypes = [
@@ -198,6 +199,7 @@ export const LogsFilterSearch = (): JSX.Element => {
             <LemonDropdown
                 overlay={
                     <div className="w-[400px] md:w-[600px]">
+                        <LogsNaturalLanguageSearch onApplied={onClose} />
                         <InfiniteSelectResults
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}

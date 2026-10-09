@@ -61960,6 +61960,130 @@ export namespace Schemas {
     }
 
     /**
+     * * `log` - Log
+     * * `log_attribute` - Log Attribute
+     * * `log_resource_attribute` - Log Resource Attribute
+     */
+    export type LogsNaturalLanguageFilterTypeEnum = typeof LogsNaturalLanguageFilterTypeEnum[keyof typeof LogsNaturalLanguageFilterTypeEnum];
+
+
+    export const LogsNaturalLanguageFilterTypeEnum = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface _LogsNaturalLanguageDateRange {
+      /**
+         * Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the date range. Same format as date_from. Null means "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    export interface LogsNaturalLanguageQueryRequest {
+      /**
+         * The plain-language request, for example 'error logs from checkout in the last 2 hours'.
+         * @maxLength 500
+         */
+      query: string;
+      /** The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from. */
+      dateRange?: _LogsNaturalLanguageDateRange;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
+
+
+    export const SeverityLevelsEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsNaturalLanguageCandidateFilter {
+      /** Attribute key, or "message" for the log body text. */
+      key: string;
+      /** "log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.
+       *
+       * * `log` - Log
+       * * `log_attribute` - Log Attribute
+       * * `log_resource_attribute` - Log Resource Attribute */
+      type: LogsNaturalLanguageFilterTypeEnum;
+      /** Property operator, for example exact, icontains or is_set. */
+      operator: string;
+      /** A list of strings for exact and is_not, a string for text operators, absent for is_set. */
+      value?: unknown;
+    }
+
+    export interface _LogsNaturalLanguageCandidateQuery {
+      /** Date range of this reading. */
+      dateRange: _LogsNaturalLanguageDateRange;
+      /** Severity levels to keep. Empty means all levels. */
+      severityLevels: SeverityLevelsEnum[];
+      /** Services to keep. Empty means all services. */
+      serviceNames: string[];
+      /** Attribute and message filters, combined with AND. */
+      filterGroup: _LogsNaturalLanguageCandidateFilter[];
+    }
+
+    export interface _LogsNaturalLanguageCandidate {
+      /** Short plain-language summary of this reading of the request. */
+      label: string;
+      /** Viewer filters for this reading. */
+      query: _LogsNaturalLanguageCandidateQuery;
+      /**
+         * How likely the decision model thinks this reading is. Null when not ranked.
+         * @nullable
+         */
+      probability: number | null;
+    }
+
+    /**
+     * * `decision_model` - decision_model
+     * * `proposal_order` - proposal_order
+     */
+    export type RankedByEnum = typeof RankedByEnum[keyof typeof RankedByEnum];
+
+
+    export const RankedByEnum = {
+      DecisionModel: 'decision_model',
+      ProposalOrder: 'proposal_order',
+    } as const;
+
+    export interface LogsNaturalLanguageQueryResponse {
+      /** Readings of the request, best first. Can be empty. */
+      candidates: _LogsNaturalLanguageCandidate[];
+      /**
+         * The first candidate's probability from the decision model. Null when it did not rank them.
+         * @nullable
+         */
+      confidence: number | null;
+      /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
+       *
+       * * `decision_model` - decision_model
+       * * `proposal_order` - proposal_order */
+      ranked_by: RankedByEnum;
+      /** Proposed readings dropped because they named a service or attribute key the project lacks. */
+      dropped_count: number;
+    }
+
+    /**
      * * `stored_patterns` - stored_patterns
      * * `body_mining` - body_mining
      */
@@ -98076,26 +98200,6 @@ export namespace Schemas {
       summary: string;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface SharePassword {
       readonly id: number;
       readonly created_at: string;
@@ -112255,6 +112359,11 @@ export namespace Schemas {
       sessionGroupKey: _LogsImpactGroupKey | null;
       /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
       personGroupKey: _LogsImpactGroupKey | null;
+    }
+
+    export interface _LogsNaturalLanguageError {
+      /** What went wrong. */
+      error: string;
     }
 
     export interface _LogsPatternsBody {
