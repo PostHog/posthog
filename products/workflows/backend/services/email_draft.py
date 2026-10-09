@@ -73,9 +73,9 @@ def load_email_draft_context(team: Team, source: EmailDraftSource, source_id: st
     return EmailDraftContext(
         source=source,
         fields=[
-            EmailDraftContextField(label=label, value=value[:MAX_CONTEXT_VALUE_CHARS])
-            for label, value in fields
-            if value.strip()
+            EmailDraftContextField(label=field.label, value=field.value[:MAX_CONTEXT_VALUE_CHARS])
+            for field in fields
+            if field.value.strip()
         ],
     )
 
@@ -153,7 +153,7 @@ def _draft_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> list[tuple[str, str]] | None:
+def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> list[EmailDraftContextField] | None:
     match source:
         case EmailDraftSource.ERROR_TRACKING:
             issue_id = _as_uuid(source_id)
@@ -161,10 +161,10 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             if issue is None:
                 return None
             return [
-                ("Error name", issue.name or ""),
-                ("Error description", issue.description or ""),
+                EmailDraftContextField(label="Error name", value=issue.name or ""),
+                EmailDraftContextField(label="Error description", value=issue.description or ""),
                 # Lets the model say the error is fixed, rather than still being looked into.
-                ("Error status", issue.status),
+                EmailDraftContextField(label="Error status", value=issue.status),
             ]
         case EmailDraftSource.EARLY_ACCESS:
             feature_id = _as_uuid(source_id)
@@ -172,9 +172,9 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             if feature is None:
                 return None
             return [
-                ("Feature name", feature.name),
-                ("Feature description", feature.description),
-                ("Feature stage", feature.stage),
+                EmailDraftContextField(label="Feature name", value=feature.name),
+                EmailDraftContextField(label="Feature description", value=feature.description),
+                EmailDraftContextField(label="Feature stage", value=feature.stage),
             ]
         case EmailDraftSource.SURVEY:
             survey_id = _as_uuid(source_id)
@@ -187,9 +187,9 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
                 if isinstance(question, dict)
             ]
             return [
-                ("Survey name", survey.name),
-                ("Survey description", survey.description),
-                *[("Survey question", question) for question in questions],
+                EmailDraftContextField(label="Survey name", value=survey.name),
+                EmailDraftContextField(label="Survey description", value=survey.description),
+                *[EmailDraftContextField(label="Survey question", value=question) for question in questions],
             ]
         case EmailDraftSource.FEATURE_FLAG:
             flag = (
@@ -199,7 +199,10 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             )
             if flag is None:
                 return None
-            return [("Feature flag key", flag.key), ("Feature flag description", flag.name or "")]
+            return [
+                EmailDraftContextField(label="Feature flag key", value=flag.key),
+                EmailDraftContextField(label="Feature flag description", value=flag.name or ""),
+            ]
         case EmailDraftSource.COHORT:
             cohort = (
                 Cohort.objects.filter(team_id=team.id, id=int(source_id), deleted=False).first()
@@ -208,7 +211,10 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             )
             if cohort is None:
                 return None
-            return [("Cohort name", cohort.name or ""), ("Cohort description", cohort.description)]
+            return [
+                EmailDraftContextField(label="Cohort name", value=cohort.name or ""),
+                EmailDraftContextField(label="Cohort description", value=cohort.description),
+            ]
 
 
 def _as_uuid(value: str) -> UUID | None:
