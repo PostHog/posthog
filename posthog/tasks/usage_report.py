@@ -794,7 +794,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     # Uses the same exclusions and de-duplication as the billable enhanced persons count,
     # so that a group event count is never larger than the identified event count it is a subset of.
     if count_distinct:
