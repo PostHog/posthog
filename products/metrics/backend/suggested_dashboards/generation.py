@@ -21,7 +21,10 @@ import structlog
 from PIL import Image
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.ph_client import ph_background_capture
+from posthog.utils import absolute_uri
 
 from products.dashboards.backend.facade.dashboard_creation import delete_unlisted_dashboard
 from products.exports.backend.facade.api import read_export_asset_content, render_png_export
@@ -365,3 +368,26 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
             MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
         )
         _save_record(template, record, "status")
+    _capture_generated(template, record)
+
+
+def _capture_generated(template: MetricsDashboardTemplate, record: GenerationRecord) -> None:
+    team = Team.objects.filter(id=template.source_team_id).first() if template.source_team_id else None
+    ph_background_capture()(
+        distinct_id=str(team.uuid) if team else str(template.id),
+        event="metrics dashboard generated",
+        properties={
+            "template_id": str(template.id),
+            "template_name": template.name,
+            "status": template.status,
+            "error": record.error,
+            "panel_count": len(template.panels or []),
+            "dropped_panel_count": len(record.dropped_panels),
+            "check_rounds": len(record.rounds),
+            "looks_good": record.rounds[-1].looks_good if record.rounds else None,
+            # No project in the path: the reviewer opens it in their own project, not the source team's.
+            "review_url": absolute_uri(f"/metrics/dashboard-review/{template.id}"),
+            "$process_person_profile": False,
+        },
+        groups=groups(team=team) if team else None,
+    )
