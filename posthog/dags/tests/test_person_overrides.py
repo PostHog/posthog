@@ -11,7 +11,7 @@ from django.conf import settings as django_settings
 import dagster
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, Query
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
     GetExistingDictionaryConfig,
@@ -277,6 +277,13 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     # passes when a target is dropped entirely.
     dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    sibling.map_one_host_per_shard(Query(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")).result()
+    sibling.any_host(
+        Query(
+            f"INSERT INTO {EVENTS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(uuid_module.uuid4(), 1, "$pageview", "a", datetime(2025, month, 15)) for month in (1, 2)],
+        )
+    ).result()
     placements = [
         TargetPlacement(target=EVENTS, cluster=cluster),
         TargetPlacement(target=EVENTS_JSON, cluster=sibling),
@@ -285,7 +292,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
-        EVENTS_JSON_DATA_TABLE: {0: Mock()},
+        EVENTS_JSON_DATA_TABLE: {},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
     }
 
@@ -306,27 +313,34 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
     # would still match after someone drops a target from it.
     resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
-    assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
-        EVENTS_DATA_TABLE(): cluster,
-        EVENTS_JSON_DATA_TABLE: sibling,
-        FLAG_EVALUATIONS_DATA_TABLE: sibling,
-    }
-    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueue_on_shards.call_args_list} == {
-        EVENTS_DATA_TABLE(): False,
-        EVENTS_JSON_DATA_TABLE: True,
-        FLAG_EVALUATIONS_DATA_TABLE: False,
-    }
+    assert sorted(
+        (
+            enqueue.args[0].table,
+            enqueue.args[1] is sibling,
+            enqueue.args[0].patch_parts,
+            enqueue.args[0].parameters.get("partition_id"),
+        )
+        for enqueue in enqueue_on_shards.call_args_list
+    ) == sorted(
+        [
+            (EVENTS_DATA_TABLE(), False, False, None),
+            (FLAG_EVALUATIONS_DATA_TABLE, True, False, None),
+            # One statement per partition. A single statement over the whole table holds a block
+            # number open in every partition and stalls merges across the table until it finishes.
+            (EVENTS_JSON_DATA_TABLE, True, True, "202501"),
+            (EVENTS_JSON_DATA_TABLE, True, True, "202502"),
+        ]
+    )
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
     # returns at once, and the next op deletes the overrides that record the mapping.
     wait_for_mutations.assert_has_calls(
         [
             call(cluster, enqueued[EVENTS_DATA_TABLE()]),
-            call(sibling, enqueued[EVENTS_JSON_DATA_TABLE]),
             call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
         ],
         any_order=True,
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 4 + ["wait"] * 2
     cluster.any_host(dictionary.source.drop).result()

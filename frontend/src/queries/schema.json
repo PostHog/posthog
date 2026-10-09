@@ -9084,6 +9084,13 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -13090,6 +13097,32 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_metadata": {
                     "type": "object"
@@ -25880,6 +25913,64 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthFinding": {
+            "additionalProperties": false,
+            "description": "A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`.",
+            "properties": {
+                "actions": {
+                    "description": "The actions that fix the problem, in order of preference.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFindingActionKind"
+                    },
+                    "type": "array"
+                },
+                "code": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingCode",
+                    "description": "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+                },
+                "detail": {
+                    "description": "What is wrong, what it does to the experiment, and how to fix it.",
+                    "type": "string"
+                },
+                "diagnostic_ref": {
+                    "description": "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none.",
+                    "type": ["string", "null"]
+                },
+                "evidence": {
+                    "additionalProperties": {
+                        "type": ["string", "number", "null"]
+                    },
+                    "description": "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.",
+                    "type": "object"
+                },
+                "severity": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingSeverity",
+                    "description": "How much the problem affects the results: critical, warning, or info."
+                },
+                "subcode": {
+                    "description": "The case within the code, when a code covers several. Null when the code has one case.",
+                    "type": ["string", "null"]
+                },
+                "title": {
+                    "description": "One-line summary of the problem.",
+                    "type": "string"
+                }
+            },
+            "required": ["code", "subcode", "severity", "title", "detail", "evidence", "actions", "diagnostic_ref"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthFindingActionKind": {
+            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingCode": {
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingSeverity": {
+            "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
         "ExperimentExposureNode": {
             "additionalProperties": false,
             "description": "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
@@ -25953,6 +26044,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -36465,6 +36563,44 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
@@ -36517,6 +36653,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36527,6 +36666,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36568,6 +36710,32 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36665,6 +36833,19 @@
                 },
                 "position": {
                     "type": ["number", "null"]
+                },
+                "posthogConversions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "previous": {
                     "anyOf": [
@@ -39414,6 +39595,7 @@
             "additionalProperties": false,
             "properties": {
                 "clauses": {
+                    "description": "Empty when `language` is `promql` or `sql`.",
                     "items": {
                         "$ref": "#/definitions/MetricsQueryClause"
                     },
@@ -39439,12 +39621,24 @@
                     "const": "MetricsQuery",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/MetricsQueryLanguage",
+                    "description": "How the query is written; the builder when unset."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "promql": {
+                    "description": "PromQL expression, run as a range query. Used when `language` is `promql`.",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "sql": {
+                    "description": "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -39530,6 +39724,11 @@
             },
             "required": ["key"],
             "type": "object"
+        },
+        "MetricsQueryLanguage": {
+            "description": "How a metrics query is written. All three run through the metrics query runner, with its caching and limits.",
+            "enum": ["builder", "promql", "sql"],
+            "type": "string"
         },
         "MetricsQueryPoint": {
             "additionalProperties": false,
@@ -43650,6 +43849,13 @@
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },
+                        "health_findings": {
+                            "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                            },
+                            "type": "array"
+                        },
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
@@ -44994,6 +45200,32 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "posthogAttributionMode": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionGoals": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionsWarning": {
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

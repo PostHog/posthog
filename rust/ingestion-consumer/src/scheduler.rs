@@ -172,9 +172,6 @@ impl SchedulerEffects {
 pub enum SchedulerKind {
     #[default]
     PinStash,
-    /// The batcher state machine: per-key queues with at most one request
-    /// in flight per key, and placement at send. It replaces the
-    /// dispatcher's scheduling.
     KeyTable,
 }
 

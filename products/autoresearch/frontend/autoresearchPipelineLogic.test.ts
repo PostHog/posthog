@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     SCORE_RUN_POLL_INTERVAL_MS,
+    TRAINING_RUN_POLL_INTERVAL_MS,
     autoresearchPipelineLogic,
     featureChanges,
     scoringCoverage,
@@ -20,6 +21,7 @@ import {
     autoresearchRunsList,
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
+    autoresearchTrainingRunsList,
 } from './generated/api'
 import {
     AutoresearchRunApi,
@@ -44,6 +46,7 @@ const mockModelsList = autoresearchModelsList as jest.Mock
 const mockRunsList = autoresearchRunsList as jest.Mock
 const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
+const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -169,6 +172,38 @@ describe('autoresearchPipelineLogic', () => {
             ])
             expect(logic.values.activeScoreRun).toBeNull()
             expect(logic.cache.disposables.registry.has('scorePoll')).toBe(false)
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    it('reloads training runs while one is live, then reloads the champion once it finishes', async () => {
+        jest.clearAllMocks()
+        jest.useFakeTimers()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList
+            .mockResolvedValueOnce({ results: [makeRun({ status: 'running' })], next: null })
+            .mockResolvedValueOnce({ results: [makeRun({ status: 'completed' })], next: null })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTrainingRunsSuccess'])
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(true)
+            const modelLoads = mockModelsList.mock.calls.length
+
+            await expectLogic(logic, () => jest.advanceTimersByTime(TRAINING_RUN_POLL_INTERVAL_MS)).toDispatchActions([
+                'pollTrainingRuns',
+                'loadTrainingRunsSuccess',
+                'loadModels',
+            ])
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(false)
+            expect(mockModelsList.mock.calls.length).toBeGreaterThan(modelLoads)
         } finally {
             logic.unmount()
             jest.useRealTimers()

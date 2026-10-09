@@ -122,6 +122,9 @@ from posthog.schema_enums import (
     EventMatchScope as EventMatchScope,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
+    ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -212,6 +215,7 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsQueryLanguage as MetricsQueryLanguage,
     MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
@@ -2081,6 +2085,26 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     excludesConversionGoals: bool | None = None
 
 
+class MarketingAnalyticsSearchConversion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversions: float | None = None
+    costPerConversion: float | None = None
+    id: str
+    name: str
+    previousConversions: float | None = None
+    previousCostPerConversion: float | None = None
+
+
+class MarketingAnalyticsSearchConversionGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str
+
+
 class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2124,6 +2148,7 @@ class MarketingAnalyticsSearchRow(BaseModel):
     page: str | None = None
     platform: Platform
     position: float | None = None
+    posthogConversions: list[MarketingAnalyticsSearchConversion] | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
     topImpressionRate: float | None = Field(
         default=None,
@@ -5708,12 +5733,60 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthFinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: list[ExperimentExposureHealthFindingActionKind] = Field(
+        ..., description="The actions that fix the problem, in order of preference."
+    )
+    code: ExperimentExposureHealthFindingCode = Field(
+        ...,
+        description=(
+            "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+        ),
+    )
+    detail: str = Field(
+        ...,
+        description="What is wrong, what it does to the experiment, and how to fix it.",
+    )
+    diagnostic_ref: str | None = Field(
+        ...,
+        description=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health"
+            " skill, for example 'A2'. Null when the skill has none."
+        ),
+    )
+    evidence: dict[str, str | float | None] = Field(
+        ...,
+        description=(
+            "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
+        ),
+    )
+    severity: ExperimentExposureHealthFindingSeverity = Field(
+        ...,
+        description=("How much the problem affects the results: critical, warning, or info."),
+    )
+    subcode: str | None = Field(
+        ...,
+        description=("The case within the code, when a code covers several. Null when the code has one case."),
+    )
+    title: str = Field(..., description="One-line summary of the problem.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -7256,6 +7329,13 @@ class QueryResponseAlternative21(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -12410,6 +12490,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -14312,6 +14399,9 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -20270,6 +20360,9 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22176,6 +22269,9 @@ class QueryResponseAlternative38(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -29002,9 +29098,11 @@ class MarketingAnalyticsSearchQuery(BaseModel):
     breakdown: Breakdown1 | None = None
     compareFilter: CompareFilter | None = None
     dateRange: DateRange | None = None
+    includePostHogConversions: bool | None = None
     keyword: str | None = None
     kind: Literal["MarketingAnalyticsSearchQuery"] = "MarketingAnalyticsSearchQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    normalizePageUrls: bool | None = None
     page: str | None = None
     response: MarketingAnalyticsSearchQueryResponse | None = None
     search: str | None = None
@@ -29171,7 +29269,7 @@ class MetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clauses: list[MetricsQueryClause]
+    clauses: list[MetricsQueryClause] = Field(..., description="Empty when `language` is `promql` or `sql`.")
     dateRange: DateRange | None = Field(
         default=None,
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
@@ -29193,8 +29291,24 @@ class MetricsQuery(BaseModel):
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
+    language: MetricsQueryLanguage | None = Field(
+        default=None, description="How the query is written; the builder when unset."
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    promql: str | None = Field(
+        default=None,
+        description=("PromQL expression, run as a range query. Used when `language` is `promql`."),
+    )
     response: MetricsQueryResponse | None = None
+    sql: str | None = Field(
+        default=None,
+        description=(
+            "HogQL SELECT over the posthog.metric* tables. Used when `language` is"
+            " `sql`. It must return a `time` and a `value` column; every other column"
+            " is a series label. `{date_from}`, `{date_to}`, `{interval}` and"
+            " `{interval_seconds}` are filled in from the date range and interval."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
