@@ -3169,12 +3169,17 @@ describe('dashboardLogic', () => {
                     const siblingInsight = sibling.insight!
                     let finishOld!: () => void
                     let finishSibling!: () => void
+                    let finishOverride!: () => void
                     const oldReady = new Promise<void>((resolve) => {
                         finishOld = resolve
                     })
                     const siblingReady = new Promise<void>((resolve) => {
                         finishSibling = resolve
                     })
+                    const overrideReady = new Promise<void>((resolve) => {
+                        finishOverride = resolve
+                    })
+                    const cancelQuery = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined)
                     let oldAttempts = 0
                     const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
                         if (String(url).includes(`/insights/${siblingInsight.id}/`)) {
@@ -3185,6 +3190,7 @@ describe('dashboardLogic', () => {
                             'tile_filters_override'
                         )
                         if (override) {
+                            await overrideReady
                             return new Response(JSON.stringify({ ...insight, result: [{ count: 7 }] }))
                         }
                         oldAttempts++
@@ -3211,6 +3217,17 @@ describe('dashboardLogic', () => {
                             tile: { ...tile, filters_overrides: { date_from: '-7d' } },
                         })
                         await jest.advanceTimersByTimeAsync(1)
+                        const oldUrl = getResponse.mock.calls.find(([url]) =>
+                            String(url).includes(`/insights/${insight.id}/`)
+                        )![0]
+                        expect(cancelQuery).toHaveBeenCalledTimes(1)
+                        expect(cancelQuery).toHaveBeenCalledWith(
+                            new URL(String(oldUrl), 'https://example.com').searchParams.get('client_query_id'),
+                            MOCK_TEAM_ID
+                        )
+                        expect(logic.values.isRefreshing(insight.short_id)).toBe(true)
+                        finishOverride()
+                        await jest.advanceTimersByTimeAsync(0)
                         expect(logic.values.insightTiles.find((item) => item.id === tile.id)?.insight?.result).toEqual([
                             { count: 7 },
                         ])
@@ -3230,11 +3247,58 @@ describe('dashboardLogic', () => {
                     } finally {
                         finishOld()
                         finishSibling()
+                        finishOverride()
+                        cancelQuery.mockRestore()
                         getResponse.mockRestore()
                         jest.useRealTimers()
                     }
                 }
             )
+
+            it('cancels only dispatched server queries when an in-flight batch unmounts', async () => {
+                const template = logic.values.insightTiles[0].insight!
+                const tiles = Array.from({ length: 5 }, (_, index) =>
+                    tileFromInsight(
+                        { ...template, id: 9000 + index, short_id: `cancel-${index}` as InsightShortId },
+                        9000 + index
+                    )
+                )
+                dashboardsModel.actions.updateDashboardSuccess(dashboardResult(5, tiles))
+                let finishRequests!: () => void
+                const requestsReady = new Promise<void>((resolve) => {
+                    finishRequests = resolve
+                })
+                const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async () => {
+                    await requestsReady
+                    return new Response('{}')
+                })
+                const cancelQuery = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined)
+                jest.useFakeTimers()
+                try {
+                    logic.actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Refresh,
+                        forceRefresh: true,
+                    })
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(getResponse).toHaveBeenCalledTimes(4)
+                    logic.unmount()
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(cancelQuery).toHaveBeenCalledTimes(4)
+                    for (const [url, options] of getResponse.mock.calls) {
+                        expect(options?.signal?.aborted).toBe(true)
+                        expect(cancelQuery).toHaveBeenCalledWith(
+                            new URL(String(url), 'https://example.com').searchParams.get('client_query_id'),
+                            MOCK_TEAM_ID
+                        )
+                    }
+                    expect(getResponse).toHaveBeenCalledTimes(4)
+                } finally {
+                    finishRequests()
+                    cancelQuery.mockRestore()
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
 
             it.each([
                 { scenario: 'keeps a manual refresh when only another tile is stale', manualTileIsStale: false },

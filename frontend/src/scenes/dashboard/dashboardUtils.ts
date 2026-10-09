@@ -531,7 +531,7 @@ export async function getInsightWithRetry(
                                 )
                             } catch (e) {
                                 // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
-                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // The insights endpoint uses its cache key for polling, even with client_query_id set, so
                                 // the rerun in executeQuery never sees this poll. Submit once more with async, which
                                 // reads the result that the finished run cached.
                                 if (!isExpiredQueryStatusError(e)) {

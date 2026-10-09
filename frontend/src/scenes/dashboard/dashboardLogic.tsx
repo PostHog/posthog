@@ -4515,13 +4515,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
+                    let insightRefreshStartTime: number | undefined
 
                     try {
                         if (tileController.signal.aborted || disposables.isDisposed) {
                             tilesAbortedCount++
                             return
                         }
-                        let insightRefreshStartTime: number | undefined
                         const refreshedInsight = await getInsightWithRetry(
                             currentTeamId,
                             insight,
@@ -4589,6 +4589,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     } catch (e: any) {
                         if (!isCurrentTileRefresh() || disposables.isDisposed) {
+                            // Cancel server work without clearing a replacement tile's state or accessing unmounted logic.
+                            if (
+                                shouldCancelQuery(e) &&
+                                insightRefreshStartTime !== undefined &&
+                                currentTeamId !== null
+                            ) {
+                                try {
+                                    // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- insightsCancelCreate accepts InsightApi, not the client_query_id cancellation payload.
+                                    await api.insights.cancelQuery(queryId, currentTeamId)
+                                } catch (cancelError) {
+                                    console.warn('Failed cancelling query', cancelError)
+                                }
+                            }
                             tilesAbortedCount++
                             return
                         }
