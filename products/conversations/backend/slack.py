@@ -18,6 +18,7 @@ from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 
 import structlog
@@ -1440,6 +1441,9 @@ def _backfill_thread_replies(
     ]
     if not thread_replies:
         return
+    # Stop before any file is re-hosted for a ticket that was deleted after it was created.
+    if Ticket.all_objects.filter(id=ticket.id, team=team, deleted_at__isnull=False).exists():
+        return
 
     logger.info(
         "slack_support_reaction_backfill_started",
@@ -1535,20 +1539,25 @@ def _backfill_thread_replies(
         )
 
     if comments_to_create:
-        # bulk_create intentionally skips post_save signals — backfilled historical
-        # messages should not trigger activity log entries or Slack reply notifications.
-        created_comments = Comment.objects.bulk_create(comments_to_create)
-        last_comment = created_comments[-1]
-        update_fields: dict[str, Any] = {
-            "message_count": F("message_count") + len(comments_to_create),
-            "last_message_at": last_comment.created_at,
-            "last_message_text": (last_comment.content or "")[:500],
-        }
-        if customer_message_count:
-            update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
-        if team_message_count:
-            update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
-        Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
+        # The row lock makes the delete endpoint wait for these writes, or makes them see the delete.
+        with transaction.atomic():
+            locked = Ticket.all_objects.select_for_update().filter(id=ticket.id, team=team).first()
+            if locked is None or locked.deleted_at is not None:
+                return
+            # bulk_create intentionally skips post_save signals — backfilled historical
+            # messages should not trigger activity log entries or Slack reply notifications.
+            created_comments = Comment.objects.bulk_create(comments_to_create)
+            last_comment = created_comments[-1]
+            update_fields: dict[str, Any] = {
+                "message_count": F("message_count") + len(comments_to_create),
+                "last_message_at": last_comment.created_at,
+                "last_message_text": (last_comment.content or "")[:500],
+            }
+            if customer_message_count:
+                update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
+            if team_message_count:
+                update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
+            Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
 
     logger.info(
         "slack_support_reaction_backfill_completed",

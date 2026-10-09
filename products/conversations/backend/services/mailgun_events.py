@@ -752,9 +752,6 @@ def _process_support_email(
 
     try:
         with transaction.atomic():
-            attachments = _extract_attachments(email.attachments, team)
-            content, rich_content = _build_content_with_attachments(content, attachments)
-
             ticket: Ticket | None = None
             if existing_ticket:
                 ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
@@ -769,6 +766,10 @@ def _process_support_email(
                         )
                         return
                     existing_ticket = None
+
+            # After the deleted-ticket check, so a dropped email leaves no stored files behind.
+            attachments = _extract_attachments(email.attachments, team)
+            content, rich_content = _build_content_with_attachments(content, attachments)
 
             if not ticket:
                 ticket = Ticket.objects.create_with_number(

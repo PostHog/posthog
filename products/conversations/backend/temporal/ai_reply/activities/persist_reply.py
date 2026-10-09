@@ -69,6 +69,10 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
         locked = _lock_ticket(team_id=input.team_id, ticket_id=input.ticket_id)
         if locked is not None and locked.deleted_at is not None:
             return PersistReplyOutput(posted=False)
+        # A purged ticket has no row, and Comment.item_id is a plain string, so the insert would
+        # leave an orphan note. The clarification path handles a missing row below.
+        if locked is None and not input.require_awaiting_clarification:
+            return PersistReplyOutput(posted=False)
         ticket = None
         if input.require_awaiting_clarification:
             ticket = locked

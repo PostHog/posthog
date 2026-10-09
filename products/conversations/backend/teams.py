@@ -28,7 +28,7 @@ from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .models.ticket import deleted_ticket_holds_thread
-from .services.attachments import build_content_with_images
+from .services.attachments import build_content_with_images, discard_rehosted_attachments
 from .support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
@@ -601,6 +601,7 @@ def create_or_update_teams_ticket(
                     channel_id=channel_id,
                     conversation_id=conversation_id,
                 )
+                discard_rehosted_attachments(team, attachments or [])
             else:
                 logger.debug(
                     "teams_thread_reply_no_ticket",
@@ -693,6 +694,7 @@ def create_or_update_teams_ticket(
             channel_id=channel_id,
             conversation_id=thread_conversation_id,
         )
+        discard_rehosted_attachments(team, attachments or [])
         return None
 
     ticket = Ticket.objects.create_with_number(
