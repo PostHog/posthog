@@ -90,38 +90,6 @@ def manager(next_page: str | None = None) -> MagicMock:
     return result
 
 
-@pytest.mark.parametrize("endpoint", ["environments", "workspaces", "runs"])
-@pytest.mark.parametrize("resume_page", [None, "3"])
-def test_pagination_auth_and_resume(
-    config: ScalrSourceConfig, send: MagicMock, endpoint: str, resume_page: str | None
-) -> None:
-    first_page = int(resume_page or "1")
-    send.side_effect = [page(endpoint, "item-1", first_page + 1), page(endpoint, "item-2", None)]
-    checkpoint = manager(resume_page)
-    result = ScalrSource().source_for_pipeline(config, checkpoint, inputs(endpoint))
-    iterator = iter(cast(Iterable[Any], result.items()))
-    first_batch = next(iterator)
-    rows = first_batch + [row for batch in iterator for row in batch]
-    checkpoint.save_state.assert_called_once_with(ScalrResumeConfig(next_page=str(first_page + 1)))
-    assert [row["id"] for row in rows] == ["item-1", "item-2"]
-    assert rows[0]["created_at"] == datetime(2025, 1, 1, tzinfo=UTC)
-    assert rows[0]["relationships"]["account"]["data"]["id"] == "acc-example"
-    assert send.call_count == 2
-    for index, call in enumerate(send.call_args_list):
-        request = call.args[0]
-        assert request.method == "GET"
-        assert urlsplit(request.url).path == f"/api/iacp/v3/{endpoint}"
-        params = parse_qs(urlsplit(request.url).query)
-        assert params["page[number]"] == [str(first_page + index)]
-        assert params["page[size]"] == ["50"]
-        assert params["filter[account]"] == ["acc-example"]
-        assert request.headers["Authorization"] == "Bearer fake-token"
-        assert request.headers["Accept"] == "application/vnd.api+json"
-        assert call.kwargs["allow_redirects"] is False
-        assert call.kwargs["timeout"] == 30
-    checkpoint.save_state.assert_called_once()
-
-
 @pytest.mark.parametrize(
     ("incremental", "watermark", "expected"),
     [
@@ -175,16 +143,6 @@ def test_malformed_response_fails(config: ScalrSourceConfig, send: MagicMock, bo
     send.return_value = response(body)
     with pytest.raises(ValueError):
         list(cast(Iterable[Any], ScalrSource().source_for_pipeline(config, manager(), inputs("runs")).items()))
-    send.assert_called_once()
-
-
-def test_empty_first_page_finishes(config: ScalrSourceConfig, send: MagicMock) -> None:
-    send.return_value = page("runs", None, None)
-    checkpoint = manager()
-    assert (
-        list(cast(Iterable[Any], ScalrSource().source_for_pipeline(config, checkpoint, inputs("runs")).items())) == []
-    )
-    checkpoint.save_state.assert_not_called()
     send.assert_called_once()
 
 

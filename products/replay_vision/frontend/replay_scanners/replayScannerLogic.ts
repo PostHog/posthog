@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -92,7 +93,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
+import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -1091,7 +1092,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             scannerToApiBody({ ...body, creation_method: values.creationMethod })
                         )
                         actions.scannerSaved(scanner)
-                        router.actions.replace(urls.replayVision(response.id))
+                        leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
                         // pending panel and the button hands off to the instant on-demand tab.
                         lemonToast.success('Scanner created. First scan in progress.', {
@@ -1105,7 +1106,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
-                        router.actions.push(urls.replayVision(props.id))
+                        leaveScannerEditor(props.id, urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     // A duplicate name is the one field error the details step can fix, so route back to it.
@@ -1839,6 +1840,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
+                    const armedGoal = consumeScannerGoalDraftIntent()
                     // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
                     // in-tab click moments before navigation), then an experiment deep link, then
                     // an explicit ?filters= query (both carry fully built state), then a saved
@@ -1955,6 +1957,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // spend the user's AI allowance nor overwrite saved work without an explicit click.
                     if (goalParam && !hasFiltersPrefill) {
                         actions.setGoalDraftInput(goalParam)
+                    }
+                    const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
+                    if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
+                        actions.setGoalDraftInput(armedGoal)
+                        actions.draftScannerFromGoal(armedGoal, values.goalBudgetInput ?? undefined)
                     }
                     return
                 }
@@ -2192,9 +2199,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoalFailure: ({ errorObject }) => {
                 lemonToast.error(errorObject?.detail ?? "Couldn't draft a scanner. Try again in a moment.")
                 // The goal flow moved to the overview skeleton on request; with no draft to show,
-                // send the user back to the questions to try again.
+                // send the user back to the questions, dropping the empty overview from history when it was pushed.
                 if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {
-                    router.actions.push(urls.replayVisionScannerTemplate('new'))
+                    if (router.values.lastMethod === 'PUSH') {
+                        window.history.back()
+                    } else {
+                        router.actions.replace(urls.replayVisionScannerTemplate('new'))
+                    }
                 }
             },
 
@@ -2678,6 +2689,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerId: props.id,
                 currentPathname: router.values.location.pathname,
                 nextPathname: newLocation?.pathname,
+                browserPathname: window.location.pathname,
             }),
         message: 'Leave scanner editor?\nChanges you made will be discarded.',
         onConfirm: () => {
@@ -2721,14 +2733,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 ])
 
+export function leaveScannerEditor(scannerId: string, destination: string): void {
+    // A save can finish after the user has left this scanner's editor, and must not pull them away from where they are.
+    if (!scannerEditorPaths(scannerId).includes(removeProjectIdIfPresent(router.values.location.pathname))) {
+        return
+    }
+    const editor = scannerEditorSceneLogic.findMounted()
+    if (editor) {
+        editor.actions.leaveEditor(destination)
+    } else {
+        router.actions.replace(destination)
+    }
+}
+
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
         // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
         scannerStepUrl('overview', scannerId),
-        // Retired step: the redirect off it must not trip the unsaved-changes guard.
-        urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }
 
@@ -2745,11 +2768,18 @@ export function shouldGuardScannerNavigation(params: {
     scannerId: string
     currentPathname: string
     nextPathname?: string
+    browserPathname?: string
 }): boolean {
-    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, nextPathname } = params
+    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, browserPathname } = params
     if (!hasUnsavedChanges || isSubmitting || hasSavedDraft) {
         return false
     }
+    // kea-router passes no destination on browser back/forward, but by then the window already shows it.
+    const nextPathname =
+        params.nextPathname ??
+        (browserPathname && removeProjectIdIfPresent(browserPathname) !== removeProjectIdIfPresent(currentPathname)
+            ? browserPathname
+            : undefined)
     // The router's stored pathname carries the `/project/:id` prefix, while `urls.*` never do,
     // so both sides must be normalized before comparing or the guard never engages.
     const editorPaths = scannerEditorPaths(scannerId)

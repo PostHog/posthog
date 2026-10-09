@@ -25,7 +25,7 @@ def build_metric_query_runner(
     *,
     team: Team,
     metric_name: str,
-    aggregation: str,
+    aggregation: str | None,
     date_from: dt.datetime,
     date_to: dt.datetime,
     filters: Sequence[MetricFilter] = (),
@@ -33,6 +33,7 @@ def build_metric_query_runner(
     interval: str | None = None,
     quantile: float | None = None,
     metric_type: str | None = None,
+    range_function: str | None = None,
 ) -> MetricQueryRunner:
     """Return the runner for the table that holds all points of the range."""
     runner = MetricQueryRunner(
@@ -46,6 +47,7 @@ def build_metric_query_runner(
         interval=interval,
         quantile=quantile,
         metric_type=metric_type,
+        range_function=range_function,
     )
     if not reads_metrics4_only(runner.scan_from):
         return runner
@@ -60,4 +62,5 @@ def build_metric_query_runner(
         interval=interval,
         quantile=quantile,
         metric_type=metric_type,
+        range_function=range_function,
     )

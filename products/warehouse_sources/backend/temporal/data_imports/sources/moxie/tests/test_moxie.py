@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.moxi
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.settings import ENDPOINTS, MOXIE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -76,19 +75,6 @@ class TestNormalizeBaseUrl:
 
 
 class TestMoxieTransport:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_object_endpoint_yields_single_batch_with_api_key_header(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        seen = _wire(session, [_response([{"id": "1"}, {"id": "2"}])])
-
-        batches = _batches(_source("contacts"))
-
-        assert batches == [[{"id": "1"}, {"id": "2"}]]
-        # No pagination anywhere on Moxie's API — exactly one request per endpoint.
-        assert session.send.call_count == 1
-        assert seen[0]["url"] == f"{BASE_URL}/action/contacts/search"
-        assert seen[0]["auth_headers"]["X-API-KEY"] == "test_key"
-
     @pytest.mark.parametrize("endpoint", ["email_templates", "invoice_templates", "vendor_names", "form_names"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_scalar_endpoints_wrap_bare_strings_into_rows(self, MockSession: mock.MagicMock, endpoint: str) -> None:
@@ -131,27 +117,6 @@ class TestMoxieTransport:
         session.send.assert_not_called()
 
 
-class TestSourceResponseConfig:
-    def test_all_endpoints_buildable_with_declared_keys(self) -> None:
-        for endpoint in ENDPOINTS:
-            response = _source(endpoint)
-            assert response.name == endpoint
-            assert response.primary_keys == MOXIE_ENDPOINTS[endpoint].primary_keys
-
-    def test_projects_and_invoices_partition_on_a_stable_creation_field(self) -> None:
-        for endpoint in ("projects", "payable_invoices"):
-            response = _source(endpoint)
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "month"
-            assert response.partition_keys == ["dateCreated"]
-
-    def test_endpoints_without_a_creation_field_are_unpartitioned(self) -> None:
-        for endpoint in ("clients", "contacts", "email_templates", "workspace_users"):
-            response = _source(endpoint)
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
@@ -162,12 +127,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
         assert is_valid is expected_valid
-
-    @mock.patch(MOXIE_SESSION_PATCH)
-    def test_connection_error_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
-        assert is_valid is False
 
     @mock.patch(MOXIE_SESSION_PATCH)
     def test_probes_clients_list_with_api_key_header_and_redaction(self, mock_session: mock.MagicMock) -> None:

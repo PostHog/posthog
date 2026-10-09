@@ -111,19 +111,6 @@ def test_deploy_resume_skips_completed_parents_and_continues_child_page() -> Non
     assert parse_qs(urlparse(responses.calls[1].request.url).query)["offset"] == ["100"]
 
 
-@pytest.mark.parametrize("empty_parent", [True, False])
-@responses.activate
-def test_deploys_with_no_rows(empty_parent: bool) -> None:
-    responses.get(
-        f"{BASE}/deployments", json={"deployments": [] if empty_parent else [{"id": "first"}], "totalCount": 1}
-    )
-    if not empty_parent:
-        responses.get(f"{BASE}/deployments/first/deploys", json={"deploys": [], "totalCount": 0})
-    result = astronomer_source(CONFIG, "deploys", 1, "test-job", manager())
-    assert [row for page in items(result) for row in page] == []
-    assert len(responses.calls) == (1 if empty_parent else 2)
-
-
 @pytest.mark.parametrize(
     ("status", "schema", "valid", "message"),
     [

@@ -1,9 +1,16 @@
+import re
 import json
+import math
 import logging
+import posixpath
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.constants import (
     CHUNK_SOFT_MAX_ADDITIONS,
     CHUNK_TARGET_ADDITIONS,
+    FLASH_LENS_CHUNK_MAX_LINES,
+    FLASH_LENS_MAX_CHUNKS,
     SINGLE_CHUNK_GATE_ADDITIONS,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -73,6 +80,104 @@ def reconcile_chunks(chunks: ChunksList, pr_files: list[PRFile]) -> ChunksList:
         next_id = max((c.chunk_id for c in kept_chunks), default=0) + 1
         kept_chunks.append(Chunk(chunk_id=next_id, files=[FileInfo(filename=name) for name in missing]))
     return ChunksList(chunks=kept_chunks)
+
+
+# Only files nobody authors by hand. A general reviewer cannot assume what a repository's other files
+# are: Markdown can be the product (prompt files), and `tools/` or `tests/` can hold real code.
+_NOT_REVIEWABLE_PATH = re.compile(
+    "|".join(
+        [
+            r"\.lock$",
+            r"(^|/)(pnpm-lock\.yaml|package-lock\.json|go\.sum)$",
+            r"(^|/)__snapshots__/",
+            r"\.snap$",
+            r"(^|/)generated/",
+            r"\.(png|jpe?g|gif|webp|ico|svg|pdf|woff2?|ttf|otf|eot|zip|gz|mp4|webm)$",
+            r"(^|/)migrations/max_migration\.txt$",
+        ]
+    )
+)
+
+
+def is_reviewable_path(path: str) -> bool:
+    """Whether a changed file counts toward the size of a lens part."""
+    return _NOT_REVIEWABLE_PATH.search(path) is None
+
+
+def _changed_lines(pr_file: PRFile) -> int:
+    return pr_file.additions + pr_file.deletions
+
+
+@frozen
+class LensChunkPlan:
+    """The file lists the Flash lens sessions review: one session per lens and list."""
+
+    chunks: list[list[str]]
+    # The PR needed more than FLASH_LENS_MAX_CHUNKS parts at the normal size, so each part is larger.
+    capped: bool
+    # The changed lines the plan sized the parts by: every file except the ones nobody authors by hand.
+    reviewable_lines: int
+
+
+def _pack_by_directory(pr_files: list[PRFile], line_budget: int) -> list[list[str]]:
+    """Pack files in path order into parts of at most `line_budget` changed lines.
+
+    A directory's files stay in one part when they fit. A larger directory is packed file by file. A
+    file is never split, so one file over the budget makes a part larger than the budget.
+    """
+    groups: dict[str, list[PRFile]] = {}
+    for pr_file in sorted(pr_files, key=lambda f: f.filename):
+        groups.setdefault(posixpath.dirname(pr_file.filename), []).append(pr_file)
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_lines = 0
+    for group in groups.values():
+        group_lines = sum(_changed_lines(f) for f in group)
+        if current and current_lines + group_lines > line_budget:
+            chunks.append(current)
+            current, current_lines = [], 0
+        if group_lines <= line_budget:
+            current.extend(f.filename for f in group)
+            current_lines += group_lines
+            continue
+        for pr_file in group:
+            if current and current_lines + _changed_lines(pr_file) > line_budget:
+                chunks.append(current)
+                current, current_lines = [], 0
+            current.append(pr_file.filename)
+            current_lines += _changed_lines(pr_file)
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
+    """Split the PR into the parts the lens sessions review, without an LLM call.
+
+    A PR whose reviewable lines fit one part is one part with every file, like the main session sees it.
+    A larger PR splits over its reviewable files only. Above FLASH_LENS_MAX_CHUNKS parts, the line budget
+    grows to the smallest value that packs the PR into that many parts, so the parts come out about equal.
+    The plan is recomputed from the PR snapshot wherever it is needed and never persisted, because
+    `split_chunks_activity` reuses any chunk set persisted for the same head.
+    """
+    reviewable = [f for f in pr_files if is_reviewable_path(f.filename)]
+    reviewable_lines = sum(_changed_lines(f) for f in reviewable)
+    if reviewable_lines <= FLASH_LENS_CHUNK_MAX_LINES:
+        whole_pr = [f.filename for f in pr_files]
+        return LensChunkPlan(chunks=[whole_pr] if whole_pr else [], capped=False, reviewable_lines=reviewable_lines)
+    chunks = _pack_by_directory(reviewable, FLASH_LENS_CHUNK_MAX_LINES)
+    if len(chunks) <= FLASH_LENS_MAX_CHUNKS:
+        return LensChunkPlan(chunks=chunks, capped=False, reviewable_lines=reviewable_lines)
+    # Binary search: the whole PR in one part always fits, so `high` always packs into few enough parts.
+    low = max(FLASH_LENS_CHUNK_MAX_LINES, math.ceil(reviewable_lines / FLASH_LENS_MAX_CHUNKS))
+    high = reviewable_lines
+    while low < high:
+        middle = (low + high) // 2
+        if len(_pack_by_directory(reviewable, middle)) <= FLASH_LENS_MAX_CHUNKS:
+            high = middle
+        else:
+            low = middle + 1
+    return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True, reviewable_lines=reviewable_lines)
 
 
 def generate_chunking_prompt(
