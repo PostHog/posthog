@@ -1,5 +1,11 @@
+import { fromBinary } from '@bufbuild/protobuf'
 import { Code, ConnectError } from '@connectrpc/connect'
 import { register } from 'prom-client'
+
+import { IngestBillingUsageRequestSchema } from '~/common/generated/usage-ingestion/usage_ingestion/v1/service_pb'
+import { USAGE_INGESTION_OUTPUT, UsageIngestionOutput } from '~/common/outputs'
+import { IngestionOutput } from '~/common/outputs/ingestion-output'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { UsageIngestionClient, UsageRecordInput } from './client'
 
@@ -77,6 +83,31 @@ describe('UsageIngestionClient', () => {
         await client.ingest([record(7)])
 
         expect(headers).toEqual([{ 'x-client-name': 'cdp' }])
+    })
+
+    it('queues protobuf requests through the usage ingestion output in Kafka mode', async () => {
+        const queueMessages = jest.fn().mockResolvedValue(undefined)
+        const output: IngestionOutput = {
+            produce: jest.fn(),
+            queueMessages,
+            checkHealth: jest.fn(),
+            checkTopicExists: jest.fn(),
+        }
+        const outputs = new IngestionOutputs<UsageIngestionOutput>({ [USAGE_INGESTION_OUTPUT]: output })
+        client = new UsageIngestionClient({ transport: 'kafka', outputs, producerId: 'ingestion' })
+
+        await client.ingest([record(7)])
+
+        expect(queueMessages).toHaveBeenCalledWith([{ value: expect.any(Buffer) }])
+        const payload = queueMessages.mock.calls[0][0][0].value as Buffer
+        expect(fromBinary(IngestBillingUsageRequestSchema, payload).records).toEqual([
+            expect.objectContaining({
+                recordId: 'record-7',
+                producerId: 'ingestion',
+                teamId: 7n,
+                quantity: 1n,
+            }),
+        ])
     })
 
     // A retryable code gets the whole budget before the chunk is written off, and a code the

@@ -32,6 +32,7 @@ import {
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_USAGE_INGESTION,
 } from '~/common/config/kafka-topics'
 
 import { PluginsServerConfig } from '../../src/types'
@@ -103,6 +104,7 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
+    KAFKA_USAGE_INGESTION,
 ]
 
 // Builds a unique topic name for a test so each test can produce to and consume from an
