@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
 EXCEL_ERROR = "Can't read the Excel file"
 MAX_EXCEL_FILE_BYTES = 100 * 1024 * 1024
 MAX_SHARED_STRINGS_BYTES = 256 * 1024 * 1024
+MAX_WORKBOOK_PART_BYTES = 64 * 1024 * 1024
 
 ExcelValue = int | float | bool | str | datetime | None
 
@@ -33,11 +34,16 @@ def _open_workbook(file: IO[bytes], file_name: str) -> Iterator[Workbook]:
         try:
             file.seek(0)
             with zipfile.ZipFile(file) as archive:
-                if "xl/sharedStrings.xml" in archive.namelist():
-                    # openpyxl loads shared strings into memory, even in read-only mode.
-                    if archive.getinfo("xl/sharedStrings.xml").file_size > MAX_SHARED_STRINGS_BYTES:
+                # openpyxl loads every part except the worksheets into memory, even in read-only mode.
+                for part in archive.infolist():
+                    if part.filename == "xl/sharedStrings.xml":
+                        if part.file_size > MAX_SHARED_STRINGS_BYTES:
+                            raise ExcelFileError(
+                                f"'{file_name}': shared strings exceed the size limit. Split the workbook."
+                            )
+                    elif not part.filename.startswith("xl/worksheets/") and part.file_size > MAX_WORKBOOK_PART_BYTES:
                         raise ExcelFileError(
-                            f"'{file_name}': shared strings exceed the size limit. Split the workbook."
+                            f"'{file_name}': '{part.filename}' exceeds the size limit. Save it as .xlsx again."
                         )
         finally:
             file.seek(0)

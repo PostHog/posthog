@@ -302,6 +302,20 @@ def discover_file_tables(
     return files_by_table(expand_worksheets(client, files, logger))
 
 
+@contextmanager
+def _deleted_file_error(schema_name: str) -> Iterator[None]:
+    """A file deleted after discovery answers 404 to any of its requests."""
+    try:
+        yield
+    except requests.HTTPError as error:
+        if _status(error) != 404:
+            raise
+        raise ValueError(
+            f"{FILE_NOT_FOUND_ERROR} '{schema_name}' no longer exists. "
+            "It may have been deleted. Refresh the source's tables."
+        ) from None
+
+
 def _get_file_rows(
     client: SharePointClient,
     schema_name: str,
@@ -311,22 +325,18 @@ def _get_file_rows(
     worksheet: str | None = None,
 ) -> Iterator[list[dict[str, object]]]:
     path = _item_path(drive_id, item_id)
-    try:
+    with _deleted_file_error(schema_name):
         item = cast(_DriveItem, client.get(path, params={"$select": "name,size,lastModifiedDateTime"}))
-    except requests.HTTPError as error:
-        if _status(error) != 404:
-            raise
-        raise ValueError(
-            f"{FILE_NOT_FOUND_ERROR} '{schema_name}' no longer exists. "
-            "It may have been deleted. Refresh the source's tables."
-        ) from None
 
     name = item["name"]
     modified_at = _parse_datetime(item.get("lastModifiedDateTime"))
     if worksheet is not None:
         if posixpath.splitext(name)[1].lower() not in EXCEL_EXTENSIONS:
             raise ExcelFileError(f"'{name}'. Save it as .xlsx again, then refresh the source's tables.")
-        with _download_excel(client, path, name, item.get("size") or 0) as stream:
+        with (
+            _deleted_file_error(schema_name),
+            _download_excel(client, path, name, item.get("size") or 0) as stream,
+        ):
             for chunk in iter_worksheet_rows(stream, name, worksheet, logger=logger):
                 yield [{**row, FILE_PATH_COLUMN: name, FILE_MODIFIED_AT_COLUMN: modified_at} for row in chunk]
         return
@@ -335,7 +345,8 @@ def _get_file_rows(
             f"{FORMAT_ERROR} '{name}'. Use a CSV, TSV, or XLSX file, then refresh the source's tables."
         )
     resolved = resolve_file_format(name)
-    response = client.open_stream(f"{path}/content")
+    with _deleted_file_error(schema_name):
+        response = client.open_stream(f"{path}/content")
     try:
         response.raw.decode_content = True
         # TextIOWrapper must be able to read EOF without urllib3 closing its underlying stream.

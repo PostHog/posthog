@@ -658,6 +658,22 @@ class TestSharePointFileSync:
 
         assert session.get.call_count == expected_requests
 
+    @parameterized.expand([("csv", "orders.csv", None), ("excel", "report.xlsx", "Sales - North")])
+    def test_reports_files_deleted_before_download(self, _name: str, file_name: str, worksheet: str | None) -> None:
+        session = _session(
+            {_g("/drives/drive-a/items/item-a"): {"name": file_name}, _g("/drives/drive-a/items/item-a/content"): 404}
+        )
+        resource_id = "drive-a:item-a" + (f":{worksheet}" if worksheet else "")
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            logger = mock.MagicMock()
+            with pytest.raises(ValueError, match=f"^{FILE_NOT_FOUND_ERROR}"):
+                response = sharepoint_file_source(
+                    SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger), "orders", resource_id, logger
+                )
+                list(cast(Iterable[object], response.items()))
+
+        assert session.get.call_count == 2
+
     @parameterized.expand([("refresh_success", 200), ("refresh_rejected", 401)])
     def test_content_request_refreshes_once(self, _name: str, final_status: int) -> None:
         first = _response(401)

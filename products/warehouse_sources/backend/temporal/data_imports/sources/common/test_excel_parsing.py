@@ -146,7 +146,7 @@ class TestExcelParsing:
             [{"first": 1, "second": 2}, {"first": 3, "second": None}]
         ]
 
-    @parameterized.expand([("not_zip",), ("missing_part",), ("shared_strings",), ("invalid_xml",)])
+    @parameterized.expand([("not_zip",), ("missing_part",), ("shared_strings",), ("large_part",), ("invalid_xml",)])
     def test_invalid_workbooks_have_stable_errors(self, case: str) -> None:
         stream = io.BytesIO(b"not a zip")
         if case != "not_zip":
@@ -154,14 +154,18 @@ class TestExcelParsing:
             with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 if case == "shared_strings":
                     archive.writestr("xl/sharedStrings.xml", b"x" * 100)
+                elif case == "large_part":
+                    archive.writestr("xl/theme/theme1.xml", b"x" * 100)
                 elif case == "invalid_xml":
                     archive.writestr("[Content_Types].xml", b"not xml")
 
-        with patch(f"{MODULE}.MAX_SHARED_STRINGS_BYTES", 50):
+        with patch(f"{MODULE}.MAX_SHARED_STRINGS_BYTES", 50), patch(f"{MODULE}.MAX_WORKBOOK_PART_BYTES", 50):
             with pytest.raises(ExcelFileError, match=f"^{EXCEL_ERROR}") as error:
                 list_worksheets(stream, "broken.xlsx")
             assert "broken.xlsx" in str(error.value)
-            if case != "shared_strings":
+            if case == "large_part":
+                assert "xl/theme/theme1.xml" in str(error.value)
+            elif case != "shared_strings":
                 assert "Save it as .xlsx again" in str(error.value)
             with pytest.raises(ExcelFileError, match=f"^{EXCEL_ERROR}"):
                 list(iter_worksheet_rows(stream, "broken.xlsx", "Sheet"))
