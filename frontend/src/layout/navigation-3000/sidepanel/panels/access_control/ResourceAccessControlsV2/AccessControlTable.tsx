@@ -22,7 +22,15 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                     title: 'Role',
                     key: 'role',
                     render: function RenderRole(_: any, entry: AccessControlSettingsEntry) {
-                        return <span>{isRoleEntry(entry) ? entry.role_name : ''}</span>
+                        if (!isRoleEntry(entry)) {
+                            return null
+                        }
+                        // Access takes all free width, so a wrapping name shrinks this column to one word
+                        return (
+                            <span className="block max-w-60 truncate font-medium" title={entry.role_name}>
+                                {entry.role_name}
+                            </span>
+                        )
                     },
                 },
             ]
