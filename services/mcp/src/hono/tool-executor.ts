@@ -34,6 +34,7 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
+    getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
@@ -266,7 +267,8 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
+            return { content: [{ type: 'text', text }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
