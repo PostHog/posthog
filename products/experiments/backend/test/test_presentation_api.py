@@ -46,7 +46,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
-from products.experiments.backend.metric_calculation.spec import plan_metric
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -1427,14 +1427,16 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
-        spec = plan_metric(experiment, saved_query["uuid"])
-        assert spec is not None
-        self.assertEqual(stamped, spec.calculation_key())
+        calculation_config = get_metric_calculation_config(experiment, saved_query["uuid"])
+        assert calculation_config is not None
+        self.assertEqual(stamped, calculation_config.calculation_key())
         if link_has_breakdowns:
             # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
             # point the chart at rows that do not exist.
-            raw_query_spec = spec.settings.spec_for(metric_id=spec.metric_id, role=spec.role, definition=saved_query)
-            self.assertNotEqual(stamped, raw_query_spec.calculation_key())
+            raw_query_config = calculation_config.settings.build_metric_config(
+                metric_id=calculation_config.metric_id, role=calculation_config.role, definition=saved_query
+            )
+            self.assertNotEqual(stamped, raw_query_config.calculation_key())
 
     def test_saved_metrics(self):
         response = self.client.post(
@@ -5075,9 +5077,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The stored fingerprint of each metric is the calculation key that the result readers derive.
         def calculation_key(metric_uuid: str) -> str:
-            spec = plan_metric(Experiment.objects.get(id=exp_id), metric_uuid)
-            assert spec is not None
-            return spec.calculation_key()
+            calculation_config = get_metric_calculation_config(Experiment.objects.get(id=exp_id), metric_uuid)
+            assert calculation_config is not None
+            return calculation_config.calculation_key()
 
         for metric in initial_metrics:
             self.assertEqual(metric["fingerprint"], calculation_key(metric["uuid"]))
@@ -5162,12 +5164,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             end_date=start + timedelta(hours=12),
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "m1"}],
         )
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="m1",
-            fingerprint=spec.calculation_key(),
+            fingerprint=calculation_config.calculation_key(),
             query_from=start,
             query_to=start + timedelta(days=1),
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -8800,12 +8802,12 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             start_date=started_at,
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
         )
-        spec = plan_metric(experiment, "populated-metric")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "populated-metric")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="populated-metric",
-            fingerprint=spec.calculation_key(),
+            fingerprint=calculation_config.calculation_key(),
             query_from=started_at,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,

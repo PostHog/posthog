@@ -54,8 +54,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    build_primary_calculation_configs,
+    team_experiments_configs,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan_primary, team_experiments_configs
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
@@ -1034,7 +1038,7 @@ def _link_type(link: ExperimentToSavedMetric) -> str:
 
 @frozen
 class OutcomeMetric:
-    spec: CalculationSpec
+    calculation_config: MetricCalculationConfig
     metric_type: str
 
 
@@ -1047,8 +1051,10 @@ def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) 
     analyzed population, which is the fact the outcome exists to carry.
     """
     candidates = [
-        OutcomeMetric(spec=spec, metric_type=str(spec.definition["metric_type"]))
-        for spec in plan_primary(experiment, team_config=team_config)
+        OutcomeMetric(
+            calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])
+        )
+        for calculation_config in build_primary_calculation_configs(experiment, team_config=team_config)
     ]
     for candidate in candidates:
         if candidate.metric_type in EXPOSURE_SHAPED_METRIC_TYPES:
@@ -1155,7 +1161,7 @@ def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, Experiment
     experiment correctly gets no outcome.
     """
     summaries = MetricResultStore.current_outcomes(
-        {experiment_id: metric.spec for experiment_id, metric in outcome_metrics.items()}
+        {experiment_id: metric.calculation_config for experiment_id, metric in outcome_metrics.items()}
     )
     outcomes: dict[int, ExperimentOutcome] = {}
     for experiment_id, summary in summaries.items():

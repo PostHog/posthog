@@ -33,6 +33,7 @@ from posthog.temporal.experiments.models import (
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.timeseries import (
+    apply_saved_metric_overrides,
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
@@ -40,7 +41,6 @@ from products.experiments.backend.facade.timeseries import (
     metric_calculation_keys_for_experiments,
     record_daily_metric_failure,
     record_daily_metric_result,
-    resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -471,11 +471,11 @@ def _calculate_experiment_saved_metric_sync(
 
     # The frontend receives saved metrics with two extra fields injected before
     # they get posted back to /query: the link overrides (via resolveSharedMetric
-    # in experiments/utils.ts, which mirrors resolve_saved_metric_definition) and
+    # in experiments/utils.ts, which mirrors apply_saved_metric_overrides) and
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **resolve_saved_metric_definition(saved_metric.query, saved_metric_metadata),
+        **apply_saved_metric_overrides(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")

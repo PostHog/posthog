@@ -459,8 +459,8 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
-    # The legacy key of the spec the row was computed from, salted like `fingerprint` on a recalculation row. It
-    # hashes only inputs the experiment owns, so the results page can still show the row as history after a team
+    # The legacy key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the results page can still show the row as history after a team
     # setting moves `fingerprint` away from the current key. No reuse check reads it.
     display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()

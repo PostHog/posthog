@@ -24,8 +24,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
 )
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     Experiment,
@@ -81,9 +81,9 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
 
 
 def _key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _payload_of_each_section() -> dict[str, Any]:
@@ -899,12 +899,14 @@ class TestPostgresSections(APIBaseTest):
         experiment = self._experiment(
             "keyed", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
         )
-        spec = plan_metric(experiment, "inline-primary")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "inline-primary")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=spec.calculation_key() if key_family == "current" else spec.legacy_key(),
+            fingerprint=calculation_config.calculation_key()
+            if key_family == "current"
+            else calculation_config.legacy_key(),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,

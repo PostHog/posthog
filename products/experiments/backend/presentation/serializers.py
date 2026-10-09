@@ -52,7 +52,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -797,7 +797,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         served_query.get("kind") == "ExperimentMetric"
                         and served_query.get("metric_type") in METRIC_BUILDERS
                     ):
-                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                        saved_metric["effective_query"] = apply_saved_metric_overrides(
                             served_query, saved_metric.get("metadata")
                         )
 

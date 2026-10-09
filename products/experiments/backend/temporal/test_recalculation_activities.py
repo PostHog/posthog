@@ -20,8 +20,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -51,9 +51,9 @@ _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _discover(recalculation_id: str):
@@ -1066,12 +1066,14 @@ class TestCalculateActivity(BaseTest):
         # take the cached row as this run's result whatever the trigger, so the query re-runs.
         exp = self._experiment(flag_key=f"calc-stale-{_name}", metrics=[_mean_metric("m1")])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        spec = plan_metric(exp, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(exp, "m1")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
-            fingerprint=_recalc_fingerprint(spec.calculation_key() if cached_key == "current" else spec.legacy_key()),
+            fingerprint=_recalc_fingerprint(
+                calculation_config.calculation_key() if cached_key == "current" else calculation_config.legacy_key()
+            ),
             query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,

@@ -60,15 +60,15 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_calculation.spec import (
-    CalculationSpec,
+from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
-    plan_metric,
-    plan_primary,
+    MetricCalculationConfig,
+    build_primary_calculation_configs,
+    get_metric_calculation_config,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -1026,7 +1026,7 @@ class ExperimentService:
         the daily workflow wrote. The links come from the caller's prefetch when it has one, and the team's
         experiment settings take one query.
         """
-        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.of_experiment(experiment))
+        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.from_experiment(experiment))
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -1205,7 +1205,7 @@ class ExperimentService:
                 "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
             }
 
-        calculation_settings = ExperimentCalculationSettings.resolve(
+        calculation_settings = ExperimentCalculationSettings.from_configuration(
             team=self.team,
             feature_flag=feature_flag,
             start_date=start_date,
@@ -1766,7 +1766,7 @@ class ExperimentService:
             experiment.start_date = timezone.now()
 
             # Recompute metric fingerprints with the new start_date
-            calculation_settings = ExperimentCalculationSettings.of_experiment(experiment)
+            calculation_settings = ExperimentCalculationSettings.from_experiment(experiment)
             for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = getattr(experiment, metric_field, None)
                 if metrics:
@@ -2743,7 +2743,7 @@ class ExperimentService:
         # previously cached results, never triggers a ClickHouse query or
         # result computation. Returns None immediately if no results exist yet.
         try:
-            primary_metric = next(iter(plan_primary(experiment)), None)
+            primary_metric = next(iter(build_primary_calculation_configs(experiment)), None)
             outcome = (
                 MetricResultStore(experiment_id=experiment.id).current_outcome(primary_metric)
                 if primary_metric is not None
@@ -3626,7 +3626,7 @@ class ExperimentService:
             else:
                 excluded_variants = experiment.excluded_variants or []
 
-            calculation_settings = ExperimentCalculationSettings.resolve(
+            calculation_settings = ExperimentCalculationSettings.from_configuration(
                 team=self.team,
                 feature_flag=experiment.feature_flag,
                 start_date=start_date,
@@ -4409,8 +4409,8 @@ class ExperimentService:
     def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
         """Retrieve timeseries results for an experiment-metric combination.
 
-        The calculation key comes from the metric's current spec, never from the client, so the chart shows the
-        rows of the current settings. A day without such a row shows its row from before calculation key
+        The calculation key comes from the metric's current calculation config, never from the client, so the chart
+        shows the rows of the current settings. A day without such a row shows its row from before calculation key
         version 2, and `legacy_dates` lists those days.
         """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
@@ -4432,10 +4432,10 @@ class ExperimentService:
             timeseries[experiment_date.isoformat()] = None
 
         # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
-        spec = plan_metric(experiment, metric_uuid)
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
         stored = (
-            MetricResultStore(experiment_id=experiment.id).timeseries(spec, timezone=project_tz)
-            if spec is not None
+            MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
+            if calculation_config is not None
             else DailyTimeseries(by_day={}, legacy_days=frozenset(), earliest=None, latest=None)
         )
 
@@ -4479,7 +4479,9 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = self._active_timeseries_backfill(experiment, spec) if spec is not None else None
+        active_recalculation = (
+            self._active_timeseries_backfill(experiment, calculation_config) if calculation_config is not None else None
+        )
 
         response = {
             "experiment_id": experiment.id,
@@ -4516,16 +4518,16 @@ class ExperimentService:
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
-        spec = plan_metric(experiment, metric.get("uuid") or "")
-        if spec is None:
+        calculation_config = get_metric_calculation_config(experiment, metric.get("uuid") or "")
+        if calculation_config is None:
             raise ValidationError(
                 "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
                 "Pick a metric from the experiment's metrics."
             )
-        metric = spec.definition
-        fingerprint = spec.calculation_key()
+        metric = calculation_config.definition
+        fingerprint = calculation_config.calculation_key()
 
-        existing_recalculation = self._active_timeseries_backfill(experiment, spec)
+        existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config)
 
         if existing_recalculation:
             return {
@@ -4538,7 +4540,7 @@ class ExperimentService:
                 "is_existing": True,
             }
 
-        MetricResultStore(experiment_id=experiment.id).delete_daily_points(spec.metric_id, fingerprint)
+        MetricResultStore(experiment_id=experiment.id).delete_daily_points(calculation_config.metric_id, fingerprint)
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,
@@ -4560,16 +4562,16 @@ class ExperimentService:
 
     @staticmethod
     def _active_timeseries_backfill(
-        experiment: Experiment, spec: CalculationSpec
+        experiment: Experiment, calculation_config: MetricCalculationConfig
     ) -> ExperimentTimeseriesRecalculation | None:
-        """The pending or running backfill of the metric that `spec` describes.
+        """The pending or running backfill of the metric that `calculation_config` describes.
 
         A backfill requested before calculation key version 2 carries the legacy key and writes the same days. It
         counts as the active backfill, so that a second backfill does not race it for the rows of those days.
         """
         return ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,
-            fingerprint__in=[spec.calculation_key(), spec.legacy_key()],
+            fingerprint__in=[calculation_config.calculation_key(), calculation_config.legacy_key()],
             status__in=[
                 ExperimentTimeseriesRecalculation.Status.PENDING,
                 ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
