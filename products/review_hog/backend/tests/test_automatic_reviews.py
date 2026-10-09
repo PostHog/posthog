@@ -24,6 +24,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.review_hog.backend.label_reviews import BOT_LABEL_COMMENT
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
@@ -43,6 +44,7 @@ _LABEL_QUEUE = "products.review_hog.backend.tasks.process_label_event.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
 _GITHUB = "products.review_hog.backend.label_reviews.github_api_request"
+_GITHUB_LIST = "products.review_hog.backend.label_reviews.github_api_get_paginated"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -460,6 +462,7 @@ class TestLabelReviewTask(BaseTest):
         self.enterContext(patch(_BUSY, return_value=False))
         self.start = self.enterContext(patch(_START))
         self.github = self.enterContext(patch(_GITHUB))
+        self.github_comments = self.enterContext(patch(_GITHUB_LIST, return_value=[]))
         self.enterContext(patch("products.review_hog.backend.label_reviews.GitHubIntegration.get_access_token"))
 
     def _queued_event(self, payload: dict[str, object]) -> Mapping[str, object]:
@@ -501,14 +504,19 @@ class TestLabelReviewTask(BaseTest):
 
     def test_a_retried_bot_label_refusal_comments_once(self) -> None:
         queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
-        self.github.side_effect = [GitHubAPIError("boom", status=502), GitHubAPIError("gone", status=404), None]
+        gone = GitHubAPIError("gone", status=404)
+        # The second POST fails after GitHub stored the comment, so the third run finds it and skips.
+        self.github.side_effect = [GitHubAPIError("boom", status=502), gone, GitHubAPIError("boom", status=502), gone]
+        posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
+        self.github_comments.side_effect = [[], [posted]]
 
-        with self.assertRaises(GitHubAPIError):
-            process_label_event.run(**queued)
+        for _ in range(2):
+            with self.assertRaises(GitHubAPIError):
+                process_label_event.run(**queued)
         process_label_event.run(**queued)
 
         calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "POST"]
+        assert calls == ["DELETE", "DELETE", "POST", "DELETE"]
         self.start.assert_not_called()
 
     @parameterized.expand(
