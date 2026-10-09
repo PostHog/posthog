@@ -264,6 +264,21 @@ export function modelWithEffort(
   return model ? `${model} (${level})` : level;
 }
 
+// The mode after `current` in the list, wrapping; from a mode the list lacks, the first. Nothing with no list.
+export function nextMode(
+  available: Mode[],
+  current: string,
+  step: 1 | -1,
+): Mode | undefined {
+  if (available.length === 0) return undefined;
+  const at = available.findIndex((mode) => mode.id === current);
+  if (at < 0) return available[0];
+  return available[(at + step + available.length) % available.length];
+}
+
+// How the mode reads on the composer's rule, as Claude Code shows its own.
+export const modeStatus = (mode: Mode): string => `⏵⏵ ${mode.name}`;
+
 export function modeSheet(available: Mode[], current: string): Sheet {
   return {
     title: "Select mode",

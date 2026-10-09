@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { modelSheet, parseSlash, piControl, shortModelName } from "./models";
+import {
+  modelSheet,
+  nextMode,
+  parseSlash,
+  piControl,
+  shortModelName,
+} from "./models";
 
 const opus = { provider: "posthog", id: "claude-opus-5-5", name: "Opus 5.5" };
 const terra = {
@@ -32,6 +38,25 @@ describe("shortModelName", () => {
     ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek 4 Flash"],
   ])("names %s as %s", (id, name) => {
     expect(shortModelName(id)).toBe(name);
+  });
+});
+
+describe("nextMode", () => {
+  const modes = [
+    { id: "auto", name: "Auto Mode" },
+    { id: "plan", name: "Plan Mode" },
+    { id: "default", name: "Default" },
+  ];
+  it.each([
+    ["forward", "auto", 1, "plan"],
+    ["forward from the last, wrapping", "default", 1, "auto"],
+    ["back from the first, wrapping", "auto", -1, "default"],
+    ["forward from an unknown mode, to the first", "yolo", 1, "auto"],
+  ])("steps %s", (_, current, step, expected) => {
+    expect(nextMode(modes, current, step as 1 | -1)?.id).toBe(expected);
+  });
+  it("has nowhere to go with no modes", () => {
+    expect(nextMode([], "auto", 1)).toBeUndefined();
   });
 });
 

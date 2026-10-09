@@ -9,10 +9,13 @@ import type { LocalAgent } from "../local";
 import {
   type Effort,
   effortSheet,
+  type Mode,
   type ModelChoice,
   modelSheet,
   modelWithEffort,
   modeSheet,
+  modeStatus,
+  nextMode,
   type PiControl,
   type RunCommand,
   shortModelName,
@@ -48,6 +51,10 @@ export interface Models {
   ) => string | undefined;
   // The model and effort held for a pane's new chat.
   pickFor: (paneId: string) => StartPick;
+  // Steps a running Claude Code chat's mode, wrapping within the modes it offers.
+  cycleMode: (paneId: string, task: Task | undefined, step: 1 | -1) => void;
+  // The mode a chat is in, for the composer's rule; nothing for a chat without modes.
+  modeOf: (taskId: string | null) => string | undefined;
 }
 
 const without = <V>(map: Map<string, V>, key: string): Map<string, V> => {
@@ -99,6 +106,12 @@ export function useModels({
   );
   // Keyed by task and run: every local chat's run id is "local".
   const synced = useRef(new Set<string>());
+  // Each Claude Code chat's modes and the one it is in.
+  const [taskModes, setTaskModes] = useState<
+    Map<string, { available: Mode[]; current: string }>
+  >(new Map());
+  const rememberMode = (taskId: string, available: Mode[], current: string) =>
+    setTaskModes((known) => new Map(known).set(taskId, { available, current }));
 
   // The pane's held picks, less any the chat's agent cannot start on. A new chat starts on the last model picked.
   const held = (paneId: string, starting = startingFor(paneId)): HeldPick =>
@@ -295,25 +308,52 @@ export function useModels({
       flashNotice("Only a running Claude Code chat has modes", { paneId });
       return;
     }
+    const taskId = findPane(layout, paneId)?.taskId;
     modes().then(
       ({ available, current }) =>
-        openModal(paneId, modeSheet(available, current), (index) => {
-          const mode = available[index];
-          setMode(mode.id).then(
-            () => {
-              track("chat setting changed", { setting: "mode", to: mode.id });
-              savePrefs({ claudeMode: mode.id });
-              flashNotice(`${mode.name} on`, { paneId });
-            },
-            (error: unknown) =>
-              flashNotice(`Couldn't switch mode: ${messageOf(error)}`, {
-                paneId,
-              }),
-          );
-        }),
+        openModal(paneId, modeSheet(available, current), (index) =>
+          switchMode(paneId, taskId ?? null, available, available[index]),
+        ),
       (error: unknown) =>
         flashNotice(`Couldn't load modes: ${messageOf(error)}`, { paneId }),
     );
+  };
+
+  const switchMode = (
+    paneId: string,
+    taskId: string | null,
+    available: Mode[],
+    mode: Mode,
+  ): void => {
+    const setMode = taskId
+      ? localSessions.get(taskId)?.control.setMode
+      : undefined;
+    if (!setMode) return;
+    setMode(mode.id).then(
+      () => {
+        track("chat setting changed", { setting: "mode", to: mode.id });
+        savePrefs({ claudeMode: mode.id });
+        if (taskId) rememberMode(taskId, available, mode.id);
+        flashNotice(`${mode.name} on`, { paneId });
+      },
+      (error: unknown) =>
+        flashNotice(`Couldn't switch mode: ${messageOf(error)}`, { paneId }),
+    );
+  };
+
+  const cycleMode = (
+    paneId: string,
+    task: Task | undefined,
+    step: 1 | -1,
+  ): void => {
+    const target = liveTarget(paneId, task);
+    const known = target && taskModes.get(target.taskId);
+    if (!target || !known) {
+      flashNotice("Only a running Claude Code chat has modes", { paneId });
+      return;
+    }
+    const mode = nextMode(known.available, known.current, step);
+    if (mode) switchMode(paneId, target.taskId, known.available, mode);
   };
 
   // Each live run's slash commands, fetched once and handed to the composer of the pane showing it.
@@ -361,6 +401,12 @@ export function useModels({
     if (session?.runtime === "acp") {
       if (model) setHeldModels((models) => without(models, paneId));
       if (effort) setHeldEfforts((efforts) => without(efforts, paneId));
+      session.control
+        .modes?.()
+        .then(({ available, current }) =>
+          rememberMode(taskId, available, current),
+        )
+        .catch(() => {});
       const started = session.model;
       if (started)
         setTaskModels((models) =>
@@ -463,5 +509,11 @@ export function useModels({
       );
     },
     pickFor,
+    cycleMode,
+    modeOf: (taskId) => {
+      const known = taskId ? taskModes.get(taskId) : undefined;
+      const mode = known?.available.find((entry) => entry.id === known.current);
+      return mode && modeStatus(mode);
+    },
   };
 }

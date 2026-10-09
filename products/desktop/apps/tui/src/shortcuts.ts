@@ -9,7 +9,9 @@ export type Shortcut =
   | "settings"
   | "quit"
   | "reload"
-  | "toggleSidebar";
+  | "toggleSidebar"
+  | "cycleMode"
+  | "cycleModeBack";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -28,6 +30,11 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   // As in VS Code. Inside tmux, Ctrl+B is tmux's own prefix, so Cmd+B does it too.
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";
   if (key.ctrl && letter === "r") return "reload";
+  // Ctrl+] steps a Claude Code chat's mode, Ctrl+Shift+] (Ctrl+}) steps it back. Legacy terminals send both as
+  // one raw byte, so there it only goes forward; it wraps, so that is enough.
+  if (key.ctrl && (input === "}" || (input === "]" && key.shift)))
+    return "cycleModeBack";
+  if (input === "\x1d" || (key.ctrl && input === "]")) return "cycleMode";
   return null;
 }
 
