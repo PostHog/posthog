@@ -157,11 +157,7 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
-    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
-    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
-    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
-    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
-    propagation). Non-loop runs are unaffected."""
+    """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
         return False
     with transaction.atomic():

@@ -102,7 +102,7 @@ class ModelActivityMixin(models.Model):
         for manager in managers:
             # A read by primary key of a row the caller holds needs no team filter, and a fail-closed
             # manager refuses to build a queryset without team context, which a save outside a request
-            # has none of. Same shape as the _get_before_update overrides on Loop and SignalScoutConfig.
+            # has none of. Same shape as the _get_before_update override on SignalScoutConfig.
             queryset = manager.unscoped() if isinstance(manager, TeamScopedManager) else manager.all()
 
             before_update = queryset.using(write_db).filter(pk=self.pk).first()

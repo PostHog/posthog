@@ -430,40 +430,19 @@ def test_private_scout_token_requires_trusted_task_and_cannot_be_widened(
 
 @pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_loop_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:
+def test_workflow_run_rechecks_owner_active_state_from_the_database(mock_create: MagicMock) -> None:
     from posthog.models import Organization, Team
     from posthog.models.organization import OrganizationMembership
     from posthog.models.user import User
 
-    organization = Organization.objects.create(name="loop-cred-org")
-    team = Team.objects.create(organization=organization, name="loop-cred-team")
-    owner = User.objects.create(email="loop-owner-cred@example.com")
-    task = Task.objects.create(team=team, title="Loop run", created_by=owner, origin_product=Task.OriginProduct.LOOP)
-    state = {"loop_id": "loop-1"}
-
-    # Re-check at mint time: a just-offboarded owner (no membership) must not mint credentials for an
-    # in-flight run, even though the async loop cancellation may not have landed yet.
-    with pytest.raises(TaskInvalidStateError):
-        create_oauth_access_token_for_run(task, state)
-    mock_create.assert_not_called()
-
+    organization = Organization.objects.create(name="wf-fresh-org")
+    team = Team.objects.create(organization=organization, name="wf-fresh-team")
+    owner = User.objects.create(email="wf-fresh-owner@example.com")
     OrganizationMembership.objects.create(organization=organization, user=owner)
-    assert create_oauth_access_token_for_run(task, state) == "token"
-
-
-@pytest.mark.django_db
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_loop_run_rechecks_owner_active_state_from_the_database(mock_create: MagicMock) -> None:
-    from posthog.models import Organization, Team
-    from posthog.models.organization import OrganizationMembership
-    from posthog.models.user import User
-
-    organization = Organization.objects.create(name="loop-fresh-org")
-    team = Team.objects.create(organization=organization, name="loop-fresh-team")
-    owner = User.objects.create(email="loop-fresh-owner@example.com")
-    OrganizationMembership.objects.create(organization=organization, user=owner)
-    task = Task.objects.create(team=team, title="Loop run", created_by=owner, origin_product=Task.OriginProduct.LOOP)
-    state = {"loop_id": "loop-1"}
+    task = Task.objects.create(
+        team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
+    )
+    state: dict = {}
 
     # Deactivate directly in the DB; `task.created_by` stays cached as active. The mint must re-read
     # the row, not trust the stale in-memory `is_active`.
@@ -472,26 +451,6 @@ def test_loop_run_rechecks_owner_active_state_from_the_database(mock_create: Mag
     with pytest.raises(TaskInvalidStateError):
         create_oauth_access_token_for_run(task, state)
     mock_create.assert_not_called()
-
-
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_loop_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
-    """A run whose state carries loop_id must never receive a loop:write-scoped token,
-    regardless of the requested scopes — this is the token-layer half of the loop CRUD
-    MCP block (see LOOP_FIRED_RUN_EXCLUDED_SCOPES)."""
-    task = MagicMock(
-        id="task-id",
-        created_by=MagicMock(),
-        team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
-    )
-
-    create_oauth_access_token(task, scopes=["loop:read", "loop:write", "task:read"], loop_id="loop-1")
-
-    _, kwargs = mock_create.call_args
-    assert "loop:write" not in kwargs["scopes"]
-    assert "loop:read" in kwargs["scopes"]
-    assert "task:read" in kwargs["scopes"]
 
 
 @pytest.mark.parametrize("adapter", ["claude", "codex"])
@@ -523,26 +482,6 @@ def test_gateway_billed_run_keeps_the_gateway_scope(mock_create: MagicMock) -> N
     assert "withhold_scopes" not in mock_create.call_args.kwargs
 
 
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_non_loop_run_keeps_loop_write_scope(mock_create: MagicMock) -> None:
-    task = MagicMock(
-        id="task-id",
-        created_by=MagicMock(),
-        team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
-    )
-
-    create_oauth_access_token(task, scopes=["loop:read", "loop:write", "task:read"], loop_id=None)
-
-    mock_create.assert_called_once_with(
-        task.created_by,
-        123,
-        scopes=["loop:read", "loop:write", "task:read"],
-        application="array",
-        sandbox_task_id=task.id,
-    )
-
-
 @pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:
@@ -555,8 +494,7 @@ def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_c
         team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
     )
 
-    # Same guard as loop runs: an owner offboarded after task creation must not mint
-    # credentials for a later run of it.
+    # An owner offboarded after task creation must not mint credentials for a later run of it.
     with pytest.raises(TaskInvalidStateError):
         create_oauth_access_token_for_run(task, {})
     mock_create.assert_not_called()
@@ -669,24 +607,3 @@ def test_run_token_defaults_to_the_dispatched_scopes(
         create_oauth_access_token_for_run(task, state, scopes=requested)
 
     assert mock_create.call_args.kwargs["scopes"] == granted
-
-
-@pytest.mark.django_db
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_workflow_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
-    from posthog.models.organization import OrganizationMembership
-
-    organization = Organization.objects.create(name="wf-strip-org")
-    team = Team.objects.create(organization=organization, name="wf-strip-team")
-    owner = User.objects.create(email="wf-strip-owner@example.com")
-    OrganizationMembership.objects.create(organization=organization, user=owner)
-    task = Task.objects.create(
-        team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
-    )
-    state = {"config_snapshot": {"connectors": {"posthog_mcp_scopes": "full"}}}
-
-    create_oauth_access_token_for_run(task, state, scopes="full")
-
-    granted = mock_create.call_args.kwargs["scopes"]
-    assert "loop:write" not in granted
-    assert "loop:read" in granted
