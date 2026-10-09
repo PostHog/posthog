@@ -202,9 +202,25 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # Recording scope already bounds each event by its own session's recording window.
         if self._query.event_match_scope == EventMatchScope.RECORDING:
             return False
+        # Exclusions remove sessions by session id only, so a time match could keep a recording
+        # that an excluded event without a session id should remove.
+        if self.negated_entities:
+            return False
         return feature_enabled_or_false(UNSESSIONED_EVENTS_FLAG, str(self._team.id), send_feature_flag_events=False)
 
+    def _unsessioned_person_id(self) -> ast.Field:
+        # In this mode events.person_id is the person at ingest and misses a later merge. The current
+        # distinct id mapping follows the merge, the same as the mapping of the recordings.
+        if self._team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+            return ast.Field(chain=["pdi", "person_id"])
+        return ast.Field(chain=["person_id"])
+
     def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """One row per person and minute with matching events that carry no session id.
+
+        Grouping before the row cap keeps a flood of events from a few people from pushing other
+        people's events out of the scan.
+        """
         exprs: list[ast.Expr] = [
             # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
             parse_expr("coalesce(properties.$session_id, '') = ''"),
@@ -225,11 +241,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         return ast.SelectQuery(
             select=[
-                ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])),
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
+                ast.Alias(alias="person_id", expr=self._unsessioned_person_id()),
+                ast.Alias(alias="first_timestamp", expr=parse_expr("min(timestamp)")),
+                ast.Alias(alias="last_timestamp", expr=parse_expr("max(timestamp)")),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=exprs),
+            group_by=[self._unsessioned_person_id(), parse_expr("toStartOfMinute(timestamp)")],
             limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
         )
 
@@ -238,7 +256,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         A recording matches when the event falls inside the recording window of one of that
         person's distinct ids. The persons' distinct ids are read only for the persons that sent
-        such an event, so the mapping read stays as small as the matching events.
+        such an event, so the mapping read stays as small as the matching events. The minute
+        grouping can widen the match by up to one minute past the margin.
         """
         query = parse_select(
             """
@@ -260,8 +279,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 WHERE person_id IN (SELECT person_id FROM {persons_for_mapping})
             ) AS mapping ON mapping.distinct_id = recording.distinct_id
             INNER JOIN {unsessioned} AS unsessioned ON unsessioned.person_id = mapping.person_id
-            WHERE unsessioned.timestamp >= subtractMinutes(recording.window_start, {margin})
-              AND unsessioned.timestamp <= addMinutes(recording.window_end, {margin})
+            WHERE unsessioned.last_timestamp >= subtractMinutes(recording.window_start, {margin})
+              AND unsessioned.first_timestamp <= addMinutes(recording.window_end, {margin})
             GROUP BY recording.session_id
             LIMIT {limit}
             """,
