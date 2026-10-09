@@ -213,21 +213,29 @@ export function renderSystemEmail(
         ? `To stop these emails, update your <a href="${escapeHtml(footer.settingsUrl)}">notification settings</a>.`
         : 'To stop these emails, update your notification settings.'
 
-    const html = `<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:24px;background:#ffffff">
-<div style="max-width:600px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1d1f27">
-<div style="font-size:14px;line-height:1.5">${bodyHtml}</div>
-${button}
-<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb">
-<div style="font-size:12px;line-height:1.5;color:#6b7280">
-Project: ${projectName}<br>
-Sent by the alert '${functionName}'.${functionLink}<br>
-${stopLine}
-</div>
-</div>
-</body>
-</html>`
+    // Every interpolated value below went through `escapeHtml`, or is a URL that `escapeHtml` quotes
+    // inside an attribute. The `raw-html-format` rule can't see that, so each interpolated line is
+    // suppressed on its own and stays a single line. Escape any value you add here.
+    const html = [
+        '<!DOCTYPE html>',
+        '<html>',
+        '<body style="margin:0;padding:24px;background:#ffffff">',
+        `<div style="max-width:600px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1d1f27">`,
+        // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+        `<div style="font-size:14px;line-height:1.5">${bodyHtml}</div>`,
+        button,
+        '<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb">',
+        '<div style="font-size:12px;line-height:1.5;color:#6b7280">',
+        // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+        `Project: ${projectName}<br>`,
+        // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+        `Sent by the alert '${functionName}'.${functionLink}<br>`,
+        stopLine,
+        '</div>',
+        '</div>',
+        '</body>',
+        '</html>',
+    ].join('\n')
 
     const textLines = [content.body]
     if (content.actionUrl) {

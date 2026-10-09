@@ -10,6 +10,15 @@ registerAsyncFunction('sendSystemEmail', {
     // queue, and the hog worker that runs internal destinations cannot produce to it.
     execute: async (args, context, result) => {
         let response: SystemEmailResult
+        // A test run takes its event, and so its recipients, from the caller. Live mail would let a
+        // function editor send text from the PostHog address to any member of the organization.
+        if (context.isTest) {
+            result.invocation.state.vmState?.stack.push({
+                success: false,
+                error: "Test runs can't send alert email.",
+            })
+            return
+        }
         try {
             context.consumeInlineAsyncBudget()
             response = await context.systemEmailService.sendFromInvocation(args[0], result)

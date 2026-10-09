@@ -71,6 +71,7 @@ describe('SystemEmailService', () => {
             hogFunction?: Partial<HogFunctionType>
             notifyUserIds?: unknown
             actionId?: string
+            isTest?: boolean
             config?: Partial<SystemEmailServiceConfig>
         } = {}
     ): Promise<{
@@ -113,7 +114,11 @@ describe('SystemEmailService', () => {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         await getAsyncFunctionHandler('sendSystemEmail')!.execute(
             [options.args ?? { subject: 'Sync failed', body: 'The sync failed.' }],
-            { systemEmailService: service, consumeInlineAsyncBudget: () => {} } as unknown as AsyncFunctionContext,
+            {
+                systemEmailService: service,
+                isTest: options.isTest,
+                consumeInlineAsyncBudget: () => {},
+            } as unknown as AsyncFunctionContext,
             result
         )
 
@@ -179,6 +184,14 @@ describe('SystemEmailService', () => {
         expect(transport.send).not.toHaveBeenCalled()
         expect(rateLimiter.claimAllOrNothingPair).not.toHaveBeenCalled()
         expect(metricNames(result)).toEqual(['email_failed'])
+    })
+
+    it('sends nothing from a test run, where the caller supplies the recipients', async () => {
+        const { response } = await send({ isTest: true })
+
+        expect(response).toEqual({ success: false, error: expect.any(String) })
+        expect(transport.send).not.toHaveBeenCalled()
+        expect(rateLimiter.claimAllOrNothingPair).not.toHaveBeenCalled()
     })
 
     it.each([

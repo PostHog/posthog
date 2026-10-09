@@ -232,7 +232,7 @@ export class HogExecutorAsyncService {
      */
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
-        options: HogExecutorExecuteOptions = {},
+        options: HogExecutorExecuteAsyncOptions = {},
         previousResult: HogExecutorPreviousResult = {},
         // Callers outside executeWithAsyncFunctions' loop (e.g. the source-webhooks consumer)
         // run at most one async step per execute() call already, so a no-op budget is safe there.
@@ -275,6 +275,7 @@ export class HogExecutorAsyncService {
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
                             customerAnalyticsAccountsJwt: this.deps.customerAnalyticsAccountsJwt,
                             systemEmailService: this.deps.systemEmailService,
+                            isTest: options.isTest ?? false,
                             consumeInlineAsyncBudget,
                         },
                         result

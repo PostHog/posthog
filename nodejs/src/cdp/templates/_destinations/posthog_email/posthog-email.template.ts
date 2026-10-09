@@ -35,7 +35,8 @@ if (not res.success) {
             key: 'body',
             type: 'string',
             label: 'Body',
-            description: 'The message, as plain text. HTML is shown as text and links are not clickable.',
+            description:
+                'The message, as plain text. HTML is shown as text. Only the button link is added as a link, but some mail apps turn a web address in the text into a link.',
             secret: false,
             required: true,
         },
