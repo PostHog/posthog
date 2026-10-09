@@ -257,6 +257,7 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+
     def __post_init__(self) -> None:
         # A check's ERRORED or BROKEN arrives as a group's verdict, so an outcome with no group
         # would record a check that wrote no status and no history.
