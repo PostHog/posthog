@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
@@ -29,6 +30,30 @@ class TestCreateNotification(BaseTest):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(self.organization, "test@test.com", "password")
+
+    def _restrict_team_to_one_new_member(self) -> tuple[User, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        allowed_user = User.objects.create_and_join(self.organization, "allowed@test.com", "password")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed_user),
+            access_level="member",
+        )
+        denied_user = User.objects.create_and_join(self.organization, "denied@test.com", "password")
+        return allowed_user, denied_user
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
@@ -131,38 +156,47 @@ class TestCreateNotification(BaseTest):
         assert set(event.resolved_user_ids) == {self.user.id, user2.id}
 
     def test_resolve_team_excludes_org_members_without_project_access(self):
-        from posthog.models import OrganizationMembership
-
-        from products.access_control.backend.models.access_control import AccessControl
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=None,
-            role=None,
-            access_level="none",
-        )
-
-        allowed_user = User.objects.create_and_join(self.organization, "allowed@test.com", "password")
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed_user),
-            access_level="member",
-        )
-        denied_user = User.objects.create_and_join(self.organization, "denied@test.com", "password")
+        allowed_user, denied_user = self._restrict_team_to_one_new_member()
 
         result = RecipientsResolver().resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert allowed_user.id in result
         assert denied_user.id not in result
+
+    @parameterized.expand([(TargetType.USER,), (TargetType.ROLE,), (TargetType.ORGANIZATION,)])
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_skips_recipients_without_project_access(self, target_type, mock_publish, mock_ff):
+        allowed_user, denied_user = self._restrict_team_to_one_new_member()
+        role = Role.objects.create(name="Reviewers", organization=self.organization)
+        for user in (allowed_user, denied_user):
+            RoleMembership.objects.create(
+                role=role,
+                user=user,
+                organization_member=OrganizationMembership.objects.get(organization=self.organization, user=user),
+            )
+        target_ids = {
+            TargetType.USER: [str(allowed_user.id), str(denied_user.id)],
+            TargetType.ROLE: [str(role.id)],
+            TargetType.ORGANIZATION: [str(self.organization.id)],
+        }[target_type]
+
+        notified: set[int] = set()
+        for target_id in target_ids:
+            event = create_notification(
+                NotificationData(
+                    team_id=self.team.id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title="Test",
+                    body="",
+                    target_type=target_type,
+                    target_id=target_id,
+                )
+            )
+            if event is not None:
+                notified.update(event.resolved_user_ids)
+
+        assert notified == {allowed_user.id}
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")

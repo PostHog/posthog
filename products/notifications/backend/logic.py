@@ -71,6 +71,13 @@ def _filter_by_user_preferences(
     return [uid for uid, settings in rows if not _is_disabled(settings)]
 
 
+def _filter_by_project_access(user_ids: list[int], team: Team) -> list[int]:
+    if not user_ids:
+        return user_ids
+    with_access = set(team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
+    return [uid for uid in user_ids if uid in with_access]
+
+
 def has_been_dispatched(
     *,
     notification_type: NotificationType,
@@ -183,6 +190,11 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
 
     resolver = data.resolver or RecipientsResolver()
     resolved_user_ids = resolver.resolve(data.target_type, data.target_id, data.team_id)
+
+    # A USER, ROLE or ORGANIZATION target, or a custom resolver, can name an org member who is denied
+    # this project. The resource-level check below does not decide project access, so filter here.
+    if team is not None:
+        resolved_user_ids = _filter_by_project_access(resolved_user_ids, team)
 
     if team is not None and data.resource_type and str(data.resource_type) in ACCESS_CONTROL_RESOURCES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
