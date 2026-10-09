@@ -137,6 +137,22 @@ def validate_hogql_batch_export_user(team: "Team", user: "User | None") -> None:
         )
 
 
+def apply_hogql_batch_export_modifier_defaults(
+    team: "Team", modifiers: HogQLQueryModifiers | None
+) -> HogQLQueryModifiers:
+    """Return the export's modifiers with the defaults that apply to the `hogql` model only.
+
+    `convertToProjectTimezone` falls back to `False`, so timestamps come out in UTC unless the export
+    or the project sets the modifier. Other models keep the project default, so their output does
+    not change.
+    """
+    resolved = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
+    team_value = team.modifiers.get("convertToProjectTimezone") if isinstance(team.modifiers, dict) else None
+    if resolved.convertToProjectTimezone is None and team_value is None:
+        resolved.convertToProjectTimezone = False
+    return resolved
+
+
 def create_hogql_context_for_batch_export(
     team: "Team",
     values: dict[str, typing.Any] | None = None,
@@ -211,7 +227,9 @@ def validate_hogql_query_for_batch_export(
 
     parsed = replace_interval_placeholders(parsed, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END)
 
-    context = create_hogql_context_for_batch_export(team, user=user, modifiers=modifiers)
+    context = create_hogql_context_for_batch_export(
+        team, user=user, modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers)
+    )
     try:
         prepared = prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
         assert prepared is not None

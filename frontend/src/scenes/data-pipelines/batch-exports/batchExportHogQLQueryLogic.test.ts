@@ -99,14 +99,22 @@ describe('batchExportHogQLQueryLogic', () => {
         initKeaTests()
     })
 
-    // The backend resolves `convertToProjectTimezone` from the export's modifiers, then `team.modifiers`, then
-    // `true`. The form label and the preview's placeholder timezone must follow the same order. If the logic skips
-    // `team.modifiers`, a team that turned the modifier off through the API sees its project timezone in the form
-    // while its exports run in UTC.
+    // HogQL batch exports resolve `convertToProjectTimezone` from the export's modifiers, then `team.modifiers`, then
+    // `false`. The form label, the preview's placeholder timezone and the modifiers the preview runs with must follow
+    // the same order. The preview runs through the query API, which falls back to `true`, so it needs the resolved
+    // value, or it shows project-timezone rows for an export that writes UTC.
     test.each<
         [string, HogQLQueryModifiers | undefined, HogQLQueryModifiers | null, QueryTimezoneChoice, string, string]
     >([
-        ['the team leaves it unset', undefined, null, 'default', PROJECT_TIMEZONE, PROJECT_TIMEZONE],
+        ['nothing sets it', undefined, null, 'default', 'UTC', 'UTC'],
+        [
+            'the team turns it on',
+            { convertToProjectTimezone: true },
+            null,
+            'default',
+            PROJECT_TIMEZONE,
+            PROJECT_TIMEZONE,
+        ],
         ['the team turns it off', { convertToProjectTimezone: false }, null, 'default', 'UTC', 'UTC'],
         [
             'the export turns it on over the team',
@@ -117,8 +125,8 @@ describe('batchExportHogQLQueryLogic', () => {
             PROJECT_TIMEZONE,
         ],
         [
-            'the export turns it off over the default',
-            undefined,
+            'the export turns it off over the team',
+            { convertToProjectTimezone: true },
             { convertToProjectTimezone: false },
             'utc',
             PROJECT_TIMEZONE,
@@ -139,35 +147,52 @@ describe('batchExportHogQLQueryLogic', () => {
                 start.tz(queryTimezone).format('YYYY-MM-DD HH:mm:ss'),
                 end.tz(queryTimezone).format('YYYY-MM-DD HH:mm:ss'),
             ])
+            expect(editorLogic().values.queryModifiers?.convertToProjectTimezone).toBe(queryTimezone !== 'UTC')
         }
     )
 
     // The form controls only `convertToProjectTimezone`. Other keys can come from the API, and the backend replaces
     // the whole `hogql_modifiers` object on save, so changing the choice must keep them. The editor must get the
-    // same modifiers, or the preview runs with different settings from the export.
-    test.each<[string, HogQLQueryModifiers | null, QueryTimezoneChoice, HogQLQueryModifiers | null]>([
+    // same modifiers with the resolved timezone, or the preview runs with different settings from the export.
+    test.each<
+        [string, HogQLQueryModifiers | null, QueryTimezoneChoice, HogQLQueryModifiers | null, HogQLQueryModifiers]
+    >([
         [
             'keeps other modifiers when it unsets the key',
-            { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: false },
+            { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: true },
             'default',
             { personsOnEventsMode: 'person_id_override_properties_joined' },
+            { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: false },
         ],
-        ['clears the modifiers once no key is left', { convertToProjectTimezone: false }, 'default', null],
+        [
+            'clears the modifiers once no key is left',
+            { convertToProjectTimezone: true },
+            'default',
+            null,
+            { convertToProjectTimezone: false },
+        ],
         [
             'keeps other modifiers when it sets the key',
             { personsOnEventsMode: 'person_id_override_properties_joined' },
             'project_timezone',
             { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: true },
+            { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: true },
         ],
-        ['adds the key when there are no modifiers', null, 'utc', { convertToProjectTimezone: false }],
-    ])('setQueryTimezone %s', async (_, exportModifiers, choice, expectedModifiers) => {
+        [
+            'adds the key when there are no modifiers',
+            null,
+            'utc',
+            { convertToProjectTimezone: false },
+            { convertToProjectTimezone: false },
+        ],
+    ])('setQueryTimezone %s', async (_, exportModifiers, choice, expectedModifiers, expectedEditorModifiers) => {
         await initLogic(undefined, exportModifiers)
 
         logic.actions.setQueryTimezone(choice)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(formLogic.values.configuration.hogql_modifiers).toEqual(expectedModifiers)
-        expect(editorLogic().values.queryModifiers).toEqual(expectedModifiers)
+        expect(editorLogic().values.queryModifiers).toEqual(expectedEditorModifiers)
     })
 
     // The form saves `hogql_query`, so it must match what the editor shows. A form reset, such as "Clear changes",

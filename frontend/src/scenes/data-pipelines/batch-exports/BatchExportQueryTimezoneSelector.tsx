@@ -27,8 +27,12 @@ export function BatchExportQueryTimezoneSelector(): JSX.Element {
             </>
         )
     } else if (queryTimezoneChoice === 'default' && teamConvertToProjectTimezone === null) {
-        help =
-            'The default is the project timezone. If the default or the project timezone changes, this export uses the new one from its next run.'
+        help = (
+            <>
+                The default is UTC, however if the project's <code>convertToProjectTimezone</code> modifier is set
+                through the API in the future, this export will use that instead from its next run.
+            </>
+        )
     } else if (queryTimezoneChoice === 'default') {
         help = (
             <>

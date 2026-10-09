@@ -13,8 +13,8 @@ from posthog.models import Team
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. "
     "Each modifier set here overrides the project modifier with the same name, and the project "
-    "modifiers apply to all others. For example, set convertToProjectTimezone to false to export "
-    "timestamps in UTC instead of the project timezone."
+    "modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so "
+    "timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead."
 )
 
 
