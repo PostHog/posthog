@@ -18,6 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 
+from products.signals.backend.auto_start import RequestedImplementationFailed, RequestedImplementationUnavailable
 from products.signals.backend.models import SignalTeamConfig
 from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -38,6 +39,7 @@ from products.signals.backend.temporal.summary import (
     ReportIsCandidateInput,
     SignalReportSummaryWorkflow,
     implementation_buffer_seconds_activity,
+    maybe_autostart_implementation_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
@@ -288,6 +290,26 @@ async def test_requested_implementation_reaches_settle_after_fresh_research():
     assert len(recorder.autostart_inputs) == 1
     assert recorder.autostart_inputs[0].requested_user_id == 42
     assert recorder.autostart_inputs[0].requested_after_run_count == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,expect_retry",
+    [
+        (RequestedImplementationUnavailable("The completed research is not actionable"), False),
+        (RequestedImplementationFailed("The new implementation run could not be read"), True),
+    ],
+)
+async def test_requested_implementation_retries_only_real_failures(error, expect_retry):
+    request = MaybeAutostartImplementationInput(
+        team_id=1, report_id=str(uuid.uuid4()), requested_user_id=42, requested_after_run_count=5
+    )
+    with patch(f"{SUMMARY_MODULE_PATH}.start_requested_implementation", side_effect=error):
+        if expect_retry:
+            with pytest.raises(RequestedImplementationFailed):
+                await maybe_autostart_implementation_activity(request)
+        else:
+            await maybe_autostart_implementation_activity(request)
 
 
 @pytest.mark.asyncio
