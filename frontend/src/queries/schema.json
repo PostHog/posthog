@@ -9084,6 +9084,13 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -25880,6 +25887,64 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthFinding": {
+            "additionalProperties": false,
+            "description": "A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`.",
+            "properties": {
+                "actions": {
+                    "description": "The actions that fix the problem, in order of preference.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFindingActionKind"
+                    },
+                    "type": "array"
+                },
+                "code": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingCode",
+                    "description": "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+                },
+                "detail": {
+                    "description": "What is wrong, what it does to the experiment, and how to fix it.",
+                    "type": "string"
+                },
+                "diagnostic_ref": {
+                    "description": "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none.",
+                    "type": ["string", "null"]
+                },
+                "evidence": {
+                    "additionalProperties": {
+                        "type": ["string", "number", "null"]
+                    },
+                    "description": "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.",
+                    "type": "object"
+                },
+                "severity": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingSeverity",
+                    "description": "How much the problem affects the results: critical, warning, or info."
+                },
+                "subcode": {
+                    "description": "The case within the code, when a code covers several. Null when the code has one case.",
+                    "type": ["string", "null"]
+                },
+                "title": {
+                    "description": "One-line summary of the problem.",
+                    "type": "string"
+                }
+            },
+            "required": ["code", "subcode", "severity", "title", "detail", "evidence", "actions", "diagnostic_ref"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthFindingActionKind": {
+            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingCode": {
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingSeverity": {
+            "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
         "ExperimentExposureNode": {
             "additionalProperties": false,
             "description": "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
@@ -25953,6 +26018,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -43649,6 +43721,13 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "health_findings": {
+                            "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                            },
+                            "type": "array"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",
