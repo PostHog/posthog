@@ -187,6 +187,8 @@ class TestApplyApprovedEncryptedPayloads(APIBaseTest):
         # dropping a fallback key while a change request is still open.
         foreign_codec = FlagPayloadCodec.from_keys("k" * 32, [], require_min_length=False)
         change_request = self._change_request(flag, {"true": foreign_codec.encrypt(b'"unreachable"').decode("utf-8")})
+        old_updated_at = timezone.now() - timedelta(days=1)
+        ChangeRequest.objects.filter(pk=change_request.pk).update(updated_at=old_updated_at)
 
         with self.assertRaises(ApplyFailed):
             apply_change_request(change_request)
@@ -194,6 +196,8 @@ class TestApplyApprovedEncryptedPayloads(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
         assert flag.filters["payloads"]["true"] == stored_payload
+        change_request.refresh_from_db()
+        assert change_request.updated_at > old_updated_at
 
 
 class TestApplyRechecksOwnership(APIBaseTest):
@@ -396,6 +400,8 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             created_by=self.user,
         )
         change_request = self._change_request(flag)
+        old_updated_at = timezone.now() - timedelta(days=1)
+        ChangeRequest.objects.filter(pk=change_request.pk).update(updated_at=old_updated_at)
         if revoke:
             self._revoke_flag_access()
 
@@ -411,3 +417,4 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             change_request.refresh_from_db()
             assert change_request.validation_status == ValidationStatus.INVALID
             assert change_request.state == ChangeRequestState.FAILED
+            assert change_request.updated_at > old_updated_at

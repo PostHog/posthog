@@ -105,8 +105,9 @@ def _assert_requester_still_has_access(change_request: ChangeRequest, context: d
     this, someone who loses edit access between asking and approval still gets their change
     landed, and approval becomes a way to outlive your own permissions.
 
-    The request is marked invalid rather than failed. The periodic validation task clears that
-    mark once access returns, so the request becomes applicable again on its own.
+    The request keeps invalid validation metadata for diagnosis, but the failed apply is terminal.
+    The periodic validation task only checks pending and approved requests, so restoring access does
+    not retry it. The requester must submit a new request after access is restored.
     """
     if requester_still_has_access(change_request, context):
         return
@@ -244,7 +245,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         if change_request.state != ChangeRequestState.FAILED:
             change_request.state = ChangeRequestState.FAILED
             change_request.apply_error = f"Precondition failed: {str(e)}"
-            change_request.save(update_fields=["state", "apply_error"])
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
 
         logger.warning(
             "Failed to apply ChangeRequest: precondition failed",
@@ -259,7 +260,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         if change_request.state != ChangeRequestState.FAILED:
             change_request.state = ChangeRequestState.FAILED
             change_request.apply_error = str(e)
-            change_request.save(update_fields=["state", "apply_error"])
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
 
         logger.error(
             "Failed to apply ChangeRequest",
