@@ -750,7 +750,6 @@ ignore_imports = [
     # own entries, keeping its header. backend:contract-check stays off until this list is empty.
     # Only delete entries here: a new import from these views goes through the facade.
     # Lane A: suppression
-    "products.messaging.backend.presentation.views.message_suppression -> products.messaging.backend.models.message_suppression",
     # Lane B: categories, Customer.io config and the Customer.io webhook
     # Lane C: preferences and the recipient preferences page
     # Lane D: templates
