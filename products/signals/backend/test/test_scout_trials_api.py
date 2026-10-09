@@ -782,6 +782,37 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert second.json() == result
         assert self.documents[result["result_key"]] == saved_content
 
+    @parameterized.expand([("pending",), ("failed",)])
+    def test_poll_reports_trial_without_private_state_as_invalid(
+        self, workflow_status: Literal["pending", "failed"]
+    ) -> None:
+        self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        run = _make_run(
+            self.team,
+            scout_config=self.config,
+            skill_name=self.skill.name,
+            trial_state=None,
+            metadata={"scout_trial": {"version": 1, "launch_id": str(launch.id), "context_id": str(launch.context_id)}},
+        )
+        run.task_run.task.created_by = self.user
+        run.task_run.task.save(update_fields=["created_by"])
+        url = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/trial_result/"
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda key, **kwargs: self.documents.get(key)),
+            patch("posthog.storage.object_storage.write", side_effect=self._write),
+            patch(
+                "products.signals.backend.scout_harness.trial_views.get_trial_workflow_status",
+                return_value=TrialWorkflowStatus(status=workflow_status),
+            ),
+        ):
+            response = self.client.get(url, {"launch_id": str(launch.id)})
+        assert response.status_code == 200, response.data
+        result = response.json()
+        assert result["invalid_reason"] == "The scout run has no private state."
+        assert result["reports"] == []
+        assert result["memory"] == {}
+
     def test_evaluation_endpoints_save_exact_request_and_reject_another_operator(self) -> None:
         base = self._internal_scout_base()
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), variant="Baseline")
