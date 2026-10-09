@@ -181,6 +181,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: ?open_view={id}
+        hooks: dataWarehouse/viewGetHooks
         title: Get saved query
         description: >
             Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
