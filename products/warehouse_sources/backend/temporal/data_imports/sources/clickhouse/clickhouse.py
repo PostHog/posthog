@@ -1169,12 +1169,16 @@ def _get_incremental_row_count(
     quoted_field = _quote_identifier(incremental_field)
     last_value_expr = _last_value_expr(incremental_field_type)
     query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
+    parameters = {"last_value": _last_value_param(last_value, incremental_field_type)}
     try:
-        result = client.query(
-            query,
-            parameters={"last_value": _last_value_param(last_value, incremental_field_type)},
-            settings={"max_execution_time": 30},
-        )
+        try:
+            result = client.query(query, parameters=parameters, settings={"max_execution_time": 30})
+        except ProgrammingError:
+            # A readonly user profile refuses every setting (see `_apply_session_settings`), and the
+            # driver raises before it sends the query. The total-table count the caller falls back to
+            # is also the size the billing limit check gives this sync, so one large table can then
+            # stop every sync of the team. The server's own limits bound the count instead.
+            result = client.query(query, parameters=parameters)
     except ClickHouseError as e:
         logger.debug(f"_get_incremental_row_count: fell back, count query failed: {e}")
         return None

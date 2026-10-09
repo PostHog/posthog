@@ -416,7 +416,7 @@ export interface ModelExplanationFieldApi {
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
 
 /**
- * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+ * Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts.
  */
 export type AutoresearchModelApiMetrics = { [key: string]: unknown }
 
@@ -452,7 +452,7 @@ export interface AutoresearchModelApi {
      * @nullable
      */
     calibration_error?: number | null
-    /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
+    /** Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts. */
     metrics?: AutoresearchModelApiMetrics
     /**
      * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
@@ -1413,6 +1413,38 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface ConfusionCountsApi {
+    /** True positives: flagged users who did the target event. */
+    tp: number
+    /** False positives: flagged users who did not do the target event. */
+    fp: number
+    /** False negatives: users not flagged who did the target event. */
+    fn: number
+    /** True negatives: users not flagged who did not do the target event. */
+    tn: number
+    /** Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the boundary score, so this can be a little above k. */
+    n_flagged: number
+    /**
+     * tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.
+     * @nullable
+     */
+    precision: number | null
+    /**
+     * tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it.
+     * @nullable
+     */
+    recall: number | null
+}
+
+export interface ConfusionByCutoffApi {
+    /** Counts when the top 10% of users by score are flagged. */
+    top_10: ConfusionCountsApi
+    /** Counts when the top 20% of users by score are flagged. */
+    top_20: ConfusionCountsApi
+    /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+    likely: ConfusionCountsApi
+}
+
 export interface CalibrationBinApi {
     /** Number of scored users in this bin. */
     n: number
@@ -1483,6 +1515,13 @@ export interface OnlinePerformanceRowApi {
      * @nullable
      */
     lift_at_20: number | null
+    /**
+     * Average precision: area under the precision-recall curve. Higher is better, and a random model scores about base_rate. Null when no scored user did the target event, or for dates validated before this metric existed.
+     * @nullable
+     */
+    average_precision: number | null
+    /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
+    confusion: ConfusionByCutoffApi | null
     /**
      * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
      * @nullable

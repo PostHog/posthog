@@ -16,27 +16,28 @@ from rest_framework.response import Response
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.api.settings import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.requested_reviews import (
+    RUN_MODE_FLASH,
+    RUN_MODE_RESOLVE_ONLY,
+    RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
+    PRReviewRequestStatus,
+    request_pr_review,
+)
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
+from products.review_hog.backend.reviewer.constants import effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import (
-    lift_review_tier_for_joined_trigger,
-    load_chunk_set,
-    load_findings_bundle,
-    load_turn_findings,
-)
+from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
 from products.review_hog.backend.reviewer.progress import (
     IN_PROGRESS_STALE_AFTER,
     RESOLUTION_RESOLVING,
@@ -50,15 +51,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
-from products.review_hog.backend.reviewer.review_state import review_already_published
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
-from products.review_hog.backend.temporal.client import (
-    start_resolution_workflow,
-    start_review_pr_workflow,
-    workflow_running,
-)
-from products.review_hog.backend.temporal.types import TRIGGER_UI, resolve_pr_workflow_id, review_pr_workflow_id
+from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +102,9 @@ class ReviewProgressSerializer(serializers.Serializer):
         choices=REVIEW_STAGES,
         help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
         "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
-        "or finalizing (building and publishing the review).",
+        "or finalizing (building and publishing the review). A single-agent Flash turn reports its "
+        "own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and "
+        "finalizing (merging, capping, and publishing the findings).",
     )
     done = serializers.IntegerField(
         allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."
@@ -247,13 +242,11 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     )
 
 
-# What the trigger runs. The default 'review' includes the resolution stage when the requesting
-# user's `resolve_comments` setting is on; the others are the split button's explicit variants.
-# Flash never resolves comments because it must not write code.
-RUN_MODE_REVIEW = "review"
-RUN_MODE_REVIEW_ONLY = "review_only"
-RUN_MODE_RESOLVE_ONLY = "resolve_only"
-RUN_MODE_FLASH = "flash"
+_TRIGGER_REFUSAL_STATUS = {
+    PRReviewRequestStatus.INVALID: status.HTTP_400_BAD_REQUEST,
+    PRReviewRequestStatus.NOT_ALLOWED: status.HTTP_403_FORBIDDEN,
+    PRReviewRequestStatus.BUSY: status.HTTP_409_CONFLICT,
+}
 
 
 class ReviewTriggerRequestSerializer(serializers.Serializer):
@@ -382,22 +375,6 @@ class _PageEnvelopeSchema(AutoSchema):
         if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
             return operation_id.removesuffix("_retrieve") + "_list"
         return operation_id
-
-
-def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
-    """One `GET /pulls/{n}` with the installation token — enough to answer the trigger honestly.
-
-    Raises `GitHubAPIError` (404 for a nonexistent PR); the caller maps it to a clear response.
-    """
-    token, installation_id = github.get_access_token(), github.github_installation_id
-    pr = github_api_request(
-        "GET",
-        f"/repos/{owner}/{repo}/pulls/{pr_number}",
-        token=token,
-        installation_id=installation_id,
-        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-    ).json()
-    return PRFetcher(owner=owner, repo=repo, pr_number=pr_number, token=token).fetch_pr_metadata(pr)
 
 
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
@@ -738,13 +715,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        run_mode: str = serializer.validated_data["run_mode"]
-        # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
-        if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
-            return Response(
-                {"error": "Flash reviews aren't available in this project. Start a regular review instead."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         try:
             pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
         except ValueError:
@@ -754,137 +724,25 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        repository = f"{pr_info['owner']}/{pr_info['repo']}"
-        # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
-        # asynchronously the fetch activity would fail before the report row exists, showing nothing.
         try:
-            github = GitHubIntegration.first_for_team_repository(team_id, repository)
-        except GitHubRateLimitError as e:
-            return github_rate_limited_response(e)
-        if github is None:
-            return Response(
-                {
-                    "error": f"PostHog Review's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        pr_number = int(pr_info["pr_number"])
-        # One PR fetch so the answer is honest: without it a typo'd number or fork dies async (before
-        # the report row exists — nothing appears), and an already-reviewed head silently no-ops while
-        # the response still claims "started". Fork/closed rejection here is UX; the fetch activity
-        # keeps the authoritative fork gate.
-        try:
-            pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
-        except GitHubRateLimitError as e:
-            return github_rate_limited_response(e)
-        except GitHubAPIError as e:
-            if e.status == 404:
-                return Response(
-                    {"error": f"No pull request #{pr_number} found in {repository}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            raise
-        if pr_meta.is_fork:
-            return Response(
-                {"error": "PostHog Review doesn't review fork pull requests (a fork's head can't be trusted)"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if pr_meta.state != "open":
-            return Response(
-                {
-                    "error": f"Pull request #{pr_number} is {pr_meta.state}; PostHog Review only reviews open pull requests"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        # The busy-guard (CONTEXT.md): Temporal joins same-id starts on its own, but a review and
-        # this PR's resolution run under different workflow ids, so the cross-stage check is
-        # explicit — and the answer is a refusal, not a queue.
-        pr_owner, pr_repo = str(pr_info["owner"]), str(pr_info["repo"])
-        if run_mode == RUN_MODE_RESOLVE_ONLY:
-            if workflow_running(
-                review_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-            ):
-                return Response(
-                    {
-                        "error": "A review is already running on this pull request. It resolves comments when it finishes."
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
-        elif workflow_running(
-            resolve_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-        ):
-            return Response(
-                {"error": "Still resolving comments from the last review. Try again when it finishes."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
-        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
-        # The requester is both the run user (sandbox identity) and the acting user (whose
-        # perspectives/validator/threshold/criteria apply). The route is authenticated, so never anonymous.
-        requester_id = cast(User, request.user).id
-
-        if run_mode == RUN_MODE_RESOLVE_ONLY:
-            # No already-reviewed early-return here: an already-reviewed head is exactly when a
-            # standalone resolution run is useful (the threads exist, the review won't re-run).
-            workflow_id = start_resolution_workflow(
-                pr_url=pr_url,
+            outcome = request_pr_review(
                 team_id=team_id,
-                user_id=requester_id,
-                acting_user_id=requester_id,
-                trigger_source=TRIGGER_UI,
+                # The route is authenticated, so never anonymous.
+                requester_id=cast(User, request.user).id,
+                owner=str(pr_info["owner"]),
+                repo=str(pr_info["repo"]),
+                pr_number=int(pr_info["pr_number"]),
+                run_mode=serializer.validated_data["run_mode"],
             )
-            logger.info(f"ReviewHog UI trigger started resolution {workflow_id} for {pr_url} by user {requester_id}")
-            return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
-                status=status.HTTP_202_ACCEPTED,
-            )
-
-        # Repository casing can differ per trigger (the report stores whatever its trigger carried).
-        report = (
-            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
-        )
-        review_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
-        if report is not None and review_already_published(report, pr_meta.head_sha or "", review_mode):
-            # The workflow would early-exit before resolving the acting user anyway — say so instead
-            # of answering "started" for a run that will do nothing.
-            return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
-                status=status.HTTP_200_OK,
-            )
-        # Probed before the start: a same-id start joins the running turn, whose inputs keep the
-        # original trigger, so the requester's tier lift has to be written here (see the helper).
-        joins_running_review = workflow_running(
-            review_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-        )
-        workflow_id = start_review_pr_workflow(
-            pr_url=pr_url,
-            team_id=team_id,
-            user_id=requester_id,
-            publish=True,
-            acting_user_id=requester_id,
-            trigger_source=TRIGGER_UI,
-            # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
-            resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
-            review_mode=review_mode,
-            requested_head_sha=pr_meta.head_sha,
-        )
-        if joins_running_review:
-            # Flash is excluded for the same reason the fetch upsert excludes it: the lift rewrites
-            # the persisted arm, so the cheapest request must not raise what later turns cost.
-            lifted = run_mode != RUN_MODE_FLASH and lift_review_tier_for_joined_trigger(
-                team_id=team_id, repository=repository, pr_number=pr_number
-            )
-            logger.info(
-                f"ReviewHog UI trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})"
-            )
-            return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "joined_running_review"}).data,
-                status=status.HTTP_202_ACCEPTED,
-            )
-        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if outcome.error:
+            return Response({"error": outcome.error}, status=_TRIGGER_REFUSAL_STATUS[outcome.status])
         return Response(
-            ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
-            status=status.HTTP_202_ACCEPTED,
+            ReviewTriggerResponseSerializer({"workflow_id": outcome.workflow_id, "status": outcome.status.value}).data,
+            status=status.HTTP_200_OK
+            if outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED
+            else status.HTTP_202_ACCEPTED,
         )
 
     @extend_schema(

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import pytest
@@ -38,6 +39,11 @@ class TestGustoSource:
         assert self.source.supported_versions == (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
         assert self.source.default_version == GUSTO_API_VERSION_2026_06_15
         assert self.source.api_docs_url.startswith("https://")
+
+    def test_older_version_is_deprecated_with_the_vendor_sunset_date(self) -> None:
+        deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
+        assert deprecation is not None and deprecation.sunset_at == date(2026, 6, 15)
+        assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_only_date_filtered_endpoints_are_incremental(self, endpoint: str) -> None:

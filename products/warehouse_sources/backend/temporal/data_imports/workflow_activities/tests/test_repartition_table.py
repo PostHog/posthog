@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
     RepartitionStoppedError,
+    RepartitionTooLargeForBudgetError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
     _defer_to_full_refresh,
+    _defer_to_reset,
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
     _rewrite_deadline,
@@ -47,6 +49,7 @@ JOB_ID = str(uuid.uuid4())
 SOURCE_ID = str(uuid.uuid4())
 TEMP_URI = "s3://bucket/folder/table__repartition_tmp_1a2b3c4d"
 OTHER_TEMP_URI = "s3://bucket/folder/table__repartition_tmp_5e6f7a8b"
+CHECKPOINT = {"temp_uri": TEMP_URI, "rows_written": 10, "held_at": "2026-01-01T00:00:00+00:00"}
 
 PENDING_TARGET = {
     "partition_mode": "datetime",
@@ -1452,3 +1455,258 @@ class TestFullRefreshDeferral:
             # A fresh claim fences out a rewrite attempt that may still be running as a zombie.
             schema.set_repartition_claim.assert_called_once()
             assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
+
+
+def _reset_schema(
+    *,
+    sync_type: str = "incremental",
+    config_reset: bool = False,
+    pending: dict | None = PENDING_TARGET,
+    swap: dict | None = None,
+    rewrite: dict | None = None,
+    initial_sync_complete: bool = True,
+) -> MagicMock:
+    schema = _schema(name="contacts", s3_folder_name="contacts", pending=pending, swap=swap, rewrite=rewrite)
+    schema.sync_type = sync_type
+    schema.is_webhook = sync_type == "webhook"
+    schema.sync_type_config = {"reset_pipeline": True} if config_reset else {}
+    schema.initial_sync_complete = initial_sync_complete
+    return schema
+
+
+class TestResetDeferral:
+    @pytest.mark.parametrize(
+        "sync_type, config_reset, workflow_reset, swap, expect_rewrite",
+        [
+            ("incremental", True, None, None, False),
+            ("append", True, None, None, False),
+            ("incremental", False, True, None, False),
+            ("incremental", False, None, None, True),
+            ("incremental", True, False, None, True),
+            ("webhook", True, None, None, True),
+            ("incremental", True, None, {"state": "ready", "temp_uri": TEMP_URI}, True),
+        ],
+        ids=[
+            "reset_in_schema_config_defers",
+            "reset_of_an_append_table_defers",
+            "reset_in_workflow_input_defers",
+            "no_reset_rewrites",
+            "workflow_input_overrules_the_schema_config",
+            "webhook_reset_keeps_the_table_so_rewrites",
+            "staged_swap_still_completes",
+        ],
+    )
+    @patch(f"{MODULE}.clear_repartition_checkpoint_if_claimed")
+    @patch(f"{MODULE}.release_repartition_hold_if_claimed")
+    @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_table_that_the_import_replaces_is_not_rewritten(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        mock_defer_full_refresh: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture: MagicMock,
+        mock_purge: AsyncMock,
+        _mock_release: MagicMock,
+        mock_clear_checkpoint: MagicMock,
+        sync_type: str,
+        config_reset: bool,
+        workflow_reset: bool | None,
+        swap: dict | None,
+        expect_rewrite: bool,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(sync_type=sync_type, config_reset=config_reset, swap=swap, rewrite=dict(CHECKPOINT))
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+        mock_purge.return_value = True
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(
+                team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID, reset_pipeline=workflow_reset
+            ),
+            MagicMock(),
+        )
+
+        assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+        mock_defer_full_refresh.assert_not_awaited()
+        if expect_rewrite:
+            mock_purge.assert_not_awaited()
+            return
+        # The queued target stays for the reset to write, and for a later rewrite if no reset happens.
+        assert schema.repartition_pending == PENDING_TARGET
+        schema.set_repartition_pending.assert_not_called()
+        schema.clear_repartition_pending.assert_not_called()
+        schema.stamp_last_repartition_at.assert_not_called()
+        schema.set_repartition_claim.assert_called_once()
+        assert mock_purge.await_args is not None
+        assert mock_purge.await_args.args[2] == TEMP_URI
+        assert mock_clear_checkpoint.call_args.kwargs["temp_uri"] == TEMP_URI
+        assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
+        assert mock_capture.call_args.args[1]["reason"] == "reset_replaces_the_table"
+
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_cleared_reset_rewrites_on_the_next_run(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture: MagicMock,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(config_reset=True)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+        inputs = RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID)
+
+        _maybe_repartition_table(inputs, MagicMock())
+        mock_repartition.assert_not_awaited()
+
+        schema.sync_type_config = {}
+        _maybe_repartition_table(inputs, MagicMock())
+
+        mock_repartition.assert_awaited_once()
+        assert mock_repartition.await_args is not None
+        assert mock_repartition.await_args.kwargs["target"].partition_format == PENDING_TARGET["partition_format"]
+
+    @pytest.mark.parametrize(
+        "initial_sync_complete, expect_measured",
+        [(True, True), (False, False)],
+        ids=["complete_table_is_measured", "partly_loaded_table_is_not_measured"],
+    )
+    @patch(f"{MODULE}._maybe_flag_pre_extraction")
+    @patch(f"{MODULE}.needs_pre_extraction_detection", return_value=True)
+    @patch(f"{MODULE}.pre_extraction_measurement_is_redundant", return_value=False)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_pending_reset_only_takes_a_target_from_a_complete_table(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_capture: MagicMock,
+        _mock_redundant: MagicMock,
+        _mock_needs_detection: MagicMock,
+        mock_flag: MagicMock,
+        initial_sync_complete: bool,
+        expect_measured: bool,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(config_reset=True, pending=None, initial_sync_complete=initial_sync_complete)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_flag.return_value = PENDING_TARGET
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert mock_flag.call_count == (1 if expect_measured else 0)
+        mock_repartition.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "purge_result, expect_checkpoint_cleared",
+        [(True, True), (False, False), (OSError("delete failed"), False)],
+        ids=["deleted", "refused", "failed"],
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.clear_repartition_checkpoint_if_claimed")
+    @patch(f"{MODULE}.release_repartition_hold_if_claimed")
+    @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
+    def test_the_checkpoint_stays_until_its_temp_table_is_deleted(
+        self,
+        mock_purge: AsyncMock,
+        mock_release: MagicMock,
+        mock_clear_checkpoint: MagicMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture: MagicMock,
+        _mock_capture_exception: MagicMock,
+        purge_result: bool | Exception,
+        expect_checkpoint_cleared: bool,
+    ) -> None:
+        schema = _reset_schema(config_reset=True, rewrite=dict(CHECKPOINT))
+        if isinstance(purge_result, Exception):
+            mock_purge.side_effect = purge_result
+        else:
+            mock_purge.return_value = purge_result
+
+        _defer_to_reset(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            schema,
+            MagicMock(),
+            "proactive_threshold",
+            MagicMock(),
+        )
+
+        # A checkpoint that stays must not hold the import that does the reset.
+        mock_release.assert_called_once()
+        assert mock_clear_checkpoint.call_count == (1 if expect_checkpoint_cleared else 0)
+
+
+class TestAbandonedTempCleanup:
+    @pytest.mark.parametrize(
+        "attempts, rewrite_error",
+        [
+            (0, RepartitionTooLargeForBudgetError("one budget cannot cover the table")),
+            (MAX_REPARTITION_ATTEMPTS - 1, ValueError("rewrite failed")),
+            (MAX_REPARTITION_ATTEMPTS, None),
+        ],
+        ids=["too_large_for_budget", "failed_on_the_last_attempt", "attempts_spent_before_the_rewrite"],
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_rewrite_that_is_given_up_deletes_its_temp_table(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture: MagicMock,
+        mock_purge: AsyncMock,
+        _mock_capture_exception: MagicMock,
+        attempts: int,
+        rewrite_error: Exception | None,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(pending={**PENDING_TARGET, "attempts": attempts}, rewrite=dict(CHECKPOINT))
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = rewrite_error
+        mock_purge.return_value = True
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_purge.assert_awaited_once()
+        assert mock_purge.await_args is not None
+        assert mock_purge.await_args.args[2] == TEMP_URI

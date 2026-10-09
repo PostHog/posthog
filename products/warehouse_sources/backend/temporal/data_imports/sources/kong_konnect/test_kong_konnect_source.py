@@ -36,7 +36,7 @@ class TestGetSchemas:
         assert schemas["api_requests"].supports_incremental is True
         assert [f["field"] for f in schemas["api_requests"].incremental_fields] == ["request_start"]
         # The lookup list endpoints have no server-side timestamp filter, so they must stay full refresh.
-        for name in ("control_planes", "services", "routes", "consumers"):
+        for name in set(schemas) - {"api_requests"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 

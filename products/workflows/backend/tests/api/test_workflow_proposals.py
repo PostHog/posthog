@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -451,6 +452,11 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).exit_condition == "exit_on_trigger_not_matched"
         assert HogFlow.objects.get(id=flow_id).draft is None
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
+        )
+        assert rejected.status_code == 200, rejected.json()
+        assert rejected.json()["is_stale"] is True
 
     def test_a_field_change_still_approves_after_an_edit_elsewhere(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -1317,35 +1323,68 @@ class TestWorkflowProposals(APIBaseTest):
         assert "proposal_approved" in activities
         assert "proposal_rejected" in activities
 
-    def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
+    @parameterized.expand(
+        [
+            (
+                "with a reason",
+                {"reason": "  This is the sign-off email, it is not meant to convert.  "},
+                "This is the sign-off email, it is not meant to convert.",
+            ),
+            ("without a body", {}, ""),
+        ]
+    )
+    def test_the_producer_reads_why_a_suggestion_was_rejected(self, _mock_flag, _name: str, body: dict, expected: str):
         flow_id = self._create_active_flow()
-        flow = HogFlow.objects.get(id=flow_id)
-        written_first = WorkflowProposal(
-            hog_flow=flow,
-            team=self.team,
-            title="Written first, shipped last",
-            rationale="Approved after the other one had already shipped.",
-            content={"exit_condition": "exit_on_conversion"},
-            base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=3,
-        )
-        written_first.save()
-        written_last = WorkflowProposal(
-            hog_flow=flow,
-            team=self.team,
-            title="Written last, shipped first",
-            rationale="Approved and published before the other one.",
-            content={"exit_condition": "exit_on_conversion"},
-            base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=2,
-        )
-        written_last.save()
+        proposal = self._propose(flow_id)
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=applied&limit=1")
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", body, format="json"
+        )
+        assert rejected.status_code == 200, rejected.json()
+        self.client.logout()
+
+        listed = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=rejected",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
         assert listed.status_code == 200, listed.json()
-        assert [row["id"] for row in listed.json()["results"]] == [str(written_first.id)]
+        assert [row["rejection_reason"] for row in listed.json()["results"]] == [expected]
+
+    @parameterized.expand(
+        [
+            ("applied", WorkflowProposal.Status.APPLIED, [{"applied_version": v} for v in (3, 4, 2)]),
+            (
+                "rejected",
+                WorkflowProposal.Status.REJECTED,
+                [{"resolved_at": datetime(2026, 5, day, tzinfo=UTC)} for day in (3, 4, 2)],
+            ),
+        ]
+    )
+    def test_resolved_suggestions_are_listed_by_when_they_were_resolved(
+        self, _mock_flag, status: str, kind: str, resolutions: list[dict]
+    ):
+        flow = HogFlow.objects.get(id=self._create_active_flow())
+        proposals = []
+        for index, resolution in enumerate(resolutions):
+            proposal = WorkflowProposal(
+                hog_flow=flow,
+                team=self.team,
+                title=f"Written {index + 1}",
+                rationale="Resolved out of filing order.",
+                content={"exit_condition": "exit_on_conversion"},
+                base_version=1,
+                status=kind,
+                **resolution,
+            )
+            proposal.save()
+            WorkflowProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
+                created_at=datetime(2026, 5, 1, index, tzinfo=UTC)
+            )
+            proposals.append(proposal)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}/proposals/?status={status}")
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(proposals[i].id) for i in (1, 0, 2)]
 
 
 @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=False)

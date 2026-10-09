@@ -8129,9 +8129,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -8295,6 +8295,25 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition1Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
 export interface BIDataSourceApi {
     connectionId?: string | null
     table: string
@@ -8326,10 +8345,17 @@ export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
     expression: string
     id: string
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
 }
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
 
 export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
 
@@ -8485,11 +8511,15 @@ export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
     /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
     missingDates?: MissingDatesApi | null
     resultFilterGroup?: BIConditionGroupApi | null

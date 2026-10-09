@@ -71,7 +71,7 @@ To retry specific failures, select failed or stale rows in `Managed warehouse vi
 
 The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
 
-Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
+Data modeling shadow materialization starts when its feature flag is enabled, the managed warehouse is provisioned, and the organization has a ready Trino target. Each dispatched job compiles its current HogQL in Django expansion mode and executes the generated Trino SQL with bound parameters. Endpoint queries are prepared before compilation. The shadow path does not read stored translation results; the manual translation pass remains available for diagnostics. Compilation errors are recorded as failed modeling jobs.
 
 Trino shadow materialization has a six-hour execution deadline. Its Temporal activity allows six hours and five minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
 

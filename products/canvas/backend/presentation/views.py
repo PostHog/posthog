@@ -2,7 +2,7 @@ import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBase
@@ -26,10 +26,11 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.permissions import is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
@@ -48,7 +49,6 @@ from products.canvas.backend.facade.api import (
     validate_source_project,
 )
 from products.canvas.backend.facade.contracts import (
-    CanvasAccessDeniedError,
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
     CanvasFieldChange,
@@ -116,9 +116,6 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -456,28 +453,21 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return CanvasAccess.DELETE
         return CanvasAccess.WRITE
 
-    def _object_access(self) -> tuple["UserAccessControl | None", str | None]:
-        """The access control and level that `AccessControlPermission.has_object_permission` would check."""
-        # Service credentials are synthetic users that UserAccessControl cannot evaluate.
-        if is_service_auth(self.request):
-            return None, None
-        return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
+    def _check_object_access(self, canvas: CanvasRecord) -> None:
+        """Run the view's object permissions on a canvas the facade returned, as `get_object` would on a model."""
+        ref = ObjectAccessRef(
+            resource="canvas", id=str(canvas.id), team_id=canvas.team_id, created_by_id=canvas.created_by_id
+        )
+        self.check_object_permissions(self.request, ref)
 
     def _canvas(self) -> CanvasRecord:
-        """The canvas in the URL, or 404 when the current action may not reach it."""
-        user_access_control, required_level = self._object_access()
+        """The canvas in the URL, or 404 when the current action may not reach it, or 403 below the required level."""
         try:
-            return canvas_api.get_canvas(
-                self._viewer(),
-                self._access(),
-                self.kwargs["pk"],
-                user_access_control=user_access_control,
-                required_level=required_level,
-            )
+            canvas = canvas_api.get_canvas(self._viewer(), self._access(), self.kwargs["pk"])
         except CanvasNotFoundError:
             raise NotFound()
-        except CanvasAccessDeniedError as denied:
-            raise PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
+        self._check_object_access(canvas)
+        return canvas
 
     def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
         """The standard limit/offset envelope around one facade page."""
@@ -698,18 +688,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         (freeform/component) or the layout document (grid). Send the response's
         ETag back as If-None-Match to revalidate without a body.
         """
-        user_access_control, required_level = self._object_access()
+        # Check access before open_canvas reads object storage.
+        canvas = self._canvas()
         try:
-            opened = canvas_api.open_canvas(
-                self._viewer(),
-                self.kwargs["pk"],
-                user_access_control=user_access_control,
-                required_level=required_level,
-            )
+            opened = canvas_api.open_canvas(self._viewer(), canvas.id)
         except CanvasNotFoundError:
             raise NotFound()
-        except CanvasAccessDeniedError as denied:
-            raise PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
         instance: dict[str, Any] = {
             "canvas": opened.canvas,
             "published_build": opened.published_build,

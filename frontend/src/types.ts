@@ -42,6 +42,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import type {
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -87,6 +88,7 @@ import { QueryContext } from '~/queries/types'
 
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
+import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -111,6 +113,7 @@ import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.s
 import type {
     ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
+    RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -612,7 +615,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[]
+    teams: (TeamBasicType & Partial<Pick<OrganizationTeamBasicApi, 'project_group'>>)[]
     projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
@@ -1140,6 +1143,7 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
+    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -2407,6 +2411,8 @@ export interface BillingProductV2Type {
     included_with_main_product?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
+    // Billing refuses a customer billing limit for this product and returns no limit for it.
+    no_billing_limit?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -4863,8 +4869,6 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
-    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
-    ai_gateway_url?: string | null
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean
@@ -6521,6 +6525,7 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    connection_warning?: string | null
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {
@@ -6726,6 +6731,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
      */
     row_filters?: RowFilter[] | null
+    /** Columns a row filter may use; null means any column in `available_columns`. */
+    row_filter_columns?: readonly RowFilterColumnApi[] | null
     /** User-managed vendor API version override; null syncs on the source's pinned version */
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
@@ -7003,8 +7010,6 @@ export type DataWarehouseSyncInterval =
 export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
-    // User provided data for the export. This is the data that the user
-    // provides when creating the export.
     id: string
     team_id: number
     name: string
@@ -7018,6 +7023,8 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
