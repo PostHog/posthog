@@ -205,9 +205,11 @@ EVENTS_JSON = DeletionTarget(
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
 # events-shaped table. Property removal rewrites its event properties. Its producer stopped sending
 # person_properties on 2026-09-05 (#95693); a row the table stored before then is out of property
-# removal's reach until its TTL passes. A HogQL predicate does not compile against the table, which
-# limits immediate event removal and property removal there; both limits are explained in
-# docs/internal/clickhouse-deletion-coverage.md.
+# removal's reach until its TTL passes. A HogQL predicate does not compile against the table, so a
+# request that carries one never sweeps it. Immediate event removal with a predicate leaves the
+# matching rows to the TTL. Deferred event removal and property removal with a predicate refuse
+# while the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md explains these
+# limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
