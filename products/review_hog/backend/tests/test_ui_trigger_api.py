@@ -108,23 +108,41 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
 
-    @patch(_META, return_value=_pr_meta())
+    @patch(_META, return_value=_pr_meta(author="teammate"))
     @patch(_ACCESS, return_value=object())
+    @patch(_START_RESOLUTION, return_value="wf-resolve-1")
     @patch(_START, return_value="wf-comment-1")
-    def test_comment_facade_never_resolves_comments(self, mock_start, _mock_access, _mock_meta):
-        # A comment run acts with the commenter's settings, so an unpinned None would let the
-        # commenter's resolve_comments setting write commits to someone else's branch.
-        outcome = request_pr_review_from_comment(
-            team_id=self.team.id,
-            requester_id=self.user.id,
-            repository="PostHog/posthog.com",
-            pr_number=123,
-            run_mode="review",
+    def test_comment_facade_follows_the_pr_owner_rule(self, mock_start, mock_start_resolution, *_mocks):
+        # The commenter opted in, the PR owner did not: the commenter's opt-in must not write commits
+        # to the owner's branch, and the review leaves resolution to the owner's setting (None).
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"resolve_comments": True}
         )
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        UserSocialAuth.objects.create(user=teammate, provider="github", uid="gh-2", extra_data={"login": "teammate"})
 
-        self.assertEqual(outcome.workflow_id, "wf-comment-1")
+        with patch(_INTERNAL_FLAG, return_value=True):
+            review = request_pr_review_from_comment(
+                team_id=self.team.id,
+                requester_id=self.user.id,
+                repository="PostHog/posthog.com",
+                pr_number=123,
+                run_mode="review",
+            )
+            resolve_only = request_pr_review_from_comment(
+                team_id=self.team.id,
+                requester_id=self.user.id,
+                repository="PostHog/posthog.com",
+                pr_number=123,
+                run_mode="resolve_only",
+            )
+
+        self.assertEqual(review.workflow_id, "wf-comment-1")
         self.assertEqual(mock_start.call_args.kwargs["trigger_source"], "comment")
-        self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+        self.assertIsNone(mock_start.call_args.kwargs["resolve_comments"])
+        self.assertEqual(resolve_only.status, PRReviewRequestStatus.REFUSED)
+        self.assertEqual(resolve_only.refusal, "resolution_not_opted_in")
+        mock_start_resolution.assert_not_called()
 
     @patch(_START, return_value="wf-comment-1")
     def test_comment_facade_gates_on_the_commented_environment_not_its_parent(self, mock_start):

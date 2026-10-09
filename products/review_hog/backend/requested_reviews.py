@@ -7,7 +7,6 @@ requester and checked their access to the project.
 
 import logging
 from enum import StrEnum
-from typing import Literal
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
@@ -96,16 +95,14 @@ def request_pr_review(
     pr_number: int,
     run_mode: str,
     trigger_source: str = TRIGGER_UI,
-    resolve_comments: Literal[False] | None = None,
 ) -> PRReviewRequestOutcome:
     """Start the requested run, or say why not.
 
     The requester is both the run user (sandbox identity) and the acting user, whose perspectives,
-    validator, threshold and resolution criteria apply. Raises `GitHubRateLimitError` when GitHub
-    rate-limits the App's token, so the caller can answer with the wait.
-
-    `resolve_comments=False` turns the resolution stage off in every mode. A caller cannot turn it
-    on: `None` lets the run mode and the requester's setting decide.
+    validator, threshold and resolution criteria apply. Every trigger follows the same rules:
+    resolution writes only when the pull request owner opted in, and no Flash follows a published
+    Full review. Raises `GitHubRateLimitError` when GitHub rate-limits the App's token, so the
+    caller can answer with the wait.
     """
     # The scene hides these outside internal projects; this also stops API and MCP callers there.
     if run_mode in (RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY) and not has_internal_features(team_id):
@@ -113,11 +110,6 @@ def request_pr_review(
             status=PRReviewRequestStatus.NOT_ALLOWED,
             error="This run mode isn't available in this project. Start a regular review instead.",
             refusal=ReviewRequestRefusal.INTERNAL_FEATURE,
-        )
-    if run_mode == RUN_MODE_RESOLVE_ONLY and resolve_comments is False:
-        return PRReviewRequestOutcome(
-            status=PRReviewRequestStatus.NOT_ALLOWED,
-            error="This trigger can't resolve review comments. Start a review instead.",
         )
     repository = f"{owner}/{repo}"
     # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
@@ -219,8 +211,8 @@ def request_pr_review(
         publish=True,
         acting_user_id=requester_id,
         trigger_source=trigger_source,
-        # None = the PR owner's setting decides; review_only, flash and a caller's False pin it off.
-        resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else resolve_comments,
+        # None = the PR owner's setting decides; review_only and flash pin it off.
+        resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
         review_mode=review_mode,
         requested_head_sha=pr_meta.head_sha,
     )
