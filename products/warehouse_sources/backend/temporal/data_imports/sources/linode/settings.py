@@ -1,7 +1,14 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Max allowed page_size is 500 (min 25). Using the max minimizes request count against the 200 req/min
+# paginated-GET rate limit.
+PAGE_SIZE = 500
 
 
 @dataclass
@@ -10,8 +17,8 @@ class LinodeEndpointConfig:
     path: str
     incremental_fields: list[IncrementalField]
     # Primary key columns for dedup on merge. All Linode collections expose a globally unique `id`
-    # except users, which key on `username` instead.
-    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # except users, which key on `username` instead. None for full-refresh tables with no unique key.
+    primary_keys: list[str] | None = field(default_factory=lambda: ["id"])
     # Stable datetime field to partition by. Must never change once set (e.g. `created`, `date`),
     # so a row never migrates partitions. None leaves the table unpartitioned (no stable timestamp).
     partition_key: Optional[str] = None
@@ -22,6 +29,15 @@ class LinodeEndpointConfig:
     # can only ever be appended, never merged/upserted.
     append_only: bool = False
     should_sync_default: bool = True
+    # The endpoint returns one bare object instead of the paginated {data, page, pages} envelope.
+    single_object: bool = False
+    # Set for child resources that only exist per parent row (e.g. items under an invoice).
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = PAGE_SIZE
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.incremental_field
 
 
 # Linode API v4 (https://api.linode.com/v4). Every list endpoint shares the same page/page_size query
@@ -106,6 +122,40 @@ LINODE_ENDPOINTS: dict[str, LinodeEndpointConfig] = {
                 "field_type": IncrementalFieldType.Integer,
             },
         ],
+    ),
+    "invoice_items": LinodeEndpointConfig(
+        name="invoice_items",
+        path="/account/invoices/{invoice_id}/items",
+        # Items carry no id, and two items on one invoice can share label, type and period, so there
+        # is no unique key. Issued invoices are immutable and the set is small, so full refresh fits.
+        primary_keys=None,
+        partition_key="invoice_date",
+        incremental_fields=[],
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_id",
+            resolve_field="id",
+            include_from_parent=["id", "date"],
+            parent_field_renames={"id": "invoice_id", "date": "invoice_date"},
+        ),
+    ),
+    "account_transfer": LinodeEndpointConfig(
+        name="account_transfer",
+        path="/account/transfer",
+        # One row: the account's network transfer pool for the current month, replaced on every sync.
+        primary_keys=None,
+        single_object=True,
+        incremental_fields=[],
+    ),
+    "linode_types": LinodeEndpointConfig(
+        name="linode_types",
+        path="/linode/types",
+        incremental_fields=[],
+    ),
+    "regions": LinodeEndpointConfig(
+        name="regions",
+        path="/regions",
+        incremental_fields=[],
     ),
 }
 
