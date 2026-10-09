@@ -43,6 +43,27 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "denied_warehouse_table" in response.json()["detail"]
         assert not Action.objects.filter(team=self.team, name="internal signup").exists()
 
+    @parameterized.expand(
+        [
+            ("unknown_operator", "is_any_of", status.HTTP_400_BAD_REQUEST),
+            ("list_with_exact", "exact", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_validates_step_filter_operator(self, _name, operator, expected_status):
+        step_filter = {"key": "$browser", "type": "event", "operator": operator, "value": ["Chrome", "Safari"]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "browser pageview", "steps": [{"event": "$pageview", "properties": [step_filter]}]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "steps"
+            assert not Action.objects.filter(team=self.team, name="browser pageview").exists()
+        else:
+            assert response.json()["bytecode_error"] is None
+
     @patch("products.actions.backend.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         response = self.client.post(

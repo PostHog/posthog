@@ -17,6 +17,8 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.schema import PropertyOperator
+
 from posthog.api.documentation import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
@@ -74,6 +76,17 @@ class _ActionStepPropertiesField(serializers.ListField):
     """
 
     pass
+
+
+_SUPPORTED_OPERATORS = frozenset(operator.value for operator in PropertyOperator)
+
+
+def _unsupported_operator_filter(properties: list[dict]) -> dict | None:
+    for prop in properties:
+        operator = prop.get("operator")
+        if operator is not None and (not isinstance(operator, str) or operator not in _SUPPORTED_OPERATORS):
+            return prop
+    return None
 
 
 # An entry holds the selector plus its compiled regex, which is larger, for the life of
@@ -292,6 +305,17 @@ class ActionSerializer(
 
         if "steps" in attrs:
             step_filters = [prop for step in attrs["steps"] for prop in (step.get("properties") or [])]
+            # A query cannot compile an unknown operator, so every query that uses the action would fail.
+            invalid_filter = _unsupported_operator_filter(step_filters)
+            if invalid_filter:
+                raise serializers.ValidationError(
+                    {
+                        "steps": f"The filter on '{invalid_filter.get('key')}' uses the operator "
+                        f"'{invalid_filter.get('operator')}', which is not supported. "
+                        "To match any of several values, use 'exact' with a list of values."
+                    },
+                    code="invalid_operator",
+                )
             denied_table = table_blocking_property_filters(
                 self.context["request"].user, self.context["get_team"](), step_filters
             )
