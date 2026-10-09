@@ -276,13 +276,13 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
-# CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
-# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
+# CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui"})
+HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui", "comment"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
