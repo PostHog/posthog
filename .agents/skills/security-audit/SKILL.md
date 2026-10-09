@@ -223,7 +223,8 @@ Once the report is delivered, ask the user whether they want the findings fixed.
 - Report back which findings were fixed, which tests pass, and anything that needs follow-up.
 
 Do not start fixing without explicit approval — the user may want to triage, file tickets, or fix in `PostHog/posthog-private` on a `security/<topic>` branch.
-A fix and its reproducer test never go to public `PostHog/posthog`; see [Routing security fixes](../../security.md#routing-security-fixes).
+Suggest `PostHog/posthog-private` only for a finding that is exploitable while the PR is public, and ask the user before you open anything there.
+A fix and its reproducer test for an exploitable finding never go to public `PostHog/posthog`; see [Routing security fixes](../../security.md#routing-security-fixes).
 
 ## Output format
 
