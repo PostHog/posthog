@@ -1727,6 +1727,32 @@ class TestNotifyAlert:
 
         assert recipients == []
 
+    async def test_firing_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                return_value=[_email_delivery("alice@posthog.com")],
+            ),
+            patch(
+                "products.alerts.backend.logic.alert_email.UserAccessControl.check_access_level_for_object",
+                return_value=False,
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_create_notification.assert_not_called()
+
     async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
 
