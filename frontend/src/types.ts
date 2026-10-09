@@ -2410,6 +2410,8 @@ export interface BillingProductV2Type {
     included_with_main_product?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
+    // Billing refuses a customer billing limit for this product and returns no limit for it.
+    no_billing_limit?: boolean
 }
 
 export interface BillingProductV2AddonType {

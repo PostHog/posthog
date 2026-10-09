@@ -120,6 +120,39 @@ function iteration(
     }
 }
 
+const onlinePerformance = {
+    rows: ['2026-02-10', '2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14']
+        .map((prediction_date, index) => ({
+            validation_run_id: `validate-${index}`,
+            prediction_date,
+            horizon_days: 7,
+            weekday: 1,
+            model_id: champion.id,
+            emitted_role: 'champion',
+            current_role: 'champion',
+            n_scored: 47000,
+            n_positive: 1410,
+            base_rate: 0.03,
+            mean_p_y: 0.033,
+            realized_auc: [0.78, 0.8, 0.79, 0.82, 0.81][index],
+            realized_auc_ci_low: [0.76, 0.78, 0.77, 0.8, 0.79][index],
+            realized_auc_ci_high: [0.8, 0.82, 0.81, 0.84, 0.83][index],
+            brier_score: 0.06,
+            calibration_error: 0.04,
+            lift_at_10: 3.4,
+            lift_at_20: 2.6,
+            calibration_bins: [
+                { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
+                { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
+                { n: 2350, mean_p_y: 0.3, positive_rate: 0.27 },
+                { n: 2350, mean_p_y: 0.68, positive_rate: 0.6 },
+            ],
+            warning: null,
+            validated_at: '2026-02-21T03:00:00Z',
+        }))
+        .reverse(),
+}
+
 const trainingRuns = [
     {
         id: 'training-3',
@@ -201,6 +234,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]:
                     toPaginatedResponse(trainingRuns),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse([]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: onlinePerformance,
             },
         }),
     ],
@@ -227,5 +261,12 @@ export const AgentResearchNarrow: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
         testOptions: { viewportWidths: ['narrow'] },
+    },
+}
+
+export const Accuracy: Story = {
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
+        testOptions: { viewportWidths: ['wide', 'narrow'] },
     },
 }
