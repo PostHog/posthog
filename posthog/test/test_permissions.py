@@ -39,6 +39,7 @@ from posthog.permissions import (
     ActiveOrganizationPermission,
     PostHogFeatureFlagPermission,
     SharingTokenPermission,
+    extract_organization,
     get_authenticator_client,
 )
 
@@ -251,6 +252,18 @@ class TestAccessControlPermission(BaseTest):
 
         # Should have permission when authenticated via team secret token
         assert self.permission.has_permission(request, view) is True
+
+
+class TestExtractOrganizationForRef(BaseTest):
+    @parameterized.expand([("view_serves_the_ref_team", True), ("view_serves_another_team", False)])
+    def test_ref_resolves_its_own_organization(self, _name, same_team):
+        other_organization = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        ref_team = self.team if same_team else other_team
+        ref = ObjectAccessRef(resource="notebook", id="1", team_id=ref_team.id, created_by_id=None)
+        view = Mock(team_id=self.team.id, organization=self.organization)
+
+        assert extract_organization(ref, view) == ref_team.organization
 
 
 class TestTeamSecretTokenPermission(BaseTest):

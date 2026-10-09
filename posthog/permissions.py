@@ -59,8 +59,7 @@ CREATE_ACTIONS = ["create", "update"]
 
 def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
     if isinstance(object, ObjectAccessRef):
-        # The ref's team is the view's team, so the view already holds its organization.
-        return get_organization_from_view(view)
+        return _organization_for_ref(object, view)
 
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
@@ -104,6 +103,20 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def _organization_for_ref(ref: ObjectAccessRef, view: ViewSet) -> Organization:
+    """The ref's organization, read from the view when the view serves the ref's team.
+
+    On a root route the view's organization is the user's current one, which can differ from the ref's,
+    so any other case looks the organization up from the ref's team."""
+    try:
+        view_team_id = view.team_id
+    except (KeyError, AttributeError, AssertionError):
+        view_team_id = None
+    if view_team_id == ref.team_id:
+        return get_organization_from_view(view)
+    return Team.objects.select_related("organization").get(pk=ref.team_id).organization
 
 
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
