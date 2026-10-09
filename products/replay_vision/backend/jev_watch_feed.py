@@ -73,6 +73,9 @@ JEV_TIMEOUT_SECONDS = 30.0
 # wrongly not charging re-buys one batch next sweep. Auth and routing refusals, rate limits, server
 # errors, contract breaks reported as 200, and unknown statuses all retry free.
 _BATCH_FAULT_STATUSES = frozenset({400, 413, 422})
+# The gateway's rate limit. Every product's Jev calls share that limit, so a sweep that keeps
+# sending after it would take capacity from features people are waiting on.
+_RATE_LIMITED_STATUS = 429
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
@@ -266,8 +269,15 @@ class WindowJudgment:
     # breakdown, but prod workers do not ship their metrics into the product; the sweep's
     # judged event does, so a failing sweep names its error without log or cluster access.
     chunk_error_types: dict[str, int]
+    # The gateway rate-limited a request, so the window stopped there. The rows it did not reach
+    # retry free on the next sweep.
+    rate_limited: bool
     input_tokens: int
     estimated_cost_usd: float
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    return isinstance(error, DecisionGatewayError) and error.status_code == _RATE_LIMITED_STATUS
 
 
 def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -415,6 +425,7 @@ def judge_scanner_window(
     failed_chunks = 0
     failed_reason_chunks = 0
     chunk_error_types: dict[str, int] = {}
+    rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
 
@@ -454,6 +465,9 @@ def judge_scanner_window(
                 scanner_id=str(scanner_id),
                 error_type=error_type,
             )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
@@ -478,6 +492,9 @@ def judge_scanner_window(
                 scanner_id=str(scanner_id),
                 error_type=type(error).__name__,
             )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("reason_ok").inc()
@@ -493,6 +510,7 @@ def judge_scanner_window(
         chunks=len(chunks),
         failed_chunks=failed_chunks,
         chunk_error_types=chunk_error_types,
+        rate_limited=rate_limited,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )
