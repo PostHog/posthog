@@ -284,8 +284,8 @@ export interface autoresearchPipelineLogicValues {
     expandedRunId: string | null
     experimentLogFilter: ExperimentLogFilter
     experimentLogGroups: ExperimentLogGroup[]
-    hasLiveTrainingRun: boolean
     firstCheck: dayjs.Dayjs | null
+    hasLiveTrainingRun: boolean
     latestChampionPerformance: OnlinePerformanceRowApi | null
     lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
