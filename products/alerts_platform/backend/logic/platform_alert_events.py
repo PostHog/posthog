@@ -46,6 +46,8 @@ class PlatformAlertEventRow:
     """
 
     team_id: int
+    # The source whose check this was, so a reader can tell sources apart without a Postgres join.
+    source_kind: str
     configuration_id: UUID
     alert_id: UUID
     grouping_key: str

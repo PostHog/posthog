@@ -433,15 +433,19 @@ The path emits through Temporal's own meter, so every series carries the worker,
 the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
-| Metric                                                    | What it answers                                             |
-| --------------------------------------------------------- | ----------------------------------------------------------- |
-| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided |
-| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                |
-| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending          |
-| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick            |
-| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                       |
-| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                    |
-| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated             |
+| Metric                                                    | What it answers                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided       |
+| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                      |
+| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending                |
+| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick                  |
+| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                             |
+| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                          |
+| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated                   |
+| `alerts_platform_discovery_omitted_total{source}`         | How many due batch keys a tick left out under the discovery limit |
+| `alerts_platform_checks_deferred_total{source}`           | How many checks a full evaluation pool turned away                |
+| `alerts_platform_checks_unfinished_total{source}`         | How many admitted insight checks reached no outcome               |
+| `alerts_platform_history_rows_dropped_total{source}`      | How many check rows a failed history write lost                   |
 
 Histogram buckets are registered in `posthog/temporal/common/worker.py`; a histogram missing from
 `ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS` gets Prometheus defaults instead.

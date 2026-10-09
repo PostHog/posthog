@@ -63,6 +63,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
     increment_state_transition,
     record_scheduler_lag,
@@ -139,6 +140,7 @@ def plan_insight_batch(team_id: int, slot: str, cutoff: datetime, *, expires_at:
             admitted=len(admitted),
             deferred=len(checks) - len(admitted),
         )
+        safe_record(increment_checks_deferred, SourceKind.INSIGHT.value, len(checks) - len(admitted))
     return tuple(admitted)
 
 

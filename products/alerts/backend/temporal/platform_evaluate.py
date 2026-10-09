@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
         SourceKind,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.platform_metrics import increment_checks_unfinished, safe_record
     from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
@@ -144,6 +145,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             workflow.logger.warning(
                 "%d of %d platform insight checks reached no outcome", len(settled) - len(outcomes), len(settled)
             )
+            safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, len(settled) - len(outcomes))
         if not outcomes:
             return 0
 
