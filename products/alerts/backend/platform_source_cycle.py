@@ -197,6 +197,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        overflowed=outcome.overflowed,
     )
 
 
@@ -372,6 +373,7 @@ def _decide_grouped(
         consecutive_failures=0,
         groups=tuple(verdict.group for verdict in decision.verdicts),
         query_duration_ms=duration_ms,
+        overflowed=decision.overflowed,
     )
 
 

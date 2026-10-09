@@ -418,6 +418,8 @@ class PlatformAlertOutcome:
     groups: tuple[GroupOutcome, ...] = ()
     failure: CheckFailure | None = None
     skipped: bool = False
+    # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
+    overflowed: int = 0
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an

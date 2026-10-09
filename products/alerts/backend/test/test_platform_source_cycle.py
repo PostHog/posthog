@@ -69,7 +69,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     def _evaluate_per_series(
         self, configuration: PlatformConfigurationSnapshot, values: dict[str, float]
-    ) -> PlatformAlertOutcome | None:
+    ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
@@ -80,16 +80,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             for label, value in values.items()
         )
         with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
-            return evaluate_insight_check(
+            evaluation = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
             )
+        assert evaluation is not None
+        (outcome,) = evaluation.outcomes
+        return outcome
 
     def test_each_breakdown_value_fires_and_resolves_on_its_own(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
         configuration = self._copy(self._alert(), grouping=grouping.to_stored())
 
         fired = self._evaluate_per_series(configuration, {"Chrome": 150.0, "Safari": 40.0, "Firefox": 120.0})
-        assert fired is not None
         record_outcomes(self.team.id, (fired,), CUTOFF)
         assert {group.grouping_key: group.kind for group in fired.groups} == {
             "Chrome": AlertEventKind.FIRING,
@@ -100,7 +102,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
         resolved = self._evaluate_per_series(configuration, {"Chrome": 150.0})
 
-        assert resolved is not None
         assert {group.grouping_key: group.new_state for group in resolved.groups} == {
             "Chrome": "firing",
             "Firefox": "not_firing",

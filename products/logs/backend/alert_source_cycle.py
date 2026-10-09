@@ -734,6 +734,7 @@ def _evaluate_grouped(
         consecutive_failures=0,
         groups=tuple(verdict.group for verdict in decision.verdicts),
         query_duration_ms=result.query_duration_ms,
+        overflowed=decision.overflowed,
     )
     return recorded, _request(
         check,
@@ -743,7 +744,7 @@ def _evaluate_grouped(
             for verdict in decision.verdicts
         },
         sends_messages=any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts),
-        overflowed=decision.overflowed,
+        overflowed=recorded.overflowed,
     )
 
 
