@@ -1378,7 +1378,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             ):
                 assert await asyncio.wait_for(handle.result(), timeout=30) == inputs.evaluation_id
 
-        assert finalized
+        self.assertTrue(finalized)
         assert judge_tasks == {launch_id: original_task_id}
         assert saved_judgments == {launch_id}
 

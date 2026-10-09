@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -90,7 +91,7 @@ class TestSandboxJudgeDispatch(BaseTest):
                 self.assertIn(str(self.evidence.launch_id), artifact["storage_path"])
 
         self.dispatch.side_effect = dispatch
-        create_and_run_task = tasks_facade.create_and_run_task
+        create_and_run_task: Callable[..., object] = tasks_facade.create_and_run_task
 
         def interrupted_create(**kwargs: object) -> None:
             create_and_run_task(**kwargs)
@@ -108,6 +109,7 @@ class TestSandboxJudgeDispatch(BaseTest):
         run = TaskRun.objects.get(team_id=self.team.id, task__origin_key__startswith="scout-trial-judge:")
         self.assertFalse(run.is_terminal)
         if scenario == "origin_race":
+            assert run.task.origin_key is not None
             existing = tasks_facade.get_task_by_origin_key(self.team.id, run.task.origin_key)
             with patch(f"{MODULE}.tasks_facade.get_task_by_origin_key", side_effect=[None, existing]):
                 self.assertIsNone(async_to_sync(judge_trial_run)(snapshot, self.evidence))
@@ -172,6 +174,7 @@ class TestSandboxJudgeDispatch(BaseTest):
             self.assertFalse(run.is_terminal)
         else:
             self.assertEqual(run.status, TaskRun.Status.FAILED)
+            assert run.error_message is not None
             self.assertIn("did not finish", run.error_message)
         self.dispatch.assert_called_once()
 

@@ -690,7 +690,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         if await asyncio.to_thread(_read_judgment, snapshot, evidence) is not None:
             return True
         if evidence.exclusion_reason:
-            judgment = TrialRunJudgment(
+            judgment: TrialRunJudgment | None = TrialRunJudgment(
                 launch_id=launch_id,
                 variant_id=evidence.variant_id,
                 status="excluded",
