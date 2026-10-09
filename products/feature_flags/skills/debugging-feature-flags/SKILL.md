@@ -45,6 +45,13 @@ value _and_ the **match reason** for a specific user — so you rarely have to g
    handover gives you no ticket id or number, find the ticket with `posthog:conversations-tickets-list`
    and match it on subject and sender first — the list response carries neither `email_from` nor
    `identity_verified`, so the retrieve call is not optional.
+   **Do not read the ticket's own `distinct_id` as the affected identifier.** It links the ticket to a
+   person, and what it holds depends on the channel: the email path sets it to the sender's address
+   (`distinct_id=sender_email` in `products/conversations/backend/api/email_events.py`), so on an email
+   ticket it is an email, not an SDK identifier. Take the affected identifier from what the customer
+   reported instead. An address fed into step 4 comes back `no_condition_match` for a person who never
+   existed, which reads exactly like the property mismatch in the catalog below — and you would tell a
+   customer to change properties that were never the problem.
 2. **Settle the sender's identity first, then their entitlement — both before the first read.** Start
    with `identity_verified`, which step 1 already pulled off the ticket. Everything else in this step
    queries the customer's own organization, so the attestation is what decides whether you make those
