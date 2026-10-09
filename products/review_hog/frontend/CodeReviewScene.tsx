@@ -63,7 +63,13 @@ import {
 
 import { AdoptSkillModal } from './AdoptSkillModal'
 import { PipelineDetailModal } from './PipelineDetailModal'
-import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import {
+    CodeReviewTab,
+    REVIEWS_PAGE_SIZE,
+    ReviewDrawerTab,
+    ReviewSkillKind,
+    reviewHogSettingsLogic,
+} from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -180,11 +186,32 @@ function SectionHeader({
     )
 }
 
+// The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
+const REVIEWS_SCOPE_OPTIONS: {
+    value: ReviewHogReviewsListScope
+    label: string
+    tooltip: string
+    'data-attr': string
+}[] = [
+    {
+        value: ReviewHogReviewsListScope.Mine,
+        label: 'Mine',
+        tooltip: 'Reviews of pull requests you authored, plus reviews you started',
+        'data-attr': 'code-review-reviews-scope-mine',
+    },
+    {
+        value: ReviewHogReviewsListScope.Everyone,
+        label: 'Everyone',
+        tooltip: 'Reviews of every pull request in this project',
+        'data-attr': 'code-review-reviews-scope-everyone',
+    },
+]
+
 /**
- * Page-level scope switch: one control governing the hero proof card, the effectiveness cards,
- * and the recent-reviews list below. Skill toggles stay per-user regardless of scope.
+ * Filter on the recent-reviews list. It also scopes the proof card and the effectiveness cards on
+ * the Settings tab. Skill toggles stay per-user regardless of scope.
  */
-function PageScopeSwitch(): JSX.Element {
+function ReviewsScopeFilter(): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
     const { setReviewsScope } = useActions(reviewHogSettingsLogic)
     return (
@@ -192,24 +219,25 @@ function PageScopeSwitch(): JSX.Element {
             size="small"
             value={reviewsScope}
             onChange={(value) => setReviewsScope(value)}
-            options={[
-                {
-                    value: ReviewHogReviewsListScope.Mine,
-                    label: 'For you',
-                    tooltip: 'Stats and reviews for pull requests you authored',
-                },
-                {
-                    value: ReviewHogReviewsListScope.Everyone,
-                    label: 'Entire project',
-                    tooltip: 'Stats and reviews for every pull request on this project',
-                },
-            ]}
+            options={REVIEWS_SCOPE_OPTIONS}
         />
     )
 }
 
+function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element {
+    const { reviewsScope } = useValues(reviewHogSettingsLogic)
+    const scopeOption = REVIEWS_SCOPE_OPTIONS.find((option) => option.value === reviewsScope)
+    return (
+        <Tooltip title={`${scopeOption?.tooltip}. Set by the Mine / Everyone filter on recent reviews.`}>
+            <span className="text-xxs text-tertiary">
+                <span translate="no">{`Last ${reportCount} completed review${reportCount === 1 ? '' : 's'} · ${scopeOption?.label}`}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
 /**
- * Hero proof block: the validation funnel across the in-scope recent reviews, summed from the same
+ * Proof block: the validation funnel across the in-scope recent reviews, summed from the same
  * stats the effectiveness cards use. Hidden while there are no reviewed findings in scope yet.
  */
 function ProofCard(): JSX.Element | null {
@@ -227,7 +255,7 @@ function ProofCard(): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="mt-2 flex flex-col gap-3 p-5">
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-5">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="text-3xl font-bold tabular-nums text-warning">{kept}</span>
                 <span className="text-sm font-semibold">
@@ -237,9 +265,8 @@ function ProofCard(): JSX.Element | null {
                     from <span className="font-semibold text-default">{raised}</span> raised ·{' '}
                     <span className="font-semibold text-default">{dismissed}</span> filtered as noise
                 </span>
-                <span className="ml-auto text-xxs text-tertiary">
-                    {everyone ? "This project's last" : 'Your last'} {perspectiveStats.report_count} review
-                    {perspectiveStats.report_count === 1 ? '' : 's'}
+                <span className="ml-auto">
+                    <StatsWindowLabel reportCount={perspectiveStats.report_count} />
                 </span>
             </div>
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-fill-highlight-100">
@@ -260,7 +287,7 @@ function ProofCard(): JSX.Element | null {
 function PipelineSection(): JSX.Element {
     const { openPipelineDetail } = useActions(reviewHogSettingsLogic)
     return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
+        <section className="flex flex-col gap-4">
             <SectionHeader
                 icon={<IconDirectedGraph />}
                 title="How we review your PRs"
@@ -420,7 +447,7 @@ function resolutionLabel(resolution: ReviewResolutionStatusApi): string {
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
-    // On the Entire project scope, whose PR it is matters at a glance; on For you it's always yours.
+    // On Everyone, whose PR it is matters at a glance; on Mine it is mostly yours.
     const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
     return (
         <div className="flex items-center gap-3 px-4 py-3">
@@ -460,7 +487,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
     const { toggleReviewRowExpanded, openReviewDetail } = useActions(reviewHogSettingsLogic)
     const expanded = expandedReviewIds.includes(review.id)
     const validated = review.must_fix_count + review.should_fix_count + review.consider_count
-    // On the Entire project scope, whose PR it is matters at a glance; on For you it's always yours.
+    // On Everyone, whose PR it is matters at a glance; on Mine it is mostly yours.
     const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
 
     // A first review has no completed turn to expand into — it renders as a live progress row.
@@ -595,7 +622,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
     )
 }
 
-/** Compact proof-of-life block under the hero — hidden entirely until the project has reviews. */
+/** Proof card and review list with their scope filter, hidden entirely until the project has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
     const {
         recentReviews,
@@ -609,10 +636,10 @@ function RecentReviewsSection(): JSX.Element | null {
     const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
     const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
-    // Settled-and-empty on the Entire project scope means the project has no reviews at all — hide
+    // Settled-and-empty on the Everyone scope means the project has no reviews at all — hide
     // the section entirely (an in-flight load keeps it mounted with skeletons instead of flashing
-    // it away mid-switch). An empty For-you scope keeps the section, with an empty state pointing
-    // at the page-level scope switch.
+    // it away mid-switch). An empty Mine scope keeps the section, with an empty state pointing
+    // at the scope filter in the section header.
     if (loadedEmpty && everyone && !recentReviewsPageLoading) {
         return null
     }
@@ -622,13 +649,13 @@ function RecentReviewsSection(): JSX.Element | null {
     const emptyAwaitingReload = loadedEmpty && (recentReviewsPageLoading || !hasUserChosenReviewsScope)
 
     return (
-        // The one section without a top hairline — it reads as a continuation of the hero.
         <section className="flex flex-col gap-4">
-            <SectionHeader icon={<IconPullRequest />} title={everyone ? 'Recent reviews' : 'Your recent reviews'}>
+            <SectionHeader icon={<IconPullRequest />} title="Recent reviews" action={<ReviewsScopeFilter />}>
                 {everyone
                     ? 'The latest PostHog Review runs on pull requests across this project. Expand a review for its details and findings.'
-                    : 'The latest PostHog Review runs on pull requests you authored. Expand a review for its details and findings.'}
+                    : 'The latest PostHog Review runs on pull requests you authored, plus reviews you started. Expand a review for its details and findings.'}
             </SectionHeader>
+            <ProofCard />
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 {recentReviews === null || emptyAwaitingReload ? (
                     [0, 1, 2].map((i) => (
@@ -670,8 +697,8 @@ function RecentReviewsSection(): JSX.Element | null {
                     </>
                 ) : (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
-                        No reviews of your pull requests yet. Switch to "Entire project" at the top of the page to see
-                        the whole team's.
+                        No reviews of your pull requests or reviews you started yet. Pick "Everyone" above to see the
+                        whole team's.
                     </div>
                 )}
             </LemonCard>
@@ -700,7 +727,7 @@ function TriggerReviewSection(): JSX.Element {
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
                 Start a review of any pull request the GitHub App can access. The review is posted back to the pull
-                request, runs with your perspectives, and shows up under your recent reviews.
+                request, runs with your perspectives, and shows up under recent reviews.
             </SectionHeader>
             <form
                 className="ml-9 flex flex-wrap items-center gap-2"
@@ -1496,12 +1523,11 @@ function EffectivenessRows({
  * bar of findings it raised split into validator-kept (green) vs dismissed (muted). Rendered once
  * in the Perspectives section and once in the Blind-spot section, above each one's skill cards;
  * both cards share one scale so bar lengths stay comparable. Hidden until there is data for the
- * kind. On the Entire project scope this can list skills beyond the user's own cards below — the
+ * kind. On the Everyone scope this can list skills beyond the user's own cards below — the
  * stats describe the project, while the toggles stay per-user.
  */
 function EffectivenessCard({ kind }: { kind: 'perspectives' | 'blind_spots' }): JSX.Element | null {
-    const { perspectiveStats, reviewsScope } = useValues(reviewHogSettingsLogic)
-    const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
+    const { perspectiveStats } = useValues(reviewHogSettingsLogic)
 
     if (!perspectiveStats?.perspectives.length) {
         return null
@@ -1520,11 +1546,14 @@ function EffectivenessCard({ kind }: { kind: 'perspectives' | 'blind_spots' }): 
             {/* Overline header: this card is an instrument panel about the skills below, not one of
                 them — it must not share the skill cards' title style. */}
             <div className="flex flex-col gap-1">
-                <span className="text-xxs font-semibold uppercase tracking-wide text-tertiary">Effectiveness</span>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-xxs font-semibold uppercase tracking-wide text-tertiary">Effectiveness</span>
+                    <span className="ml-auto">
+                        <StatsWindowLabel reportCount={perspectiveStats.report_count} />
+                    </span>
+                </div>
                 <p className="m-0 text-xs text-secondary">
-                    Findings each {noun} raised across {everyone ? "this project's" : 'your'} last{' '}
-                    {perspectiveStats.report_count} review{perspectiveStats.report_count === 1 ? '' : 's'}, and how many
-                    survived validation.
+                    Findings each {noun} raised in these reviews, and how many survived validation.
                 </p>
             </div>
             <EffectivenessRows items={items} maxRaised={maxRaised} />
@@ -1561,11 +1590,15 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
             <div className="flex flex-col gap-1">
-                <span className="text-xxs font-semibold uppercase tracking-wide text-tertiary">Effectiveness</span>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-xxs font-semibold uppercase tracking-wide text-tertiary">Effectiveness</span>
+                    <span className="ml-auto">
+                        <StatsWindowLabel reportCount={perspectiveStats.report_count} />
+                    </span>
+                </div>
                 <p className="m-0 text-xs text-secondary">
-                    {everyone
-                        ? `Of the ${judged} findings reviewers raised across this project's last ${perspectiveStats.report_count} review${perspectiveStats.report_count === 1 ? '' : 's'}, this is how much noise validation kept off pull requests.`
-                        : `Of the ${judged} findings your reviewers raised across your last ${perspectiveStats.report_count} review${perspectiveStats.report_count === 1 ? '' : 's'}, this is how much noise your quality bar kept off your pull requests.`}
+                    Of the <span translate="no">{judged}</span> findings reviewers raised in these reviews, this is how
+                    much noise validation kept off pull requests.
                 </p>
             </div>
             <Tooltip
@@ -1592,7 +1625,7 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
                         )}
                     </div>
                     <span className="w-24 shrink-0 text-right text-xs tabular-nums text-secondary">
-                        {dismissed} of {judged} dismissed
+                        <span translate="no">{`${dismissed} of ${judged} dismissed`}</span>
                     </span>
                 </div>
             </Tooltip>
@@ -1741,16 +1774,83 @@ export const scene: SceneExport = {
     logic: reviewHogSettingsLogic,
 }
 
+function ActivityTab(): JSX.Element {
+    return (
+        <>
+            <TriggerReviewSection />
+            <RecentReviewsSection />
+        </>
+    )
+}
+
+function SettingsTab(): JSX.Element {
+    const { blindSpots, validators, resolutionSkills } = useValues(reviewHogSettingsLogic)
+    const { selectBlindSpots, selectValidator, selectResolutionSkill } = useActions(reviewHogSettingsLogic)
+
+    return (
+        <>
+            <PipelineSection />
+            <TriggersSection />
+            <section className="flex flex-col gap-8 border-t border-primary pt-8">
+                <div className="flex flex-col gap-1.5">
+                    <h2 className="m-0 text-xl font-bold">Review skills</h2>
+                    <p className="m-0 max-w-160 text-sm text-secondary">
+                        Everything below is a regular skill, stored in your PostHog skills store like anything else
+                        you've added. Review skills read your changed code, a blind-spot sweep catches what they missed,
+                        and validation criteria decide what reaches the pull request. Toggling one here applies only to
+                        your pull request reviews; editing a skill changes it for the whole team.
+                    </p>
+                </div>
+                <PerspectivesSection />
+                <SingleActiveSection
+                    icon={<IconSearch />}
+                    title="Blind-spot check"
+                    intro="After the enabled perspectives finish, PostHog Review runs one more sweep over each chunk. It sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
+                    kind="blind_spots"
+                    kindLabel="blind-spot check"
+                    preamble={<EffectivenessCard kind="blind_spots" />}
+                    createLabel="Create your own blind-spot check"
+                    skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectBlindSpots}
+                />
+                <SingleActiveSection
+                    icon={<IconShield />}
+                    title="Validation criteria"
+                    intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
+                    kind="validator"
+                    kindLabel="validator"
+                    createLabel="Create your own validation criteria"
+                    preamble={<ValidatorEffectivenessCard />}
+                    skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectValidator}
+                />
+                <SingleActiveSection
+                    icon={<IconWrench />}
+                    title="Resolution criteria"
+                    intro="After a review is published, PostHog Review works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
+                    kind="resolution"
+                    kindLabel="resolution criteria"
+                    createLabel="Create your own resolution criteria"
+                    skills={resolutionSkills?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectResolutionSkill}
+                />
+            </section>
+            <UrgencySection />
+        </>
+    )
+}
+
 /**
- * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
- * guided-configuration page — every control is live from load, no save step. See
- * `reviewHogSettingsLogic` for the data flow. Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same
- * flag that shows the menu entry, so whoever discovers the entry can open the page.
+ * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
+ * (trigger a review, recent reviews) and a Settings tab (what gets reviewed, skills, threshold).
+ * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
+ * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
+ * discovers the entry can open the page.
  */
 export function CodeReviewScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { blindSpots, validators, resolutionSkills, initialLoadFailed } = useValues(reviewHogSettingsLogic)
-    const { selectBlindSpots, selectValidator, selectResolutionSkill, loadAll } = useActions(reviewHogSettingsLogic)
+    const { activeTab, initialLoadFailed } = useValues(reviewHogSettingsLogic)
+    const { setActiveTab, loadAll } = useActions(reviewHogSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
@@ -1760,88 +1860,28 @@ export function CodeReviewScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Code review"
-                description="Automated code reviews of your pull requests, and your review agent settings."
+                description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
                 resourceType={{ type: 'code_review' }}
             />
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-30 pt-4">
-                <section className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="size-1.5 rounded-full bg-warning" />
-                        <span className="text-xxs font-semibold uppercase tracking-widest text-tertiary">
-                            Automated pull request review
-                        </span>
-                        {/* Top of the page so it visibly governs everything below it, not one section. */}
-                        <div className="ml-auto">
-                            <PageScopeSwitch />
-                        </div>
-                    </div>
-                    <h2 className="m-0 text-3xl font-bold" style={{ textWrap: 'balance' }}>
-                        PostHog Review reviews pull requests before humans do
-                    </h2>
-                    <p className="m-0 max-w-155 text-sm text-secondary">
-                        Specialist review skills read your changed code in parallel each from their own perspective, a
-                        blind-spot sweep catches what they missed, and only validated findings get published back to the
-                        pull request.
-                    </p>
-                    <ProofCard />
-                </section>
-
+            <LemonTabs<CodeReviewTab>
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
+                    { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
+                ]}
+                sceneInset
+            />
+            <div className="flex flex-col gap-8 pb-8">
                 {initialLoadFailed && (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
                         Some PostHog Review settings failed to load.
                     </LemonBanner>
                 )}
 
-                <TriggerReviewSection />
-                <RecentReviewsSection />
-                <PipelineSection />
-                <TriggersSection />
-                <section className="flex flex-col gap-8 border-t border-primary pt-8">
-                    <div className="flex flex-col gap-1.5">
-                        <h2 className="m-0 text-xl font-bold">Review skills</h2>
-                        <p className="m-0 max-w-160 text-sm text-secondary">
-                            Everything below is a regular skill, stored in your PostHog skills store like anything else
-                            you've added. Review skills read your changed code, a blind-spot sweep catches what they
-                            missed, and validation criteria decide what reaches the pull request. Toggling one here
-                            applies only to your pull request reviews; editing a skill changes it for the whole team.
-                        </p>
-                    </div>
-                    <PerspectivesSection />
-                    <SingleActiveSection
-                        icon={<IconSearch />}
-                        title="Blind-spot check"
-                        intro="After the enabled perspectives finish, PostHog Review runs one more sweep over each chunk. It sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
-                        kind="blind_spots"
-                        kindLabel="blind-spot check"
-                        preamble={<EffectivenessCard kind="blind_spots" />}
-                        createLabel="Create your own blind-spot check"
-                        skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
-                        onSelect={selectBlindSpots}
-                    />
-                    <SingleActiveSection
-                        icon={<IconShield />}
-                        title="Validation criteria"
-                        intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
-                        kind="validator"
-                        kindLabel="validator"
-                        createLabel="Create your own validation criteria"
-                        preamble={<ValidatorEffectivenessCard />}
-                        skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
-                        onSelect={selectValidator}
-                    />
-                    <SingleActiveSection
-                        icon={<IconWrench />}
-                        title="Resolution criteria"
-                        intro="After a review is published, PostHog Review works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
-                        kind="resolution"
-                        kindLabel="resolution criteria"
-                        createLabel="Create your own resolution criteria"
-                        skills={resolutionSkills?.map((s) => ({ ...s, on: s.active })) ?? null}
-                        onSelect={selectResolutionSkill}
-                    />
-                </section>
-                <UrgencySection />
+                {activeTab === 'activity' ? <ActivityTab /> : <SettingsTab />}
 
+                {/* Overlays stay mounted on both tabs, so a `?review=` deep link opens on either. */}
                 <SkillDrawer />
                 <AdoptSkillModal />
                 <ReviewDetailDrawer />
