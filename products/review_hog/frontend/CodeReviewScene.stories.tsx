@@ -97,7 +97,6 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(canvas.queryByLabelText('Review all your Inbox PRs')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Let Stamphog review your Inbox PRs')).not.toBeInTheDocument()
-        await expect(canvas.queryByLabelText('Review all your PRs with the reviewhog label')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on your PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Celebrate clean reviews')).toBeVisible()
@@ -110,7 +109,6 @@ export const InternalFeatures: Story = {
         const canvas = within(canvasElement)
         await expect(await canvas.findByLabelText('Review all your Inbox PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Let Stamphog review your Inbox PRs')).toBeVisible()
-        await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
     },
 }
@@ -125,7 +123,6 @@ export const SavedInboxOptIns: Story = {
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
-        await expect(canvas.queryByLabelText('Review all your PRs with the reviewhog label')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
     },
 }
