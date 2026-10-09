@@ -74,12 +74,14 @@ class TestScoutTrialAPI(APIBaseTest):
         _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.trial_run.task_run.task_id)
 
     def test_operator_run_reads_mark_only_trial_content(self) -> None:
+        ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
         for run, private in ((self.trial_run, True), (self.production, False)):
             run.task_run.task.created_by = self.user
             run.task_run.task.save(update_fields=["created_by"])
             response = self.client.get(f"{self.trial_runs_url}{run.id}/")
             assert response.status_code == 200, response.data
             assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
+            assert "trial_state" not in response.json()
 
     def test_memory_routes_from_credential_and_cannot_write_production_or_sibling(self) -> None:
         original = SignalScratchpad.objects.create(team=self.team, key="finding:shared", content="Production value")
@@ -127,12 +129,13 @@ class TestScoutTrialAPI(APIBaseTest):
         response = self.client.get(self.trial_runs_url)
         assert response.status_code == 200, response.data
         assert [row["run_id"] for row in response.json()] == [str(self.production.id)]
+        assert all("trial_state" not in row for row in response.json())
         assert self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/").status_code == 404
         self._as_trial()
         response = self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/")
         assert response.status_code == 200, response.data
         assert "scout_trial" not in response.json()["metadata"]
-        assert "scout_trial_private" not in response.json()["metadata"]
+        assert "trial_state" not in response.json()
         assert self.client.get(f"{self.trial_runs_url}{self.other.id}/").status_code == 404
         configs = self.client.get(f"/api/projects/{self.team.id}/signals/scout/configs/")
         assert configs.status_code == 200, configs.data

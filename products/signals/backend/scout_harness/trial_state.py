@@ -14,10 +14,7 @@ from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 from posthog.dataclasses import frozen
 
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import (
-    SCOUT_TRIAL_METADATA_KEY as SCOUT_TRIAL_METADATA_KEY,
-    SCOUT_TRIAL_STATE_KEY as SCOUT_TRIAL_STATE_KEY,
-)
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY as SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 from products.signals.backend.scout_harness.tools.scratchpad import (
     DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -108,13 +105,13 @@ class ScoutTrialStore:
         row = (
             SignalScoutRun.objects.for_team(self.run.team_id)
             .filter(pk=self.run.pk, task_run_id=self.run.task_run_id)
-            .values("metadata")
+            .values("metadata", "trial_state")
             .first()
         )
         if row is None:
             raise ScoutTrialStateError("The scout run has no private state.")
         marker = (row["metadata"] or {}).get(SCOUT_TRIAL_METADATA_KEY)
-        state = (row["metadata"] or {}).get(SCOUT_TRIAL_STATE_KEY)
+        state = row["trial_state"]
         if not isinstance(marker, dict) or marker.get("version") != 1 or not isinstance(state, dict):
             raise ScoutTrialStateError("The scout run has no private state.")
         return _TrialState.model_validate(state)
@@ -134,8 +131,7 @@ class ScoutTrialStore:
                 raise ScoutTrialStateError("The scout run has no private state.")
             if not allow_terminal and locked.task_run.status != "in_progress":
                 raise ScoutTrialStateError("The scout run is no longer in progress.")
-            metadata = dict(locked.metadata or {})
-            state = metadata.get(SCOUT_TRIAL_STATE_KEY)
+            state = locked.trial_state
             if not isinstance(state, dict):
                 raise ScoutTrialStateError("The scout run has no private state.")
             private = _TrialState.model_validate(state)
@@ -152,9 +148,8 @@ class ScoutTrialStore:
                 invalid_reason = "The scout run exceeded its private state limit and cannot be compared."
                 private.invalid_reason = invalid_reason
                 payload = private.model_dump(mode="json")
-            metadata[SCOUT_TRIAL_STATE_KEY] = payload
-            locked.metadata = metadata
-            locked.save(update_fields=["metadata"])
+            locked.trial_state = payload
+            locked.save(update_fields=["trial_state"])
         if invalid_reason:
             raise ScoutTrialStateError(invalid_reason)
         return result

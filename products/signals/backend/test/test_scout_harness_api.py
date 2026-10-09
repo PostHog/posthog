@@ -78,7 +78,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
-from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_STATE_KEY, initial_trial_state
+from products.signals.backend.scout_harness.trial_state import initial_trial_state
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -191,7 +191,8 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
         marker = metadata.get("scout_trial")
         if isinstance(marker, dict) and marker.get("version") == 1:
             marker = {"launch_id": str(uuid4()), **marker}
-            defaults["metadata"] = {SCOUT_TRIAL_STATE_KEY: initial_trial_state(), **metadata, "scout_trial": marker}
+            defaults["metadata"] = {**metadata, "scout_trial": marker}
+            defaults.setdefault("trial_state", initial_trial_state())
             task = defaults["task_run"].task
             task.origin_key = f"scout-trial:{marker['launch_id']}"
             task.save(update_fields=["origin_key"])

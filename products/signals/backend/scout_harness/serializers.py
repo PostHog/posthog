@@ -53,7 +53,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     canonical_structured_output_schema_for,
 )
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, SCOUT_TRIAL_STATE_KEY
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
@@ -162,15 +162,13 @@ class RunMetadataField(serializers.DictField):
     The dispatch-time `structured_output_schema` snapshot is stripped on the way out: it exists
     for record validation (`_resolve_schema` reads the row directly), can be 20 KB, and would
     otherwise repeat on every row of a run listing — megabytes of schema text no run consumer
-    needs, in responses scouts read inside their own prompts. Private trial memory and reports
-    are also omitted; the trial-specific APIs control access to that content.
+    needs, in responses scouts read inside their own prompts.
     """
 
     def to_representation(self, value: Any) -> Any:
         data = super().to_representation(value)
         if isinstance(data, dict):
             data.pop("structured_output_schema", None)
-            data.pop(SCOUT_TRIAL_STATE_KEY, None)
         return data
 
 

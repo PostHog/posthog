@@ -68,11 +68,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     load_trial_launch,
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
-from products.signals.backend.scout_harness.trial_state import (
-    SCOUT_TRIAL_METADATA_KEY,
-    SCOUT_TRIAL_STATE_KEY,
-    initial_trial_state,
-)
+from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1386,7 +1382,6 @@ def _create_run_row(
             "context_id": str(trial.context_id),
             "variant": trial.variant,
         }
-        metadata[SCOUT_TRIAL_STATE_KEY] = initial_trial_state()
     # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
     # `scout-report-check-list` read it to tie the check to this run.
     if check_id:
@@ -1399,6 +1394,7 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
         metadata=metadata,
+        trial_state=initial_trial_state() if trial is not None else None,
     )
 
 

@@ -1654,6 +1654,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
     assert bridge.skill_name == "signals-scout-errors"
     assert bridge.skill_version == 1
     assert (bridge.metadata or {}).get("check_id") == check_id
+    assert bridge.trial_state is None
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
@@ -1868,7 +1869,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         assert outcome.task_run_id == replay.task_run_id == str(session.task_run.id)
     assert bridge.metadata is not None
     assert bridge.metadata["scout_trial"]["context_id"] == str(context.id)
-    assert "scout_trial_private" in bridge.metadata
+    assert bridge.trial_state is not None
     assert bridge.metadata["reasoning_effort"] == "high"
     export.assert_called_once()
     assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"
@@ -1878,7 +1879,6 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert saved_result["task_status"] == ("completed" if final_metrics_failure else outcome.status)
     assert saved_result["token_usage"] == {"input_tokens": 100, "output_tokens": 20}
     assert saved_result["private_state"]["invalid_reason"] == saved_result["invalid_reason"]
-    assert "scout_trial_private" not in saved_result["metadata"]
     assert "skill_body" not in saved_result
     await database_sync_to_async(config.refresh_from_db)()
     assert config.consecutive_failure_count == 4
