@@ -107,12 +107,11 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
  * The footer has no room for another button, so Unassign me takes the Dismiss slot while the command
  * key is held, and the reader sees what the chord will do before U is pressed. Unassign me has no icon
  * so that it fits the width Dismiss leaves free: a wider button would wrap the row each time the key
- * goes down. Its own component, so a key press re-renders this button and not the whole card.
+ * goes down.
  */
-function DismissOrUnassignButton(): JSX.Element {
+function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }): JSX.Element {
     const { unassignDisabledReason } = useValues(inboxTriageLogic)
     const { dismissCurrent, unassignCurrent } = useActions(inboxTriageLogic)
-    const commandKeyHeld = useKeyHeld(COMMAND_KEY)
 
     return commandKeyHeld ? (
         <LemonButton
@@ -140,9 +139,12 @@ function DismissOrUnassignButton(): JSX.Element {
     )
 }
 
-function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
+export function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
     const { canCreatePr, isCreatingPr, createPrDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
     const { resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
+    // Read above the article keyed by report, so a key still held after Unassign me survives the
+    // move to the next report.
+    const commandKeyHeld = useKeyHeld(COMMAND_KEY)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -243,7 +245,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 >
                     Resolve
                 </LemonButton>
-                <DismissOrUnassignButton />
+                <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
                 {canCreatePr && (
                     <LemonButton
                         type="primary"
