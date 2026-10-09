@@ -424,14 +424,21 @@ function variantAnalysisTemplate(scannerId: string, scannerName: string): Scanne
 
 Keep the themes fixed. Never rename, merge, or redefine a theme: its counts would then mix two meanings. A behavior that no theme covers becomes a new theme. It starts at zero on this run, records today as its start date, and counts only the summaries read from this run on. Keep the list to about 15 themes, so add a new one only for a behavior that recurs in this window.
 
-A difference is a theme whose share in the tally (theme count out of read count) differs between variants by at least 20 percentage points (for example 56 of 160 against 24 of 160), and that you can see in the summaries themselves. Judge differences on the tally, never on this window alone: one window is a few dozen summaries, and a gap in it is usually noise. Use the window only to say what is new. Your counts come from model-written summaries, so they are approximate: when you are not sure a difference is real, leave it out. Finding no difference is an acceptable result.
+Judge differences on the tally, never on this window alone: one window is a few dozen summaries, and a gap in it is usually noise. Use the window only to say what is new. A theme is a difference only when all four of these hold:
+
+1. A two-sided Fisher exact test on its tally counts (theme count and read count minus theme count, per variant) gives a p-value below 0.05 divided by the number of tests you ran. Run the test for every theme that shows in at least 5 summaries of some variant, and count every one of those tests. With more than two variants, test each variant against control, and count each of those tests too. Compute the p-value with code (Python's \`math.comb\` is enough), never by estimate. When you cannot run code, call no theme a difference, and give the counts in the report.
+2. It shows in at least 5 summaries of the variant where it is more common.
+3. Its share differs between the variants by at least 5 percentage points, so a very large tally does not make a very small gap into a finding.
+4. You can see it in the summaries themselves.
+
+Give the p-value with each difference in the report. The themes come from summaries you read before you tested them, and a model counted them, so a p-value here is weaker evidence than one from the experiment's metrics: say so once in the report. When you are not sure a difference is real, leave it out. Finding no difference is an acceptable result.
 
 When the tally is a sample, give both numbers in the report ("counted 120 of 410 summaries"), so the reader knows the share rests on a sample.`,
             quiet: 'Variants that behave the same is a real and expected result. Say so in the report, describe the themes all variants share, and record no differences.',
             quietVerdict:
                 'When no theme clears the bar, still file the report: open with the verdict `No clear difference between variants`, then one line with how many summaries the tally holds per variant and how many this run added, then the main themes all variants share.',
             skip: `- Restating the variants counts as findings: the variants view already shows them.
-- A difference resting on fewer than 5 sessions in the variant where the theme is more common. A theme seen in 7 sessions of one variant and none of another can still be a difference.
+- A difference resting on fewer than 5 sessions in the variant where the theme is more common, or one that fails the test above.
 - Effects too small to see in a few dozen sessions, such as a 1 to 2% change in watch time or conversion. Only the experiment's metrics can show those, across thousands of sessions.
 - Claims about which variant wins. The experiment's metrics decide that; you describe what users do.
 - Explaining, confirming, or predicting a metric result.`,
@@ -440,9 +447,8 @@ When the tally is a sample, give both numbers in the report ("counted 120 of 410
 
 - \`scanner_version\`: the version you read from \`vision-scanners-get\`. A record for an older version is not shown.
 - \`observations_read\`: per variant key, how many summaries the tally has read since it started. Every count below is out of this number.
-- \`variants\`: per variant key, up to 5 themes from the tally, most common first. \`count\` is the tally's count for that variant. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`, from the tally's examples.
-- \`differences\`: up to 5, most meaningful first, each resting on one theme, with its tally \`counts\` per variant key. Empty when no theme clears the bar.
-- Leave out of the record a theme that started after the tally did. Its counts are out of fewer summaries than \`observations_read\`, so the view would show the wrong share. Report it in the report with its own counts.
+- \`variants\`: per variant key, up to 5 themes from the tally, most common first. \`count\` is the tally's count for that variant. For a theme that started after the tally did, also set \`read\` to that theme's own read count for the variant. Leave \`read\` out for a theme counted since the tally started. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`, from the tally's examples.
+- \`differences\`: up to 5, most meaningful first, each resting on one theme, with its tally \`counts\` per variant key, and \`read\` per variant key when the theme started after the tally did. Empty when no theme clears the bar.
 - Use the same \`theme\` label in every variant and in \`differences\`, so the view can line them up.
 - Submit once per run. The newest record replaces the previous one in the view.
 

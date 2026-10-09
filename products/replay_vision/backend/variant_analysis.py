@@ -87,6 +87,11 @@ VARIANT_ANALYSIS_SCHEMA: dict[str, Any] = {
                     "minimum": 0,
                     "description": "Summaries of this variant, out of `observations_read`, that show the theme.",
                 },
+                "read": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Set only for a theme counted over fewer summaries than `observations_read`, because counting started later: how many summaries of this variant it was counted over.",
+                },
                 "example_observation_ids": {
                     "type": "array",
                     "maxItems": MAX_EXAMPLES_PER_LINE,
@@ -102,6 +107,10 @@ VARIANT_ANALYSIS_SCHEMA: dict[str, Any] = {
                 "theme": {"type": "string", "minLength": 1, "maxLength": _THEME_CHARS},
                 "statement": {"type": "string", "minLength": 1, "maxLength": _STATEMENT_CHARS},
                 "counts": {**_COUNTS_BY_VARIANT, "description": "Summaries showing the theme, per variant key."},
+                "read": {
+                    **_COUNTS_BY_VARIANT,
+                    "description": "Set only for a theme counted over fewer summaries than `observations_read`: per variant key, how many summaries it was counted over.",
+                },
             },
         },
     },
@@ -119,6 +128,8 @@ class VariantAnalysisLine:
     theme: str
     statement: str
     count: int
+    # Set when the theme was counted over fewer summaries than the record's `observations_read`.
+    read: int | None
     example_observation_ids: tuple[str, ...]
 
 
@@ -127,6 +138,7 @@ class VariantAnalysisDifference:
     theme: str
     statement: str
     counts: dict[str, int]
+    read: dict[str, int]
 
 
 @frozen
@@ -214,6 +226,11 @@ def _counts(raw: Any) -> dict[str, int]:
     return {str(key): value for key, value in raw.items() if isinstance(value, int) and value >= 0}
 
 
+def _read(raw: Any, count: int) -> int | None:
+    # A denominator below its own count is a scout error, and showing it would print a share above 100%.
+    return raw if isinstance(raw, int) and raw >= count else None
+
+
 def _lines(raw: Any, cited_variants: dict[str, str]) -> dict[str, tuple[VariantAnalysisLine, ...]]:
     if not isinstance(raw, dict):
         return {}
@@ -226,6 +243,7 @@ def _lines(raw: Any, cited_variants: dict[str, str]) -> dict[str, tuple[VariantA
                 theme=str(item["theme"])[:_THEME_CHARS],
                 statement=str(item["statement"])[:_STATEMENT_CHARS],
                 count=item["count"],
+                read=_read(item.get("read"), item["count"]),
                 example_observation_ids=tuple(
                     str(observation_id)
                     for observation_id in (item.get("example_observation_ids") or [])[:MAX_EXAMPLES_PER_LINE]
@@ -249,6 +267,11 @@ def _differences(raw: Any) -> tuple[VariantAnalysisDifference, ...]:
             theme=str(item["theme"])[:_THEME_CHARS],
             statement=str(item["statement"])[:_STATEMENT_CHARS],
             counts=_counts(item.get("counts")),
+            read={
+                key: read
+                for key, read in _counts(item.get("read")).items()
+                if read >= _counts(item.get("counts")).get(key, 0)
+            },
         )
         for item in raw[:MAX_DIFFERENCES]
         if isinstance(item, dict) and isinstance(item.get("theme"), str) and isinstance(item.get("statement"), str)
