@@ -175,6 +175,37 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             breach_messages = mock_send_breaches.call_args.args[1]
             assert any(expected_fragment in message for message in breach_messages), breach_messages
 
+    def test_sub_day_relative_range_excludes_earlier_points_the_same_day(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=self.metric_name,
+            metric_type="gauge",
+            points=[
+                (dt.datetime(2026, 9, 19, 7, 30, tzinfo=dt.UTC), 50.0),
+                (dt.datetime(2026, 9, 19, 8, 40, tzinfo=dt.UTC), 5.0),
+            ],
+            labels={},
+        )
+        insight = self.dashboard_api.create_insight(
+            data={
+                "name": "metrics insight",
+                "query": {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": self.metric_name, "aggregation": "avg"}],
+                    "dateRange": {"date_from": "-30M"},
+                },
+            }
+        )[1]
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 5.0
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.NOT_FIRING
+
     def test_empty_metrics_result_evaluates_as_zero(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:

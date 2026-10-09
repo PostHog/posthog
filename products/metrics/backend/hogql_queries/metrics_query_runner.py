@@ -110,7 +110,11 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             date_to=self.query.dateRange.date_to if self.query.dateRange else None,
             explicitDate=True,
         )
-        return QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime.now())
+        # With interval=None QueryDateRange falls back to day and truncates a relative date_from to
+        # midnight, so "-30M" would read the whole day. The facade picks the bucket interval itself.
+        return QueryDateRange(
+            date_range=date_range, team=self.team, interval=None, now=datetime.now(), exact_timerange=True
+        )
 
     def _to_request(self) -> MetricQueryRequest:
         date_range = self._query_date_range()
