@@ -193,7 +193,7 @@ services:
             retries: 10
 
     clickhouse:
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.6.2.158}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.9.13.15}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
