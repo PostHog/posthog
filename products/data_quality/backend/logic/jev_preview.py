@@ -82,7 +82,10 @@ class QuestionPreviewRunner:
                 query_type="data_quality_question_preview",
                 context=HogQLContext(team_id=self.team.id, user=principal, database=database, modifiers=modifiers),
                 modifiers=modifiers,
-                settings=HogQLGlobalSettings(max_execution_time=15, timeout_overflow_mode="throw"),
+                # toJSONString writes NaN and infinities as null by default, which merges them with SQL NULL in row inputs.
+                settings=HogQLGlobalSettings(
+                    max_execution_time=15, timeout_overflow_mode="throw", output_format_json_quote_denormals=True
+                ),
             )
             if response.error or response.hasMore:
                 raise ValueError("Question preview could not read its selected rows.")

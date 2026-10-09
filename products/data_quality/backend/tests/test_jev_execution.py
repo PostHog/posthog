@@ -147,6 +147,7 @@ class TestDurableQuestionExecution(BaseTest):
         gateway.assert_not_called()
         query_ast = query.call_args.kwargs["query"]
         assert query_ast.select_from.table.limit.value == 10
+        assert query.call_args.kwargs["settings"].output_format_json_quote_denormals is True
         full_query = question_input_query(self.subject, QuestionConfig(question="Is this valid?"), "description")
         assert isinstance(full_query.select_from, ast.JoinExpr)
         assert isinstance(full_query.select_from.table, ast.SelectQuery)
