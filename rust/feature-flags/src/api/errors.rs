@@ -109,6 +109,7 @@ pub enum FlagError {
     /// - `"protocol_timeout"` - PostgreSQL protocol timeout
     /// - `"client_timeout"` - Client-side tokio::timeout wrapper
     /// - `"persons_db_deadline"` - Deadline shared by all persons DB work in one flag evaluation
+    /// - `"personhog_timeout"` - gRPC deadline on a personhog call
     /// - `"redis_timeout"` - Redis operation timeout
     /// - `"cache_timeout"` - Cache operation timeout
     /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
@@ -145,6 +146,7 @@ pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
 
 const TIMEOUT_CLIENT: &str = "client_timeout";
 const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
+const TIMEOUT_PERSONHOG: &str = "personhog_timeout";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -210,6 +212,27 @@ impl FlagError {
 
     pub fn client_timeout() -> Self {
         FlagError::TimeoutError(Some(TIMEOUT_CLIENT.to_string()))
+    }
+
+    /// Maps a failed personhog call. Codes that a retry by the SDK can fix give a 503. All other
+    /// codes give a 500.
+    pub fn personhog(status: tonic::Status) -> Self {
+        match status.code() {
+            tonic::Code::DeadlineExceeded => {
+                FlagError::TimeoutError(Some(TIMEOUT_PERSONHOG.to_string()))
+            }
+            tonic::Code::Unavailable
+            | tonic::Code::ResourceExhausted
+            | tonic::Code::Aborted
+            | tonic::Code::Cancelled => FlagError::Unavailable {
+                code: "personhog_unavailable",
+                cause: anyhow::Error::new(status).context("personhog unavailable"),
+            },
+            _ => FlagError::InternalError {
+                code: "personhog_error",
+                cause: anyhow::Error::new(status).context("personhog call failed"),
+            },
+        }
     }
 
     pub fn persons_db_deadline() -> Self {
