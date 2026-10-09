@@ -35,7 +35,7 @@ export function MissingRecipientEmailBanner({
             {property === 'email' ? (
                 <>
                     If your people store their address in <code>$email</code>, set the To field to{' '}
-                    <code>{'{{ person.properties.$email }}'}</code>.
+                    <code>{"{{ person.properties['$email'] }}"}</code>.
                 </>
             ) : (
                 <>Set the To field to the property that holds their email address.</>

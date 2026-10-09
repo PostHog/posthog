@@ -5,6 +5,11 @@ describe('recipientEmailProperty', () => {
         { to: '{{ person.properties.email }}', expected: 'email' },
         { to: '{{person.properties.$email}}', expected: '$email' },
         { to: '  {{ person.properties.work_email }} ', expected: 'work_email' },
+        { to: "{{ person.properties['$email'] }}", expected: '$email' },
+        { to: "{{person.properties['$email']}}", expected: '$email' },
+        { to: '{{ person.properties["$email"] }}', expected: '$email' },
+        { to: "{{ person.properties[ 'work email' ] }}", expected: 'work email' },
+        { to: '{{ person.properties[\'$email"] }}', expected: null },
         { to: 'team@example.com', expected: null },
         { to: '{{ person.properties.email }}, team@example.com', expected: null },
         { to: '{{ person.properties.email | default: "x@example.com" }}', expected: null },
@@ -22,7 +27,7 @@ describe('recipientEmailProperty', () => {
         const workflow = {
             actions: [
                 email('{{ person.properties.email }}'),
-                email('{{ person.properties.$email }}'),
+                email("{{ person.properties['$email'] }}"),
                 email('{{ person.properties.email }}'),
                 email('team@example.com'),
                 { type: 'delay', config: {} } as any,

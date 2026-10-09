@@ -1,10 +1,12 @@
 import { HogFlowAction } from '../types'
 
-const PERSON_PROPERTY_TEMPLATE = /^\s*\{\{\s*person\.properties\.([\w$-]+)\s*\}\}\s*$/
+const PERSON_PROPERTY_TEMPLATE =
+    /^\s*\{\{\s*person\.properties(?:\.([\w$-]+)|\[\s*'([^'\\]+)'\s*\]|\[\s*"([^"\\]+)"\s*\])\s*\}\}\s*$/
 
 /** The person property the To field reads, or null for a fixed address or any other template. */
 export function recipientEmailProperty(to: string | undefined): string | null {
-    return to?.match(PERSON_PROPERTY_TEMPLATE)?.[1] ?? null
+    const match = to?.match(PERSON_PROPERTY_TEMPLATE)
+    return match?.[1] ?? match?.[2] ?? match?.[3] ?? null
 }
 
 /** The distinct person properties the workflow's email steps send to. */
