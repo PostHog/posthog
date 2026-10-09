@@ -4,7 +4,7 @@ from typing import Any
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class LaunchDarklyEndpointConfig:
     name: str
     # Path under the API root. A ``{project_key}`` placeholder marks a fan-out endpoint
