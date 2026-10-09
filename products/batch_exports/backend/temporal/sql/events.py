@@ -502,10 +502,8 @@ SETTINGS
 """
 
 
-# The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
-# the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
-# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object. The rebuilt document
-# gets the same doubling for the same reason.
+# `ClickHouseClient.prepare_query` runs `str.format` over the query, so the rebuilt documents double
+# their JSON braces to keep them from being interpreted as format fields.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
 _PROPERTIES_DOCUMENT = (
