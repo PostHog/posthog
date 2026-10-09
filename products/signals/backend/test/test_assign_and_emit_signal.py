@@ -1065,13 +1065,14 @@ async def test_specificity_title_only_renames_unresearched_reports(ateam, status
 async def test_specificity_gate_judges_against_the_researched_cause(
     ateam, signals_researched, expect_summary_in_prompt
 ):
+    report_title = "Handle failed source config loads"
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.READY if signals_researched else SignalReport.Status.POTENTIAL,
         total_weight=0.5,
         signal_count=4,
         signals_researched=signals_researched,
-        title="Handle failed source config loads",
+        title=report_title,
         summary="The settings page crashes when the source config request fails.",
     )
     call_llm = AsyncMock(return_value=SpecificityResult(pr_title="t", specific_enough=False, reason="r"))
@@ -1081,7 +1082,7 @@ async def test_specificity_gate_judges_against_the_researched_cause(
             VerifyMatchSpecificityInput(
                 team_id=ateam.id,
                 report_id=str(report.id),
-                report_title=report.title,
+                report_title=report_title,
                 new_signal_description="Saving an autonomy setting returns a 500",
                 new_signal_source_product="session_replay",
                 new_signal_source_type="observation",
