@@ -1,6 +1,10 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.clickhouse.log_entries import LOG_ENTRIES_AUX_READER_SQL
+from posthog.clickhouse.log_entries import (
+    LOG_ENTRIES_AUX_DISTRIBUTED_TABLE,
+    LOG_ENTRIES_AUX_READER_SQL,
+    LOG_ENTRIES_TABLE,
+)
 from posthog.clickhouse.log_entries_aux_readers import LOG_ENTRIES_AUX_JOIN_READERS_SQL
 from posthog.run_mode import run_mode
 
@@ -24,7 +28,7 @@ operations = [
 if not run_mode().is_deployed_cloud:
     operations.append(
         run_sql_with_exceptions(
-            "EXCHANGE TABLES posthog.log_entries AND posthog.log_entries_distributed",
+            f"EXCHANGE TABLES {LOG_ENTRIES_TABLE} AND {LOG_ENTRIES_AUX_DISTRIBUTED_TABLE}",
             node_roles=[NodeRole.DATA],
         )
     )
