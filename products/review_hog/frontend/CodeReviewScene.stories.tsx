@@ -535,7 +535,7 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Full review settings')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Deep review settings')).not.toBeInTheDocument()
     },
 }
 
@@ -549,7 +549,7 @@ export const Settings: Story = {
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
-        await expect(canvas.getByText('Full review settings')).toBeVisible()
+        await expect(canvas.getByText('Deep review settings')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },

@@ -78,27 +78,27 @@ export const ReviewHogProjectSettingsPartialUpdateBody = /* @__PURE__ */ zod.obj
         )
         .optional()
         .describe(
-            "Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.\n\n\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only"
+            "Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.\n\n\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only"
         ),
     bot_prs: zod
         .enum(['skip', 'run'])
         .describe('\* `skip` - Not reviewed\n\* `run` - Automatic Flash')
         .optional()
         .describe(
-            "Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).\n\n\* `skip` - Not reviewed\n\* `run` - Automatic Flash"
+            "Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).\n\n\* `skip` - Not reviewed\n\* `run` - Automatic Flash"
         ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])
         .describe('\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix')
         .optional()
         .describe(
-            "Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
+            "Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
         ),
     celebrate_clean_reviews: zod
         .boolean()
         .optional()
         .describe(
-            "Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins."
+            "Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins."
         ),
 })
 
@@ -213,7 +213,7 @@ export const ReviewHogResolutionPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Flash review that never resolves comments and is refused after a published Full review. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const reviewHogReviewsTriggerCreateBodyRunModeDefault = `review`
@@ -227,11 +227,11 @@ export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
     run_mode: zod
         .enum(['review', 'review_only', 'resolve_only', 'flash'])
         .describe(
-            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Flash'
+            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
         )
         .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Flash"
+            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })
 
@@ -245,26 +245,26 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `follow` - Follow each repository\n\* `flash` - Flash everywhere\n\* `off` - Off everywhere')
         .optional()
         .describe(
-            "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Follow each repository\n\* `flash` - Flash everywhere\n\* `off` - Off everywhere"
+            "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Follow each repository\n\* `flash` - Flash everywhere\n\* `off` - Off everywhere"
         ),
     resolve_comments: zod
         .boolean()
         .optional()
         .describe(
-            "After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies."
+            "After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies."
         ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])
         .describe('\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix')
         .optional()
         .describe(
-            "Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
+            "Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
         ),
     celebrate_clean_reviews: zod
         .boolean()
         .optional()
         .describe(
-            "Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies."
+            "Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies."
         ),
     review_inbox_prs: zod
         .boolean()

@@ -20,7 +20,7 @@ from products.review_hog.backend.reviewer.review_state import published_heads_by
 class ReviewRequestRefusal(models.TextChoices):
     """Why a request is refused. Clients show a reason per code."""
 
-    FLASH_AFTER_FULL = "flash_after_full", "Flash after a published Full review"
+    FLASH_AFTER_FULL = "flash_after_full", "Standard after a published Deep review"
     RESOLUTION_NOT_OPTED_IN = "resolution_not_opted_in", "The pull request owner has not opted in to resolution"
 
 

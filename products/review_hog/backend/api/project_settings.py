@@ -51,7 +51,7 @@ class ReviewProjectSettingsSerializer(serializers.Serializer):
     flash_for = serializers.ChoiceField(
         choices=AutomaticFlashFor.choices,
         required=False,
-        help_text="Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except "
+        help_text="Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except "
         "the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the "
         "default). A repository exception or a person's own choice wins over it.",
     )
@@ -59,18 +59,18 @@ class ReviewProjectSettingsSerializer(serializers.Serializer):
         choices=ReviewProjectSettings.BotPullRequests.choices,
         required=False,
         help_text="Pull requests from bots, and from authors who are not project members, in every repository "
-        "this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the "
+        "this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the "
         "person who connected GitHub, with default settings and no changes to the pull request).",
     )
     urgency_threshold = serializers.ChoiceField(
         choices=UrgencyThreshold.choices,
         required=False,
-        help_text="Project default for the minimum priority a Full review publishes: 'consider' (all, the "
+        help_text="Project default for the minimum priority a Deep review publishes: 'consider' (all, the "
         "built-in default), 'should_fix', or 'must_fix'. A person's own value wins.",
     )
     celebrate_clean_reviews = serializers.BooleanField(
         required=False,
-        help_text="Project default for the image in a Full review that finds nothing to raise. On by default. "
+        help_text="Project default for the image in a Deep review that finds nothing to raise. On by default. "
         "A person's own value wins.",
     )
     people = ReviewRepositoryPersonSerializer(
@@ -222,7 +222,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         methods=["GET"],
         responses={200: OpenApiResponse(response=ReviewProjectSettingsSerializer)},
         summary="Get the project's ReviewHog rule",
-        description="The project rule for automatic Flash reviews, bot pull requests, the Full review defaults, "
+        description="The project rule for automatic Standard reviews, bot pull requests, the Deep review defaults, "
         "and the connected GitHub installations.",
     )
     @extend_schema(

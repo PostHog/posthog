@@ -13583,7 +13583,7 @@ export namespace Schemas {
     } as const;
 
     export interface AutomaticReviewDecision {
-      /** Whether the requesting user's own pull requests get automatic Flash reviews in this repository. */
+      /** Whether the requesting user's own pull requests get automatic Standard reviews in this repository. */
       flash: boolean;
       /** Which rule decided: the user's own choice ('own_repository_choice', 'own_default'), the repository exception ('repository_*'), the project rule ('project_*'), or 'not_in_project' when this project does not review the repository.
        *
@@ -82934,7 +82934,7 @@ export namespace Schemas {
       readonly id: string;
       /** The project member on the list. */
       readonly user: UserBasic;
-      /** Which list: 'listed' (gets Flash when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
+      /** Which list: 'listed' (gets automatic reviews when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
        *
        * * `listed` - Listed
        * * `excepted` - Excepted */
@@ -82959,7 +82959,7 @@ export namespace Schemas {
       installation_id: string;
       /** The GitHub account (organization or user) of the installation. */
       account_name: string;
-      /** Who connected the installation to this project. Automatic Flash reviews of bot pull requests run as this user. */
+      /** Who connected the installation to this project. Automatic Standard reviews of bot pull requests run as this user. */
       connected_by: UserBasic | null;
       /**
          * Id of this project's claim. Null when the project reviews nothing there.
@@ -82976,24 +82976,24 @@ export namespace Schemas {
     }
 
     export interface PatchedReviewProjectSettings {
-      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+      /** Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
        *
        * * `everyone` - Automatic Flash for everyone
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum;
-      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).
        *
        * * `skip` - Not reviewed
        * * `run` - Automatic Flash */
       bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
-      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+      /** Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      /** Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins. */
       celebrate_clean_reviews?: boolean;
       /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
       readonly people?: readonly ReviewRepositoryPerson[];
@@ -83075,32 +83075,32 @@ export namespace Schemas {
     }
 
     export interface ReviewProjectDefaults {
-      /** The project's default for the minimum priority a Full review publishes.
+      /** The project's default for the minimum priority a Deep review publishes.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold: UrgencyThresholdEnum;
-      /** The project's default for the image in a Full review that finds nothing to raise. */
+      /** The project's default for the image in a Deep review that finds nothing to raise. */
       celebrate_clean_reviews: boolean;
     }
 
     export interface PatchedReviewUserSettings {
-      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
        *
        * * `follow` - Follow each repository
        * * `flash` - Flash everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
-      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+      /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
@@ -83108,7 +83108,7 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources?: ReviewPreferenceSources;
-      /** The project defaults the Full review preferences fall back to. */
+      /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults?: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
@@ -95163,7 +95163,7 @@ export namespace Schemas {
     } as const;
 
     export interface ReviewProgress {
-      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Flash turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
+      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Standard turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
        *
        * * `fetching` - fetching
        * * `chunking` - chunking
@@ -95371,7 +95371,7 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
@@ -95503,24 +95503,24 @@ export namespace Schemas {
     }
 
     export interface ReviewProjectSettings {
-      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+      /** Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
        *
        * * `everyone` - Automatic Flash for everyone
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum;
-      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).
        *
        * * `skip` - Not reviewed
        * * `run` - Automatic Flash */
       bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
-      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+      /** Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      /** Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins. */
       celebrate_clean_reviews?: boolean;
       /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
@@ -95596,7 +95596,7 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
@@ -95869,7 +95869,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `flash_after_full` - Flash after a published Full review
+     * * `flash_after_full` - Standard after a published Deep review
      * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
      */
     export type ReviewRequestRefusalEnum = typeof ReviewRequestRefusalEnum[keyof typeof ReviewRequestRefusalEnum];
@@ -95911,9 +95911,9 @@ export namespace Schemas {
     export interface ReviewTriggerError {
       /** Human-readable explanation of why the trigger was rejected. */
       error: string;
-      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments). Absent for other errors.
+      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments). Absent for other errors.
        *
-       * * `flash_after_full` - Flash after a published Full review
+       * * `flash_after_full` - Standard after a published Deep review
        * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution */
       code?: ReviewRequestRefusalEnum;
     }
@@ -95922,7 +95922,7 @@ export namespace Schemas {
      * * `review` - Review
      * * `review_only` - Review only
      * * `resolve_only` - Resolve only
-     * * `flash` - Flash
+     * * `flash` - Standard
      */
     export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
@@ -95937,38 +95937,38 @@ export namespace Schemas {
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
-      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
+      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
        *
        * * `review` - Review
        * * `review_only` - Review only
        * * `resolve_only` - Resolve only
-       * * `flash` - Flash */
+       * * `flash` - Standard */
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Full review waits for an active Flash review. */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Deep review waits for an active Standard review. */
       status: string;
     }
 
     export interface ReviewUserSettings {
-      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
        *
        * * `follow` - Follow each repository
        * * `flash` - Flash everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
-      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+      /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
@@ -95976,7 +95976,7 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources: ReviewPreferenceSources;
-      /** The project defaults the Full review preferences fall back to. */
+      /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;

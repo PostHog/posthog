@@ -183,8 +183,8 @@ def request_pr_review(
     if flash_refusal(report, review_mode) is not None:
         return PRReviewRequestOutcome(
             status=PRReviewRequestStatus.REFUSED,
-            error="This pull request already has a Full review, so it gets no more Flash reviews. "
-            "Start a Full review instead.",
+            error="This pull request already has a Deep review, so it gets no more Standard reviews. "
+            "Start a Deep review instead.",
             refusal=ReviewRequestRefusal.FLASH_AFTER_FULL,
         )
     if report is not None and review_already_published(report, pr_meta.head_sha or "", review_mode):

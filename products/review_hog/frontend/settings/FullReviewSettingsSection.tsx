@@ -65,12 +65,12 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
 
     return (
         <SettingsTable
-            title="Full review settings"
-            description="Full reviews use these. Flash reads none of them. A review someone else starts on your PR uses their settings, but only your own Resolve choice can push to your branch."
+            title="Deep review settings"
+            description="Deep reviews use these. Standard reads none of them. A review someone else starts on your PR uses their settings, but only your own Resolve choice can push to your branch."
         >
             <SettingRow
                 title="Resolve comments on my pull requests"
-                description="Applies on your PRs. After a Full review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
+                description="Applies on your PRs. After a Deep review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
                 project={<span className="text-xs text-secondary">Personal only. Default: off</span>}
                 mine={
                     <>
@@ -87,7 +87,7 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             />
             <SettingRow
                 title="Post findings at or above"
-                description="Applies to Full reviews you start. Lower findings stay in the report on the PostHog side."
+                description="Applies to Deep reviews you start. Lower findings stay in the report on the PostHog side."
                 project={
                     <LemonSelect<UrgencyThresholdEnumApi>
                         size="small"
@@ -120,7 +120,7 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             />
             <SettingRow
                 title="Celebrate clean reviews"
-                description="Applies to Full reviews you start. A clean Full review gets a small celebration in the status comment."
+                description="Applies to Deep reviews you start. A clean Deep review gets a small celebration in the status comment."
                 project={
                     <LemonSelect<OnOff>
                         size="small"
@@ -153,7 +153,7 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             />
             <SettingRow
                 title="Perspectives, blind spots, validation and resolution criteria"
-                description="Applies to Full reviews you start. Resolution criteria also pick how fixes work: default, big gaps only, or small fixes only."
+                description="Applies to Deep reviews you start. Resolution criteria also pick how fixes work: default, big gaps only, or small fixes only."
                 project={<span className="text-xs text-secondary">Skills shared in this project</span>}
                 mine={
                     <>

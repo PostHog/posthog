@@ -178,7 +178,7 @@ def report_deep_link(team_id: int, report_id: str) -> str:
 
 
 def _product_name(review_mode: str) -> str:
-    return "PostHog Review (flash)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
+    return "PostHog Review (standard)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
 
 
 def _plural(count: int, noun: str) -> str:

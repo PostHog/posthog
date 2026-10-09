@@ -48,10 +48,10 @@ class ReviewPreferenceSourcesSerializer(serializers.Serializer):
 class ReviewProjectDefaultsSerializer(serializers.Serializer):
     urgency_threshold = serializers.ChoiceField(
         choices=UrgencyThreshold.choices,
-        help_text="The project's default for the minimum priority a Full review publishes.",
+        help_text="The project's default for the minimum priority a Deep review publishes.",
     )
     celebrate_clean_reviews = serializers.BooleanField(
-        help_text="The project's default for the image in a Full review that finds nothing to raise.",
+        help_text="The project's default for the image in a Deep review that finds nothing to raise.",
     )
 
 
@@ -60,25 +60,25 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         required=False,
         choices=DefaultReviewMode.choices,
         help_text="Automatic reviews of the user's own pull requests in every repository this project reviews: "
-        "'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' "
-        "turns automatic Flash off everywhere. A choice for one repository wins over this default.",
+        "'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' "
+        "turns automatic reviews off everywhere. A choice for one repository wins over this default.",
     )
     resolve_comments = serializers.BooleanField(
         required=False,
-        help_text="After a Full review of the user's pull requests is published, run the resolution stage: "
+        help_text="After a Deep review of the user's pull requests is published, run the resolution stage: "
         "triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and "
         "reply on every thread. Off by default. Personal only: no project default applies.",
     )
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=UrgencyThreshold.choices,
-        help_text="Minimum priority a validated Full review finding needs to be published: 'consider' "
+        help_text="Minimum priority a validated Deep review finding needs to be published: 'consider' "
         "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
         "blocking issues. Without the user's own value the project default applies.",
     )
     celebrate_clean_reviews = serializers.BooleanField(
         required=False,
-        help_text="Show a fun image in the review comment when a Full review of the user's pull requests "
+        help_text="Show a fun image in the review comment when a Deep review of the user's pull requests "
         "finds nothing to raise. Without the user's own value the project default applies.",
     )
     review_inbox_prs = serializers.BooleanField(
@@ -101,7 +101,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
     project_defaults = ReviewProjectDefaultsSerializer(
         read_only=True,
         source="project",
-        help_text="The project defaults the Full review preferences fall back to.",
+        help_text="The project defaults the Deep review preferences fall back to.",
     )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "

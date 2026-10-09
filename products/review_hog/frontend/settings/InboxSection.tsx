@@ -20,7 +20,7 @@ export function InboxSection(): JSX.Element {
         >
             <SettingRow
                 title="Review PRs the agent opens for Inbox reports assigned to me"
-                description="Full review today. Moves to Flash once Flash is stable."
+                description="Deep review today. Moves to Standard once Standard is stable."
                 project={<span className="text-xs text-secondary">Default: off</span>}
                 mine={
                     <>
