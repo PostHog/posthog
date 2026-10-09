@@ -3,6 +3,7 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
+import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step-dispatch-key'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
@@ -31,9 +32,11 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
         .filter((addr) => addr.length > 0)
 }
 
-// Atomic so concurrent sends to one person cannot both slip under the cap.
+// Atomic so concurrent sends to one person cannot both slip under the cap. A step visit that already
+// holds a slot passes again, because the email queue and send retries re-enter the same step.
 const FREQUENCY_CAP_SCRIPT = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
+if redis.call('ZSCORE', KEYS[1], ARGV[4]) then return 0 end
 if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
@@ -77,7 +80,7 @@ export class RecipientPreferencesService {
                     Date.now(),
                     window_days * 24 * 60 * 60 * 1000,
                     max_messages,
-                    `${invocation.id}:${action.id}`
+                    workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
                 ) as Promise<number>
         )
         return capped === 1
