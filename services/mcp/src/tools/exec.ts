@@ -614,6 +614,27 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
                 `Tool "${removed}" was removed. It was a deprecation alias for "${replacement}", which takes the same arguments. Call "${replacement}" instead.`,
         ])
     ),
+    // The legacy loops API was removed. Loops are workflows tagged origin_product "loops".
+    ...Object.fromEntries(
+        [
+            ['loops-create', '"workflows-create"'],
+            ['loops-create-execute', '"workflows-create"'],
+            ['loops-create-prepare', '"workflows-create"'],
+            ['loops-destroy', '"workflows-archive"'],
+            ['loops-list', '"workflows-list"'],
+            ['loops-partial-update', '"workflows-patch-graph" or "workflows-update"'],
+            ['loops-preview-create', '"workflows-test-run"'],
+            ['loops-retrieve', '"workflows-get"'],
+            ['loops-review', '"workflows-create"'],
+            ['loops-run-create', '"workflows-test-run"'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. Loops run on workflows: read the building-loops skill, then use ${replacement} with origin_product "loops".`,
+        ])
+    ),
+    'loops-runs-retrieve': () =>
+        'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
