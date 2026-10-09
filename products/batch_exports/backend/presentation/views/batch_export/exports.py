@@ -43,7 +43,11 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
+from products.batch_exports.backend.facade.contracts import (
+    InvalidBatchExportFilters,
+    InvalidDestinationTestStepError,
+    UnsupportedDestinationTestError,
+)
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
@@ -1094,7 +1098,11 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
-    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
+    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: object) -> response.Response:
+        # bool is a subclass of int, so a JSON true would otherwise pass as step 1.
+        if isinstance(step, bool) or not isinstance(step, int):
+            raise ValidationError("The step must be an integer.")
+
         destination = serializer.validated_data["destination"]
         integration: Integration | None = destination.get("integration")
         try:
@@ -1107,6 +1115,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             )
         except UnsupportedDestinationTestError:
             raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
+        except InvalidDestinationTestStepError as e:
+            raise ValidationError(str(e))
         return response.Response(dataclasses.asdict(result))
 
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])

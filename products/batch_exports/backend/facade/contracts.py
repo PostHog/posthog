@@ -37,6 +37,10 @@ class UnsupportedDestinationTestError(ValueError):
     """Raised when a destination type has no connection test."""
 
 
+class InvalidDestinationTestStepError(ValueError):
+    """Raised when a step index is outside a destination's connection test."""
+
+
 @dataclass(frozen=True)
 class BatchExportRef:
     """The bare identity of a batch export, for listing it by name."""

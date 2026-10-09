@@ -469,6 +469,44 @@ def test_can_run_databricks_test_step_for_new_destination(
     }
 
 
+@pytest.mark.parametrize(
+    "step,expected_detail",
+    [
+        ("0", "The step must be an integer."),
+        (True, "The step must be an integer."),
+        (-1, "This connection test has 5 steps, so the step must be between 0 and 4."),
+        (99, "This connection test has 5 steps, so the step must be between 0 and 4."),
+    ],
+)
+def test_run_test_step_rejects_an_invalid_step(
+    client: HttpClient, organization, team, user, databricks_integration, step: object, expected_detail: str
+) -> None:
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+        {
+            "step": step,
+            "name": "my-databricks-batch-export",
+            "destination": {
+                "type": "Databricks",
+                "integration": databricks_integration.id,
+                "config": {
+                    "http_path": "my-http-path",
+                    "catalog": "my-catalog",
+                    "schema": "my-schema",
+                    "table_name": "my-table-name",
+                },
+            },
+            "interval": "hour",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == expected_detail
+
+
 def test_integration_is_required_for_databricks_destination_tests(
     client: HttpClient,
     organization,

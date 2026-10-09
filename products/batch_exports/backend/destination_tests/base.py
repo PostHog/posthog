@@ -6,6 +6,8 @@ from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
 
+from products.batch_exports.backend.facade.contracts import InvalidDestinationTestStepError
+
 
 class Status(enum.StrEnum):
     PASSED = "Passed"
@@ -118,7 +120,13 @@ class DestinationTest:
 
     def run_step(self, step: int) -> DestinationTestStep:
         """Run the test step at index `step`."""
-        test_step = self.steps[step]
+        steps = self.steps
+        # A negative index would silently run a step counted from the end.
+        if not 0 <= step < len(steps):
+            raise InvalidDestinationTestStepError(
+                f"This connection test has {len(steps)} steps, so the step must be between 0 and {len(steps) - 1}."
+            )
+        test_step = steps[step]
         step_result = async_to_sync(test_step.run)()
 
         test_step.result = step_result
