@@ -8,10 +8,12 @@ import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 // pinned: URL values and analytics property values for the wizard events - renaming breaks links and dashboards
 export const MESSAGING_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'journey'] as const
 export const AUTOMATION_WIZARD_STEPS = ['template', 'connect', 'create'] as const
+export const BROADCAST_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'broadcast'] as const
 export const PUSH_WIZARD_STEP = 'push' as const
 export type WizardStepKey =
     | (typeof MESSAGING_WIZARD_STEPS)[number]
     | (typeof AUTOMATION_WIZARD_STEPS)[number]
+    | (typeof BROADCAST_WIZARD_STEPS)[number]
     | typeof PUSH_WIZARD_STEP
 
 // pinned: URL path and search params of the wizard - renaming breaks the Slack sign-in return link
@@ -29,9 +31,11 @@ export function onboardingWizardUrl(
 export const WIZARD_STEPS: Record<WorkflowsOnboardingPath, readonly WizardStepKey[]> = {
     messaging: MESSAGING_WIZARD_STEPS,
     automation: AUTOMATION_WIZARD_STEPS,
+    broadcast: BROADCAST_WIZARD_STEPS,
 }
 
-/** The steps of one path. Messaging asks about push before the first journey when the project can send push. */
+/** The steps of one path. Messaging asks about push before the first journey when the project can send push.
+ * Broadcasts only send email, so that path never asks. */
 export function wizardSteps(path: WorkflowsOnboardingPath, pushEnabled: boolean): readonly WizardStepKey[] {
     const steps = WIZARD_STEPS[path]
     if (path !== 'messaging' || !pushEnabled) {
@@ -53,7 +57,7 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
     channel: {
         label: 'Email channel',
         title: 'Connect the email address you send from',
-        description: 'Workflows send email from your own domain. Add the address that people see in their inbox.',
+        description: 'Email goes out from your own domain. Add the address that people see in their inbox.',
         optional: false,
     },
     domain: {
@@ -82,6 +86,13 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         title: 'Pick your first journey',
         description:
             'Start from a template or from scratch. It opens in the editor, where you change the trigger and the emails and save it as a draft. Nothing sends until you launch it.',
+        optional: false,
+    },
+    broadcast: {
+        label: 'First broadcast',
+        title: 'Write your first broadcast',
+        description:
+            'It opens the broadcast editor. You pick a sender and who gets it, write the email, and send it now or schedule it. Nothing sends until you confirm.',
         optional: false,
     },
     template: {
