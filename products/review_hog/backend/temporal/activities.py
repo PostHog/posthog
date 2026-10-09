@@ -1318,21 +1318,25 @@ async def _run_single_agent_session(
         input, chunk_id, for_lens
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
-        review = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model_to_validate=SingleAgentReview,
-            step_name=step_name,
-            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
-            runtime_adapter=arm.runtime_adapter,
-            model=arm.model,
-            reasoning_effort=arm.reasoning_effort,
-            initial_permission_mode=arm.initial_permission_mode,
-        )
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model_to_validate=SingleAgentReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
     logger.info("%s returned %s finding(s); overall: %s", step_name, len(review.findings), review.overall_correctness)
     issues = issues_from_review(review, pass_number=pass_number, chunk_id=chunk_id, source=source)
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
