@@ -4,6 +4,8 @@ from typing import Any
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
@@ -25,6 +27,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.models.subscription import Subscription
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
 
@@ -213,7 +216,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, {"kind": "TrendsQuery", "series": []})
 
-    async def test_saved_update_blocks_restricted_query_on_public_share(self):
+    @parameterized.expand(
+        [
+            ("public_share", "publicly shared"),
+            ("subscription", "delivered by a subscription"),
+        ]
+    )
+    async def test_saved_update_blocks_restricted_query_on_exposed_insight(self, exposure: str, expected_reason: str):
         tool = await self._create_tool()
         original_query = {"kind": "TrendsQuery", "series": []}
         insight = await Insight.objects.acreate(team=self.team, query=original_query)
@@ -226,10 +235,20 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.organization, "editor@example.com", "test-password"
         )
         tool = await self._create_tool()
-        await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        if exposure == "public_share":
+            await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        else:
+            await database_sync_to_async(Subscription.objects.create)(
+                team=self.team,
+                insight=insight,
+                target_type="email",
+                target_value="reader@example.com",
+                frequency="daily",
+                start_date=timezone.now(),
+            )
 
         with patch("posthog.api.query_access_check.blocked_access_for_user", return_value=["restricted table"]):
-            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+            with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
 
         await insight.arefresh_from_db()

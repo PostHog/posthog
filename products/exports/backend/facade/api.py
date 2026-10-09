@@ -2,6 +2,7 @@
 
 from collections.abc import Collection
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
@@ -12,6 +13,8 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.query_access_check import blocked_access_for_user
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -30,6 +33,9 @@ from products.exports.backend.tasks.failure_handler import (
     RetryableExportError as RetryableExportError,
 )
 from products.product_analytics.backend.facade.models import Insight
+
+if TYPE_CHECKING:
+    from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -135,6 +141,77 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
         Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
             "dashboard_id", flat=True
         )
+    )
+
+
+def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
+    """Decide if an enabled subscription delivers this insight.
+
+    A subscription delivers the insight in three cases: it targets the insight, its dashboard
+    selection names the insight, or it has no live selected insight and the insight is a tile of
+    its dashboard. A deleted tile counts, and so does a tile of a deleted dashboard: a restore of
+    the tile or the dashboard starts delivery again without a subscription write, so the insight
+    edit check must stay in place while the tile is hidden.
+
+    A disabled or deleted subscription does not count. Enabling or restoring it runs the
+    subscription save check on the requester.
+    """
+    active = Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True)
+    if active.filter(insight_id=insight_id).exists():
+        return True
+    if active.filter(dashboard_export_insights=insight_id).exists():
+        return True
+    return (
+        active.filter(dashboard__tiles__insight_id=insight_id)
+        .exclude(dashboard_export_insights__deleted=False)
+        .exists()
+    )
+
+
+def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -> bool:
+    """Decide if an enabled subscription delivers every insight on this dashboard. Such a
+    subscription also delivers an insight that is added after the subscription was saved.
+
+    A subscription with a live insight in its selection does not count, because it does not
+    deliver a tile outside its selection. A selection whose insights are all deleted counts as no
+    selection, because the delivery then exports every live tile. A disabled or deleted
+    subscription does not count. Enabling or restoring it runs the subscription save check on the
+    requester.
+    """
+    return (
+        Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id)
+        .exclude(dashboard_export_insights__deleted=False)
+        .exists()
+    )
+
+
+def blocked_access_for_subscribed_dashboard_tile(
+    user: User,
+    dashboard: "Dashboard",
+    query: Any,
+    user_access_control: UserAccessControl | None = None,
+) -> str | None:
+    """The validation message that stops binding an insight with this query to the dashboard,
+    when a subscription delivers the whole dashboard and the editor cannot run the query. None
+    when the tile may be added: no such subscription, the org lacks the access control
+    entitlement, the editor is an org admin, or the editor can run the query. The public link
+    counterpart is check_can_add_insight_to_shared_dashboard in posthog.api.sharing_publish_gate.
+    """
+    if not isinstance(query, dict):
+        return None
+    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+    uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
+    if uac.is_organization_admin:
+        return None
+    if not dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
+        return None
+    blocked = blocked_access_for_user(user, dashboard.team, [query])
+    if not blocked:
+        return None
+    blocked_list = ", ".join(f"`{name}`" for name in blocked)
+    return (
+        f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
     )
 
 
