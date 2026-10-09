@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +31,23 @@ class TestMessageCategoryAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["name"], "Team 1 Category")
+
+    def test_list_pages_categories_by_ascending_id(self):
+        ids = [UUID(int=n) for n in (3, 2, 1)]
+        for category_id in ids:
+            MessageCategory.objects.create(id=category_id, team=self.team, name=str(category_id), key=str(category_id))
+
+        pages = [
+            [
+                row["id"]
+                for row in self.client.get(
+                    f"/api/environments/{self.team.id}/messaging_categories/?limit=2&offset={offset}"
+                ).json()["results"]
+            ]
+            for offset in (0, 2)
+        ]
+
+        assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0])]]
 
     def test_get_message_category(self):
         """
