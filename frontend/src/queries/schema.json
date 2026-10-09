@@ -13098,6 +13098,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -36711,6 +36714,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -36881,6 +36887,9 @@
             "additionalProperties": false,
             "properties": {
                 "keywordTable": {
+                    "type": "string"
+                },
+                "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
@@ -45200,6 +45209,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
                         },
                         "posthogAttributionMode": {
                             "anyOf": [
