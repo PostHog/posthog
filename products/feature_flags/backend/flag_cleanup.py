@@ -233,18 +233,26 @@ class FlagCleanupTask:
     repository: str
 
 
-def _reuse_flag_cleanup_task(task: TaskDetailDTO, *, team_id: int, repository: str, user_id: int) -> FlagCleanupTask:
+def _reuse_flag_cleanup_task(
+    task: TaskDetailDTO, *, team_id: int, prompt: FlagCleanupPrompt, repository: str, user_id: int
+) -> FlagCleanupTask:
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
-    if tasks_facade.get_task_detail(task.id, team_id, user_id) is None:
+    visible_task = tasks_facade.get_task_detail(task.id, team_id, user_id)
+    if visible_task is None:
         raise PermissionDenied("An existing cleanup task is private. Ask its creator to share it.")
+    if visible_task.description != prompt.description or (visible_task.repository or "").lower() != repository.lower():
+        raise ValidationError(
+            "A cleanup task already exists with different instructions or repository. "
+            "Open it in PostHog Desktop to review or change its instructions."
+        )
     if task.latest_run is not None and task.latest_run.status == tasks_facade.TaskRunStatus.FAILED:
         result = tasks_facade.retry_failed_task(task.id, team_id, user_id, validated_data={"run_source": "agent"})
         if result is None:
             raise PermissionDenied("Only the cleanup task's creator can retry it. Open the task in PostHog Desktop.")
         if result.error or result.run_error:
             raise ValidationError(result.error.detail if result.error else result.run_error)
-    return FlagCleanupTask(task_id=task.id, repository=task.repository or repository)
+    return FlagCleanupTask(task_id=task.id, repository=visible_task.repository or repository)
 
 
 def create_flag_cleanup_task(
@@ -257,7 +265,9 @@ def create_flag_cleanup_task(
     origin_key = f"feature-flag-cleanup:{flag_id}"
     existing = tasks_facade.get_task_by_origin_key(team.id, origin_key)
     if existing is not None:
-        return _reuse_flag_cleanup_task(existing, team_id=team.id, repository=repository, user_id=user_id)
+        return _reuse_flag_cleanup_task(
+            existing, team_id=team.id, prompt=prompt, repository=repository, user_id=user_id
+        )
     try:
         created = tasks_facade.create_and_run_task(
             team=team,
@@ -284,7 +294,9 @@ def create_flag_cleanup_task(
                     "A previous cleanup task for this flag was deleted. Start a new task in PostHog Desktop."
                 ) from error
             raise
-        return _reuse_flag_cleanup_task(existing, team_id=team.id, repository=repository, user_id=user_id)
+        return _reuse_flag_cleanup_task(
+            existing, team_id=team.id, prompt=prompt, repository=repository, user_id=user_id
+        )
     return FlagCleanupTask(task_id=created.task_id, repository=repository)
 
 

@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
@@ -26,6 +26,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchFlags
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -80,6 +81,43 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             description="Run later",
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.owner,
+        )
+
+    @parameterized.expand([("terminal_start_failure", False), ("durable_start_failure", True)])
+    def test_failed_retry_reports_dispatch_failure_after_commit(self, _name: str, shadow_enabled: bool) -> None:
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.FAILED)
+
+        def fail_connection():
+            assert not transaction.get_connection().in_atomic_block
+            raise RuntimeError("Temporal unavailable")
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit",
+                side_effect=transaction.on_commit,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.evaluate_workflow_dispatch_flags",
+                return_value=WorkflowDispatchFlags(shadow_enabled=shadow_enabled, async_enabled=False),
+            ),
+            patch("products.tasks.backend.temporal.client.sync_connect", side_effect=fail_connection) as mock_connect,
+            patch("products.tasks.backend.temporal.client._capture_run_feature_flags"),
+        ):
+            result = facade.retry_failed_task(
+                self.task.id, self.team.id, self.owner.id, validated_data={"run_source": "agent"}
+            )
+
+        mock_connect.assert_called_once()
+        assert result is not None
+        assert result.run_error == (None if shadow_enabled else facade.WORKFLOW_START_FAILED_ERROR)
+        assert result.task is not None
+        assert result.task.latest_run is not None
+        assert result.task.latest_run.status == (TaskRun.Status.QUEUED if shadow_enabled else TaskRun.Status.FAILED)
+        assert result.task.latest_run.id == result.run_id
+        assert self.task.runs.count() == 2
+        assert (
+            TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=result.run_id).exists()
+            == shadow_enabled
         )
 
     def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import UUID
 
 from django.db import transaction
@@ -28,5 +29,18 @@ def retry_failed_task(
             return None
         latest = task.latest_run
         if latest is not None and latest.status == TaskRun.Status.FAILED:
-            return api.run_task(task.id, team_id, user_id, validated_data=validated_data)
-        return contracts.TaskRunResult(task=api.get_task_detail(task.id, team_id, user_id))
+            result = api.run_task(task.id, team_id, user_id, validated_data=validated_data)
+        else:
+            return contracts.TaskRunResult(task=api.get_task_detail(task.id, team_id, user_id))
+
+    if result is None or result.run_id is None or result.error or result.run_error:
+        return result
+    # Synchronous dispatch runs at commit; run_task's earlier status check cannot see its failure.
+    failed = TaskRun.objects.filter(
+        id=result.run_id, task_id=task_id, team_id=team_id, status=TaskRun.Status.FAILED
+    ).exists()
+    return replace(
+        result,
+        task=api.get_task_detail(task_id, team_id, user_id),
+        run_error=api.WORKFLOW_START_FAILED_ERROR if failed else None,
+    )

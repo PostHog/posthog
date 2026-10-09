@@ -21,7 +21,11 @@ from posthog.tasks.integrations import refresh_github_repository_cache
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.flag_cleanup import resolve_cleanup_repository
+from products.feature_flags.backend.flag_cleanup import (
+    FlagCleanupKeep,
+    build_flag_cleanup_prompt,
+    resolve_cleanup_repository,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -301,6 +305,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
             team=self.team,
             created_by=self.user,
             title="Existing cleanup",
+            description=build_flag_cleanup_prompt(flag.key, [], FlagCleanupKeep.DISABLED, None).description,
             origin_product="feature_flags",
             origin_key=f"feature-flag-cleanup:{flag.id}",
             repository="posthog/posthog",
@@ -347,6 +352,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
             team=self.team,
             created_by=self.user,
             title="Existing cleanup",
+            description=build_flag_cleanup_prompt(flag.key, [], FlagCleanupKeep.DISABLED, None).description,
             origin_product=Task.OriginProduct.FEATURE_FLAGS,
             origin_key=f"feature-flag-cleanup:{flag.id}",
             repository="posthog/posthog",
@@ -374,6 +380,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
             team=self.team,
             created_by=owner,
             title="Existing cleanup",
+            description=build_flag_cleanup_prompt(flag.key, [], FlagCleanupKeep.DISABLED, None).description,
             origin_product=Task.OriginProduct.FEATURE_FLAGS,
             origin_key=f"feature-flag-cleanup:{flag.id}",
             repository="posthog/posthog",
@@ -385,6 +392,70 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "creator" in response.json()["detail"]
         assert task.runs.count() == 1
+        mock_dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("disabled_to_enabled", None, "disabled", None, {"keep": "enabled"}, "posthog/posthog"),
+            ("enabled_to_disabled", None, "enabled", None, {"keep": "disabled"}, "posthog/posthog"),
+            (
+                "changed_variant",
+                MULTIVARIATE_FILTERS,
+                "variant",
+                "control",
+                {"keep": "variant", "variant_key": "test"},
+                "posthog/posthog",
+            ),
+            (
+                "changed_repository",
+                None,
+                "disabled",
+                None,
+                {"keep": "disabled", "repository": "example/other"},
+                "posthog/posthog",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_rejects_cleanup_choices_that_differ_from_the_existing_task(
+        self,
+        _name,
+        filters,
+        previous_keep,
+        previous_variant,
+        request_body,
+        previous_repository,
+        mock_github,
+        mock_dispatch,
+    ):
+        mock_github.return_value = (
+            _github(["posthog/posthog", "example/other"])
+            if request_body.get("repository")
+            else _github(["posthog/posthog"])
+        )
+        flag = self._flag(filters=filters)
+        prompt = build_flag_cleanup_prompt(
+            flag.key, ["control", "test"] if filters else [], FlagCleanupKeep(previous_keep), previous_variant
+        )
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title=prompt.title,
+            description=prompt.description,
+            origin_product=Task.OriginProduct.FEATURE_FLAGS,
+            origin_key=f"feature-flag-cleanup:{flag.id}",
+            repository=previous_repository,
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED)
+
+        response = self.client.post(self._url(flag, "cleanup_pr"), request_body)
+
+        assert response.status_code == 400, response.json()
+        assert "different instructions or repository" in response.json()["detail"]
+        assert task.runs.count() == 1
+        task.refresh_from_db()
+        assert task.description == prompt.description
         mock_dispatch.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")

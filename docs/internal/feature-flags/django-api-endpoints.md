@@ -129,8 +129,10 @@ Repository resolution excludes archived repositories and validates the chosen re
 
 `cleanup_pr` requires both `feature_flag:write` and `task:write`, enforces the task usage limit, and rejects requests from sandbox agents.
 Each flag has one cleanup task, so retries and archive cycles return the existing task.
+Requests with different instructions or a different repository return 400 and direct the user to review the existing task in PostHog Desktop.
 Teammates can read the task; its creator can retry a failed run without creating another task.
 Concurrent retries of a failed run start one new run. Queued, running, and completed runs are reused.
+Synchronous retry dispatch failures return 400 after the transaction commits.
 The task is attributed to feature flags and uses read-only PostHog MCP scopes.
 
 The caller chooses the code to keep: `enabled`, `disabled`, or `variant` with a `variant_key` from the flag.
