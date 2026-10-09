@@ -37,7 +37,14 @@ const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     values: [],
 }
 
-const DEFAULT_SEVERITY_LEVELS: LogMessage['severity_text'][] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+export const DEFAULT_SEVERITY_LEVELS: LogMessage['severity_text'][] = [
+    'trace',
+    'debug',
+    'info',
+    'warn',
+    'error',
+    'fatal',
+]
 
 export interface LogsAlertFormType {
     name: string

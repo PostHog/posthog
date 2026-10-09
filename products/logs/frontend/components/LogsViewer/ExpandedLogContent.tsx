@@ -49,7 +49,7 @@ export function ExpandedLogContent({ log }: ExpandedLogContentProps): JSX.Elemen
                         data-attr="logs-expanded-view-recording"
                     />
                 )}
-                <LogContextSelector log={log} size="xsmall" showLabel />
+                <LogContextSelector log={log} showLabel />
             </div>
             {showRelatedErrors && (
                 <div className="bg-primary overflow-hidden rounded border border-border">

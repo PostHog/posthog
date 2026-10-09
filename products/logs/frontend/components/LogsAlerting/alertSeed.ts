@@ -1,8 +1,4 @@
-import { LogSeverityLevel } from '~/queries/schema/schema-general'
-
-import type { LogsAlertFormType } from './logsAlertFormLogic'
-
-const SEVERITY_LEVELS: LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+import { DEFAULT_SEVERITY_LEVELS, type LogsAlertFormType } from './logsAlertFormLogic'
 
 /**
  * Prefills a new alert from one log row: match the row's service and severity, and name the alert
@@ -14,7 +10,7 @@ export function buildAlertSeedFromLog(log: {
 }): Partial<LogsAlertFormType> {
     const serviceName = String(log.resource_attributes?.['service.name'] ?? '').trim()
     const severity = (log.severity_text ?? '').trim().toLowerCase()
-    const knownSeverity = SEVERITY_LEVELS.find((level) => level === severity)
+    const knownSeverity = DEFAULT_SEVERITY_LEVELS.find((level) => level === severity)
 
     const seed: Partial<LogsAlertFormType> = {}
     if (serviceName) {
