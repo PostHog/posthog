@@ -59,7 +59,6 @@ globs = [
     "../ee/migrations/**",
     "../posthog/management/commands/setup_test_environment.py",
     "../docker-compose.dev.yml",
-    "../docker-compose.base.yml",
 ]
 mark-changed = "all"
 
