@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconDownload, IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconDownload, IconRefresh, IconUndo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -48,6 +48,7 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                     type="info"
                     action={{
                         children: 'Restore trial',
+                        icon: <IconUndo />,
                         loading: props.archiving.includes(trial.comparison_id),
                         onClick: () => props.archiveComparison(trial.comparison_id, false),
                     }}

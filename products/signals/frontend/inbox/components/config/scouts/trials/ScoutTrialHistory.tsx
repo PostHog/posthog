@@ -1,4 +1,4 @@
-import { IconPlus, IconRefresh } from '@posthog/icons'
+import { IconArchive, IconPlus, IconRefresh, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -18,7 +18,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
     return (
-        <div className="flex min-w-0 flex-col gap-5">
+        <div className="@container/trial-history flex min-w-0 flex-col gap-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 basis-72">
                     <h2 className="m-0 text-lg font-semibold">Trials</h2>
@@ -163,8 +163,10 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                             const saved = state?.value
                             return (
                                 <LemonButton
-                                    type="tertiary"
+                                    type="secondary"
                                     size="small"
+                                    icon={saved?.archived ? <IconUndo /> : <IconArchive />}
+                                    tooltip={saved?.archived ? 'Restore trial' : 'Archive trial'}
                                     loading={props.archiving.includes(trial.id)}
                                     disabledReason={
                                         state?.loading || state?.resuming
@@ -179,7 +181,9 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                                     aria-label={`${saved?.archived ? 'Restore' : 'Archive'} trial ${trial.id.slice(0, 8)}`}
                                     data-attr="scout-trial-archive"
                                 >
-                                    {saved?.archived ? 'Restore' : 'Archive'}
+                                    <span className="hidden @3xl/trial-history:inline">
+                                        {saved?.archived ? 'Restore' : 'Archive'}
+                                    </span>
                                 </LemonButton>
                             )
                         },
