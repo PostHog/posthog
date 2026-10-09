@@ -25,6 +25,10 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     # overwrite it), plus writes that failed after judging.
     cache_errors: int = 0
     failed_chunks: int = 0
+    # Scanners whose requests the gateway rate-limited, and scanners left for the next run because
+    # the run had already been rate-limited RATE_LIMIT_BACKOFF_AFTER times.
+    scanners_rate_limited: int = 0
+    scanners_backed_off: int = 0
     input_tokens: int = 0
     estimated_cost_usd: float = 0.0
     hit_team_cap: bool = False

@@ -7249,6 +7249,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         matched_keys = {result["key"] for result in data["results"]}
         assert "web_dashboard" in matched_keys, f"Expected 'web_dashboard' in {matched_keys}"
 
+        # Underscores and hyphens in the query match any separator, e.g. a pasted code constant
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=WEB_ANALYTICS")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert {"web-analytics", "web analytics"}.issubset(matched_keys), matched_keys
+        assert "mobile-analytics" not in matched_keys
+
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=web-dash")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert "web_dashboard" in matched_keys, matched_keys
+
+        # A separator-only query matches that separator literally instead of matching every flag
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=_")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert "web_dashboard" in matched_keys, matched_keys
+        assert not {"web-analytics", "mobile-analytics"} & matched_keys, matched_keys
+
+        for search, expected in (("ana_", set()), ("_lytics", set()), ("-dashboard", {"web_dashboard"})):
+            response = self.client.get(f"/api/projects/@current/feature_flags?search={search}")
+            assert {flag["key"] for flag in response.json()["results"]} == expected, search
+
         # Test single word still works
         response = self.client.get(f"/api/projects/@current/feature_flags?search=web")
         data = response.json()

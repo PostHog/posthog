@@ -91,6 +91,7 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "get_sync_alert_context",
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
@@ -612,3 +613,18 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
+
+
+def get_sync_alert_context(
+    team_id: int, schema_id: str, job_id: str | None = None, *, include_error: bool = False
+) -> contracts.SyncAlertContext | None:
+    """The facts a sync alert event reports, or None when the schema no longer exists.
+
+    `include_error` adds the schema's error with the source's stored credentials masked. It is
+    opt-in because the masking decrypts the source's inputs, which most alerts have no use for.
+    """
+    from products.warehouse_sources.backend.sync_alert_context import (  # noqa: PLC0415 -- the redaction helpers sit under presentation, which the facade must not import at module level
+        build_sync_alert_context,
+    )
+
+    return build_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)

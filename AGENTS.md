@@ -142,7 +142,7 @@ Examples:
 
 ## Security
 
-**Security fixes never land in this public repo.** Open them against `PostHog/posthog-private` on a `security/` branch; see [Routing security fixes](.agents/security.md#routing-security-fixes).
+Route security-related changes by merge status and disclosure risk: fix problems introduced by an open public PR in that PR, keep fixes that would disclose an existing exploitable weakness private until deployment, and make safe, non-secret fixes in `PostHog/posthog`. See [Routing security fixes](.agents/security.md#routing-security-fixes).
 **Every other change lands in `PostHog/posthog`, also when the session starts in a `PostHog/posthog-private` checkout.**
 The private mirror carries this file, and its `origin` points at the private repo, so a default push or `gh pr create` opens the PR there.
 Before the first push of a branch, run `git remote get-url origin`.
