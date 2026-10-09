@@ -4,7 +4,8 @@ import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-u
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { pluralize } from 'lib/utils/strings'
-import { userLogic } from 'scenes/userLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
@@ -13,23 +14,44 @@ import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
 
 export function NotificationGovernanceSetting(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     // PayGateMini falls through to its children when billing carries no metadata for the feature,
     // so the entitlement is checked here too. Otherwise the list below mounts and its first
-    // request comes back as a payment prompt.
-    const entitled = hasAvailableFeature(AvailableFeature.MEMBER_GOVERNANCE)
+    // request comes back as a payment prompt. The check reads the organization the request goes
+    // to, because the user's organization can differ when another tab switched organization.
+    const entitled = !!currentOrganization?.available_product_features?.some(
+        (feature) => feature.key === AvailableFeature.MEMBER_GOVERNANCE
+    )
 
     return (
         <PayGateMini feature={AvailableFeature.MEMBER_GOVERNANCE} featureDetail="organization-member-notifications">
-            {entitled ? <MemberNotifications /> : null}
+            {entitled ? <MemberNotifications /> : currentOrganization ? <NotOnPlan /> : null}
         </PayGateMini>
     )
 }
 
+// PayGateMini decides from the user's organization, so it can let the section through when the
+// current organization's plan does not include the feature.
+function NotOnPlan(): JSX.Element {
+    return (
+        <LemonBanner
+            type="info"
+            action={{ children: 'Go to billing', to: urls.organizationBilling() }}
+            data-attr="notification-governance-not-on-plan"
+        >
+            This organization's plan doesn't include member governance. Upgrade to manage your members' notifications.
+        </LemonBanner>
+    )
+}
+
 function MemberNotifications(): JSX.Element {
-    const { members, pendingChangeCount, affectedMemberCount, savingChanges, loadFailed } =
+    const { members, pendingChangeCount, affectedMemberCount, savingChanges, loadFailed, notEntitled } =
         useValues(notificationGovernanceLogic)
     const { discardChanges, saveChanges, loadMembers } = useActions(notificationGovernanceLogic)
+
+    if (notEntitled) {
+        return <NotOnPlan />
+    }
 
     if (loadFailed) {
         return (
