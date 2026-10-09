@@ -3314,6 +3314,7 @@ class SignalReportViewSet(
                 # on the linked pull request and tracker issue. An external agent keeps its user
                 # principal, so it names the person who ran it rather than nobody.
                 report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
+                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
