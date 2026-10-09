@@ -596,6 +596,9 @@ REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
 # be connected in both regions; the receiver runs the emit for its own projects and nothing else,
 # so the sender's pipeline (thread follow-ups, mentions) stays the only one handling the event.
 EMIT_ONLY_MIRROR_HEADER = "X-PostHog-Slack-Emit-Only"
+# Marks a full top-level post the sender already emitted and mirrored. The receiver handles the
+# untagged question but skips the emit, which the mirror already covers.
+ALREADY_EMITTED_HEADER = "X-PostHog-Slack-Already-Emitted"
 REGION_PROXY_TIMEOUT_SECONDS = 3
 # Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
 # before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
@@ -2506,6 +2509,7 @@ def _route_untagged_question(
     proxied: bool,
     incoming_host: str,
     other_domain: str,
+    can_defer: bool,
     is_ext_shared_channel: bool,
 ) -> str:
     """Start the classifier workflow for a top-level channel post nobody tagged the app in.
@@ -2525,8 +2529,6 @@ def _route_untagged_question(
         slack_user_id=slack_user_id,
         channel=channel,
     )
-    # A region holding the workspace answers here, with no US-precedence hop: the other region
-    # may already hold an emit-only mirror of this post, and a full copy would emit it twice.
     # Without a local connection no mirror went out, so the full event can cross, but only to a
     # region that confirms it holds the workspace. The probe answer is cached per workspace.
     if not workspace_result.candidates:
@@ -2538,6 +2540,20 @@ def _route_untagged_question(
         if claimed is not True:
             return ROUTE_HANDLED_LOCALLY
         return _proxy_event_and_return_route(request, other_domain)
+    # The same US precedence as mentions, so an author whose account is only in US still gets an
+    # answer when EU receives the post. This region already emitted the post and queued a mirror,
+    # so the forwarded copy tells the receiver to skip its emit.
+    if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
+        headers = _proxy_request_headers(request)
+        headers[ALREADY_EMITTED_HEADER] = "1"
+        upstream = send_region_proxy_request(
+            method=request.method or "POST",
+            target_url=_proxy_target_url(request, other_domain),
+            headers=headers,
+            params=dict(request.GET.lists()) if request.GET else None,
+            body=request.body or None,
+        )
+        return ROUTE_PROXIED if upstream is not None else ROUTE_PROXY_FAILED
 
     # Ahead of user resolution, which can call Slack's users.info for every author.
     if not is_slack_app_unprompted_answers_enabled(workspace_result.candidates[0]):
@@ -2764,7 +2780,7 @@ def route_posthog_code_event_to_relevant_region(
                 )
                 return ROUTE_HANDLED_LOCALLY
 
-            should_try_other_region = emit_slack_message_event(
+            should_try_other_region = request.headers.get(ALREADY_EMITTED_HEADER) != "1" and emit_slack_message_event(
                 event,
                 slack_team_id,
                 event_id=event_id,
@@ -2842,6 +2858,7 @@ def route_posthog_code_event_to_relevant_region(
                     proxied=proxied,
                     incoming_host=incoming_host,
                     other_domain=other_domain,
+                    can_defer=can_defer_to_other_region,
                     is_ext_shared_channel=is_ext_shared_channel,
                 )
 
