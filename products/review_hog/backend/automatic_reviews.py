@@ -200,7 +200,9 @@ class AuthoredPRReview:
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
-        dispatch = plan_automatic_review(self.ref, RepositoryOwnership.find(self.ref), author_login=self.author_login)
+        dispatch = plan_automatic_review(
+            self.ref, RepositoryOwnership.find(self.ref, backfill=True), author_login=self.author_login
+        )
         if dispatch.team_id is None or dispatch.run_as_user_id is None:
             # Most pushes get no automatic review, so the counter carries the signal and the logs
             # stay quiet.

@@ -182,10 +182,33 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert off.json() == {"choice": None, "my_result": {"flash": False, "reason": "project_opt_in"}}
         assert not ReviewUserRepositoryChoice.objects.for_team(self.team.id).exists()
 
-    def test_choices_need_a_repository_this_project_reviews(self) -> None:
-        res = self.client.post(self._url("repository_choices/"), {**WEB, "mode": "flash"}, format="json")
+    @parameterized.expand(
+        [
+            ("no_project_reviews_it", None, {}),
+            ("rename_through_a_known_id", 501, {"full_name": "example-org/zzz"}),
+            ("store_an_unknown_id", None, {"github_repo_id": 777}),
+        ]
+    )
+    def test_choices_need_a_repository_this_project_reviews(
+        self, _name: str, other_row_repo_id: int | None, overrides: dict
+    ) -> None:
+        other_row = None
+        if overrides:
+            self._claim(self.other_team, ReviewInstallationClaim.Scope.SELECTED)
+            other_row = ReviewRepository.objects.for_team(self.other_team.id).create(
+                team=self.other_team,
+                installation_id=INSTALLATION,
+                github_repo_id=other_row_repo_id,
+                full_name="example-org/web",
+                selected=True,
+            )
+
+        res = self.client.post(self._url("repository_choices/"), {**WEB, **overrides, "mode": "flash"}, format="json")
 
         assert res.status_code == 400
+        if other_row is not None:
+            stored = ReviewRepository.objects.for_team(self.other_team.id).get(id=other_row.id)
+            assert (stored.full_name, stored.github_repo_id) == ("example-org/web", other_row_repo_id)
 
     @patch(
         "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES

@@ -95,9 +95,14 @@ class RepositoryOwnership:
         )
 
     @classmethod
-    def find(cls, ref: RepositoryRef) -> RepositoryOwner | None:
+    def find(cls, ref: RepositoryRef, *, backfill: bool = False) -> RepositoryOwner | None:
+        """The owning project. Only a signed GitHub webhook may pass `backfill=True`.
+
+        The backfill writes the id and the name of `ref` onto a row of any project, so a ref built
+        from client input must never reach it.
+        """
         owner = resolve_owner(ref, cls.rows_for(ref), cls.all_claim(ref.installation_id))
-        if owner is not None and owner.row is not None:
+        if backfill and owner is not None and owner.row is not None:
             cls._backfill(owner.row, ref)
         return owner
 
