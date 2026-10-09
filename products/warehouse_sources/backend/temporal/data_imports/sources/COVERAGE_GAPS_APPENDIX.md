@@ -5238,14 +5238,14 @@ Note: The Akamai/Linode techdocs site serves no spec directly; the authoritative
 
 ## LlamaCloud — gaps
 
-Today (10): `batches`, `classify_jobs`, `extract_jobs`, `files`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
+Today (13): `batches`, `classify_jobs`, `extract_jobs`, `extraction_agents`, `extraction_runs`, `files`, `indexes`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
 
 Diffed against: <https://api.cloud.llamaindex.ai/api/openapi.json>
 
-- [ ] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high)
-- [ ] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high)
-- [ ] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium)
-- [ ] `GET /api/v1/pipelines/{pipeline_id}/documents/paginated` — per-pipeline document inventory with status, the unit of indexing work (medium)
+- [x] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high). Added as `extraction_agents`, read from `GET /api/v1/beta/extraction-agents`: the v1 listing is deprecated and unpaginated, and the beta listing returns the same agents with page tokens. The v2 `extract_jobs` rows carry a `configuration_id`, not an agent id, so the agents resolve `extraction_runs`, not extract jobs.
+- [x] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high). Added as `extraction_runs` (fan-out over `extraction_agents`, full refresh). The extracted `data` is not imported.
+- [x] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium). Added as `indexes`.
+- ~~`GET /api/v1/pipelines/{pipeline_id}/documents/paginated`~~ — skipped: the vendor spec marks it deprecated, and each document row carries the full document text.
 - [ ] `GET /api/v1/pipelines/{pipeline_id}/files2` — pipeline-to-file membership join for the files table we already sync (medium)
 - [ ] `GET /api/v1/beta/batch-processing/{job_id}/items` — per-item rows inside a batch; batches alone give only the job header (medium)
 - [ ] `GET /api/v1/data-sources` — lookup resolving the data-source ids attached to pipelines (medium)
