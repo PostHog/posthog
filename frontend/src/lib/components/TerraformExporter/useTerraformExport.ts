@@ -143,7 +143,9 @@ async function exportAccessControl(
     checkStale: () => boolean
 ): Promise<AccessControlExportResult> {
     const [projectResponse, resourceResponse, roles, members] = await Promise.all([
+        // nosemgrep: prefer-codegen-api -- the access control endpoints are excluded from the OpenAPI schema
         api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/access_controls`),
+        // nosemgrep: prefer-codegen-api -- the access control endpoints are excluded from the OpenAPI schema
         api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/resource_access_controls`),
         fetchAllPages((offset) => rolesList(organizationId, { offset })),
         fetchAllPages((offset) => membersList(organizationId, { offset })),
@@ -275,7 +277,11 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
                 }
             } catch (e) {
                 posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                    extra: { context: 'TerraformExporter', resourceType: resource.type, resourceId: resource.data.id },
+                    extra: {
+                        context: 'TerraformExporter',
+                        resourceType: resource.type,
+                        resourceId: resource.type === 'access_control' ? resource.data.projectId : resource.data.id,
+                    },
                 })
                 if (!isStale()) {
                     setState({
