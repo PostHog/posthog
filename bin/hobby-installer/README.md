@@ -135,27 +135,28 @@ Both `tui/` and `ci/` consume the same `core.GetChecks()` and `core.GetInstallSt
 
 ## Compose files and overrides
 
-The install scripts load Compose files in different ways.
-This section describes how Docker Compose behaves with each script.
-It does not make custom service settings a supported configuration.
+Compose loads overrides differently for each install script. This does not make custom service settings a supported configuration.
 
-- The installer and `bin/deploy-hobby` run `stop`, `down`, `pull`, and `up` with `-f docker-compose.yml`.
-  When you name a file with `-f`, Compose does not load `docker-compose.override.yml`.
+- The installer runs `stop`, `down`, `pull`, and `up` with `-f docker-compose.yml`.
+  Its migration check and database commands run without `-f`.
+- `bin/deploy-hobby` runs `stop` and `up` with `-f docker-compose.yml`.
 - The legacy `bin/upgrade-hobby` script runs `docker-compose` without `-f`.
-  Compose then loads `docker-compose.override.yml` automatically if it exists.
-- All three scripts delete and regenerate `docker-compose.yml` and `docker-compose.base.yml` on each run.
-  Edits to these files do not persist. Put your changes in a separate override file.
+  Commands without `-f` load `docker-compose.override.yml` automatically if it exists.
+- All three scripts replace `docker-compose.yml` and `docker-compose.base.yml` on each run.
+  Edits to these files do not persist. Keep local changes in a separate override file.
+
+Commands with `-f docker-compose.yml` ignore that override file unless you add it explicitly.
 
 To apply an override file, give it as a second `-f`:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
 ```
 
 To see the configuration the installer uses, run:
 
 ```bash
-docker compose -f docker-compose.yml config
+docker-compose -f docker-compose.yml config
 ```
 
 Add `-f docker-compose.override.yml` to the same command to see the merged result.
