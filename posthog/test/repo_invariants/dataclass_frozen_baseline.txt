@@ -1,7 +1,6 @@
 1 common/hogvm/python/execute.py
 1 common/hogvm/python/stl/__init__.py
 1 ee/billing/salesforce_enrichment/conversations_signals.py
-1 ee/billing/salesforce_enrichment/stripe_signals.py
 1 ee/billing/salesforce_enrichment/usage_signals.py
 1 ee/clickhouse/models/test/test_action.py
 1 ee/clickhouse/views/test/funnel/util.py
@@ -749,7 +748,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/lattice.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/launchdarkly.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/leadfeeder.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leexi/leexi.py
@@ -768,7 +766,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/linear.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/linearb.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/lingo_dev.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lingo_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/linkrunner.py
