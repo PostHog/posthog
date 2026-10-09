@@ -1504,36 +1504,6 @@
             "readOnlyHint": true
         }
     },
-    "billing-alert-create": {
-        "description": "Create a billing-period spend alert in the active organization. The caller must be an organization Admin or Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle, scheduling, destinations, and delivery. The metric picks the billing-period total to watch: spend (current period total so far) or projected_spend (projected period-end total). The first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations atomically with the alert.",
-        "category": "Billing alerts",
-        "feature": "billing_alerts",
-        "summary": "Create billing alert",
-        "title": "Create billing alert",
-        "required_scopes": ["organization:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "billing-alerts"
-    },
-    "billing-alert-update": {
-        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. The metric picks the billing-period total to watch (spend or projected_spend); the first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates a destination of the same type is rejected, because an alert allows one destination group per type.",
-        "category": "Billing alerts",
-        "feature": "billing_alerts",
-        "summary": "Update billing alert",
-        "title": "Update billing alert",
-        "required_scopes": ["organization:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "billing-alerts"
-    },
     "billing-features-get": {
         "description": "The product features the organization's plans include, with any overrides applied. The cheapest read in the billing API, readable by any member. Use it to check whether a feature such as group analytics or white-labelling is available before suggesting it. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
