@@ -357,14 +357,15 @@ and API (storage, ownership, the Flash decision), then the behavior rules. The r
   The label trigger moved from the GitHub Action (deleted) to the GitHub App's own `labeled` delivery through the
   existing `review_hog_authored_prs` consumer, which now routes by action (`accept_pull_request_event`). A person or
   `stamphog[bot]` may label; another bot's label gets the explaining comment and is removed with the app token. The
-  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. The
-  repository seed in migration 0035 finds the project that ran automatic reviews of PostHog/posthog instead of reading
-  a team id. Customer setup: enable the flag → connect GitHub → claim the installation → set the project rule.
+  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. No
+  migration seeds a claim: a project admin sets the claim in the settings UI. Customer setup: enable the flag →
+  connect GitHub → claim the installation → set the project rule.
 - **Facade.** `facade/github.py::owning_team_id(installation_id, repository)` exposes ownership, so a PR comment
   command dispatcher can pick the project.
-- **Open follow-ups.** When the shared `request_pr_review()` entry lands, the owner rule, the resolution gate, and the
-  Flash-after-Full check move into it, its `resolve_comments` parameter goes away, and `has_internal_features` keeps
-  its flag body. Claims and rows of an uninstalled installation are not cleaned up yet.
+- **One request entry.** `requested_reviews.request_pr_review()` serves the UI, MCP and the `@posthog review` comment,
+  and applies the owner rule, the resolution gate and the Flash-after-Full check for all of them. A comment run
+  follows the same owner rule.
+- **Open follow-ups.** Claims and rows of an uninstalled installation are not cleaned up yet.
 
 ### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
 
