@@ -128,7 +128,7 @@ A live store that fails to open does not fall back either: the pod fails to star
 
 A cold start does not rebuild history.
 The consumers resume at their committed offsets, so the store only fills from new traffic, and every cohort's past membership has to come back through a backfill.
-Its slices begin when their workers spawn, so the processor withholds every run whose boundary is earlier (see [slice coverage](#slice-coverage)).
+Its slices begin when their partitions are assigned, so the processor withholds every run whose boundary is earlier (see [slice coverage](#slice-coverage)).
 A backfill cannot bring back everything.
 `performed_event` leaves with an hour or minute window refill only from new live events, and a cohort made only of references refills through cascades from the backfills of the cohorts it references.
 
@@ -163,10 +163,10 @@ It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which n
 
 | What happens                                                                                        | Coverage                                                                                                                   |
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or a failed restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its worker spawns                       |
+| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or a failed restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its partition is assigned               |
 | A store with the stamp reopens                                                                      | Each slice resumes its own record                                                                                          |
 | A store without the stamp reopens                                                                   | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once |
-| A revoke, the boot deletion of an unowned partition, or a move-in wipe                              | `delete_partition` deletes the record with the slice, and the next spawn begins the slice anew                             |
+| A revoke, the boot deletion of an unowned partition, or a move-in wipe                              | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment        |
 | A checkpoint restore                                                                                | The record and the stamp travel inside the checkpoint. A checkpoint from before coverage records is adopted                |
 
 A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.

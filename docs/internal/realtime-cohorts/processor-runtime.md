@@ -302,7 +302,7 @@ Three variations show the edges.
   Anything processed since the last commit replays on the next owner.
 - A held offset stays held for the rest of the partition's tenure.
   With one pod, that means until the next restart, and the symptom is growing lag on that topic and partition.
-- A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its worker spawns.
+- A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.
   In an environment that wipes the store at every start, that is every run created before the last boot, and `cohort_slices_begun_total` rises at every boot.
   [Slice coverage](state-store-and-durability.md#slice-coverage) covers the records and their metrics.
 - A timer message does not spawn a worker.

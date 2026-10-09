@@ -13,8 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use cohort_core::seed::CoverageStartMs;
 use dashmap::mapref::entry::Entry;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
@@ -116,7 +117,7 @@ pub struct EventDispatcher {
     tracker: Arc<OffsetTracker>,
     workers: Arc<DashMap<i32, WorkerSlot>>,
     /// Partitions currently assigned to this consumer.
-    owned: Arc<DashSet<i32>>,
+    owned: Arc<DashMap<i32, CoverageStartMs>>,
     handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -152,7 +153,7 @@ impl EventDispatcher {
             router: Arc::new(router),
             tracker,
             workers: Arc::new(DashMap::new()),
-            owned: Arc::new(DashSet::new()),
+            owned: Arc::new(DashMap::new()),
             handle,
             readiness: BootReadiness::new(catalog.clone()),
             catalog,
@@ -249,7 +250,7 @@ impl EventDispatcher {
         let mut not_owned = 0u64;
         for consumed in batch {
             let partition = consumed.partition;
-            if !self.owned.contains(&partition) {
+            if !self.owned.contains_key(&partition) {
                 not_owned += 1;
                 continue;
             }
@@ -336,7 +337,7 @@ impl EventDispatcher {
 
     /// Snapshot of the partitions currently owned, for the backpressure prune/reconcile pass.
     pub fn owned_set(&self) -> HashSet<i32> {
-        self.owned.iter().map(|entry| *entry).collect()
+        self.owned.iter().map(|entry| *entry.key()).collect()
     }
 
     /// Route a consumed `person_merge_events` batch to per-partition workers, ceiling on the merge
@@ -433,7 +434,7 @@ impl EventDispatcher {
         let mut owned_seeds: Vec<ConsumedSeed> = Vec::with_capacity(batch.len());
         let mut not_owned = 0u64;
         for consumed in batch {
-            if !self.owned.contains(&consumed.partition) {
+            if !self.owned.contains_key(&consumed.partition) {
                 not_owned += 1;
                 continue;
             }
@@ -488,7 +489,7 @@ impl EventDispatcher {
 
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(items.len());
         for (partition, offset, message) in items {
-            if !self.owned.contains(&partition) {
+            if !self.owned.contains_key(&partition) {
                 stats.not_owned_skipped += 1;
                 continue;
             }
@@ -519,9 +520,9 @@ impl EventDispatcher {
             }
             Entry::Vacant(slot) => {
                 // No `.await` in this arm — the DashMap shard guard is held.
-                if !self.owned.contains(&partition) {
+                let Some(assigned_at) = self.owned.get(&partition).map(|entry| *entry) else {
                     return;
-                }
+                };
                 if self.draining.load(Ordering::SeqCst) {
                     return;
                 }
@@ -550,6 +551,7 @@ impl EventDispatcher {
                             self.merge.clone(),
                             restore,
                             self.event_name_gating(),
+                            assigned_at,
                         );
                         slot.insert(WorkerSlot::Running(worker));
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
@@ -574,7 +576,7 @@ impl EventDispatcher {
     }
 
     pub fn owns(&self, partition: i32) -> bool {
-        self.owned.contains(&partition)
+        self.owned.contains_key(&partition)
     }
 
     /// End boot and open the readiness gate. Every owned partition gets its worker first, so the
@@ -591,7 +593,7 @@ impl EventDispatcher {
 
     /// Snapshot of the partitions currently owned by this consumer.
     pub fn owned_partitions(&self) -> Vec<i32> {
-        self.owned.iter().map(|entry| *entry).collect()
+        self.owned.iter().map(|entry| *entry.key()).collect()
     }
 
     pub(crate) fn merge_deps(&self) -> &MergeWorkerDeps {
@@ -668,7 +670,7 @@ impl EventDispatcher {
         // Forget before ownership flips: every tenure starts fail-closed for the seed fence, and
         // a concurrent idle-probe advance can't slip in between.
         self.merge.live_watermarks.forget_partition(partition);
-        self.owned.insert(partition);
+        self.owned.insert(partition, CoverageStartMs::now());
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
 
@@ -682,7 +684,7 @@ impl EventDispatcher {
     /// Asynchronous half of a revoke: reclaim the partition unless a reassign re-acquired it.
     /// Re-checks ownership at entry and after the worker join to handle rapid revoke-then-assign.
     pub async fn revoke_partition_drain(&self, partition: i32) {
-        if self.owned.contains(&partition) {
+        if self.owned.contains_key(&partition) {
             counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "entry").increment(1);
             debug!(
                 partition,
@@ -716,7 +718,7 @@ impl EventDispatcher {
             histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
         }
 
-        if self.owned.contains(&partition) {
+        if self.owned.contains_key(&partition) {
             // The draining sentinel prevents an in-flight follower batch from spawning a replacement
             // worker before the old in-memory reconcile queue is gone and its tracker tenure resets.
             // The rebalance worker then rewinds the follower, so anything dropped against the
@@ -982,7 +984,7 @@ impl EventDispatcher {
         self.tracker
             .committable_offsets()
             .into_iter()
-            .filter(|(partition, _)| self.owned.contains(partition))
+            .filter(|(partition, _)| self.owned.contains_key(partition))
             .collect()
     }
 
@@ -2019,13 +2021,13 @@ mod tests {
         dispatcher
             .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
             .await;
+        let before_move_in = CoverageStartMs::now();
         dispatcher.assign_partition(5);
         store
             .write_batch(|b| {
                 b.put::<SliceCoverages>(&SliceCoverageKey(5), &SliceCoverage::Complete.encode())
             })
             .unwrap();
-        let before_spawn = CoverageStartMs::now();
 
         dispatcher.ensure_worker(5);
         assert!(
@@ -2050,7 +2052,7 @@ mod tests {
         assert!(
             matches!(
                 store.slice_coverage(5).unwrap(),
-                Some(SliceCoverage::Since(since)) if since >= before_spawn
+                Some(SliceCoverage::Since(since)) if since >= before_move_in
             ),
             "the wiped slice's complete record went with it, so the moved-in slice began again",
         );
@@ -2617,6 +2619,10 @@ mod tests {
 
         let before_respawn = CoverageStartMs::now();
         dispatcher.assign_partition(0);
+        let reassigned = CoverageStartMs::now();
+        while CoverageStartMs::now() <= reassigned {
+            tokio::task::yield_now().await;
+        }
         dispatcher.dispatch(vec![consumed(person(2), 0, 20)]).await;
         assert_eq!(
             dispatcher.workers.len(),
@@ -2627,9 +2633,11 @@ mod tests {
         assert!(
             matches!(
                 store.slice_coverage(0).unwrap(),
-                Some(SliceCoverage::Since(since)) if since >= before_respawn
+                Some(SliceCoverage::Since(since))
+                    if before_respawn <= since && since <= reassigned
             ),
-            "a revoked slice comes back without its history, never complete",
+            "a revoked slice comes back without its history, never complete, and begins at its \
+             reassignment rather than its first delivery",
         );
 
         let tracker = dispatcher.shutdown().await;

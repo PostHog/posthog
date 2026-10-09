@@ -498,14 +498,14 @@ impl StoreHandle {
         .await
     }
 
-    /// Resume a slice's coverage, or begin it at `now`. No permit.
+    /// Resume a slice's coverage, or begin it at `start`. No permit.
     pub async fn resume_or_begin_slice(
         &self,
         partition_id: u16,
-        now: CoverageStartMs,
+        start: CoverageStartMs,
     ) -> Result<SliceTenure, StoreError> {
         self.write("resume_or_begin_slice", false, move |store| {
-            store.resume_or_begin_slice(partition_id, now)
+            store.resume_or_begin_slice(partition_id, start)
         })
         .await
     }
