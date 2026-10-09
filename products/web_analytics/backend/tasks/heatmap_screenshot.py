@@ -1,4 +1,5 @@
 import time
+import random
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -88,8 +89,12 @@ class BrowserlessPermanentError(BrowserlessError):
     """A failure that will not be fixed by retrying (4xx, misconfiguration, oversized output)."""
 
 
-class PageHttpStatusError(BrowserlessPermanentError):
+class PageHttpStatusError(BrowserlessError):
     """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
+
+    @property
+    def retryable(self) -> bool:
+        return self.status_code in (408, 429) or (self.status_code is not None and 500 <= self.status_code < 600)
 
 
 def _width_bucket(width: int) -> str:
@@ -134,6 +139,7 @@ def _capture_mode_usage(
     duration_seconds: float | None = None,
     error_type: str | None = None,
     failure_type: str | None = None,
+    page_status: int | None = None,
 ) -> None:
     # ph_scoped_capture (not posthoganalytics.capture) — events from Celery tasks are otherwise
     # silently lost; no-ops off PostHog Cloud. Telemetry must never fail the task, so swallow errors.
@@ -150,6 +156,7 @@ def _capture_mode_usage(
                     "duration_seconds": duration_seconds,
                     "error_type": error_type,
                     "failure_type": failure_type,
+                    "page_status": page_status,
                     "team_id": team.id,
                     "screenshot_id": str(screenshot.id),
                 },
@@ -169,7 +176,13 @@ def _record_failure(screenshot: SavedHeatmap, e: Exception, *, started_at: float
     if started_at is not None:
         HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
 
-    _capture_mode_usage(screenshot, success=False, error_type=type(e).__name__, failure_type=failure_type)
+    _capture_mode_usage(
+        screenshot,
+        success=False,
+        error_type=type(e).__name__,
+        failure_type=failure_type,
+        page_status=e.status_code if isinstance(e, PageHttpStatusError) else None,
+    )
 
     logger.exception(
         "heatmap_screenshot.failed",
@@ -281,18 +294,19 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 duration_seconds=duration_seconds,
             )
 
-        except (BrowserlessPermanentError, SoftTimeLimitExceeded) as e:
-            # Won't succeed on retry (bad request / config / oversized output / timed out) — fail now.
-            _record_failure(screenshot, e, started_at=started_at)
-            raise
         except Exception as e:
             # Transient Browserless failure: retry with backoff, but only record FAILED + emit the
             # failure event once retries are exhausted, so a blip doesn't flap the status or inflate
             # the failure metric.
-            if self.request.called_directly or self.request.retries >= self.max_retries:
+            permanent = isinstance(e, (BrowserlessPermanentError, SoftTimeLimitExceeded)) or (
+                isinstance(e, PageHttpStatusError) and not e.retryable
+            )
+            if permanent or self.request.called_directly or self.request.retries >= self.max_retries:
                 _record_failure(screenshot, e, started_at=started_at)
                 raise
             countdown = min(2 ** (self.request.retries + 1), 60)
+            if isinstance(e, PageHttpStatusError):
+                countdown = random.randint(15, 30) * 2**self.request.retries
             logger.warning(
                 "heatmap_screenshot.retrying",
                 screenshot_id=screenshot.id,
@@ -641,6 +655,7 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
             raise PageHttpStatusError(
                 f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
                 f"is a picture of that response. {guidance}",
+                status_code=page_status,
                 cause="page_http_status",
             )
         _persist_snapshot(screenshot, w, image_data)
