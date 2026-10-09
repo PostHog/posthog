@@ -10,10 +10,11 @@ from uuid import UUID
 from django.utils import timezone
 
 from pydantic import BaseModel, JsonValue, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -672,22 +673,7 @@ def _error_judgment(evidence: TrialRunEvidence, error: str | None = None) -> Tri
     )
 
 
-def _claim_judgment(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> bool:
-    key = _key(snapshot.team_id, snapshot.evaluation_id, f"attempts/{evidence.launch_id}")
-    try:
-        object_storage.write(
-            key,
-            _error_judgment(evidence).model_dump_json(),
-            extras={"ContentType": "application/json", "IfNoneMatch": "*"},
-        )
-    except object_storage.ObjectStorageError:
-        if _read_document(key, TrialRunJudgment) is None:
-            raise
-        return False
-    return True
-
-
-async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> None:
+async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> bool:
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
         TrialJudgeExecutionError,
         judge_trial_run,
@@ -702,7 +688,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         if evidence is None:
             raise TrialEvaluationError("The trial is not part of this evaluation.")
         if await asyncio.to_thread(_read_judgment, snapshot, evidence) is not None:
-            return
+            return True
         if evidence.exclusion_reason:
             judgment = TrialRunJudgment(
                 launch_id=launch_id,
@@ -711,24 +697,21 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
                 summary=evidence.exclusion_reason,
             )
         else:
-            await database_sync_to_async(assert_trial_work_enabled)(
-                await database_sync_to_async(Team.objects.get)(pk=team_id)
-            )
             step = "access_check"
             try:
                 await database_sync_to_async(_assert_worker_access)(snapshot)
-                step = "judgment_claim"
-                if not await asyncio.to_thread(_claim_judgment, snapshot, evidence):
-                    return
                 step = "judge_execution"
                 judgment = await judge_trial_run(snapshot, evidence)
+                if judgment is None:
+                    return False
                 if judgment.launch_id != launch_id or judgment.variant_id != evidence.variant_id:
-                    judgment = _error_judgment(evidence)
+                    judgment = _error_judgment(evidence, "The judge returned a result for another trial run.")
             except TrialJudgeExecutionError as error:
                 judgment = _error_judgment(evidence, str(error))
-            except Exception as error:
+            except (TrialEvaluationError, NotFound, PermissionDenied) as error:
                 judgment = _error_judgment(evidence, safe_judge_failure(step, error))
         await asyncio.to_thread(_write_once, _key(team_id, evaluation_id, f"runs/{launch_id}"), judgment)
+        return True
 
 
 @private_capture_context()
@@ -754,6 +737,10 @@ def finish_trial_evaluation(team_id: int, evaluation_id: UUID) -> TrialCompariso
     for evidence in snapshot.runs:
         judgment = _read_judgment(snapshot, evidence)
         if judgment is None:
+            if not evidence.exclusion_reason:
+                raise TrialEvaluationNotReady(
+                    "Judging has not finished. Resume this evaluation to collect its results."
+                )
             judgment = _write_once(
                 _key(team_id, evaluation_id, f"runs/{evidence.launch_id}"), _error_judgment(evidence)
             )

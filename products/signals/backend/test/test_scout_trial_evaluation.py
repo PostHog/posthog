@@ -17,8 +17,11 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import BaseModel
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
@@ -68,21 +71,18 @@ from products.signals.backend.scout_harness.trial_judge import (
     judge_trial_run,
     parse_trial_judgment,
 )
-from products.signals.backend.scout_harness.trial_launch import (
-    ScoutTrialLaunchError,
-    ScoutTrialsDisabled,
-    TrialContext,
-    TrialLaunch,
-)
+from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialJudgeWorkflow,
     TrialEvaluationInput,
     TrialEvaluationRunInput,
     finish_scout_trial_evaluation_activity,
     load_scout_trial_evaluation_activity,
+    poll_scout_trial_judge_activity,
     start_trial_evaluation,
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
@@ -278,6 +278,19 @@ class TestScoutTrialEvaluation(BaseTest):
     def _sources(self, snapshot: TrialEvaluationSnapshot) -> list[TrialEvidenceSource]:
         return read_trial_evidence_sources(snapshot, snapshot.runs[0])
 
+    def _save_judgments(self, snapshot: TrialEvaluationSnapshot) -> None:
+        for evidence in snapshot.runs:
+            judgment = TrialRunJudgment(
+                launch_id=evidence.launch_id,
+                variant_id=evidence.variant_id,
+                status="judge_error",
+                summary="Synthetic unavailable judgment.",
+                error="Synthetic judge failure.",
+            )
+            self.documents[
+                f"signals/scout-trials/{snapshot.team_id}/evaluations/{snapshot.evaluation_id}/runs/{evidence.launch_id}.json"
+            ] = judgment.model_dump_json()
+
     def test_saves_and_reads_frozen_evidence_for_more_than_twenty_runs(self) -> None:
         template = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request).runs[0]
         variants = [
@@ -376,6 +389,7 @@ class TestScoutTrialEvaluation(BaseTest):
 
     def test_saved_report_remains_readable_when_launches_are_disabled(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        self._save_judgments(snapshot)
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
             assert_evaluation_access(snapshot, config=self.config, user=self.user)
@@ -476,6 +490,7 @@ class TestScoutTrialEvaluation(BaseTest):
             assert read_trial_evaluation(self.team.id, prepared.evaluation_id) == prepared
             snapshot = _read_trial_judge_input(self.team.id, prepared.evaluation_id, self.launch.id)
             assert snapshot is not None
+            self._save_judgments(prepared)
             assert (
                 finish_trial_evaluation(self.team.id, prepared.evaluation_id).rubric_reference_context == self.reference
             )
@@ -606,10 +621,10 @@ class TestScoutTrialEvaluation(BaseTest):
         else:
             evidence = evidence.model_copy(update={"launch_id": uuid4()})
 
-        with patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start:
+        with patch(f"{JUDGE_MODULE}.tasks_facade.create_and_run_task") as start:
             with self.assertRaises(TrialJudgeExecutionError):
                 async_to_sync(judge_trial_run)(snapshot, evidence)
-        start.assert_not_awaited()
+        start.assert_not_called()
 
     @parameterized.expand(
         [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
@@ -824,6 +839,7 @@ class TestScoutTrialEvaluation(BaseTest):
             assert report.text.count(final_summary) == 1
         else:
             assert packed["captured_submission_details"]["summary"] == original_summary
+        self._save_judgments(snapshot)
         report_document = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         assert len(report_document.model_dump_json().encode()) < 32 * 1024
 
@@ -847,15 +863,8 @@ class TestScoutTrialEvaluation(BaseTest):
             read_trial_evidence_sources(snapshot, evidence)
         assert "Different private content" not in str(error.exception)
 
-    @parameterized.expand(
-        [
-            (False, "returned"),
-            (True, "returned"),
-            (False, "unexpected"),
-            (False, "revocation"),
-        ]
-    )
-    def test_retries_do_not_repeat_paid_judgments(self, interrupted: bool, failure_kind: str) -> None:
+    @parameterized.expand(["pending", "worker_interruption", "result_save"])
+    def test_retries_collect_existing_judgments_without_finalizing_incomplete_runs(self, interrupted_at: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         judgment = TrialRunJudgment(
             launch_id=self.launch.id,
@@ -865,27 +874,31 @@ class TestScoutTrialEvaluation(BaseTest):
             error="Synthetic failure",
         )
         judge = AsyncMock(return_value=judgment)
-        if failure_kind == "unexpected":
-            judge.side_effect = RuntimeError("Private synthetic failure detail")
-        elif failure_kind == "revocation":
-            judge.side_effect = TrialJudgeExecutionError(
-                "The private evaluation failed at credential_revocation (RuntimeError). No exception details were saved."
-            )
+        if interrupted_at == "pending":
+            judge.side_effect = [None, judgment]
+        elif interrupted_at == "worker_interruption":
+            judge.side_effect = [RuntimeError("Private synthetic failure detail"), judgment]
         with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
-            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-            if interrupted:
-                del self.documents[
-                    f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/runs/{self.launch.id}.json"
-                ]
-            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-        judge.assert_awaited_once()
+            if interrupted_at == "pending":
+                assert not async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            elif interrupted_at == "worker_interruption":
+                with self.assertRaises(RuntimeError):
+                    async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            else:
+                with patch.object(
+                    object_storage, "write", side_effect=object_storage.ObjectStorageError("Unavailable")
+                ):
+                    with self.assertRaises(object_storage.ObjectStorageError):
+                        async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            with self.assertRaises(TrialEvaluationNotReady):
+                finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+            assert read_trial_evaluation_report(snapshot) is None
+            assert async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            assert async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+        assert judge.await_count == 2
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         assert report.runs[0].status == "judge_error"
         assert "Private synthetic" not in report.model_dump_json()
-        if failure_kind != "returned":
-            assert ("credential_revocation" if failure_kind == "revocation" else "judge_execution") in (
-                report.runs[0].error or ""
-            )
 
     @parameterized.expand(
         [
@@ -937,10 +950,10 @@ class TestScoutTrialEvaluation(BaseTest):
 
         with (
             patch(f"{JUDGE_MODULE}.get_or_create_signals_sandbox_env", return_value=None),
-            patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start,
+            patch(f"{JUDGE_MODULE}.tasks_facade.create_and_run_task") as start,
         ):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-        start.assert_not_awaited()
+        start.assert_not_called()
         judgment = TrialRunJudgment.model_validate_json(
             self.documents[
                 f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/runs/{self.launch.id}.json"
@@ -948,10 +961,8 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert judgment.status == "judge_error"
 
-    @parameterized.expand(["before_start", "during_judging"])
-    def test_flag_disable_preserves_unstarted_attempts_and_active_results(self, timing: str) -> None:
+    def test_flag_disable_preserves_active_results(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        saved = dict(self.documents)
         judgment = TrialRunJudgment(
             launch_id=self.launch.id,
             variant_id=self.request.baseline_variant_id,
@@ -974,13 +985,6 @@ class TestScoutTrialEvaluation(BaseTest):
             return judgment
 
         with patch(f"{JUDGE_MODULE}.judge_trial_run", side_effect=judge) as paid_judge:
-            if timing == "before_start":
-                self.trials_flag.return_value = False
-                with self.assertRaises(ScoutTrialsDisabled):
-                    async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-                assert self.documents == saved
-                paid_judge.assert_not_called()
-                self.trials_flag.return_value = True
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
         paid_judge.assert_called_once()
@@ -1108,6 +1112,7 @@ class TestScoutTrialEvaluation(BaseTest):
                 object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(storage_client)
             ):
                 assert service.history(10).results[0].status == "failed"
+                self._save_judgments(snapshot)
                 finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
                 history = service.history(10)
             assert history.results[0].status == "completed"
@@ -1182,9 +1187,43 @@ class TestScoutTrialEvaluation(BaseTest):
             dispatch.assert_not_called()
 
 
+@workflow.defn(name="RunScoutTrialEvaluationWorkflow")
+class LegacyTrialEvaluationWorkflow:
+    @workflow.run
+    async def run(self, inputs: TrialEvaluationInput) -> str:
+        launch_ids = await workflow.execute_activity(
+            "load_scout_trial_evaluation_activity",
+            inputs,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        semaphore = asyncio.Semaphore(3)
+
+        async def judge(launch_id: str) -> None:
+            async with semaphore:
+                await workflow.execute_activity(
+                    "judge_scout_trial_run_activity",
+                    TrialEvaluationRunInput(
+                        team_id=inputs.team_id, evaluation_id=inputs.evaluation_id, launch_id=launch_id
+                    ),
+                    start_to_close_timeout=timedelta(minutes=18),
+                    heartbeat_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        await asyncio.gather(*(judge(launch_id) for launch_id in launch_ids))
+        await workflow.execute_activity(
+            "finish_scout_trial_evaluation_activity",
+            inputs,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        return inputs.evaluation_id
+
+
 class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
-    @parameterized.expand([False, True])
-    async def test_bounds_concurrency_and_finalizes_after_one_activity_fails(self, disabled: bool) -> None:
+    @parameterized.expand(["none", "disabled", "interrupted"])
+    async def test_bounds_pending_judges_and_keeps_incomplete_evaluations_resumable(self, failure: str) -> None:
         inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
         launch_ids = [str(uuid4()) for _ in range(7)]
         reached_limit = asyncio.Event()
@@ -1192,6 +1231,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
         active = 0
         highest_active = 0
         completed: set[str] = set()
+        attempts: dict[str, int] = {}
         finalized = False
 
         async def execute(function: Callable[..., object], payload: object, **options: object) -> object:
@@ -1204,32 +1244,59 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
                 return None
             assert isinstance(payload, TrialEvaluationRunInput)
             policy = options["retry_policy"]
-            assert isinstance(policy, RetryPolicy) and policy.maximum_attempts == 1
+            assert isinstance(policy, RetryPolicy) and policy.maximum_attempts != 1
             timeout = options["start_to_close_timeout"]
-            assert isinstance(timeout, timedelta) and timeout >= timedelta(minutes=17)
+            assert isinstance(timeout, timedelta) and timeout < timedelta(minutes=5)
+            deadline = options["schedule_to_close_timeout"]
+            assert isinstance(deadline, timedelta) and deadline > timeout
+            attempts[payload.launch_id] = attempts.get(payload.launch_id, 0) + 1
             active += 1
             highest_active = max(highest_active, active)
             if active == 3:
                 reached_limit.set()
             await release.wait()
             active -= 1
-            completed.add(payload.launch_id)
-            if payload.launch_id == launch_ids[0]:
+            if payload.launch_id == launch_ids[0] and failure != "none":
                 error = ActivityError(
                     "Synthetic worker interruption",
                     scheduled_event_id=1,
                     started_event_id=2,
                     identity="worker",
-                    activity_type="judge_scout_trial_run_activity",
+                    activity_type="poll_scout_trial_judge_activity",
                     activity_id="scoring",
                     retry_state=None,
                 )
-                if disabled:
+                if failure == "disabled":
                     raise error from ApplicationError("Scout trials are disabled.", type="ScoutTrialsDisabled")
                 raise error
-            return None
+            if attempts[payload.launch_id] == 1:
+                return False
+            completed.add(payload.launch_id)
+            return True
 
-        with patch(f"{WORKFLOW_MODULE}.workflow.execute_activity", side_effect=execute):
+        async def child(function: Callable[..., object], payload: TrialEvaluationRunInput, **options: object) -> None:
+            try:
+                await RunScoutTrialJudgeWorkflow().run(payload)
+            except ActivityError as error:
+                raise ChildWorkflowError(
+                    "Synthetic child workflow failure",
+                    namespace="default",
+                    workflow_id=str(options["id"]),
+                    run_id=str(uuid4()),
+                    workflow_type="RunScoutTrialJudgeWorkflow",
+                    initiated_event_id=1,
+                    started_event_id=2,
+                    retry_state=None,
+                ) from error
+
+        with (
+            patch(f"{WORKFLOW_MODULE}.workflow.execute_activity", side_effect=execute),
+            patch(f"{WORKFLOW_MODULE}.workflow.execute_child_workflow", side_effect=child),
+            patch(f"{WORKFLOW_MODULE}.workflow.patched", return_value=True),
+            patch(f"{WORKFLOW_MODULE}.workflow.info", return_value=MagicMock(workflow_id=inputs.evaluation_id)),
+            patch(f"{WORKFLOW_MODULE}.workflow.now", return_value=timezone.now()),
+            patch(f"{WORKFLOW_MODULE}.workflow.sleep", new_callable=AsyncMock),
+        ):
             task = asyncio.create_task(RunScoutTrialEvaluationWorkflow().run(inputs))
             wait_for_limit = asyncio.create_task(reached_limit.wait())
             try:
@@ -1241,14 +1308,117 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
                 release.set()
                 wait_for_limit.cancel()
                 await asyncio.gather(wait_for_limit, return_exceptions=True)
-            if disabled:
-                with self.assertRaisesMessage(ApplicationError, "Resume when they are enabled"):
+            if failure != "none":
+                with self.assertRaises(ApplicationError):
                     await task
             else:
                 assert await task == inputs.evaluation_id
         assert highest_active == 3
-        assert completed == set(launch_ids)
-        assert finalized is not disabled
+        assert completed == set(launch_ids if failure == "none" else launch_ids[1:])
+        assert finalized is (failure == "none")
+
+    async def test_worker_restart_collects_the_existing_judge_before_finalizing(self) -> None:
+        inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
+        launch_id = str(uuid4())
+        observing = asyncio.Event()
+        judge_tasks: dict[str, str] = {}
+        completed_tasks: set[str] = set()
+        saved_judgments: set[str] = set()
+        finalized = False
+
+        @activity.defn(name="load_scout_trial_evaluation_activity")
+        async def load(_inputs: TrialEvaluationInput) -> list[str]:
+            return [launch_id]
+
+        @activity.defn(name="poll_scout_trial_judge_activity")
+        async def observe(run: TrialEvaluationRunInput) -> bool:
+            task_id = judge_tasks.setdefault(run.launch_id, str(uuid4()))
+            if task_id not in completed_tasks:
+                observing.set()
+                await activity.wait_for_worker_shutdown()
+                raise RuntimeError("Synthetic observer worker shutdown")
+            saved_judgments.add(run.launch_id)
+            return True
+
+        @activity.defn(name="finish_scout_trial_evaluation_activity")
+        async def finish(_inputs: TrialEvaluationInput) -> None:
+            nonlocal finalized
+            assert saved_judgments == {launch_id}
+            finalized = True
+
+        queue = f"trial-evaluation-restart-{uuid4()}"
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=queue,
+                workflows=[RunScoutTrialEvaluationWorkflow, RunScoutTrialJudgeWorkflow],
+                activities=[load, observe, finish],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                max_cached_workflows=0,
+                graceful_shutdown_timeout=timedelta(seconds=10),
+            ):
+                handle = await env.client.start_workflow(
+                    RunScoutTrialEvaluationWorkflow.run,
+                    inputs,
+                    id=inputs.evaluation_id,
+                    task_queue=queue,
+                )
+                await asyncio.wait_for(observing.wait(), timeout=30)
+            assert not finalized
+            assert not saved_judgments
+            original_task_id = judge_tasks[launch_id]
+            completed_tasks.add(original_task_id)
+            async with Worker(
+                env.client,
+                task_queue=queue,
+                workflows=[RunScoutTrialEvaluationWorkflow, RunScoutTrialJudgeWorkflow],
+                activities=[load, observe, finish],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                max_cached_workflows=0,
+            ):
+                assert await asyncio.wait_for(handle.result(), timeout=30) == inputs.evaluation_id
+
+        assert finalized
+        assert judge_tasks == {launch_id: original_task_id}
+        assert saved_judgments == {launch_id}
+
+    async def test_replays_judgments_recorded_before_resumable_judges(self) -> None:
+        @activity.defn(name="load_scout_trial_evaluation_activity")
+        async def load(_inputs: TrialEvaluationInput) -> list[str]:
+            return [str(uuid4()) for _ in range(4)]
+
+        @activity.defn(name="judge_scout_trial_run_activity")
+        async def judge(_inputs: TrialEvaluationRunInput) -> None:
+            return None
+
+        @activity.defn(name="finish_scout_trial_evaluation_activity")
+        async def finish(_inputs: TrialEvaluationInput) -> None:
+            return None
+
+        inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
+        queue = f"trial-evaluation-replay-{uuid4()}"
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=queue,
+                workflows=[LegacyTrialEvaluationWorkflow],
+                activities=[load, judge, finish],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    LegacyTrialEvaluationWorkflow.run,
+                    inputs,
+                    id=inputs.evaluation_id,
+                    task_queue=queue,
+                )
+                assert await asyncio.wait_for(handle.result(), timeout=30) == inputs.evaluation_id
+                history = await handle.fetch_history()
+
+        assert not any(event.HasField("marker_recorded_event_attributes") for event in history.events)
+        await Replayer(
+            workflows=[RunScoutTrialEvaluationWorkflow, RunScoutTrialJudgeWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
 
     def test_new_evaluation_allows_all_bounded_judging_waves(self) -> None:
         client = AsyncMock()
@@ -1261,9 +1431,28 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             team_id=2, evaluation_id=str(evaluation_id)
         )
 
-    async def test_activity_failure_does_not_put_evidence_in_temporal_history(self) -> None:
-        with patch(f"{MODULE}.read_trial_evaluation", side_effect=ValueError("Private synthetic evidence")):
-            with self.assertRaisesMessage(ApplicationError, "snapshot_load (ValueError)") as failure:
-                await load_scout_trial_evaluation_activity(TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4())))
+    @parameterized.expand(["load", "judge", "finish"])
+    async def test_activity_failure_stays_retryable_without_putting_evidence_in_history(self, stage: str) -> None:
+        inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
+        boundary = {
+            "load": "read_trial_evaluation",
+            "judge": "run_evaluation_run",
+            "finish": "finish_trial_evaluation",
+        }[stage]
+        with patch(f"{MODULE}.{boundary}", side_effect=RuntimeError("Private synthetic evidence")):
+            with self.assertRaises(ApplicationError) as failure:
+                env = ActivityEnvironment()
+                if stage == "load":
+                    await env.run(load_scout_trial_evaluation_activity, inputs)
+                elif stage == "judge":
+                    await env.run(
+                        poll_scout_trial_judge_activity,
+                        TrialEvaluationRunInput(
+                            team_id=inputs.team_id, evaluation_id=inputs.evaluation_id, launch_id=str(uuid4())
+                        ),
+                    )
+                else:
+                    await env.run(finish_scout_trial_evaluation_activity, inputs)
         assert "Private synthetic evidence" not in str(failure.exception)
-        assert failure.exception.non_retryable
+        assert "RuntimeError" in str(failure.exception)
+        assert not failure.exception.non_retryable

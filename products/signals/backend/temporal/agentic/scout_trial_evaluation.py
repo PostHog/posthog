@@ -11,7 +11,7 @@ from asgiref.sync import async_to_sync
 from temporalio import activity, workflow
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.query_tagging import private_capture_context
@@ -59,11 +59,11 @@ async def load_scout_trial_evaluation_activity(inputs: TrialEvaluationInput) -> 
                 raise ValueError("Missing evaluation")
             return [str(run.launch_id) for run in snapshot.runs]
         except Exception as error:
-            raise ApplicationError(safe_judge_failure("snapshot_load", error), non_retryable=True) from None
+            raise ApplicationError(safe_judge_failure("snapshot_load", error)) from None
 
 
 @activity.defn
-async def judge_scout_trial_run_activity(inputs: TrialEvaluationRunInput) -> None:
+async def poll_scout_trial_judge_activity(inputs: TrialEvaluationRunInput) -> bool:
     from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoid loading the harness through the workflow registry
         run_evaluation_run,
     )
@@ -77,11 +77,18 @@ async def judge_scout_trial_run_activity(inputs: TrialEvaluationRunInput) -> Non
     with private_capture_context():
         try:
             async with Heartbeater():
-                await run_evaluation_run(inputs.team_id, UUID(inputs.evaluation_id), UUID(inputs.launch_id))
+                return await run_evaluation_run(inputs.team_id, UUID(inputs.evaluation_id), UUID(inputs.launch_id))
         except ScoutTrialsDisabled as error:
             raise ApplicationError(str(error), type="ScoutTrialsDisabled", non_retryable=True) from None
         except Exception as error:
-            raise ApplicationError(safe_judge_failure("judge_activity", error), non_retryable=True) from None
+            raise ApplicationError(safe_judge_failure("judge_activity", error)) from None
+
+
+@activity.defn
+async def judge_scout_trial_run_activity(inputs: TrialEvaluationRunInput) -> None:
+    # Existing evaluation histories still schedule the long-lived activity during a rollout.
+    while not await poll_scout_trial_judge_activity(inputs):
+        await asyncio.sleep(10)
 
 
 @activity.defn
@@ -99,7 +106,35 @@ async def finish_scout_trial_evaluation_activity(inputs: TrialEvaluationInput) -
                 inputs.team_id, UUID(inputs.evaluation_id)
             )
         except Exception as error:
-            raise ApplicationError(safe_judge_failure("report_save", error), non_retryable=True) from None
+            raise ApplicationError(safe_judge_failure("report_save", error)) from None
+
+
+@workflow.defn
+class RunScoutTrialJudgeWorkflow:
+    @workflow.run
+    async def run(self, inputs: TrialEvaluationRunInput) -> None:
+        deadline = workflow.now() + timedelta(minutes=TRIAL_JUDGE_TIMEOUT_MINUTES)
+        while True:
+            remaining = deadline - workflow.now()
+            if remaining <= timedelta(0):
+                raise ApplicationError("The judge status could not be collected before the evaluation deadline.")
+            finished = await workflow.execute_activity(
+                poll_scout_trial_judge_activity,
+                inputs,
+                start_to_close_timeout=min(timedelta(minutes=2), remaining),
+                schedule_to_close_timeout=remaining,
+                heartbeat_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)),
+            )
+            if finished:
+                return
+            await workflow.sleep(timedelta(seconds=10))
+
+
+def _trials_disabled(error: BaseException | None) -> bool:
+    while isinstance(error, (ActivityError, ChildWorkflowError)):
+        error = error.cause
+    return isinstance(error, ApplicationError) and error.type == "ScoutTrialsDisabled"
 
 
 @workflow.defn
@@ -110,38 +145,46 @@ class RunScoutTrialEvaluationWorkflow:
             load_scout_trial_evaluation_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            schedule_to_close_timeout=timedelta(minutes=3),
         )
         judge_timeout = timedelta(minutes=TRIAL_JUDGE_TIMEOUT_MINUTES)
         semaphore = asyncio.Semaphore(TRIAL_JUDGE_CONCURRENCY)
+        resumable_judges = workflow.patched("scout-trial-resumable-judges")
 
-        async def score(launch_id: str) -> bool:
+        async def score(launch_id: str) -> None:
             async with semaphore:
-                try:
+                run_input = TrialEvaluationRunInput(
+                    team_id=inputs.team_id, evaluation_id=inputs.evaluation_id, launch_id=launch_id
+                )
+                if resumable_judges:
+                    # Separate histories keep the largest supported trial below Temporal's event limit.
+                    await workflow.execute_child_workflow(
+                        RunScoutTrialJudgeWorkflow.run,
+                        run_input,
+                        id=f"{workflow.info().workflow_id}:judge:{launch_id}",
+                        execution_timeout=judge_timeout,
+                    )
+                else:
+                    # Preserve scheduled activity commands when replaying across a worker rollout.
                     await workflow.execute_activity(
                         judge_scout_trial_run_activity,
-                        TrialEvaluationRunInput(
-                            team_id=inputs.team_id, evaluation_id=inputs.evaluation_id, launch_id=launch_id
-                        ),
+                        run_input,
                         start_to_close_timeout=judge_timeout,
                         heartbeat_timeout=timedelta(seconds=30),
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
-                except ActivityError as error:
-                    if isinstance(error.cause, ApplicationError) and error.cause.type == "ScoutTrialsDisabled":
-                        return True
-                    # Finalization records missing outcomes without buying another judge call.
-                return False
 
-        blocked = await asyncio.gather(*(score(launch_id) for launch_id in launch_ids))
-        if any(blocked):
-            # Keep unstarted judgments resumable after active activities have saved their results.
+        outcomes = await asyncio.gather(*(score(launch_id) for launch_id in launch_ids), return_exceptions=True)
+        if any(_trials_disabled(outcome) for outcome in outcomes):
             raise ApplicationError("Scout trials are disabled. Resume when they are enabled again.", non_retryable=True)
+        if resumable_judges and any(isinstance(outcome, BaseException) for outcome in outcomes):
+            # Keep completed judgments, and let a retry reconnect to the remaining Tasks.
+            raise ApplicationError("Some judge results could not be collected. Resume this evaluation to try again.")
         await workflow.execute_activity(
             finish_scout_trial_evaluation_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            schedule_to_close_timeout=timedelta(minutes=3),
         )
         return inputs.evaluation_id
 
