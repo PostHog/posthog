@@ -3,8 +3,9 @@
 ReviewHog's published comments lead with a heading that holds ``finding.title`` and anchor to the
 finding's file, so a finding maps to its posted comment exactly by (path, title) — no stored comment id, and robust to
 line drift after review (the match is on body content, not position). The one
-``GET /pulls/{n}/comments`` list carries both an ``in_reply_to_id`` per comment and a ``reactions``
-summary, so replies and reactions are read without any extra call or GraphQL.
+``GET /pulls/{n}/comments`` list carries an ``in_reply_to_id`` per comment, so replies need no extra
+call. Its ``reactions`` summary counts reactions but names nobody, so a comment with a reaction costs
+one more read to see who left it (``fetch_comment_reactions``).
 """
 
 from typing import Any
@@ -47,7 +48,9 @@ def find_finding_comment(
     return None
 
 
-def engagement_method(*, comment: dict[str, Any], review_comments: list[dict[str, Any]]) -> str | None:
+def engagement_method(
+    *, comment: dict[str, Any], review_comments: list[dict[str, Any]], reactions: list[dict[str, Any]]
+) -> str | None:
     """How the finding's thread was engaged, or None if it wasn't. All results map to `reacted`.
 
     Engagement means *someone responded*, not specifically a human: a reply from another agent (a
@@ -64,10 +67,12 @@ def engagement_method(*, comment: dict[str, Any], review_comments: list[dict[str
     old behavior of ignoring every bot reply.
 
     A human reply beats an agent one when both are present, and a reaction beats both: it is the
-    cheaper, unambiguous signal. The ``reactions`` summary carries no actor, so a bot reaction counts
-    as a reaction — accepted, and now consistent with replies rather than at odds with them.
+    cheaper, unambiguous signal. ``reactions`` are the comment's reactions with their actors, and the
+    same rule applies to them: ReviewHog's own never count. The resolution stage puts a 👀 on every
+    thread it queues, so counting it would mark each of those findings ``reacted`` and keep the judge
+    from ruling on the fix that followed.
     """
-    if (comment.get("reactions") or {}).get("total_count", 0) > 0:
+    if any(not is_app_bot_author(reaction.get("user")) for reaction in reactions):
         return "comment_reaction"
     comment_id = comment.get("id")
     if comment_id is None:

@@ -454,6 +454,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     A single-agent finding shows its `reported_priority` while that level still folds into the effective priority; otherwise `must_fix` shows P1, `should_fix` P2, and `consider` P3 (`display_level`).
     The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
+    A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
     The body-only fallback always posts the full body.
