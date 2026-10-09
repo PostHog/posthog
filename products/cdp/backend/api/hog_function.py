@@ -84,11 +84,15 @@ MAX_TRANSFORMATIONS_PER_TEAM = 20
 # Log transformations execute per log record; volume is orders of magnitude higher than
 # events, so the enabled cap starts much lower.
 MAX_LOG_TRANSFORMATIONS_PER_TEAM = 5
+# Each enabled destination is a separate delivery per matching event on shared CDP workers.
+# The cap is high so real setups stay under it, but it bounds the fan-out of runaway creation.
+MAX_DESTINATIONS_PER_TEAM = 500
 
-# Per-type caps on *enabled* functions of types that run in the ingestion hot path
+# Per-type caps on *enabled* functions of types that multiply shared processing load per event
 MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE = {
     HogFunctionType.TRANSFORMATION: MAX_TRANSFORMATIONS_PER_TEAM,
     HogFunctionType.TRANSFORMATION_LOG: MAX_LOG_TRANSFORMATIONS_PER_TEAM,
+    HogFunctionType.DESTINATION: MAX_DESTINATIONS_PER_TEAM,
 }
 
 # Gates creation of log transformations while the feature rolls out; sync with
@@ -727,8 +731,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             ):
                 raise serializers.ValidationError({"type": "Log transformations are not enabled for this team."})
 
-        # Check for transformation limit per team when the function will be enabled
-        # We allow unlimited creation of disabled transformations as they don't run during ingestion
+        # Check the per-type limit when the function will be enabled
+        # We allow unlimited creation of disabled functions as they don't run
         enabled_cap = MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE.get(hog_type)
         if enabled_cap is not None:
             # The cap covers the effective post-update state: restoring a soft-deleted
@@ -742,11 +746,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
             if apply_limit:
                 # Count enabled and non-deleted functions of the same type
-                transformation_count = HogFunction.objects.filter(
+                enabled_count = HogFunction.objects.filter(
                     team=team, type=hog_type, deleted=False, enabled=True
                 ).count()
 
-                if transformation_count >= enabled_cap:
+                if enabled_count >= enabled_cap:
                     raise serializers.ValidationError(
                         {
                             "type": f"Maximum of {enabled_cap} enabled {humanize_hog_function_type(hog_type)} functions allowed per team. Please contact support if you need this limit increased, or disable some existing ones."

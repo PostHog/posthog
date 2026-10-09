@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
+    MAX_DESTINATIONS_PER_TEAM,
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
@@ -3040,6 +3041,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"enabled": True},
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_limits_enabled_destinations_per_team(self):
+        HogFunction.objects.bulk_create(
+            HogFunction(team=self.team, name=f"Destination {i}", hog="return event", type="destination", enabled=True)
+            for i in range(MAX_DESTINATIONS_PER_TEAM)
+        )
+        expected_error = f"Maximum of {MAX_DESTINATIONS_PER_TEAM} enabled destination functions"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["detail"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "enabled": False}
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        disabled_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{disabled_id}/", data={"enabled": True}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["detail"]
 
     def test_validates_raw_hog_code_size(self):
         """Test that we validate the raw HOG code size before compiling it."""
