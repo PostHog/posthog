@@ -41,7 +41,6 @@ pub struct SerializedBatch {
 #[allow(clippy::large_enum_variant)]
 enum Slot {
     Prepared(PreparedEvent),
-    /// Not published, so it gets no result.
     Skipped,
     Failed(SerializationFailure),
 }
