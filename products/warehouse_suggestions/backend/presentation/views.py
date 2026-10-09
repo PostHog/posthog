@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import timedelta
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -20,7 +21,8 @@ from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 from posthog.utils import UUID_REGEX
 
 from ..facade import api
@@ -62,7 +64,11 @@ ALREADY_CERTIFIED = {
     WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
-ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"]
+ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
+SUBJECT_SCOPE_OBJECTS = {
+    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
+    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
+}
 
 
 class SuggestionPagination(LimitOffsetPagination):
@@ -99,6 +105,32 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if not is_warehouse_suggestions_enabled(self.team):
             raise PermissionDenied("Warehouse suggestions are not enabled for this project.")
 
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        subject_scope = next(iter(self._subject_scopes_on_token.values()), f"{self.scope_object}:{self._scope_level}")
+        return [subject_scope, *ACCEPT_SCOPES] if self.action == "accept" else [subject_scope]
+
+    @property
+    def _scope_level(self) -> str:
+        return "write" if self.action in self.scope_object_write_actions else "read"
+
+    @cached_property
+    def _subject_scopes_on_token(self) -> dict[WarehouseSuggestionSubjectKind, str]:
+        held = get_authenticator_scopes(self.request.successful_authenticator) or ()
+        reaching: dict[WarehouseSuggestionSubjectKind, str] = {}
+        for subject_kind, scope_object in SUBJECT_SCOPE_OBJECTS.items():
+            candidates = (f"{self.scope_object}:{self._scope_level}", f"{scope_object}:{self._scope_level}")
+            held_scope = next((scope for scope in candidates if not scopes_not_covered(held, [scope])), None)
+            if held_scope is not None:
+                reaching[subject_kind] = held_scope
+        return reaching
+
+    @cached_property
+    def _subject_kinds(self) -> frozenset[WarehouseSuggestionSubjectKind]:
+        held = get_authenticator_scopes(self.request.successful_authenticator)
+        if held is None or "*" in held:
+            return frozenset(WarehouseSuggestionSubjectKind)
+        return frozenset(self._subject_scopes_on_token)
+
     @validated_request(
         query_serializer=WarehouseSuggestionListQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer(many=True))},
@@ -114,6 +146,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 kind=WarehouseSuggestionKind(kind) if kind else None,
                 status=WarehouseSuggestionStatus(status) if status else None,
                 subject_id=request.validated_query_data.get("subject_id"),
+                subject_kinds=self._subject_kinds,
                 limit=limit,
                 offset=offset,
             ),
@@ -126,7 +159,11 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        return self._respond(lambda: api.get_suggestion(self.team_id, self.user_access_control, UUID(pk)))
+        return self._respond(
+            lambda: api.get_suggestion(
+                self.team_id, self.user_access_control, UUID(pk), subject_kinds=self._subject_kinds
+            )
+        )
 
     @validated_request(
         request_serializer=DismissWarehouseSuggestionSerializer,
@@ -142,6 +179,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 user=cast(User, request.user),
                 reason=request.validated_data["reason"],
                 note=request.validated_data.get("note") or None,
+                subject_kinds=self._subject_kinds,
             )
         )
 
@@ -149,7 +187,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         request_serializer=AcceptWarehouseSuggestionSerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
-    @action(detail=True, methods=["post"], required_scopes=ACCEPT_SCOPES)
+    @action(detail=True, methods=["post"])
     def accept(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
         interval_seconds = request.validated_data.get("refresh_interval_seconds")
         return self._respond(
@@ -160,6 +198,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 user=cast(User, request.user),
                 refresh_interval=timedelta(seconds=interval_seconds) if interval_seconds else None,
                 was_impersonated=is_impersonated(request),
+                subject_kinds=self._subject_kinds,
             )
         )
 
@@ -167,7 +206,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(detail=True, methods=["post"])
     def resume(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return self._respond(
-            lambda: api.resume_suggestion(self.team, self.user_access_control, UUID(pk), user=cast(User, request.user))
+            lambda: api.resume_suggestion(
+                self.team,
+                self.user_access_control,
+                UUID(pk),
+                user=cast(User, request.user),
+                subject_kinds=self._subject_kinds,
+            )
         )
 
     def _respond(self, decide_or_read: Callable[[], Suggestion]) -> Response:

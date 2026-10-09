@@ -60,9 +60,12 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
+    subject_kinds: Collection[WarehouseSuggestionSubjectKind],
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = WarehouseSuggestion.objects.for_team(team_id).exclude(
-        status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True
+    suggestions = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(subject_kind__in=subject_kinds)
+        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
     )
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)

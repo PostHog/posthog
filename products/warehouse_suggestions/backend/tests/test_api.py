@@ -14,6 +14,8 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -205,6 +207,43 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         if expected is not None:
             assert response.json()["count"] == len(expected)
             assert [row["id"] for row in response.json()["results"]] == [str(ids[name]) for name in expected]
+
+    @parameterized.expand(
+        [
+            ("view_scope", ["warehouse_view:write"], {"view"}),
+            ("table_scope", ["warehouse_table:write"], {"table"}),
+            ("umbrella_scope", ["warehouse_objects:write"], {"view", "table"}),
+            ("no_warehouse_scope", ["insight:write"], None),
+        ]
+    )
+    def test_a_token_reaches_only_the_subject_kinds_its_scopes_name(
+        self, _name: str, scopes: list[str], expected: set[str] | None
+    ) -> None:
+        ids = {
+            "view": self._suggest(self.view.id).id,
+            "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+        listed = self.client.get(f"{self.url}/", **auth)
+        dismissed = {
+            name: self.client.post(
+                f"{self.url}/{suggestion_id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}, **auth
+            ).status_code
+            for name, suggestion_id in ids.items()
+        }
+
+        if expected is None:
+            assert listed.status_code == status.HTTP_403_FORBIDDEN, listed.json()
+            assert set(dismissed.values()) == {status.HTTP_403_FORBIDDEN}
+            return
+        assert {row["id"] for row in listed.json()["results"]} == {str(ids[name]) for name in expected}
+        assert dismissed == {
+            name: status.HTTP_200_OK if name in expected else status.HTTP_404_NOT_FOUND for name in ids
+        }
 
     def test_the_flag_off_forbids_the_endpoint(self) -> None:
         with patch(FLAG, return_value=False):
