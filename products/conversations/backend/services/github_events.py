@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import structlog
 
-from posthog.github.installations import installation_id, installation_integrations
+from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_integrations
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.team.team import Team
@@ -50,11 +50,13 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     if not integrations:
         return None, False
 
-    with bounded_statement_timeout(_TEAM_SETTINGS_LOOKUP_TIMEOUT_MS, models=[Team]):
+    # Read from the same alias as the installation lookup. A replica-routed read could return
+    # settings older than the integration rows and drop a delivery the channel should route.
+    with bounded_statement_timeout(_TEAM_SETTINGS_LOOKUP_TIMEOUT_MS, aliases=[SCOPE_DB_ALIAS]):
         settings_by_team = dict(
-            Team.objects.filter(pk__in={integration.team_id for integration in integrations}).values_list(
-                "id", "conversations_settings"
-            )
+            Team.objects.using(SCOPE_DB_ALIAS)
+            .filter(pk__in={integration.team_id for integration in integrations})
+            .values_list("id", "conversations_settings")
         )
 
     for integration in integrations:
