@@ -167,7 +167,6 @@ SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
 
-LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
