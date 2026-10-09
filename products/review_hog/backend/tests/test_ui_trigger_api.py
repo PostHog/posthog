@@ -11,6 +11,7 @@ from rest_framework import status
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import User
 
+from products.review_hog.backend.facade.reviews import request_pr_review as request_pr_review_from_comment
 from products.review_hog.backend.models import ReviewReport, ReviewSkillConfig, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import REVIEW_ARMS_BY_TIER, ReviewTier
 from products.review_hog.backend.reviewer.persistence import load_review_arm
@@ -102,6 +103,24 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
+
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-comment-1")
+    def test_comment_facade_never_resolves_comments(self, mock_start, _mock_access, _mock_meta):
+        # A comment run acts with the commenter's settings, so an unpinned None would let the
+        # commenter's resolve_comments setting write commits to someone else's branch.
+        outcome = request_pr_review_from_comment(
+            team_id=self.team.id,
+            requester_id=self.user.id,
+            repository="PostHog/posthog.com",
+            pr_number=123,
+            run_mode="review",
+        )
+
+        self.assertEqual(outcome.workflow_id, "wf-comment-1")
+        self.assertEqual(mock_start.call_args.kwargs["trigger_source"], "comment")
+        self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
 
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())

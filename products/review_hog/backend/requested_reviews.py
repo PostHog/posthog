@@ -7,6 +7,7 @@ requester and checked their access to the project.
 
 import logging
 from enum import StrEnum
+from typing import Literal
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
@@ -82,19 +83,35 @@ def fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_numbe
 
 
 def request_pr_review(
-    *, team_id: int, requester_id: int, owner: str, repo: str, pr_number: int, run_mode: str
+    *,
+    team_id: int,
+    requester_id: int,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    run_mode: str,
+    trigger_source: str = TRIGGER_UI,
+    resolve_comments: Literal[False] | None = None,
 ) -> PRReviewRequestOutcome:
     """Start the requested run, or say why not.
 
     The requester is both the run user (sandbox identity) and the acting user, whose perspectives,
     validator, threshold and resolution criteria apply. Raises `GitHubRateLimitError` when GitHub
     rate-limits the App's token, so the caller can answer with the wait.
+
+    `resolve_comments=False` turns the resolution stage off in every mode. A caller cannot turn it
+    on: `None` lets the run mode and the requester's setting decide.
     """
     # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
     if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
         return PRReviewRequestOutcome(
             status=PRReviewRequestStatus.NOT_ALLOWED,
             error="Flash reviews aren't available in this project. Start a regular review instead.",
+        )
+    if run_mode == RUN_MODE_RESOLVE_ONLY and resolve_comments is False:
+        return PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.NOT_ALLOWED,
+            error="This trigger can't resolve review comments. Start a review instead.",
         )
     repository = f"{owner}/{repo}"
     # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
@@ -152,9 +169,11 @@ def request_pr_review(
             team_id=team_id,
             user_id=requester_id,
             acting_user_id=requester_id,
-            trigger_source=TRIGGER_UI,
+            trigger_source=trigger_source,
         )
-        logger.info(f"ReviewHog UI trigger started resolution {workflow_id} for {pr_url} by user {requester_id}")
+        logger.info(
+            f"ReviewHog {trigger_source} trigger started resolution {workflow_id} for {pr_url} by user {requester_id}"
+        )
         return PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id=workflow_id)
 
     # Repository casing can differ per trigger (the report stores whatever its trigger carried).
@@ -175,9 +194,9 @@ def request_pr_review(
         user_id=requester_id,
         publish=True,
         acting_user_id=requester_id,
-        trigger_source=TRIGGER_UI,
-        # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
-        resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
+        trigger_source=trigger_source,
+        # None = the requester's setting decides; review_only, flash and a caller's False pin it off.
+        resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else resolve_comments,
         review_mode=review_mode,
         requested_head_sha=pr_meta.head_sha,
     )
@@ -187,7 +206,11 @@ def request_pr_review(
         lifted = run_mode != RUN_MODE_FLASH and lift_review_tier_for_joined_trigger(
             team_id=team_id, repository=repository, pr_number=pr_number
         )
-        logger.info(f"ReviewHog UI trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})")
+        logger.info(
+            f"ReviewHog {trigger_source} trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})"
+        )
         return PRReviewRequestOutcome(status=PRReviewRequestStatus.JOINED_RUNNING_REVIEW, workflow_id=workflow_id)
-    logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
+    logger.info(
+        f"ReviewHog {trigger_source} trigger started workflow {workflow_id} for {pr_url} by user {requester_id}"
+    )
     return PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id=workflow_id)
