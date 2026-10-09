@@ -122,7 +122,9 @@ value _and_ the **match reason** for a specific user — so you rarely have to g
 6. **Recommend the fix; do not make it.** **This skill is read-only — it never writes a flag.** Name the
    exact change instead: which condition, which field, which value. A flag mutation (widening a
    condition, raising rollout, enabling) is a live change to real traffic, and here it belongs to whoever
-   owns the flag, not to a diagnostic run. Other flag skills do writes; this one hands off to them. Say
+   owns the flag, not to a diagnostic run. **Scheduling one is still making it** — `scheduled-changes-*`
+   commits the same write to run later, so a deadline in the ticket is a reason to hand off sooner, not a
+   reason to queue the change yourself. Other flag skills do writes; this one hands off to them. Say
    so in the reply when a write has to happen. `posthog:feature-flags-user-blast-radius-create` stays in
    scope — it only counts the users a condition would match and changes nothing — so size a widening
    before you recommend it.

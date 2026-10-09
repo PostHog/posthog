@@ -17,10 +17,12 @@ behavior instead.
   the flag. The deterministic half requires the agent to have read and reproduced the seeded
   flag, so an answer guessed from the prompt does not score.
 
-Both suites are ``SandboxedPrivateEval``, so they run without a Braintrust key, and both
-grade a skill that ships from this repo — ``hogli evals`` builds ``products/*/skills/`` into
-the sandbox, so neither needs the context-mill overlay guard that ``eval_instrument_flags``
-carries.
+Both suites are ``SandboxedPrivateEval``, which keeps the Braintrust project private and
+sends no logs. It does not remove the key: ``BraintrustEngine`` is the only engine, so a run
+still needs ``BRAINTRUST_API_KEY``, plus ``SANDBOX_JWT_PRIVATE_KEY`` and
+``LLM_GATEWAY_ANTHROPIC_API_KEY``. Both grade a skill that ships from this repo — ``hogli
+evals`` builds ``products/*/skills/`` into the sandbox, so neither needs the context-mill
+overlay guard that ``eval_instrument_flags`` carries.
 
 Model behavior is stochastic and each case runs once, so read a single run as a smoke test
 and use ``--trials`` before concluding a rule regressed.
