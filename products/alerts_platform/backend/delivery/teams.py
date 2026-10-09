@@ -50,12 +50,13 @@ def _clip(text: str, budget: int) -> str:
 
 
 def card_for(message: AlertMessage) -> dict[str, Any]:
-    headline = escape_markdown(message.headline)
+    headline = escape_markdown(message.title)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
+    context = escape_markdown(" | ".join(message.context))
     if message.details:
         # An error message can carry a whole query, so it is a detail that overflows. Each detail
         # gets an equal share, so clipping the error cannot drop the failure count after it.
-        share = (TEXT_BUDGET_BYTES - _wire_size(headline)) // len(message.details)
+        share = (TEXT_BUDGET_BYTES - _wire_size(headline) - _wire_size(context)) // len(message.details)
         body.append(
             {
                 "type": "FactSet",
@@ -65,6 +66,9 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
                 ],
             }
         )
+    if context:
+        body.append({"type": "TextBlock", "text": context, "isSubtle": True, "size": "Small", "wrap": True})
+    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in message.links]
     return {
         "type": "message",
         "attachments": [
@@ -76,7 +80,7 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
                     "type": "AdaptiveCard",
                     "version": "1.2",
                     "body": body,
-                    "actions": [{"type": "Action.OpenUrl", "title": "View alert", "url": message.alert_url}],
+                    "actions": actions,
                 },
             }
         ],

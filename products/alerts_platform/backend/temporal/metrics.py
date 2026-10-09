@@ -104,6 +104,14 @@ def increment_deliveries_deferred(source: str, count: int) -> None:
     ).add(count)
 
 
+def increment_describer_failures(source: str) -> None:
+    """A source's describer raised, so its alerts went out in the platform's generic wording."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_describer_failures_total",
+        "Messages sent in the platform's wording because the source's describer raised",
+    ).add(1)
+
+
 def increment_deliveries_previewed(source: str) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_previewed_total",

@@ -9,13 +9,14 @@ from django.test import SimpleTestCase
 import requests
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
+from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, pagerduty_body
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     IncidentAction,
+    MessageDetail,
     PagerDutySeverity,
 )
 from products.alerts_platform.backend.tests.delivery_messages import (
