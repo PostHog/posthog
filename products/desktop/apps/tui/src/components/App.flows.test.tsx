@@ -152,6 +152,7 @@ describe("App flows", () => {
       layoutPath(ACCOUNT),
       join(CONFIG, "prefs.json"),
       join(CONFIG, "local", "flow-l1.jsonl"),
+      join(CONFIG, "local", "flow-l2.jsonl"),
       CLAUDE_TOKEN_PATH,
     ])
       rmSync(path, { force: true });
@@ -467,80 +468,102 @@ describe("App flows", () => {
     }
   });
 
-  it("answers a local agent's permission request from the sheet", async () => {
-    const sessions = join(CONFIG, "local");
-    mkdirSync(sessions, { recursive: true });
-    writeFileSync(join(sessions, "flow-l1.jsonl"), "");
-    saveLayout(openTask(initialLayout(), "flow-l1"), layoutPath(ACCOUNT));
-    const prompt: AgentPrompt = {
-      kind: "acp",
-      request: {
-        taskRunId: "flow-l1",
-        toolCallId: "tc1",
-        title: "Run pnpm test",
-        options: [
-          { optionId: "allow", name: "Allow", kind: "allow_once" },
-          { optionId: "reject", name: "Reject", kind: "reject_once" },
-        ],
-      },
-    };
-    const answer = vi.fn(async (_prompt: AgentPrompt, _reply: unknown) => {});
-    const local = {
-      watch: (onView: (view: RunView) => void) => {
-        onView({ ...emptyRunView, loaded: true, status: "in_progress" });
-        return () => {};
-      },
-      watchPrompts: (onPrompts: (prompts: AgentPrompt[]) => void) => {
-        onPrompts([prompt]);
-        return () => {};
-      },
-      answer,
-      stop: async () => {},
-      control: {
-        models: async () => ({ available: [], current: null }),
-        efforts: async () => ({ available: [], current: null }),
-        commands: async () => [],
-      },
-    } as unknown as LocalSession;
-    const mouse: MouseEvents = new EventEmitter();
-    const { instance, output } = renderInTerminal(
-      <Box height={30} flexDirection="column">
-        <App
-          session={{
-            account: ACCOUNT,
-            work: {
-              listRecent: async () => ({
-                tasks: [
-                  { id: "flow-l1", title: "Local", runtime: "pi" } as Task,
-                ],
-                hasMore: false,
-              }),
-            } as unknown as WorkList,
-            runs: { prefetch: async () => {} } as unknown as CloudRuns,
-            chats: {} as PiChats,
-            control: () => ({}) as PiControl,
-            startLocal: async () => local,
-          }}
-          login={async () => {}}
-          logout={() => {}}
-          mouse={mouse}
-        />
-      </Box>,
-    );
-    try {
-      await vi.waitFor(() =>
-        expect(stripTerminalSequences(output())).toContain("Run pnpm test"),
+  // Local agents live in a global map by task id, so each case gets its own chat.
+  it.each([
+    ["the picked option", "flow-l1", ["1"], { optionId: "allow" }],
+    // An option that asks what to do instead takes the text from the composer.
+    [
+      "the typed feedback",
+      "flow-l2",
+      ["2", "use pnpm", "\r"],
+      { optionId: "reject", customInput: "use pnpm" },
+    ],
+  ])(
+    "answers a local agent's permission request from the sheet with %s",
+    async (_name, taskId, keys, expected) => {
+      const sessions = join(CONFIG, "local");
+      mkdirSync(sessions, { recursive: true });
+      writeFileSync(join(sessions, `${taskId}.jsonl`), "");
+      saveLayout(openTask(initialLayout(), taskId), layoutPath(ACCOUNT));
+      const prompt: AgentPrompt = {
+        kind: "acp",
+        request: {
+          taskRunId: taskId,
+          toolCallId: "tc1",
+          title: "Run pnpm test",
+          options: [
+            { optionId: "allow", name: "Allow", kind: "allow_once" },
+            {
+              optionId: "reject",
+              name: "No, and tell the agent what to do differently",
+              kind: "reject_once",
+              _meta: { customInput: true },
+            },
+          ],
+        },
+      };
+      const answer = vi.fn(async (_prompt: AgentPrompt, _reply: unknown) => {});
+      const local = {
+        watch: (onView: (view: RunView) => void) => {
+          onView({ ...emptyRunView, loaded: true, status: "in_progress" });
+          return () => {};
+        },
+        watchPrompts: (onPrompts: (prompts: AgentPrompt[]) => void) => {
+          onPrompts([prompt]);
+          return () => {};
+        },
+        answer,
+        stop: async () => {},
+        control: {
+          models: async () => ({ available: [], current: null }),
+          efforts: async () => ({ available: [], current: null }),
+          commands: async () => [],
+        },
+      } as unknown as LocalSession;
+      const mouse: MouseEvents = new EventEmitter();
+      const { instance, output } = renderInTerminal(
+        <Box height={30} flexDirection="column">
+          <App
+            session={{
+              account: ACCOUNT,
+              work: {
+                listRecent: async () => ({
+                  tasks: [
+                    { id: taskId, title: "Local", runtime: "pi" } as Task,
+                  ],
+                  hasMore: false,
+                }),
+              } as unknown as WorkList,
+              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              chats: {} as PiChats,
+              control: () => ({}) as PiControl,
+              startLocal: async () => local,
+            }}
+            login={async () => {}}
+            logout={() => {}}
+            mouse={mouse}
+          />
+        </Box>,
       );
-      // A sheet takes its keys from the raw stream; Ink's own input never sees them.
-      await vi.waitFor(() => {
-        mouse.emit("keys", "1");
-        expect(answer).toHaveBeenCalled();
-      });
-      expect(vi.mocked(answer).mock.calls[0]?.[1]).toMatchObject({
-        optionId: "allow",
-      });
-    } finally {
-      instance.unmount();
-    }
-  });
+      try {
+        await vi.waitFor(() =>
+          expect(stripTerminalSequences(output())).toContain("Run pnpm test"),
+        );
+        // A sheet takes its keys from the raw stream; Ink's own input never sees them.
+        mouse.emit("keys", keys[0]);
+        if (keys.length > 1) {
+          await vi.waitFor(() =>
+            expect(stripTerminalSequences(output())).toContain(
+              "Type what to do instead",
+            ),
+          );
+          for (const key of keys.slice(1)) mouse.emit("keys", key);
+        }
+        await vi.waitFor(() => expect(answer).toHaveBeenCalled());
+        expect(vi.mocked(answer).mock.calls[0]?.[1]).toMatchObject(expected);
+      } finally {
+        instance.unmount();
+      }
+    },
+  );
 });

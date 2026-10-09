@@ -5,11 +5,14 @@ import { allPanes, findPane, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
 import {
   type AgentPrompt,
+  feedbackSheet,
+  type PromptReply,
   promptId,
   promptReply,
   promptSheet,
   questionsOf,
   takesText,
+  wantsText,
 } from "../prompts";
 import { moveCursor, type Sheet, type SheetKey } from "../sheet";
 import type { FlashNotice } from "./useNotice";
@@ -63,10 +66,17 @@ export function useSheets({
     });
   const paneTaskId = (paneId: string): string | null =>
     findPane(layout, paneId)?.taskId ?? null;
-  // A question prompt's picks so far, by prompt; the reply goes once the last question is answered.
-  const [answered, setAnswered] = useState<Map<string, Record<string, string>>>(
-    new Map(),
-  );
+  // A question prompt's picks so far, and the option that now waits for its text from the composer, by prompt.
+  // Keys arrive in bursts before React renders, so each one reads what the last one left: refs, with a render asked for.
+  const answered = useRef(new Map<string, Record<string, string>>()).current;
+  const feedback = useRef(new Map<string, number>()).current;
+  const [, setChanged] = useState(0);
+  const changed = (): void => setChanged((count) => count + 1);
+  const forget = (id: string): void => {
+    answered.delete(id);
+    feedback.delete(id);
+    changed();
+  };
 
   // A local chat's oldest waiting prompt shows in any pane that has the chat open.
   const promptModal = (taskId: string | null): OpenModal | undefined => {
@@ -75,26 +85,40 @@ export function useSheets({
     if (!prompt || !local) return undefined;
     const id = promptId(prompt);
     const picks = answered.get(id) ?? {};
-    const reply = (answer: number | string | null): void => {
-      const next = promptReply(prompt, answer, picks);
-      const answers = next.kind === "acp" ? (next.answers ?? {}) : {};
-      const count = Object.keys(answers).length;
-      if (answer !== null && count > 0 && count < questionsOf(prompt).length) {
-        setAnswered((current) => new Map(current).set(id, answers));
-        setPromptCursor(id, 0);
-        return;
-      }
-      setAnswered((current) => {
-        const rest = new Map(current);
-        rest.delete(id);
-        return rest;
-      });
+    const typingFor = feedback.get(id);
+    const send = (next: PromptReply): void => {
+      forget(id);
       local
         .answer(prompt, next)
         .catch((error: unknown) =>
           flashNotice(`Couldn't answer: ${messageOf(error)}`, { taskId }),
         );
     };
+    const reply = (answer: number | string | null): void => {
+      if (typeof answer === "number" && wantsText(prompt, answer)) {
+        feedback.set(id, answer);
+        changed();
+        return;
+      }
+      const next = promptReply(prompt, answer, picks);
+      const answers = next.kind === "acp" ? (next.answers ?? {}) : {};
+      const count = Object.keys(answers).length;
+      if (answer !== null && count > 0 && count < questionsOf(prompt).length) {
+        answered.set(id, answers);
+        setPromptCursor(id, 0);
+        changed();
+        return;
+      }
+      send(next);
+    };
+    if (typingFor !== undefined)
+      return {
+        sheet: feedbackSheet(prompt, typingFor),
+        index: 0,
+        choose: () => {},
+        dismiss: () => reply(null),
+        submitText: (text) => send(promptReply(prompt, typingFor, picks, text)),
+      };
     return {
       sheet: promptSheet(prompt, Object.keys(picks).length),
       index: promptCursors.get(id) ?? 0,

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type AgentPrompt, promptReply, promptSheet } from "./prompts";
+import {
+  type AgentPrompt,
+  feedbackSheet,
+  promptReply,
+  promptSheet,
+  wantsText,
+} from "./prompts";
 
 const dialog = (request: Record<string, unknown>): AgentPrompt =>
   ({
@@ -98,6 +104,34 @@ describe("promptReply", () => {
       toolCallId: "q1",
       optionId: "option_1",
       answers: { "Which channel?": "Homebrew", "How often?": "On merge" },
+    });
+  });
+
+  it("carries the feedback typed for an option that asks for it", () => {
+    const feedback: AgentPrompt = {
+      ...acp,
+      request: {
+        ...acp.request,
+        options: [
+          acp.request.options[0],
+          {
+            optionId: "reject",
+            name: "No, and tell the agent what to do differently",
+            kind: "reject_once",
+            _meta: { customInput: true },
+          },
+        ],
+      },
+    };
+    expect(wantsText(feedback, 0)).toBe(false);
+    expect(wantsText(feedback, 1)).toBe(true);
+    expect(feedbackSheet(feedback, 1).items).toEqual([]);
+    expect(promptReply(feedback, 1, {}, "use pnpm")).toEqual({
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "tc1",
+      optionId: "reject",
+      customInput: "use pnpm",
     });
   });
 
