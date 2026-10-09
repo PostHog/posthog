@@ -23,6 +23,30 @@ else
     timestamp() { echo "$(date +%s).000000000"; }
 fi
 
+# Report the runner result without loading Django.
+FAILED_PHASE=unknown
+CLICKHOUSE_STATUS=
+CLICKHOUSE_PID=
+publish_outcome() {
+    if [ -n "${MIGRATION_JOB_NAME:-}" ] && [ -n "${MIGRATION_NAMESPACE:-}" ]; then
+        python3 "$SCRIPT_DIR/report-migration-outcome" "$1" || true
+    fi
+}
+report_outcome() {
+    local status=$?
+    if [ "$status" -eq 0 ]; then
+        FAILED_PHASE=none
+    fi
+    echo "[migrate] outcome: phase=$FAILED_PHASE status=$status"
+    publish_outcome "$FAILED_PHASE"
+    if [ -n "$CLICKHOUSE_STATUS" ]; then
+        rm -f "$CLICKHOUSE_STATUS"
+    fi
+}
+trap report_outcome EXIT
+# Clear the prior pod's result before a retry can stop without running the exit handler.
+publish_outcome unknown
+
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
     if run_scope "cyclotron"; then
@@ -57,32 +81,27 @@ if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
 # Run ClickHouse in background only when both CH and Postgres run (original parallel behavior)
 if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
-    trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT
     CLICKHOUSE_STATUS=$(mktemp)
-    echo "0" > $CLICKHOUSE_STATUS
+    echo "0" > "$CLICKHOUSE_STATUS"
     
     (
-        python manage.py migrate_clickhouse
-        CH_MIGRATE_STATUS=$?
-        if [ $CH_MIGRATE_STATUS -ne 0 ]; then
+        if ! python manage.py migrate_clickhouse; then
             echo "Error in migrate_clickhouse, setting error status."
-            echo "1" > $CLICKHOUSE_STATUS
-            exit $CH_MIGRATE_STATUS
+            echo "1" > "$CLICKHOUSE_STATUS"
+            exit 1
         fi
-        
-        python manage.py sync_replicated_schema
-        SYNC_STATUS=$?
-        if [ $SYNC_STATUS -ne 0 ]; then
+
+        if ! python manage.py sync_replicated_schema; then
             echo "Error in sync_replicated_schema, setting error status."
-            echo "1" > $CLICKHOUSE_STATUS
-            exit $SYNC_STATUS
+            echo "1" > "$CLICKHOUSE_STATUS"
+            exit 1
         fi
     ) &
     CLICKHOUSE_PID=$!
     elif [ "$RUN_CLICKHOUSE" = "1" ]; then
     # ClickHouse only - run directly
-    python manage.py migrate_clickhouse || { echo "Error in migrate_clickhouse, exiting."; exit 1; }
-    python manage.py sync_replicated_schema || { echo "Error in sync_replicated_schema, exiting."; exit 1; }
+    python manage.py migrate_clickhouse || { FAILED_PHASE=clickhouse; echo "Error in migrate_clickhouse, exiting."; exit 1; }
+    python manage.py sync_replicated_schema || { FAILED_PHASE=clickhouse; echo "Error in sync_replicated_schema, exiting."; exit 1; }
 fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
@@ -118,11 +137,17 @@ if [ "$RUN_POSTGRES" = "1" ]; then
 
         # Product databases (products/db_routing.yaml) lose lock races the same way, so they
         # share the retry. A retry re-runs the main migrate too, which is a no-op by then.
-        if $MIGRATE_CMD && python manage.py migrate_product_databases; then
-            MIGRATE_SUCCESS=true
-            break
+        if $MIGRATE_CMD; then
+            if python manage.py migrate_product_databases; then
+                MIGRATE_SUCCESS=true
+                break
+            else
+                MIGRATE_STATUS=$?
+                FAILED_PHASE=productdb
+            fi
         else
             MIGRATE_STATUS=$?
+            FAILED_PHASE=postgres
         fi
         
         echo "[migrate] Django migration failed"
@@ -149,12 +174,13 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     
     # Report migration metrics to pushgateway (if configured)
     if [ "$MIGRATE_SUCCESS" = "true" ]; then
+        FAILED_PHASE=unknown
         python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION --success || true
     else
+        publish_outcome "$FAILED_PHASE"
         python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION || true
-        echo "Error in postgres migrations, killing background process and exiting."
-        [ -n "$CLICKHOUSE_PID" ] && kill $CLICKHOUSE_PID 2>/dev/null || true
-        [ -n "$CLICKHOUSE_STATUS" ] && rm -f $CLICKHOUSE_STATUS
+        echo "Error in $FAILED_PHASE migrations, killing background process and exiting."
+        [ -n "$CLICKHOUSE_PID" ] && kill "$CLICKHOUSE_PID" 2>/dev/null || true
         exit 1
     fi
 
@@ -208,13 +234,14 @@ fi
 
 # Wait for background ClickHouse migrations if running in parallel mode
 if [ -n "$CLICKHOUSE_PID" ]; then
-    wait $CLICKHOUSE_PID
-    CLICKHOUSE_WAIT_STATUS=$?
+    CLICKHOUSE_WAIT_STATUS=0
+    wait "$CLICKHOUSE_PID" || CLICKHOUSE_WAIT_STATUS=$?
+    CH_STATUS=$(cat "$CLICKHOUSE_STATUS")
+    if [ "$CH_STATUS" != "0" ] || [ "$CLICKHOUSE_WAIT_STATUS" -ne 0 ]; then
+        FAILED_PHASE=clickhouse
+    fi
 
-    CH_STATUS=$(cat $CLICKHOUSE_STATUS)
-    rm -f $CLICKHOUSE_STATUS
-
-    if [ "$CH_STATUS" != "0" ] || [ $CLICKHOUSE_WAIT_STATUS -ne 0 ]; then
+    if [ "$FAILED_PHASE" = "clickhouse" ]; then
         echo "Error in ClickHouse migrations, exiting."
         exit 1
     fi
