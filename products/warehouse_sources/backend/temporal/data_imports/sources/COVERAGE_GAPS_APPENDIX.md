@@ -5159,8 +5159,8 @@ Today (9): `accounts`, `contacts`, `emails`, `lists`, `meetings`, `members`, `no
 
 Diffed against: <https://docs.lightfield.app/api/resources/object/methods/list/>
 
-- [ ] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
-- [ ] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
+- [x] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
+- [x] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
 
 Note: Lightfield's full resource list is account, contact, email, file, list, meeting, member, note, object, opportunity, task (plus auth/merge helpers), so PostHog already covers 9 of 11. Custom objects are addressed dynamically by entitySlug (GET /v1/objects/{entitySlug}), so implementing them requires discovering the slugs at sync time rather than a static table list. File endpoints were excluded as uploads/plumbing.
 
