@@ -53,6 +53,9 @@ export interface aiFirstHandoffLogicActions {
     clearActiveCreation: () => {
         value: true
     } // runnerPanelLogic
+    goBack: () => {
+        value: true
+    } // runnerPanelLogic
     setActiveCreation: (creation: ActiveCreation) => {
         creation: ActiveCreation
     } // runnerPanelLogic
@@ -122,7 +125,7 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
         ],
         actions: [
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
-            ['setActiveCreation', 'clearActiveCreation', 'setHistoryExpanded'],
+            ['setActiveCreation', 'clearActiveCreation', 'goBack', 'setHistoryExpanded'],
             sidePanelStateLogic,
             ['openSidePanel', 'closeSidePanel'],
             toolStreamEventsLogic,
@@ -152,6 +155,9 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
         },
         escapeHatchClicked: () => {
             posthog.capture(`${props.eventPrefix} escape hatch clicked`, cache.eventProperties)
+        },
+        goBack: () => {
+            cache.eventProperties = {}
         },
         // A suggestion only fills the composer (no auto-submit) so the prompt can be tweaked before the agent starts.
         fillComposer: ({ prompt }) => {

@@ -153,6 +153,48 @@ describe('aiFirstHandoffLogic', () => {
         capture.mockRestore()
     })
 
+    it.each(['goBack', 'clearActiveCreation'] as const)(
+        'clears attribution on deliberate Back and preserves a failed submission retry with %s',
+        async (transition) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const eventProperties = {
+                source: 'ai_turn_suggestion',
+                task_id: 'original-chat-task',
+                turn_index: 2,
+                team_id: '997',
+            }
+            logic.unmount()
+            logic = aiFirstHandoffLogic({
+                ...handoff(),
+                getInitialSeed: () => ({ prompt: 'Draft an onboarding reminder workflow.', eventProperties }),
+            })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+            const panel = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+            await expectLogic(logic, () =>
+                panel.actions.setActiveCreation({ streamKey: 'draft-1' })
+            ).toFinishAllListeners()
+            capture.mockClear()
+
+            await expectLogic(logic, () => panel.actions[transition]()).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                panel.actions.setActiveCreation({ streamKey: 'draft-2' })
+                toolStreamEventsLogic.actions.emitToolEvent(createEvent({ streamKey: 'draft-2' }))
+            }).toFinishAllListeners()
+
+            const expectedProperties = transition === 'goBack' ? {} : eventProperties
+            expect(
+                capture.mock.calls.filter(
+                    ([event]) => typeof event === 'string' && event.startsWith('thing ai composer')
+                )
+            ).toEqual([
+                ['thing ai composer submitted', expectedProperties],
+                ['thing ai composer created thing', { ...expectedProperties, thing_id: CREATED_ID }],
+            ])
+            capture.mockRestore()
+        }
+    )
+
     // The composer is the panel's own instance, so an unsent panel prompt would show here. An empty seed clears it.
     it('empties the shared composer when the composer is shown', async () => {
         const seeds = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID })
