@@ -5,8 +5,10 @@ that reads every person in the team. This transform replaces those filters with
 
     <person key> NOT IN (SELECT id FROM persons WHERE NOT (<the filters, on persons.properties>))
 
-The persons lazy table turns that subquery into an argMax over only the persons that have a row which fails a filter
-(see `select_from_persons_table`), so the cost follows the number of excluded persons, not the size of the team.
+The persons lazy table runs that subquery in two steps (see `select_from_persons_table`). It first scans a materialized
+column of every person row to find the persons that have a row which fails a filter. It then runs the argMax over only
+those persons. The argMax and the exclusion set follow the number of excluded persons. The scan still grows with the
+team.
 
 Both forms give each row the same verdict. Both judge a person in the persons table by its latest version. A row whose
 person is not in the persons table (no person, a deleted person, a person created in the future) gets NULL properties
@@ -20,9 +22,10 @@ the event once or not at all.
 
 import dataclasses
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, TypeGuard, TypeVar, cast
+from typing import TYPE_CHECKING, TypeGuard, cast
 
 from posthog.hogql import ast
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import PERSONS
 from posthog.hogql.database.schema.events import EventsTable
@@ -38,7 +41,6 @@ if TYPE_CHECKING:
     from posthog.clickhouse.materialized_column_types import MaterializedColumn
     from posthog.property_columns import PropertyName, TableColumn
 
-_T_AST = TypeVar("_T_AST", bound=ast.AST)
 _MaterializedColumns = Mapping[tuple["PropertyName", "TableColumn"], "MaterializedColumn"]
 
 # With a non-NULL constant on one side, the printer makes each of these true when the property is NULL.
@@ -212,8 +214,9 @@ def _persons_join(expr: ast.Expr) -> ast.LazyJoinType | None:
 
 
 def _is_literal(expr: ast.Expr) -> bool:
-    # WhereClauseExtractor.visit_not reads any bool constant as its marker for a filter that it cannot lift. It then
-    # gives up on the candidate prefilter, and the persons subquery reads every person.
+    # WhereClauseExtractor.visit_not reads any bool constant as its marker for a filter that it cannot lift. Then
+    # get_inner_where returns None. select_from_persons_table then skips its where_optimization subquery, so the persons
+    # subquery reads every person in the team.
     if isinstance(expr, ast.Constant):
         return expr.value is not None and not isinstance(expr.value, bool)
     if isinstance(expr, ast.Tuple | ast.Array):

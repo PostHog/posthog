@@ -119,8 +119,8 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
-    # The negated person filter rewrite (transforms/negated_person_filters.py) emits a direct persons query inside NOT IN
-    # and relies on this path to read only the persons that fail its filters.
+    # The SELECT id FROM persons that transforms/negated_person_filters.py emits inside NOT IN has persons as its own
+    # FROM, so it takes this path and reads only the persons that fail its filters.
     if (
         node.select_from
         and node.select_from.type

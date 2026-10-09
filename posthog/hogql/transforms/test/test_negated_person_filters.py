@@ -41,13 +41,14 @@ INTERNAL_OR_EXAMPLE_PERSONS = INTERNAL_PERSONS | {"external", "changed_to_extern
 
 PERSONS_JOIN = re.compile(r"AS \w+__person ON")
 
-MATERIALIZED_EMAIL = {
+MATERIALIZED_PERSON_COLUMNS = {
     "person": {
-        ("email", "properties"): MaterializedColumn(
-            name="pmat_email",
-            details=MaterializedColumnDetails(table_column="properties", property_name="email", is_disabled=False),
+        (name, "properties"): MaterializedColumn(
+            name=f"pmat_{name}",
+            details=MaterializedColumnDetails(table_column="properties", property_name=name, is_disabled=False),
             is_nullable=False,
         )
+        for name in ("email", "is_staff")
     }
 }
 
@@ -125,6 +126,11 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
                 "not_icontains_multi", [{**INTERNAL, "value": ["@internal.example", "@corp.example"]}], INTERNAL_PERSONS
             ),
             param(
+                "not_icontains_past_needle_limit",
+                [{**INTERNAL, "value": ["@internal.example", *(f"@unused-{i}.example" for i in range(255))]}],
+                INTERNAL_PERSONS,
+            ),
+            param(
                 "is_not",
                 [{**INTERNAL, "operator": "is_not", "value": "alice@internal.example"}],
                 {"internal", "merged"},
@@ -169,6 +175,7 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
         assert rewritten == joined
         assert PERSONS_JOIN.search(joined_sql)
         assert not PERSONS_JOIN.search(rewritten_sql)
+        assert "where_optimization" in rewritten_sql
 
 
 class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
@@ -177,7 +184,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         self.enterContext(
             patch(
                 "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table",
-                return_value=MATERIALIZED_EMAIL,
+                return_value=MATERIALIZED_PERSON_COLUMNS,
             )
         )
         PropertyDefinition.objects.create(
