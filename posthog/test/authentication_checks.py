@@ -84,7 +84,7 @@ def _attempt(authentication_class: type, request: Any) -> tuple[Any, Exception |
 
 
 def _replay(authentication_class: type, request: Any, user: Any) -> None:
-    if not isinstance(user, User) or isinstance(user, NonCallableMock) or user.pk is None:
+    if not isinstance(user, User):
         return
     name = authentication_class.__qualname__
     if not user.is_active:
@@ -93,6 +93,11 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
     if authentication_class in _replayed_classes or not issubclass(authentication_class, _covered_classes):
         return
     _replayed_classes.add(authentication_class)
+    if isinstance(user, NonCallableMock) or user.pk is None:
+        _problems.append(
+            f"{name} authenticated a mock or unsaved user in its covering test, so its refusal was not checked."
+        )
+        return
 
     with transaction.atomic():
         try:
