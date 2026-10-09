@@ -10,6 +10,7 @@
 // deep `../scenes/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
 export { EmbeddedRunner, type TaskTrackerProps } from '../components/EmbeddedRunner'
+export { WorkflowSuggestionAvailabilityContext } from '../components/WorkflowSuggestionAvailabilityContext'
 
 // `SidePanelRunner` (`<SidePanelRunner panelId />`) is the lazy, code-split compact task-run surface
 // (composer -> pending thread -> live run, no detail chrome) for narrow hosts that render a single

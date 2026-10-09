@@ -17,6 +17,8 @@ import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/Pr
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { WorkflowSuggestionProvider } from 'products/workflows/frontend/Workflows/WorkflowSuggestionProvider'
+
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitlePanelButton'
@@ -120,38 +122,40 @@ export function Navigation({
     if (mode !== 'full') {
         const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
         return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <div
-                className="Navigation3000 flex-col"
-                style={
-                    {
-                        ...theme?.mainStyle,
-                        // The MinimalNavigation bar sits above the scene, so push the
-                        // settings scene's viewport-fixed nav down to clear it.
-                        ...(showMinimalNavigation && {
-                            '--settings-nav-top': 'calc(var(--minimal-navigation-height) + var(--scene-padding))',
-                        }),
-                    } as React.CSSProperties
-                }
-            >
-                {showMinimalNavigation && <MinimalNavigation />}
-                <main
-                    className={
-                        mode === 'zen'
-                            ? 'p-4'
-                            : mode === 'embedded'
-                              ? '@container/main-content min-h-screen p-4'
-                              : undefined
+            <WorkflowSuggestionProvider>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div
+                    className="Navigation3000 flex-col"
+                    style={
+                        {
+                            ...theme?.mainStyle,
+                            // The MinimalNavigation bar sits above the scene, so push the
+                            // settings scene's viewport-fixed nav down to clear it.
+                            ...(showMinimalNavigation && {
+                                '--settings-nav-top': 'calc(var(--minimal-navigation-height) + var(--scene-padding))',
+                            }),
+                        } as React.CSSProperties
                     }
                 >
-                    {children}
-                </main>
-            </div>
+                    {showMinimalNavigation && <MinimalNavigation />}
+                    <main
+                        className={
+                            mode === 'zen'
+                                ? 'p-4'
+                                : mode === 'embedded'
+                                  ? '@container/main-content min-h-screen p-4'
+                                  : undefined
+                        }
+                    >
+                        {children}
+                    </main>
+                </div>
+            </WorkflowSuggestionProvider>
         )
     }
 
     return (
-        <>
+        <WorkflowSuggestionProvider>
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href="#main-content"
@@ -304,6 +308,6 @@ export function Navigation({
                     </div>
                 </ProjectDragAndDropProvider>
             </div>
-        </>
+        </WorkflowSuggestionProvider>
     )
 }

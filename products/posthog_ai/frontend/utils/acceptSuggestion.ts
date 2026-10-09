@@ -1,4 +1,4 @@
-import { storeWorkflowDraftBrief } from 'lib/utils/workflowDraftHandoff'
+import { WorkflowDraftEventProperties, storeWorkflowDraftBrief } from 'lib/utils/workflowDraftHandoff'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +36,7 @@ export interface AcceptOutcome {
 
 export interface AcceptInput {
     suggestion: TurnSuggestion
+    sessionId: string
     projectId: number
     userId: number | undefined
     slackIntegrationId: number | null
@@ -70,10 +71,16 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
     const projectId = String(input.projectId)
     switch (suggestion.kind) {
         case 'workflow': {
-            storeWorkflowDraftBrief(input.projectId, input.workflowPrompt)
+            const eventProperties: WorkflowDraftEventProperties = {
+                source: 'ai_turn_suggestion',
+                task_id: input.sessionId,
+                turn_index: suggestion.turnIndex,
+                team_id: projectId,
+            }
+            storeWorkflowDraftBrief(input.projectId, input.workflowPrompt, eventProperties)
             return {
                 accepted: { url: `${urls.workflowNew()}?mode=ai`, slackConnected: true },
-                eventProperties: {},
+                eventProperties,
             }
         }
         case 'scout': {

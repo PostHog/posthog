@@ -9,6 +9,7 @@ import { runStreamLogic } from '../logics/runStreamLogic'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
+import { WorkflowSuggestionAvailabilityContext } from './WorkflowSuggestionAvailabilityContext'
 
 type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert' | 'workflow'
 
@@ -270,32 +271,34 @@ function TurnSuggestionStory({ kind, narrow }: StoryArgs): JSX.Element {
     }, [kind])
 
     return (
-        <div className={`${narrow ? 'w-130' : 'w-180'} max-w-full rounded border p-4`}>
-            <BindLogic logic={runStreamLogic} props={{ streamKey: STREAM_KEY }}>
-                <ThreadView
-                    virtualized={false}
-                    renderTurnTrailer={(trailer) => (
-                        <>
-                            {trailer.isLastTurn ? (
-                                <TurnSuggestionCard
-                                    streamKey={STREAM_KEY}
-                                    turnIndex={trailer.turnIndex}
+        <WorkflowSuggestionAvailabilityContext.Provider value={true}>
+            <div className={`${narrow ? 'w-130' : 'w-180'} max-w-full rounded border p-4`}>
+                <BindLogic logic={runStreamLogic} props={{ streamKey: STREAM_KEY }}>
+                    <ThreadView
+                        virtualized={false}
+                        renderTurnTrailer={(trailer) => (
+                            <>
+                                {trailer.isLastTurn ? (
+                                    <TurnSuggestionCard
+                                        streamKey={STREAM_KEY}
+                                        turnIndex={trailer.turnIndex}
+                                        sessionId={SESSION_ID}
+                                        revealDelayMs={0}
+                                    />
+                                ) : null}
+                                <TurnFeedbackActions
                                     sessionId={SESSION_ID}
-                                    revealDelayMs={0}
+                                    turnIndex={trailer.turnIndex}
+                                    run={{ taskId: SESSION_ID }}
+                                    traceId={trailer.traceId}
+                                    turnText={trailer.turnText}
                                 />
-                            ) : null}
-                            <TurnFeedbackActions
-                                sessionId={SESSION_ID}
-                                turnIndex={trailer.turnIndex}
-                                run={{ taskId: SESSION_ID }}
-                                traceId={trailer.traceId}
-                                turnText={trailer.turnText}
-                            />
-                        </>
-                    )}
-                />
-            </BindLogic>
-        </div>
+                            </>
+                        )}
+                    />
+                </BindLogic>
+            </div>
+        </WorkflowSuggestionAvailabilityContext.Provider>
     )
 }
 

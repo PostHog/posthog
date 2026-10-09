@@ -35,7 +35,7 @@ export const NEW_WORKFLOW_HANDOFF: AiFirstHandoffLogicProps = {
     eventPrefix: 'workflow ai composer',
     createdEvent: 'workflow ai composer created workflow',
     createdIdProperty: 'workflow_id',
-    getInitialPrompt: () => {
+    getInitialSeed: () => {
         const projectId = projectLogic.findMounted()?.values.currentProjectId
         return projectId === null || projectId === undefined ? null : consumeWorkflowDraftBrief(projectId)
     },

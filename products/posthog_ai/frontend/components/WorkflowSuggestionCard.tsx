@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
@@ -11,6 +12,7 @@ export function WorkflowSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
     const logic = suggestionActionLogic(props)
     const { suggestion, workflowPrompt, accepted } = useValues(logic)
     const { setWorkflowPrompt } = useActions(logic)
+    const briefId = useId()
 
     if (suggestion?.kind !== 'workflow') {
         return null
@@ -26,8 +28,9 @@ export function WorkflowSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
     return (
         <>
             <div className="flex flex-col gap-1">
-                <LemonLabel>Workflow brief</LemonLabel>
+                <LemonLabel htmlFor={briefId}>Workflow brief</LemonLabel>
                 <LemonTextArea
+                    id={briefId}
                     value={workflowPrompt}
                     onChange={setWorkflowPrompt}
                     maxLength={4000}
