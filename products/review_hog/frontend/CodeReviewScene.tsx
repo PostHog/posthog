@@ -33,7 +33,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -55,7 +54,7 @@ import type {
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
-    ReviewUserSettingsUrgencyThresholdEnumApi,
+    UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
@@ -133,7 +132,7 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
     },
 ]
 
-const URGENCY_STOPS: { key: ReviewUserSettingsUrgencyThresholdEnumApi; label: string; description: string }[] = [
+const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description: string }[] = [
     {
         key: 'consider',
         label: 'All issues',
@@ -684,16 +683,12 @@ function RecentReviewsSection(): JSX.Element | null {
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
  * start a publishing review, acting as the requesting user. A review resolves the PR's comment
  * threads afterwards when the user's resolve_comments setting is on; the split button's side
- * actions are the per-run variants (review without resolving / resolve only / flash). Hidden unless the
- * backend says this project can trigger reviews.
+ * actions are the per-run variants (review without resolving / resolve only / flash).
  */
-function TriggerReviewSection(): JSX.Element | null {
+function TriggerReviewSection(): JSX.Element {
     const { settings, triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
 
-    if (!settings?.can_trigger_reviews) {
-        return null
-    }
     const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
     // Mirrors the server-side busy-guard for PRs visible in the list; pasted URLs outside it still
     // get the same refusal from the trigger endpoint.
@@ -748,7 +743,7 @@ function TriggerReviewSection(): JSX.Element | null {
                                     >
                                         Only resolve existing comments
                                     </LemonButton>
-                                    {settings.show_internal_features && (
+                                    {settings?.show_internal_features && (
                                         <LemonButton
                                             fullWidth
                                             onClick={() =>
@@ -1210,37 +1205,6 @@ function TriggersSection(): JSX.Element {
                         />
                     </div>
                 )}
-                {settings?.show_internal_features && (
-                    <div className="flex items-center gap-4 p-4">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                            <IconGithub className="size-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold">
-                                Review all your PRs with the{' '}
-                                <CopyToClipboardInline
-                                    explicitValue="reviewhog"
-                                    description="label"
-                                    iconSize="xsmall"
-                                    className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
-                                >
-                                    reviewhog
-                                </CopyToClipboardInline>{' '}
-                                label
-                            </div>
-                            <div className="text-xs text-secondary">
-                                Add the reviewhog label to a pull request you author in a connected repository and
-                                PostHog Review reviews it.
-                            </div>
-                        </div>
-                        <LemonSwitch
-                            aria-label="Review all your PRs with the reviewhog label"
-                            checked={settings?.review_labeled_prs ?? true}
-                            onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
-                            disabledReason={switchDisabledReason}
-                        />
-                    </div>
-                )}
                 <div className="flex items-center gap-4 p-4">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
                         <IconChat className="size-5" />
@@ -1254,7 +1218,7 @@ function TriggersSection(): JSX.Element {
                     </div>
                     <LemonSwitch
                         aria-label="Resolve comments on your PRs"
-                        checked={settings?.resolve_comments ?? true}
+                        checked={settings?.resolve_comments ?? false}
                         onChange={(checked) => updateSettings({ resolve_comments: checked })}
                         disabledReason={switchDisabledReason}
                     />
@@ -1293,14 +1257,16 @@ function TriggersSection(): JSX.Element {
                             <div className="min-w-0 flex-1">
                                 <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
                                 <div className="text-xs text-secondary">
-                                    Automatically review PRs you author in PostHog/posthog, including drafts and new
-                                    commits. Starts with future PR activity.
+                                    Automatically review PRs you author in the repositories this project reviews,
+                                    including drafts and new commits. Starts with future PR activity.
                                 </div>
                             </div>
                             <LemonSwitch
                                 aria-label="Review all your PRs in Flash mode"
-                                checked={settings?.review_authored_prs ?? false}
-                                onChange={(checked) => updateSettings({ review_authored_prs: checked })}
+                                checked={settings?.default_review_mode === 'flash'}
+                                onChange={(checked) =>
+                                    updateSettings({ default_review_mode: checked ? 'flash' : 'follow' })
+                                }
                                 disabledReason={switchDisabledReason}
                                 loading={settingsLoading}
                             />

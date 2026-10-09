@@ -18,15 +18,21 @@ import { expect } from 'storybook/test'
 import { CodeReviewScene } from './CodeReviewScene'
 
 const defaultSettings: ReviewUserSettingsApi = {
+    default_review_mode: 'follow',
+    resolve_comments: false,
+    urgency_threshold: 'consider',
+    celebrate_clean_reviews: true,
     review_inbox_prs: false,
     stamphog_review_inbox_prs: false,
-    review_labeled_prs: true,
-    resolve_comments: true,
-    celebrate_clean_reviews: true,
-    review_authored_prs: false,
-    flash_reasoning_effort: 'medium',
-    urgency_threshold: 'consider',
-    can_trigger_reviews: true,
+    sources: {
+        default_review_mode: 'default',
+        resolve_comments: 'default',
+        urgency_threshold: 'default',
+        celebrate_clean_reviews: 'default',
+        review_inbox_prs: 'default',
+        stamphog_review_inbox_prs: 'default',
+    },
+    project_defaults: { urgency_threshold: 'consider', celebrate_clean_reviews: true },
     show_internal_features: false,
     stamphog_connected: false,
 }
