@@ -466,6 +466,10 @@ class ExperimentMetricResult(models.Model):
     query_id = models.CharField(max_length=255, null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
+    # The calculation config the row was computed from, as `StoredSpec` holds it: the JSON form and its version.
+    # Rows written before specs were stored have neither.
+    spec = models.JSONField(null=True, blank=True)
+    spec_version = models.SmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -473,6 +477,9 @@ class ExperimentMetricResult(models.Model):
         unique_together = ["experiment", "metric_uuid", "query_to"]
         indexes = [
             models.Index(fields=["experiment", "metric_uuid", "query_to"]),
+            models.Index(
+                fields=["experiment", "metric_uuid", "fingerprint", "query_to"], name="exp_metric_result_key_idx"
+            ),
         ]
         db_table = "posthog_experimentmetricresult"
 

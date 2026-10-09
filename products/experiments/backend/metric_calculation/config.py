@@ -11,11 +11,14 @@ filters read. The same config can therefore give a different result later.
 
 Key version 1 hashes only part of a config: the metric, the start date, the stats method, the exposure
 criteria as stored, maturity and the excluded variants. The other fields do not change it.
+
+`StoredSpec` is the JSON form of a calculation config that result rows keep in their `spec` column, and it
+decodes back to an equal config.
 """
 
 import json
 import hashlib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from copy import deepcopy
 from dataclasses import field
 from datetime import datetime
@@ -23,6 +26,8 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pydantic
+
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
@@ -50,12 +55,17 @@ from products.experiments.backend.metric_resolution import (
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.stats.shared.enums import DifferenceType
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+# The version of the calculation config fields and of the JSON form that `StoredSpec.of` writes. Result rows
+# keep the configs they were computed from, so `StoredSpec.decode` keeps a reader for every version that stored
+# rows can hold. A new field or a change to the JSON form needs a new version and a new reader, and the old
+# reader stays.
 SPEC_VERSION = 1
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
@@ -284,6 +294,148 @@ class MetricCalculationConfig:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+class UnknownSpecVersionError(ValueError):
+    pass
+
+
+def _encode_exposure(exposure: ExposureQueryParams | None) -> dict[str, Any] | None:
+    if exposure is None:
+        return None
+    activation_config = exposure.activation_config
+    return {
+        "exposure_config": exposure.exposure_config.model_dump(mode="json"),
+        "activation_config": activation_config.model_dump(mode="json") if activation_config is not None else None,
+        "multiple_variant_handling": exposure.multiple_variant_handling.value,
+        "filter_test_accounts": exposure.filter_test_accounts,
+    }
+
+
+def _decode_exposure_node(payload: dict[str, Any]) -> ExperimentEventExposureConfig | ActionsNode:
+    if payload["kind"] == "ActionsNode":
+        return ActionsNode.model_validate(payload)
+    return ExperimentEventExposureConfig.model_validate(payload)
+
+
+def _decode_exposure(payload: dict[str, Any] | None) -> ExposureQueryParams | None:
+    if payload is None:
+        return None
+    activation_config = payload["activation_config"]
+    return ExposureQueryParams(
+        exposure_config=_decode_exposure_node(payload["exposure_config"]),
+        activation_config=_decode_exposure_node(activation_config) if activation_config is not None else None,
+        multiple_variant_handling=MultipleVariantHandling(payload["multiple_variant_handling"]),
+        filter_test_accounts=payload["filter_test_accounts"],
+    )
+
+
+def _encode_stats(stats: BayesianSettings | FrequentistSettings) -> dict[str, Any]:
+    if isinstance(stats, FrequentistSettings):
+        return {
+            "method": "frequentist",
+            "alpha": stats.alpha,
+            "difference_type": stats.difference_type.value,
+            "sequential_testing_enabled": stats.sequential_testing_enabled,
+            "sequential_tuning_parameter": stats.sequential_tuning_parameter,
+        }
+    return {"method": "bayesian", "ci_level": stats.ci_level, "difference_type": stats.difference_type.value}
+
+
+def _decode_stats(payload: dict[str, Any]) -> BayesianSettings | FrequentistSettings:
+    difference_type = DifferenceType(payload["difference_type"])
+    if payload["method"] == "frequentist":
+        return FrequentistSettings(
+            alpha=payload["alpha"],
+            difference_type=difference_type,
+            sequential_testing_enabled=payload["sequential_testing_enabled"],
+            sequential_tuning_parameter=payload["sequential_tuning_parameter"],
+        )
+    return BayesianSettings(ci_level=payload["ci_level"], difference_type=difference_type)
+
+
+def _encode(spec: MetricCalculationConfig) -> dict[str, Any]:
+    # The form holds `definition` but not `metric`, because the reader derives `metric` from `definition`.
+    settings = spec.settings
+    return {
+        "metric_id": spec.metric_id,
+        "role": spec.role,
+        "definition": deepcopy(spec.definition),
+        "settings": {
+            "team_id": settings.team_id,
+            "start_date": settings.start_date.isoformat() if settings.start_date is not None else None,
+            "feature_flag_key": settings.feature_flag_key,
+            "aggregation_group_type_index": settings.aggregation_group_type_index,
+            "variants": list(settings.variants),
+            "baseline": settings.baseline,
+            "excluded_variants": list(settings.excluded_variants),
+            "exposure": _encode_exposure(settings.exposure),
+            "test_account_filters": deepcopy(list(settings.test_account_filters)),
+            "stats": _encode_stats(settings.stats),
+            "cuped": {"enabled": settings.cuped.enabled, "lookback_days": settings.cuped.lookback_days},
+            "only_count_matured_users": settings.only_count_matured_users,
+            "timezone": settings.timezone,
+            "stored_exposure_criteria": deepcopy(settings.stored_exposure_criteria),
+        },
+    }
+
+
+def _decode_v1(payload: dict[str, Any]) -> MetricCalculationConfig:
+    settings = payload["settings"]
+    start_date = settings["start_date"]
+    definition = payload["definition"]
+    return MetricCalculationConfig(
+        spec_version=1,
+        metric_id=payload["metric_id"],
+        role=payload["role"],
+        # The derivation `build_metric_config` applies. Key version 1 hashes its output, so it cannot change while
+        # version 1 keys exist.
+        metric=_analytical_definition(definition),
+        definition=deepcopy(definition),
+        settings=ExperimentCalculationSettings(
+            team_id=settings["team_id"],
+            start_date=datetime.fromisoformat(start_date) if start_date is not None else None,
+            feature_flag_key=settings["feature_flag_key"],
+            aggregation_group_type_index=settings["aggregation_group_type_index"],
+            variants=tuple(settings["variants"]),
+            baseline=settings["baseline"],
+            excluded_variants=tuple(settings["excluded_variants"]),
+            exposure=_decode_exposure(settings["exposure"]),
+            test_account_filters=tuple(deepcopy(settings["test_account_filters"])),
+            stats=_decode_stats(settings["stats"]),
+            cuped=CupedQueryConfig(
+                enabled=settings["cuped"]["enabled"], lookback_days=settings["cuped"]["lookback_days"]
+            ),
+            only_count_matured_users=settings["only_count_matured_users"],
+            timezone=settings["timezone"],
+            stored_exposure_criteria=deepcopy(settings["stored_exposure_criteria"]),
+        ),
+    )
+
+
+_DECODERS: dict[int, Callable[[dict[str, Any]], MetricCalculationConfig]] = {1: _decode_v1}
+
+
+@frozen
+class StoredSpec:
+    """A calculation config in the form that storage keeps: its JSON form and the version whose reader decodes it."""
+
+    spec_version: int
+    payload: dict[str, Any]
+
+    @classmethod
+    def of(cls, spec: MetricCalculationConfig) -> "StoredSpec":
+        if spec.spec_version != SPEC_VERSION:
+            raise UnknownSpecVersionError(f"Cannot store spec version {spec.spec_version}, only {SPEC_VERSION}")
+        return cls(spec_version=spec.spec_version, payload=_encode(spec))
+
+    def decode(self) -> MetricCalculationConfig:
+        """Raises UnknownSpecVersionError for a version that this code has no reader for, such as a version that
+        newer code wrote before a rollback."""
+        decoder = _DECODERS.get(self.spec_version)
+        if decoder is None:
+            raise UnknownSpecVersionError(f"No reader for spec version {self.spec_version}")
+        return decoder(self.payload)
+
+
 def build_calculation_configs(experiment: Experiment) -> list[MetricCalculationConfig]:
     """One calculation config per metric that `get_metrics_for_calculation` returns, in that order."""
     metrics = get_metrics_for_calculation(experiment)
@@ -307,6 +459,27 @@ def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> M
         ),
         None,
     )
+
+
+def find_calculation_config_by_key(
+    experiment: Experiment, metric_uuid: str, calculation_key: str
+) -> MetricCalculationConfig | None:
+    """The calculation config of the experiment's metric with this uuid whose calculation key is `calculation_key`,
+    under the current configuration of the experiment.
+
+    Unlike `get_metric_calculation_config`, this keys an inline and a saved metric that share a uuid each by its own definition, the
+    same way `metric_calculation_keys` does. None when no metric with this uuid has this key, for example because
+    the configuration changed after the caller computed the key.
+    """
+    candidates = [metric for metric in get_effective_experiment_metrics(experiment) if metric.uuid == metric_uuid]
+    if not candidates:
+        return None
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    for metric in candidates:
+        spec = settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+        if spec.calculation_key() == calculation_key:
+            return spec
+    return None
 
 
 def stamp_calculation_keys(
