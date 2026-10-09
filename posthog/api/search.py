@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from typing import Any, Literal, TypedDict, cast
 
-from django.db.models import BigIntegerField, CharField, F, Model, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, QuerySet, Subquery, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
 
@@ -20,7 +20,10 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.models import Endpoint
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -35,7 +38,9 @@ class EntityConfig(TypedDict, total=False):
     klass: type[Model]
     search_fields: dict[str, Literal["A", "B", "C"]]
     extra_fields: list[str]
+    annotations: dict[str, Any]
     filters: dict[str, Any]
+    excludes: dict[str, Any]
 
 
 FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
@@ -56,6 +61,29 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+    },
+    "data_warehouse_saved_query": {
+        "klass": DataWarehouseSavedQuery,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name", "node_id"],
+        "annotations": {
+            "node_id": Subquery(Node.objects.filter(saved_query_id=OuterRef("pk")).order_by("id").values("id")[:1])
+        },
+        "filters": {
+            "deleted": False,
+            "is_test": False,
+            "managed_viewset__isnull": True,
+            "node_id__isnull": False,
+        },
+        "excludes": {
+            "origin__in": [DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET]
+        },
+    },
+    "endpoint": {
+        "klass": Endpoint,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+        "filters": {"deleted": False},
     },
     "experiment": {
         "klass": Experiment,
@@ -197,7 +225,9 @@ def search_entities(
             query=query,
             search_fields=entity_meta["search_fields"],
             extra_fields=entity_meta["extra_fields"],
+            annotations=entity_meta.get("annotations"),
             filters=entity_meta.get("filters"),
+            excludes=entity_meta.get("excludes"),
         )
         qs = qs.union(klass_qs)
         if include_counts:
@@ -288,7 +318,9 @@ def class_queryset(
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
+    annotations: dict[str, Any] | None = None,
     filters: dict[str, Any] | None = None,
+    excludes: dict[str, Any] | None = None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
@@ -296,6 +328,9 @@ def class_queryset(
 
     qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+
+    if annotations:
+        qs = qs.annotate(**annotations)
 
     # Uniform columns for access level resolution — every union member must produce them
     qs = qs.annotate(_pk=Cast("pk", CharField()))
@@ -311,6 +346,8 @@ def class_queryset(
     # Apply entity-specific filters
     if filters:
         qs = qs.filter(**filters)
+    if excludes:
+        qs = qs.exclude(**excludes)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)

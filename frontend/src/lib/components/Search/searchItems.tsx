@@ -119,6 +119,7 @@ export const fileSystemEntryToSearchItem = (
 export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'][number]): SearchItem => {
     let name = result.result_id
     let href = ''
+    let itemType: string = result.type
 
     switch (result.type) {
         case 'insight':
@@ -128,6 +129,16 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
         case 'dashboard':
             name = safeString(result.extra_fields.name) || result.result_id
             href = `/dashboard/${result.result_id}`
+            break
+        case 'data_warehouse_saved_query':
+            name = safeString(result.extra_fields.name) || result.result_id
+            href = urls.nodeDetail(safeString(result.extra_fields.node_id) || result.result_id)
+            itemType = 'data_modeling'
+            break
+        case 'endpoint':
+            name = safeString(result.extra_fields.name) || result.result_id
+            href = urls.endpoint(name)
+            itemType = 'endpoints'
             break
         case 'feature_flag':
             name = safeString(result.extra_fields.key) || result.result_id
@@ -176,7 +187,7 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
         name,
         category: result.type,
         href,
-        itemType: result.type,
+        itemType,
         rank: result.rank,
         disabledReason: getEntryAccessDisabledReason(result),
         record: {

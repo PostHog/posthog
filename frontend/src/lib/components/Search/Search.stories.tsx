@@ -151,6 +151,18 @@ const MOCK_SEARCH_RESULTS = {
             extra_fields: { name: 'User Overview Dashboard' },
         },
         {
+            result_id: '202',
+            type: 'data_warehouse_saved_query',
+            rank: 1,
+            extra_fields: { name: 'User activity model', node_id: 'node-202' },
+        },
+        {
+            result_id: '203',
+            type: 'endpoint',
+            rank: 1,
+            extra_fields: { name: 'user_activity' },
+        },
+        {
             result_id: '301',
             type: 'feature_flag',
             rank: 1,
@@ -160,6 +172,8 @@ const MOCK_SEARCH_RESULTS = {
     counts: {
         insight: 2,
         dashboard: 1,
+        data_warehouse_saved_query: 1,
+        endpoint: 1,
         feature_flag: 1,
     },
 }
@@ -308,7 +322,7 @@ export const Searching: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Searching for "user": recents and products are filtered client-side instantly, server results appear below without shifting existing items.',
+                story: 'Searching for "user": recent items filter immediately, then server results show views, endpoints, and other project resources.',
             },
         },
     },

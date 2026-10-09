@@ -985,6 +985,8 @@ export const searchLogic = kea<searchLogicType>([
                     const categoryOrder = [
                         'insight',
                         'dashboard',
+                        'data_warehouse_saved_query',
+                        'endpoint',
                         'feature_flag',
                         'experiment',
                         'early_access_feature',

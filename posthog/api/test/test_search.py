@@ -11,7 +11,11 @@ from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.models import Endpoint
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -100,6 +104,52 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["dashboard"], 1)
         self.assertEqual(response.json()["counts"]["insight"], 1)
         self.assertEqual(response.json()["counts"]["notebook"], 1)
+
+    def test_search_returns_views_and_endpoints_without_internal_views(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_view",
+            team=self.team,
+            created_by=self.user,
+            origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+            is_materialized=True,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+
+        for name, origin in (
+            ("searchable_endpoint_backing_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("searchable_managed_view", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ):
+            internal_view = DataWarehouseSavedQuery.objects.create(name=name, team=self.team, origin=origin)
+            Node.objects.create(team=self.team, dag=dag, saved_query=internal_view, type=NodeType.VIEW)
+
+        endpoint = Endpoint.objects.create(name="searchable_endpoint", team=self.team, created_by=self.user)
+
+        response = self.client.get(
+            "/api/projects/@current/search?q=searchable&entities=data_warehouse_saved_query&entities=endpoint"
+        )
+        sorted_results = sorted(response.json()["results"], key=lambda result: result["type"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted_results,
+            [
+                {
+                    "rank": sorted_results[0]["rank"],
+                    "type": "data_warehouse_saved_query",
+                    "result_id": str(view.id),
+                    "extra_fields": {"name": "searchable_view", "node_id": str(node.id)},
+                    "user_access_level": "manager",
+                },
+                {
+                    "rank": sorted_results[1]["rank"],
+                    "type": "endpoint",
+                    "result_id": str(endpoint.id),
+                    "extra_fields": {"name": "searchable_endpoint"},
+                    "user_access_level": "manager",
+                },
+            ],
+        )
 
     def test_response_format_and_ids(self):
         response = self.client.get(

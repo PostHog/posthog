@@ -183,6 +183,53 @@ describe('searchLogic', () => {
         expect(logic.values.allCategories.find((category) => category.key === 'tickets')?.items).toHaveLength(1)
     })
 
+    it('maps views and endpoints into separate categories and detail scenes', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/search/': {
+                    results: [
+                        {
+                            result_id: 'view-id',
+                            type: 'data_warehouse_saved_query',
+                            rank: 1,
+                            extra_fields: { name: 'orders_by_day', node_id: 'node-id' },
+                        },
+                        {
+                            result_id: 'endpoint-id',
+                            type: 'endpoint',
+                            rank: 1,
+                            extra_fields: { name: 'orders_api' },
+                        },
+                    ],
+                    counts: {},
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('orders')).toDispatchActions([
+            'loadUnifiedSearchResultsSuccess',
+        ])
+
+        expect(
+            logic.values.allCategories.find((category) => category.key === 'data_warehouse_saved_query')?.items
+        ).toEqual([
+            expect.objectContaining({
+                name: 'orders_by_day',
+                category: 'data_warehouse_saved_query',
+                href: urls.nodeDetail('node-id'),
+                itemType: 'data_modeling',
+            }),
+        ])
+        expect(logic.values.allCategories.find((category) => category.key === 'endpoint')?.items).toEqual([
+            expect.objectContaining({
+                name: 'orders_api',
+                category: 'endpoint',
+                href: urls.endpoint('orders_api'),
+                itemType: 'endpoints',
+            }),
+        ])
+    })
+
     // A Slack or widget ticket has no email subject, so the first message stands in as the title.
     it('falls back to the last message when a ticket has no subject', async () => {
         useMocks({
