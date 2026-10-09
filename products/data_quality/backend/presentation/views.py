@@ -825,7 +825,8 @@ class DataQualityRunViewSet(
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         suite = self.get_object()
-        progress = api.question_progress(self.team, cast(User, request.user), str(suite.id))
+        readable = self._denial_context().readable if self._can_be_object_denied() else None
+        progress = api.question_progress(self.team, cast(User, request.user), str(suite.id), readable)
         context = {**self.get_serializer_context(), "question_progress": progress}
         return Response(self.get_serializer(suite, context=context).data)
 

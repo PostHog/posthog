@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -32,6 +32,7 @@ from products.data_quality.backend.logic.jev_question import (
     WeightedInput,
     question_input_query,
 )
+from products.data_quality.backend.logic.subject_access import ReadableSubjects
 from products.data_quality.backend.models import (
     DataQualityCheck,
     DataQualityCheckRun,
@@ -199,6 +200,20 @@ class TestDurableQuestionExecution(BaseTest):
             assert progress[0].total_chunk_count == 4
             authorize.side_effect = ValueError("Access revoked")
             assert question_progress(self.team, self.user, str(self.suite.id)) == []
+
+    def test_progress_withholds_subjects_outside_the_callers_readable_set(self) -> None:
+        runner = self.runner()
+        runner.prepare()
+        runner.chunk(0)
+        with (
+            patch("products.data_quality.backend.logic.jev_progress.resolve_subject", return_value=self.subject),
+            patch("products.data_quality.backend.logic.jev_progress.authorize_warehouse_question_subject") as authorize,
+        ):
+            none_readable = ReadableSubjects(table_ids=frozenset(), view_ids=frozenset())
+            assert question_progress(self.team, self.user, str(self.suite.id), none_readable) == []
+            authorize.assert_not_called()
+            readable = ReadableSubjects(table_ids=frozenset({UUID(str(self.subject_id))}), view_ids=frozenset())
+            assert len(question_progress(self.team, self.user, str(self.suite.id), readable)) == 1
 
     def test_cold_retry_and_warm_runs_preserve_frozen_coverage_and_budget(self) -> None:
         runner = self.runner()

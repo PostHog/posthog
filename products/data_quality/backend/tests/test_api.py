@@ -1168,6 +1168,26 @@ class TestDataQualityCheckAPI(APIBaseTest):
         listed_run = next(row for row in listed.json()["results"] if row["id"] == str(suite_run.id))
         assert listed_run["question_progress"] == []
 
+    def test_question_progress_is_limited_to_the_subjects_a_token_scope_reaches(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="view only",
+            secure_value=hash_key_value(token),
+            scopes=["query:read", "warehouse_view:read"],
+        )
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        self.client.logout()
+
+        with patch("products.data_quality.backend.facade.api.question_progress", return_value=[]) as progress:
+            response = self.client.get(f"{self.suites_url}/{suite_run.id}/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        readable = progress.call_args.args[3]
+        assert readable is not None
+        assert not readable.contains(SubjectType.TABLE, uuid4())
+        assert readable.table_ids == frozenset()
+
     def test_running_a_whole_subject_records_it_on_the_report(self) -> None:
         self._create_check()
 

@@ -7,13 +7,21 @@ from ..facade.enums import SubjectType
 from ..models.question_execution import DataQualityQuestionExecution
 from .jev_manifest import authorize_warehouse_question_subject
 from .jev_question import QuestionConfig
+from .subject_access import ReadableSubjects
 from .subjects import resolve_subject
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
-def question_progress(team: "Team", user: "User", suite_run_id: str) -> list[QuestionProgress]:
+def question_progress(
+    team: "Team", user: "User", suite_run_id: str, readable: ReadableSubjects | None = None
+) -> list[QuestionProgress]:
+    """Checkpoint progress of the suite's active question executions.
+
+    ``readable`` is the caller's scope-restricted subject set; an API token whose scopes exclude a
+    subject must not learn its check ids or row counts through the user's own grants.
+    """
     executions = (
         DataQualityQuestionExecution.objects.for_team(team.id)
         .filter(suite_run_id=suite_run_id, finished_at__isnull=True)
@@ -40,6 +48,8 @@ def question_progress(team: "Team", user: "User", suite_run_id: str) -> list[Que
     )
     progress: list[QuestionProgress] = []
     for execution in executions:
+        if readable is not None and not readable.contains(SubjectType.TABLE, execution["subject_uuid"]):
+            continue
         try:
             subject = resolve_subject(team.id, SubjectType.TABLE, str(execution["subject_uuid"]))
             config = QuestionConfig.model_validate(execution["check_config"])
