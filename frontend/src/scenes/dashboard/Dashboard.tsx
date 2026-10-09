@@ -6,6 +6,7 @@ import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
+import { LazyModalLoading } from 'lib/components/LazyModalLoading/LazyModalLoading'
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -34,7 +35,6 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
-import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -187,7 +187,7 @@ function DashboardScene({
             {canEditDashboard && addInsightToDashboardModalVisible && (
                 <Suspense
                     fallback={
-                        <DashboardModalLoading
+                        <LazyModalLoading
                             isOpen={addInsightToDashboardModalVisible}
                             onClose={closeAddInsightToDashboardModal}
                             label="Loading insights"

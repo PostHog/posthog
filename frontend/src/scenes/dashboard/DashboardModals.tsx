@@ -5,6 +5,7 @@ import { Suspense, useEffect } from 'react'
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
+import { LazyModalLoading } from 'lib/components/LazyModalLoading/LazyModalLoading'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
@@ -18,7 +19,6 @@ import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/componen
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
-import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
@@ -89,7 +89,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
             {shouldRenderSubscriptions ? (
                 <Suspense
                     fallback={
-                        <DashboardModalLoading
+                        <LazyModalLoading
                             isOpen={showSubscriptions}
                             onClose={() => push(urls.dashboard(dashboard.id))}
                         />
@@ -106,10 +106,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
             {shouldRenderSharing ? (
                 <Suspense
                     fallback={
-                        <DashboardModalLoading
-                            isOpen={isSharingOpen}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
-                        />
+                        <LazyModalLoading isOpen={isSharingOpen} onClose={() => push(urls.dashboard(dashboard.id))} />
                     }
                 >
                     <SharingModal
@@ -151,7 +148,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                     {shouldRenderAddWidget ? (
                         <Suspense
                             fallback={
-                                <DashboardModalLoading
+                                <LazyModalLoading
                                     isOpen={isAddWidgetOpen}
                                     onClose={() => setAddWidgetModalOpen(false)}
                                 />
@@ -179,10 +176,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
             {shouldRenderTerraform ? (
                 <Suspense
                     fallback={
-                        <DashboardModalLoading
-                            isOpen={terraformModalOpen}
-                            onClose={() => setTerraformModalOpen(false)}
-                        />
+                        <LazyModalLoading isOpen={terraformModalOpen} onClose={() => setTerraformModalOpen(false)} />
                     }
                 >
                     <TerraformExportModal

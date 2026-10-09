@@ -2,9 +2,9 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render } from '@testing-library/react'
 
-import { DashboardModalLoading } from './DashboardModalLoading'
+import { LazyModalLoading } from './LazyModalLoading'
 
-describe('DashboardModalLoading', () => {
+describe('LazyModalLoading', () => {
     beforeEach(() => jest.useFakeTimers())
 
     afterEach(() => {
@@ -13,7 +13,7 @@ describe('DashboardModalLoading', () => {
     })
 
     it('shows the loading modal only once the chunk is slow', () => {
-        render(<DashboardModalLoading isOpen onClose={jest.fn()} />)
+        render(<LazyModalLoading isOpen onClose={jest.fn()} />)
 
         expect(document.querySelector('.Spinner')).not.toBeInTheDocument()
 

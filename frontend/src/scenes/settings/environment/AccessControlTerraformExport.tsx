@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react'
 import { IconCode2 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LazyModalLoading } from 'lib/components/LazyModalLoading/LazyModalLoading'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -44,7 +45,7 @@ export function AccessControlTerraformExport(): JSX.Element | null {
                 </span>
             </LemonButton>
             {shouldRenderModal ? (
-                <Suspense fallback={null}>
+                <Suspense fallback={<LazyModalLoading isOpen={modalOpen} onClose={() => setModalOpen(false)} />}>
                     <TerraformExportModal
                         isOpen={modalOpen}
                         onClose={() => setModalOpen(false)}
