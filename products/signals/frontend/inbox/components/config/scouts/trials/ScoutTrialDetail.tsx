@@ -145,77 +145,6 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                         </LemonButton>
                         {selectedConfig && <ScoutRubricsButton config={selectedConfig} />}
                     </div>
-                    {!props.evaluationState.value?.report && props.comparisonRows.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                            <p className="m-0 text-sm font-semibold">Runs in this trial</p>
-                            {props.comparisonRows.map((row) => (
-                                <LemonCard
-                                    key={row.launchId}
-                                    hoverEffect={false}
-                                    className="flex flex-wrap items-center justify-between gap-2 p-3"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <strong className="break-words">{row.variant}</strong>
-                                        <p className="m-0 text-xs text-muted break-words">{`${row.model || 'Saved model'} · ${row.effort || 'default'} effort`}</p>
-                                        {props.resultErrors[row.launchId] && (
-                                            <p className="m-0 text-xs text-danger break-words">
-                                                {props.resultErrors[row.launchId]}
-                                            </p>
-                                        )}
-                                        {props.cancelErrors[row.launchId] &&
-                                            (trialIsActive(row.status) ||
-                                                trialTaskIsActive(row.result?.task_status)) && (
-                                                <p className="m-0 text-xs text-danger break-words">
-                                                    {props.cancelErrors[row.launchId]}
-                                                </p>
-                                            )}
-                                    </div>
-                                    <LemonTag
-                                        type={
-                                            row.status === 'completed'
-                                                ? 'success'
-                                                : row.status === 'failed'
-                                                  ? 'danger'
-                                                  : 'muted'
-                                        }
-                                    >
-                                        {row.status === 'not_started' ? 'Queued' : row.status.replaceAll('_', ' ')}
-                                    </LemonTag>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        onClick={() => props.selectResult(row.launchId)}
-                                    >
-                                        Run details
-                                    </LemonButton>
-                                    {props.resultErrors[row.launchId] && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => props.retryResult(row.launchId)}
-                                            loading={props.refreshingLaunchIds.includes(row.launchId)}
-                                            data-attr="scout-trial-run-retry"
-                                        >
-                                            Retry
-                                        </LemonButton>
-                                    )}
-                                    {row.result?.task_id &&
-                                        row.result.task_run_id &&
-                                        (trialIsActive(row.status) || trialTaskIsActive(row.result.task_status)) && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="tertiary"
-                                                status="danger"
-                                                loading={props.canceling.includes(row.launchId)}
-                                                onClick={() => props.cancelRun(row.launchId)}
-                                            >
-                                                Stop run
-                                            </LemonButton>
-                                        )}
-                                </LemonCard>
-                            ))}
-                        </div>
-                    )}
                 </>
             ) : (
                 <>
@@ -272,6 +201,72 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                         </LemonBanner>
                     )}
                 </>
+            )}
+            {!props.evaluationState.value?.report && props.comparisonRows.length > 0 && (
+                <div className="flex flex-col gap-2">
+                    <p className="m-0 text-sm font-semibold">Runs in this trial</p>
+                    {props.comparisonRows.map((row) => (
+                        <LemonCard
+                            key={row.launchId}
+                            hoverEffect={false}
+                            className="flex flex-wrap items-center justify-between gap-2 p-3"
+                        >
+                            <div className="min-w-0 flex-1">
+                                <strong className="break-words">{row.variant}</strong>
+                                <p className="m-0 text-xs text-muted break-words">{`${row.model || 'Saved model'} · ${row.effort || 'default'} effort`}</p>
+                                {props.resultErrors[row.launchId] && (
+                                    <p className="m-0 text-xs text-danger break-words">
+                                        {props.resultErrors[row.launchId]}
+                                    </p>
+                                )}
+                                {props.cancelErrors[row.launchId] &&
+                                    (trialIsActive(row.status) || trialTaskIsActive(row.result?.task_status)) && (
+                                        <p className="m-0 text-xs text-danger break-words">
+                                            {props.cancelErrors[row.launchId]}
+                                        </p>
+                                    )}
+                            </div>
+                            <LemonTag
+                                type={
+                                    row.status === 'completed'
+                                        ? 'success'
+                                        : row.status === 'failed'
+                                          ? 'danger'
+                                          : 'muted'
+                                }
+                            >
+                                {row.status === 'not_started' ? 'Queued' : row.status.replaceAll('_', ' ')}
+                            </LemonTag>
+                            <LemonButton size="xsmall" type="tertiary" onClick={() => props.selectResult(row.launchId)}>
+                                Run details
+                            </LemonButton>
+                            {props.resultErrors[row.launchId] && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => props.retryResult(row.launchId)}
+                                    loading={props.refreshingLaunchIds.includes(row.launchId)}
+                                    data-attr="scout-trial-run-retry"
+                                >
+                                    Retry
+                                </LemonButton>
+                            )}
+                            {row.result?.task_id &&
+                                row.result.task_run_id &&
+                                (trialIsActive(row.status) || trialTaskIsActive(row.result.task_status)) && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        status="danger"
+                                        loading={props.canceling.includes(row.launchId)}
+                                        onClick={() => props.cancelRun(row.launchId)}
+                                    >
+                                        Stop run
+                                    </LemonButton>
+                                )}
+                        </LemonCard>
+                    ))}
+                </div>
             )}
             {props.evaluationState.value?.report && (
                 <>

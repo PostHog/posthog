@@ -152,7 +152,7 @@ describe('ScoutTrialsPanel', () => {
         }
     )
 
-    it('reloads unconfirmed run results from refresh in a new judging attempt', async () => {
+    it('lists runs and reloads unconfirmed results from refresh in a new judging attempt', async () => {
         jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
             results: [trialFixtureServerComparison],
             has_more: false,
@@ -170,6 +170,8 @@ describe('ScoutTrialsPanel', () => {
         await userEvent.click(screen.getByText('Prepare another judging attempt'))
         const judge = (): HTMLElement | null => screen.getByText('Judge saved runs').closest('button')
         await waitFor(() => expect(judge()?.getAttribute('aria-disabled')).toBe('true'))
+
+        expect(screen.getAllByText('Run details').length).toBeGreaterThan(0)
 
         jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue(trialFixtureResult)
         await userEvent.click(screen.getByText('Refresh status'))
