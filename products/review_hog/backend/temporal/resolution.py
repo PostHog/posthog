@@ -22,6 +22,7 @@ import re
 import logging
 from dataclasses import field
 from datetime import timedelta
+from urllib.parse import quote
 
 import temporalio
 from temporalio import activity, workflow
@@ -38,6 +39,8 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import (
     MAX_THREADS_PER_RUN,
@@ -46,6 +49,7 @@ from products.review_hog.backend.reviewer.constants import (
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
     RESOLUTION_RUNTIME_ADAPTER,
+    REVIEW_MODE_FULL,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadOutcome, ThreadResolution
@@ -95,7 +99,6 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     ValidateIntegrationInput,
     _installation_for,
-    _login_to_user_id,
     _sandbox_workflow_id_prefix,
     generate_schemas_activity,
     sync_review_skills_activity,
@@ -116,16 +119,21 @@ _RESOLUTION_HEARTBEAT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
 # The activity's final-attempt turn fallback keys off the same constant — don't let them drift.
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
+# Ruleset rule types that never refuse a fix push. Fix commits are signed by GitHub, sit on top of
+# the head, and never force-push, create or delete the branch. Any other rule type, including types
+# GitHub adds later, holds the run.
+_RULES_FIX_PUSH_SATISFIES = frozenset(
+    {"required_signatures", "required_linear_history", "non_fast_forward", "creation", "deletion"}
+)
 
 
 @frozen
 class ResolveThreadsInput:
     team_id: int
     user_id: int
-    # Whose selected resolution-criteria skill applies to this run. None (the shared-secret
-    # /resolve path) means "the PR author": prepare maps the fetched author login to a PostHog
-    # user; an unmapped author pins the canonical bar — a borrowed account's personal selection
-    # never governs someone else's PR.
+    # Whose selected resolution-criteria skill applies to this run. None means the PR owner
+    # (`pr_owner.py`), which prepare resolves from the fetched PR. A borrowed account's personal
+    # selection never governs someone else's PR.
     acting_user_id: int | None
     owner: str
     repo: str
@@ -204,6 +212,42 @@ def _merge_queue_state(input: ResolveThreadsInput, github: GitHubIntegration) ->
     return github.get_pull_request_merge_queue_state(f"{input.owner}/{input.repo}", input.pr_number)
 
 
+def _branch_protected(input: ResolveThreadsInput, github: GitHubIntegration, head_branch: str) -> bool:
+    """Whether protection on the PR's head branch could refuse or restrict the fix push.
+
+    GitHub sets `protected` for classic protection and also for any ruleset that matches the branch,
+    so a branch whose only rule asks for signed commits reads as protected. Classic protection holds
+    the run; a ruleset match holds it only for a rule type outside `_RULES_FIX_PUSH_SATISFIES`.
+    A failed read raises, so the run never pushes blind.
+    """
+    token, installation_id = github.get_access_token(), github.github_installation_id
+    branch_path = quote(head_branch, safe="/")
+    branch = github_api_request(
+        "GET",
+        f"/repos/{input.owner}/{input.repo}/branches/{branch_path}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/branches/{branch}",
+    ).json()
+    if not isinstance(branch, dict) or branch.get("protected") is not True:
+        return False
+    protection = branch.get("protection")
+    # Without `protection.enabled` a classic protection cannot be told apart from a ruleset match.
+    if not isinstance(protection, dict) or protection.get("enabled") is not False:
+        return True
+    rules = github_api_request(
+        "GET",
+        f"/repos/{input.owner}/{input.repo}/rules/branches/{branch_path}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/rules/branches/{branch}",
+        params={"per_page": 100},
+    ).json()
+    if not isinstance(rules, list):
+        return True
+    return any(not isinstance(rule, dict) or rule.get("type") not in _RULES_FIX_PUSH_SATISFIES for rule in rules)
+
+
 def _commit_hold(
     input: ResolveThreadsInput,
     github: GitHubIntegration,
@@ -219,6 +263,8 @@ def _commit_hold(
     # or one old push would block the stage on this PR for good.
     if queue_state == MergeQueueState.EJECTED and queue_state_at_start != MergeQueueState.EJECTED:
         return CommitHold.MERGE_QUEUE
+    if _branch_protected(input, github, head_branch):
+        return CommitHold.BRANCH_PROTECTED
     if github.has_open_pull_request_with_base(f"{input.owner}/{input.repo}", head_branch):
         return CommitHold.STACKED
     return None
@@ -252,6 +298,22 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         )
     if pr_metadata.state != "open":
         return ResolutionRunResult(skipped_reason="pr_not_open")
+    # Every trigger reaches this gate, so no path writes to a branch whose owner did not opt in. The
+    # fork check above makes the head branch the base repository's, which the Inbox link needs.
+    owner = PullRequestOwnerResolver.resolve(
+        input.team_id,
+        repository=f"{input.owner}/{input.repo}",
+        author_login=pr_metadata.author,
+        head_branch=pr_metadata.head_branch,
+    )
+    if not ResolutionGate.load(input.team_id, owner.user_id).allows(REVIEW_MODE_FULL):
+        logger.info(
+            "Resolution skipped for %s/%s#%s: the pull request owner did not opt in",
+            input.owner,
+            input.repo,
+            input.pr_number,
+        )
+        return ResolutionRunResult(skipped_reason=ReviewRequestRefusal.RESOLUTION_NOT_OPTED_IN.value)
 
     pr_url = input.pr_url or f"https://github.com/{input.owner}/{input.repo}/pull/{input.pr_number}"
     report_id = upsert_review_report(
@@ -310,17 +372,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         )
         _mark_queued_threads(input, triage, token=token, installation_id=installation_id)
 
-    acting_user_id = input.acting_user_id
-    if acting_user_id is None:
-        acting_user_id = _login_to_user_id(input.team_id, pr_metadata.author)
-        logger.info(
-            "Resolution acting user for %s/%s#%s: author %r -> %s",
-            input.owner,
-            input.repo,
-            input.pr_number,
-            pr_metadata.author,
-            acting_user_id if acting_user_id is not None else "unmapped (canonical criteria)",
-        )
+    acting_user_id = input.acting_user_id if input.acting_user_id is not None else owner.user_id
     skill = load_resolution_skill_for_run(input.team_id, acting_user_id)
     return _PreparedRun(
         report_id=report_id,

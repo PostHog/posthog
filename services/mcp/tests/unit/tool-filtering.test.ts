@@ -1087,7 +1087,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
-                'billing-alerts',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',

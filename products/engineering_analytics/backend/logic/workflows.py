@@ -1,6 +1,7 @@
 """Workflow/run/job-scoped orchestration: health, activity, jobs, costs, and repo-level state."""
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIDataFreshness,
     CIEngine,
     CurrentBranchHealth,
     MasterFailureGroup,
@@ -49,6 +50,10 @@ def build_workflow_jobs(
     *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int, run_attempt: int | None = None
 ) -> list[WorkflowJob]:
     return query_workflow_jobs(curated=curated, run_id=run_id, ci_engine=ci_engine, run_attempt=run_attempt)
+
+
+def build_ci_data_freshness(*, curated: CuratedGitHubSource) -> CIDataFreshness:
+    return curated.ci_data_freshness()
 
 
 def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
