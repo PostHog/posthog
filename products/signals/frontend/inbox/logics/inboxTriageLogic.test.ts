@@ -142,6 +142,43 @@ describe('inboxTriageLogic', () => {
         }
     )
 
+    it('loads the next page when unassigning me moves triage near the end of the loaded reports', async () => {
+        const mine = (reports: SignalReport[]): SignalReport[] =>
+            reports.map((r) => ({ ...r, is_suggested_reviewer: true }))
+        useMocks({
+            get: {
+                [REPORTS_URL]: ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    requestedOffsets.push(offset)
+                    const firstPage = offset === '0' || offset === null
+                    return [
+                        200,
+                        {
+                            count: FIRST_PAGE.length + SECOND_PAGE.length,
+                            next: firstPage
+                                ? `http://localhost/api/projects/997/signals/reports/?offset=${PAGE_SIZE}`
+                                : null,
+                            previous: null,
+                            results: mine(firstPage ? FIRST_PAGE : SECOND_PAGE),
+                        },
+                    ]
+                },
+            },
+            delete: { '/api/projects/:team_id/signals/reports/:id/reviewers/me/': [204, null] },
+        })
+        await mountAt({ report: `r-${PAGE_SIZE - 2}`, at: PAGE_SIZE - 2 })
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        await expectLogic(logic).toFinishAllListeners()
+        requestedOffsets = []
+
+        logic.actions.unassignCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentReport?.id).toBe(`r-${PAGE_SIZE - 1}`)
+        expect(requestedOffsets).toEqual([String(PAGE_SIZE)])
+        expect(logic.values.nextReport?.id).toBe(`r-${PAGE_SIZE}`)
+    })
+
     it.each([
         {
             name: 'lands on the report the URL names',

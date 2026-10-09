@@ -370,18 +370,22 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 actions.loadMore()
             }
         }
+        // Fetch the next page before the user reaches the end of the loaded ones.
+        const prefetchNearEnd = (): void => {
+            if (
+                values.hasMore &&
+                !values.reportsResponseLoading &&
+                values.currentIndex >= values.reports.length - PREFETCH_THRESHOLD
+            ) {
+                actions.loadMore()
+            }
+        }
         return {
             loadReportsSuccess: loadTowardRequestedSpot,
             loadMoreReportsSuccess: loadTowardRequestedSpot,
             navigate: ({ delta }) => {
                 actions.setIndex(clampIndex(values.currentIndex + delta, values.reports.length))
-                if (
-                    values.hasMore &&
-                    !values.reportsResponseLoading &&
-                    values.currentIndex >= values.reports.length - PREFETCH_THRESHOLD
-                ) {
-                    actions.loadMore()
-                }
+                prefetchNearEnd()
             },
             dismissCurrent: () => {
                 const report = values.currentReport
@@ -446,6 +450,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (next) {
                     actions.goToReport(next.id, values.currentIndex + 1)
                 }
+                prefetchNearEnd()
             },
             createPrForCurrent: () => {
                 const report = values.currentReport
