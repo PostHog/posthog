@@ -102,7 +102,6 @@ async function emitUsageRows(
         }
     }
 
-    // Best-effort: don't let metric failures block ingestion
     try {
         await aggregator.flush()
     } catch (error) {
@@ -110,11 +109,7 @@ async function emitUsageRows(
     }
 }
 
-/**
- * Turns a batch's usage tally into Prometheus counters and billing rows.
- * `MetricsPipelineConsumer` calls it only after every write of the batch has
- * succeeded, so a batch that fails and replays is billed once. Never rejects.
- */
+/** Never rejects. A failed write of the billing rows is logged. */
 export async function emitMetricsUsage(
     outputs: IngestionOutputs<AppMetricsOutput>,
     usage: MetricsUsageAccumulator
@@ -123,10 +118,6 @@ export async function emitMetricsUsage(
     await emitUsageRows(outputs, usage)
 }
 
-/**
- * afterBatch step that passes the batch through. The usage tally stays on the
- * batch context, and `runMetricsIngestionPipeline` returns it to the consumer.
- */
 export function createKeepMetricsUsageStep<T extends { batchContext: MetricsUsageBatchContext }>(): ProcessingStep<
     T,
     T

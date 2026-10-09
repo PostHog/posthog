@@ -8,7 +8,7 @@ import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT } from './outputs'
  *
  * - `METRICS_OUTPUT` — main metrics data path → topic from `METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC`.
  * - `DLQ_OUTPUT` — DLQ for failed messages → topic from `METRICS_INGESTION_CONSUMER_DLQ_TOPIC`.
- * - `METRICS_DLQ_OUTPUT` — the same DLQ under the pre-framework consumer's name, so its output label does not change.
+ * - `METRICS_DLQ_OUTPUT` — the same topic, for the pre-framework consumer.
  * - `APP_METRICS_OUTPUT` — usage metrics → topic from `METRICS_INGESTION_OUTPUT_APP_METRICS_TOPIC`.
  *
  * Per-output producer is env-controlled (`*_PRODUCER` keys) so the route can be

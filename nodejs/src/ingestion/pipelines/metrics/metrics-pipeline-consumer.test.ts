@@ -62,7 +62,6 @@ describe('MetricsPipelineConsumer', () => {
         await new Promise((resolve) => setImmediate(resolve))
         expect(settled).toBe(false)
 
-        // Usage is billed only once the batch's writes have succeeded.
         expect(outputs.queueMessages).not.toHaveBeenCalled()
 
         ack()
@@ -87,7 +86,6 @@ describe('MetricsPipelineConsumer', () => {
 
         await expect(backgroundTask).rejects.toBe(error)
         expect(outputs.produce).toHaveBeenCalledTimes(2)
-        // The batch replays, so billing it now would bill it twice.
         expect(outputs.queueMessages).not.toHaveBeenCalled()
     })
 

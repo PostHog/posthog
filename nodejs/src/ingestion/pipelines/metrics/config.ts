@@ -29,7 +29,6 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
     METRICS_INGESTION_CONSUMER_DLQ_TOPIC: string
     METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
-    /** Opt-in: `true` runs the framework pipeline consumer; the default `false` runs the pre-framework consumer. */
     METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: boolean
     METRICS_REDIS_HOST: string
     METRICS_REDIS_PORT: number

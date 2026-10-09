@@ -149,7 +149,6 @@ describe('MetricsIngestionPipeline', () => {
         }
         expect(producedTo(DLQ_TOPIC)).toHaveLength(0)
 
-        // The rate limiter sees the whole batch once, minus what quota already dropped.
         expect(rateLimiter.filterMessages).toHaveBeenCalledTimes(1)
         expect(rateLimiter.filterMessages.mock.calls[0][0]).toHaveLength(3)
     })

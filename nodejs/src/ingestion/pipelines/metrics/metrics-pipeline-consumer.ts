@@ -24,19 +24,13 @@ import { createMetricsRateLimiterRedis } from './services/metrics-redis'
 export interface MetricsPipelineConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
-    /**
-     * Resolved outputs registry — must include `METRICS_OUTPUT`, `DLQ_OUTPUT`
-     * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
-     * server via env vars — this consumer never touches a `KafkaProducerWrapper`
-     * directly.
-     */
     outputs: MetricsIngestionOutputs
 }
 
 /**
- * Remembers the first rejected side effect. `PromiseScheduler` forgets a
- * promise when it settles, so a side effect that rejects before the batch
- * calls `waitForAll()` would go unseen and its offsets would be committed.
+ * `PromiseScheduler` drops a promise when it settles. A side effect that rejects
+ * before `waitForAll()` would go unnoticed and its offsets would be stored, so
+ * this class keeps the first rejection.
  */
 class FailureLatchingPromiseScheduler extends PromiseScheduler {
     private failure: { error: unknown } | undefined
@@ -50,7 +44,6 @@ class FailureLatchingPromiseScheduler extends PromiseScheduler {
         return super.schedule(...(promises as [Promise<unknown>]))
     }
 
-    /** Waits for all scheduled work, then rejects if any side effect has ever rejected. */
     public async waitForAllOrFail(): Promise<void> {
         await this.waitForAll()
         if (this.failure) {
@@ -59,13 +52,8 @@ class FailureLatchingPromiseScheduler extends PromiseScheduler {
     }
 }
 
-/**
- * Metrics ingestion consumer on the pipeline framework: owns the Kafka
- * consumer, the promise scheduler and the rate limiter's Redis, and drives
- * one `MetricsIngestionPipeline` batch per Kafka batch.
- */
 export class MetricsPipelineConsumer {
-    // Same id as the pre-framework consumer so health-check output does not change with the switch.
+    // Same id as the pre-framework consumer, so health checks keep their name when the flag changes.
     protected name = 'MetricsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
     private promiseScheduler: FailureLatchingPromiseScheduler
@@ -73,9 +61,8 @@ export class MetricsPipelineConsumer {
     private outputs: MetricsIngestionOutputs
 
     constructor(config: MetricsIngestionConsumerConfig, deps: MetricsPipelineConsumerDeps) {
-        // Always v2: consumer-v1 stores a batch's offsets even when its background
-        // task rejects, so a failed produce and DLQ write would lose the batch.
-        // v2 stores nothing after a rejection, and the batch replays.
+        // consumer-v1 stores a batch's offsets even when its background task rejects,
+        // which loses a batch whose DLQ write failed.
         this.kafkaConsumer = new KafkaConsumerV2({
             groupId: config.METRICS_INGESTION_CONSUMER_GROUP_ID,
             topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
@@ -120,19 +107,12 @@ export class MetricsPipelineConsumer {
                 error: error instanceof Error ? error.message : String(error),
                 size: messages.length,
             })
-            // Settle scheduled work before the error propagates and crashes the loop; a rejected
-            // side effect must not replace the batch error or cut the drain short.
+            // A rejected side effect must not replace the batch error.
             await this.promiseScheduler.waitForAllSettled()
             throw error
         }
 
-        // Scheduled produces (DLQ, usage rows) are the slow tail of a batch, so
-        // hand them to the consumer as a background task: it fetches the next
-        // batch meanwhile and only stores this batch's offsets once they settle.
-        // After a side effect rejects, every later background task rejects too,
-        // so no offsets are stored past the lost message. Usage is billed only
-        // when the batch's writes all succeed: a failed batch replays, and the
-        // replay bills it.
+        // A failed batch replays, so usage is emitted only after all of its writes succeed.
         return {
             backgroundTask: instrumentFn('metricsIngestionConsumer.awaitScheduledWork', async () => {
                 await this.promiseScheduler.waitForAllOrFail()
@@ -143,7 +123,7 @@ export class MetricsPipelineConsumer {
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping metrics consumer...')
-        // Settled, not all: a rejected side effect must not skip the disconnect.
+        // A rejected side effect must not skip the disconnect.
         await this.promiseScheduler.waitForAllSettled()
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Metrics consumer stopped!')

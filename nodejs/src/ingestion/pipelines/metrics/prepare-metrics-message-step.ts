@@ -15,12 +15,7 @@ import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 
 const RESOLVE_TEAM_RETRY = { tries: 3, sleepMs: 100, name: 'resolve_metrics_team' }
 
-/**
- * Runs an element step over each value of a chunk, concurrently. The framework
- * instruments a chunk step once per chunk but an element step once per element.
- * A metrics message needs only a header read, so per-element instrumentation
- * costs more than the work itself.
- */
+/** The framework instruments a chunk step once per chunk, and per-message instrumentation costs more than reading the headers. */
 export function perMessage<T, U, R extends string = never>(
     step: ProcessingStep<T, U, R>
 ): ChunkProcessingStep<T, U, R> {
@@ -29,11 +24,6 @@ export function perMessage<T, U, R extends string = never>(
     return chunkStep
 }
 
-/**
- * Reads the headers, resolves the team, tallies the message as received and
- * drops quota-limited teams, in that order. A retriable team lookup error is
- * retried, then thrown, so the batch fails and replays.
- */
 export function createPrepareMetricsMessageStep<T extends { message: Message; usage: MetricsUsageAccumulator }>(
     teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>,
     quotaLimiting: Pick<QuotaLimiting, 'isTeamTokenQuotaLimited'>

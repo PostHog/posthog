@@ -20,21 +20,13 @@ export interface ProduceMetricsInput {
     recordCount: number
 }
 
-// A delivery timeout already includes librdkafka's own retries, so the deadline
-// keeps a slow failure from waiting through more attempts.
+// A delivery timeout already includes librdkafka's retries. The deadline stops more attempts after a slow failure.
 const PRODUCE_RETRY = { tries: 5, sleepMs: 100, softDeadlineMs: 10_000, name: 'produce_metrics' }
 
 /**
- * Produces the capture-side Avro packet to the ClickHouse-bound topic as is.
- * The value is never decoded; the step only adds the headers ClickHouse reads
- * (`team_id`, `retention-days`) on top of the ones capture stamped.
- *
- * The produce is a side effect, so the consumer reads the next batch while
- * the acks are pending. An error not marked `isRetriable: false` gets retries.
- * When the produce still fails, the message goes to the DLQ. If the DLQ
- * produce fails too, the side effect rejects. `MetricsPipelineConsumer` runs
- * on consumer-v2, which then stores no offsets, so the batch replays and the
- * message is not lost.
+ * A message that still fails after the retries goes to the DLQ. If the DLQ
+ * write also fails, the side effect rejects and `MetricsPipelineConsumer`
+ * replays the batch.
  */
 export function createProduceMetricsStep<T extends ProduceMetricsInput>(
     outputs: IngestionOutputs<MetricsOutput | DlqOutput>
@@ -61,8 +53,6 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
                 }),
             PRODUCE_RETRY
         ).then(
-            // Only after the ClickHouse-bound produce resolves — messages that
-            // fail and route to the DLQ must not count as ingested.
             () => recordMetricsIngested(input.teamId, input.bytesUncompressed, input.recordCount),
             async (error) => {
                 const errorName = error instanceof Error ? error.name : 'UnknownError'

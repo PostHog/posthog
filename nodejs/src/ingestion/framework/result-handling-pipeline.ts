@@ -24,11 +24,7 @@ import {
 export type PipelineConfig<R extends string = never> = {
     outputs: IngestionOutputs<DlqOutput | R>
     promiseScheduler: PromiseScheduler
-    /**
-     * Reject a DLQ result's side effect when the DLQ produce fails, instead of
-     * logging and swallowing it. Set it only when the consumer stores no
-     * offsets after a rejected side effect, so the message replays.
-     */
+    /** Reject the side effect when the DLQ produce fails. Set it only when the consumer stores no offsets after a rejected side effect. */
     rejectOnDlqFailure?: boolean
 }
 

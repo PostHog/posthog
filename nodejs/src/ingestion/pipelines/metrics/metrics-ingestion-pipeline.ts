@@ -38,24 +38,9 @@ export type MetricsIngestionPipeline = BatchingPipeline<
     never
 >
 
-/**
- * Creates the metrics ingestion pipeline. Each feed() is one Kafka batch:
- *
- * 1. Per message, concurrently: read headers, resolve the team, tally what was
- *    received, drop quota-limited teams.
- * 2. Whole batch: one Redis round trip for the token-bucket rate limit.
- * 3. Per message, concurrently: produce the Avro packet to ClickHouse as is,
- *    as a side effect, so the next batch does not wait for the acks.
- *
- * Every stage is a chunk step (see `perMessage`), so the framework instruments
- * each stage once per batch, not once per message.
- * 4. After the batch: the consumer emits Prometheus counters and billing rows
- *    from the tally, once all of the batch's writes have succeeded.
- */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
     const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter } = config
 
-    // A failed DLQ write must fail the batch so it replays; see MetricsPipelineConsumer.
     const pipelineConfig: PipelineConfig = { outputs, promiseScheduler, rejectOnDlqFailure: true }
     const sideEffects = { await: false }
 
@@ -84,12 +69,6 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
     )
 }
 
-/**
- * Runs one Kafka batch through the pipeline and returns the batch's usage
- * tally. Results handle their own side effects (scheduled on the promise
- * scheduler, which the consumer drains before committing offsets). The caller
- * emits the usage once those side effects succeed.
- */
 export async function runMetricsIngestionPipeline(
     pipeline: MetricsIngestionPipeline,
     messages: Message[]
@@ -99,8 +78,6 @@ export async function runMetricsIngestionPipeline(
     }
 
     const batch = createBatch(messages.map((message) => ({ message })))
-    // The consumer drains each batch fully before feeding the next and the hooks
-    // always succeed, so a rejected feed can only be a framework invariant violation.
     const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`metrics ingestion pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)

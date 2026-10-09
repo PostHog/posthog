@@ -13,17 +13,15 @@ export function createResolveMetricsTeamStep<T extends { token: string }>(
         let team
         try {
             if (input.token === 'phc_local' && isDevEnv()) {
-                // phc_local is a special token used in dev to refer to team 1
                 team = await teamManager.getTeam(1)
             } else {
                 team = await teamManager.getTeamByToken(input.token)
             }
         } catch (e) {
-            // Transient faults go to the pipeline retry and then fail the batch, so it replays.
+            // Throw so the step retry runs. If the retries fail, the batch fails and replays.
             if ((e as { isRetriable?: boolean })?.isRetriable === true) {
                 throw e
             }
-            // Any other lookup failure is an infrastructure fault, not a bad message: keep it replayable.
             logger.error('team_lookup_error', { error: e })
             metricMessageDlqCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
             return dlq('team_lookup_error', e)

@@ -48,11 +48,7 @@ export interface MetricsIngestionConsumerDeps {
     outputs: IngestionOutputs<MetricsOutput | MetricsDlqOutput | AppMetricsOutput>
 }
 
-/**
- * Pre-framework metrics consumer. The server runs it unless
- * `METRICS_INGESTION_USE_PIPELINE_FRAMEWORK` is true, which selects
- * `metrics-pipeline-consumer.ts` instead.
- */
+/** Replaced by `MetricsPipelineConsumer`. Remove it when every environment sets `METRICS_INGESTION_USE_PIPELINE_FRAMEWORK`. */
 export class MetricsIngestionConsumer {
     protected name = 'MetricsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumerInterface

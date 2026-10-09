@@ -173,10 +173,7 @@ export class MetricsRateLimiterService {
         return this.enabledTeamIds.has(teamId)
     }
 
-    /**
-     * Splits `messages` into allowed and dropped by the same object references,
-     * so callers can map the decision back onto their own elements.
-     */
+    /** `allowed` and `dropped` hold the input objects, so callers can match the results by reference. */
     public async filterMessages<T extends MetricsIngestionMessage>(messages: T[]): Promise<FilteredMessages<T>> {
         const teamCosts = new Map<number, number>()
         const teamOldestTimestamps = new Map<number, number>()

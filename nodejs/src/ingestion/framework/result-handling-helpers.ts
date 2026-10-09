@@ -69,16 +69,12 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
 }
 
 export interface ProduceToDLQOptions {
-    /**
-     * Rethrow a failed DLQ produce after logging it. Set it only when the
-     * caller stops offset commits on the error, so the message replays.
-     */
+    /** Rethrow a failed DLQ produce. Set it only when the caller stores no offsets after the error. */
     rethrowOnFailure?: boolean
 }
 
 /**
  * Send a Kafka message to the dead letter queue with proper logging and metrics.
- * A failed DLQ produce is logged and swallowed unless `rethrowOnFailure` is set.
  */
 export async function produceMessageToDLQ(
     outputs: IngestionOutputs<DlqOutput>,

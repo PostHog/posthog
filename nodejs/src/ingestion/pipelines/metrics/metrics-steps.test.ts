@@ -294,7 +294,6 @@ describe('metrics ingestion steps', () => {
 
                 const { sideEffect } = await runStep()
                 await jest.runAllTimersAsync()
-                // The side effect must resolve: consumer-v1 stores offsets even when the background task rejects.
                 await expect(sideEffect).resolves.toBeUndefined()
 
                 const metricsProduces = outputs.produce.mock.calls.filter(([output]) => output === METRICS_OUTPUT)

@@ -6,12 +6,7 @@ import { MetricsUsageAccumulator } from './metrics-usage'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
 
-/**
- * Token-bucket rate limiting is one Redis round trip per chunk, so this is a
- * chunk step: place it after `gather()` so the whole batch shares that trip.
- * Messages that pass are recorded as allowed usage here, before the produce,
- * so a message that later fails to produce is still billed as received.
- */
+/** Allowed usage is recorded here, before the produce, so a message that later goes to the DLQ is still billed. */
 export function createRateLimitMetricsStep<T extends MetricsIngestionMessage & { usage: MetricsUsageAccumulator }>(
     rateLimiter: Pick<MetricsRateLimiterService, 'filterMessages'>
 ): ChunkProcessingStep<T, T> {

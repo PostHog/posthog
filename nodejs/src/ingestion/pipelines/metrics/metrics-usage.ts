@@ -18,11 +18,6 @@ export const DEFAULT_USAGE_STATS: UsageStats = {
 
 export type UsageStatsByTeam = Map<number, UsageStats>
 
-/**
- * Per-batch, per-team traffic tally. Steps record what they receive, allow
- * and drop; the afterBatch step turns the tally into Prometheus counters and
- * usage rows for billing.
- */
 export class MetricsUsageAccumulator {
     private readonly stats: UsageStatsByTeam = new Map()
 

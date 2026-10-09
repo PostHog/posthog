@@ -2,17 +2,15 @@ import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '~/common/ut
 import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 export interface MetricsRetryOptions extends RetrySchedule {
-    /** Identifies the retry site in the `ingestion_pipeline_retry_attempts` metric. */
+    /** Label in the `ingestion_pipeline_retry_attempts` metric. */
     name: string
 }
 
 /**
- * `retryIfRetriable` with the first attempt outside the retry loop. The loop
- * and its metric have a fixed cost per call, and almost every call succeeds
- * at once. After a first failure, the error goes through `retryIfRetriable`,
- * so the retry rule and the schedule are the same. `tries` counts the first
- * attempt, and `softDeadlineMs` starts at the first attempt. The retry metric
- * records only calls that failed at least once.
+ * Same retry rule and schedule as `retryIfRetriable`, but the first attempt runs
+ * outside the retry loop because the loop and its metric cost more than a call
+ * that succeeds at once. `tries` and `softDeadlineMs` include the first attempt.
+ * The metric records only calls that failed at least once.
  */
 export async function retryAfterFirstFailure<T>(fn: () => Promise<T>, options: MetricsRetryOptions): Promise<T> {
     const { name, ...schedule } = options
@@ -40,7 +38,7 @@ export async function retryAfterFirstFailure<T>(fn: () => Promise<T>, options: M
             schedule.softDeadlineMs === undefined
                 ? undefined
                 : Math.max(0, schedule.softDeadlineMs - (Date.now() - startedAt))
-        // At least one try, so the replayed first error is what the caller gets.
+        // With zero tries the replayed first error would not reach the caller.
         const tries = Math.max(1, schedule.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT)
         const result = await retryIfRetriable(attempt, { ...schedule, tries, softDeadlineMs })
         pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)

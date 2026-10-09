@@ -11,7 +11,6 @@ export type MetricsRedisConfig = Pick<
     | 'REDIS_POOL_MAX_SIZE'
 >
 
-/** The dedicated Redis the token-bucket rate limiter uses, falling back to the shared `REDIS_URL`. */
 export function createMetricsRateLimiterRedis(config: MetricsRedisConfig): RedisV2 {
     return createRedisV2PoolFromConfig({
         connection: config.METRICS_REDIS_HOST
