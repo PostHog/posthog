@@ -10,7 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
 LOGGER = get_logger(__name__)
 
@@ -23,6 +23,8 @@ class PreemptDAGRunInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
+    # Defaulted so inputs serialized before this field existed still decode.
+    engine: str = DataModelingJobEngine.CLICKHOUSE
 
 
 def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
@@ -37,16 +39,18 @@ def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
 
 
 @database_sync_to_async_pool
-def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob]:
-    """Every RUNNING job belonging to this DAG, whether or not this run owns its node.
+def _get_running_jobs_for_dag(team_id: int, dag_id: str, engine: str) -> list[DataModelingJob]:
+    """Every RUNNING job of one engine in this DAG, whether or not this run owns its node.
 
     Child workflow IDs follow the pattern `materialize-view-{dag_id}-{node_id}-{timestamp}`,
-    so we can match jobs by their workflow_id prefix.
+    so we can match jobs by their workflow_id prefix. The ClickHouse and Trino runs of a DAG
+    materialize the same nodes at the same time, so each run only touches its own engine's jobs.
     """
     return list(
         DataModelingJob.objects.filter(
             team_id=team_id,
             status=DataModelingJobStatus.RUNNING,
+            engine=engine,
             workflow_id__startswith=f"materialize-view-{dag_id}-",
         )
     )
@@ -137,7 +141,7 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id)
+    running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id, inputs.engine)
     partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
     if not partitioned.owned and not partitioned.others:
         await logger.adebug("No previous DAG run to preempt")
