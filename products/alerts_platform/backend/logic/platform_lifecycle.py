@@ -364,9 +364,9 @@ def _shard_offset_seconds(configuration: PlatformAlertConfiguration, outcome: Pl
     )
 
 
-_CHECK_STATUSES: Final = frozenset(
-    {PlatformAlertConfiguration.CheckStatus.ERRORED.value, PlatformAlertConfiguration.CheckStatus.BROKEN.value}
-)
+_CHECK_STATUSES: Final = frozenset(PlatformAlertConfiguration.CheckStatus.values) - {
+    PlatformAlertConfiguration.CheckStatus.OK.value
+}
 
 
 def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> str:

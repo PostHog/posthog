@@ -5,13 +5,21 @@ every source, so it lives here once: run the machine per group, leave out a new 
 nothing, put firing groups first, and admit what `max_instances` has room for.
 """
 
+import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import field
 from datetime import datetime
+from typing import Final
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import GroupOutcome, InstanceCheckState, PlatformAlertCheckInput
+from products.alerts_platform.backend.facade.contracts import (
+    GroupOutcome,
+    InstanceCheckState,
+    PlatformAlertCheckInput,
+    PlatformAlertOutcome,
+)
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     AlertCheckOutcome,
@@ -20,9 +28,26 @@ from products.alerts_platform.backend.facade.lifecycle import (
     AlertState,
     CheckInput,
     NotificationAction,
+    Outcome,
     decide_firing_episode,
     evaluate_alert_check,
 )
+
+# `PlatformAlert.grouping_key` holds at most this many characters, so a longer key is hashed.
+MAX_GROUPING_KEY_LENGTH: Final = 255
+_HASHED_PREFIX: Final = "sha256:"
+
+
+def bounded_grouping_key(key: str) -> str:
+    """A key that fits the column. Stable across checks, so a group keeps its row."""
+    if len(key) <= MAX_GROUPING_KEY_LENGTH:
+        return key
+    return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode()).hexdigest()}"
+
+
+def is_hashed_grouping_key(key: str) -> bool:
+    """Whether `bounded_grouping_key` hashed this key, so the value it came from is gone."""
+    return key.startswith(_HASHED_PREFIX)
 
 
 @frozen
@@ -51,6 +76,29 @@ class GroupDecision:
     verdicts: tuple[GroupVerdict, ...]
     overflowed: int
 
+    def as_outcome(
+        self, *, configuration_id: UUID, evaluation_key: str, query_duration_ms: int | None
+    ) -> PlatformAlertOutcome:
+        """The outcome of a grouped check that ran. A query that ran reset the failure count."""
+        return PlatformAlertOutcome(
+            configuration_id=configuration_id,
+            evaluation_key=evaluation_key,
+            consecutive_failures=0,
+            groups=tuple(verdict.group for verdict in self.verdicts),
+            query_duration_ms=query_duration_ms,
+            overflowed=self.overflowed,
+        )
+
+
+def muted_value(outcome: Outcome) -> str:
+    """The stored form of what a mute held back: empty when nothing was held."""
+    muted = getattr(outcome, "muted_notification", NotificationAction.NONE)
+    return "" if muted == NotificationAction.NONE else muted.value
+
+
+def _not_breaching(grouping_key: str) -> GroupObservation:
+    return GroupObservation(grouping_key=grouping_key, current_breached=False)
+
 
 def _decided_nothing(outcome: AlertCheckOutcome) -> bool:
     return (
@@ -68,15 +116,27 @@ def decide_groups(
     policy: AlertPolicy,
     now: datetime,
     muted: bool = False,
+    absent: Callable[[str], GroupObservation | None] = _not_breaching,
 ) -> GroupDecision:
     """Each observed group run through the machine against its own instance.
 
-    A new group that decided nothing is left out, so a quiet group costs no row. A source passes an
-    observation for every open group it should judge, including one its query did not return.
+    A new group that decided nothing is left out, so a quiet group costs no row. An open group the
+    check did not return is judged through `absent`, as not breaching unless a source says what it
+    measured, so a group that vanished resolves. `absent` returns None for a group the source cannot
+    judge from its absence.
     """
     existing = {instance.grouping_key for instance in check.instances}
-    judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
+    # One observation per key. Two results can share a label, and a breaching one must not be lost.
+    by_key: dict[str, GroupObservation] = {}
     for observation in observations:
+        kept = by_key.get(observation.grouping_key)
+        if kept is None or (observation.current_breached and not kept.current_breached):
+            by_key[observation.grouping_key] = observation
+    for key in check.open_keys():
+        if key not in by_key and (missing := absent(key)) is not None:
+            by_key[key] = missing
+    judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
+    for observation in by_key.values():
         snapshot = snapshot_of(check.instance(observation.grouping_key), observation.prior_breached)
         outcome = evaluate_alert_check(
             snapshot, CheckInput(threshold_breached=observation.current_breached, muted=muted), now, policy=policy
@@ -101,9 +161,7 @@ def decide_groups(
                 firing_episode=decide_firing_episode(snapshot, outcome, now, policy=policy),
                 value=observation.value,
                 labels=observation.labels,
-                muted_notification=(
-                    "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
-                ),
+                muted_notification=muted_value(outcome),
             ),
         )
         for observation, snapshot, outcome in judged

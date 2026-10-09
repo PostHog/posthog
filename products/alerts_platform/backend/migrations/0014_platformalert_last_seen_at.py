@@ -14,4 +14,13 @@ class Migration(migrations.Migration):
             name="last_seen_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        # Rows from before this column get the migration time, so a stale one becomes reapable after
+        # the usual window rather than holding its slot forever.
+        migrations.RunSQL(
+            """
+            -- migration-analyzer: safe reason=holds only the instances the logs and insight parallel runs wrote, and nothing reads it on a request path
+            UPDATE alerts_platformalert SET last_seen_at = now() WHERE last_seen_at IS NULL
+            """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
     ]
