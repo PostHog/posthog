@@ -70,6 +70,9 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
     with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
         assert _review_posted(marker, [{"body": marker, **bot}]) is True
         assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
+    # Unconfigured in production, no bot is trusted, because any installed bot could paste the marker.
+    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="", DEBUG=False, TEST=False):
+        assert _review_posted(marker, [{"body": marker, **bot}]) is False
 
 
 def test_review_already_posted_proceeds_when_readback_fails() -> None:
