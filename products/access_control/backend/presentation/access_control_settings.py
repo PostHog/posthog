@@ -305,7 +305,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     {"managed": "Terraform hasn't applied access rules to this project yet."}
                 )
         else:
-            state = access_control_api.get_terraform_management(team_id=team.id)
+            state = access_control_api.get_terraform_lock(team_id=team.id)
         return Response(AccessControlManagementSerializer(state).data)
 
     @extend_schema(

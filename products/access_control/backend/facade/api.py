@@ -69,7 +69,7 @@ class PropertyDefinitionNotFoundError(Exception):
 
 
 class NoTerraformAccountError(Exception):
-    """The lock was turned on for a project that Terraform has never written access rules to."""
+    """An admin enabled the lock, but Terraform never wrote access rules to the project."""
 
 
 class PropertyAccessControlRuleNotFoundError(Exception):
@@ -252,45 +252,40 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
     )
 
 
-def get_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
+def get_terraform_lock(*, team_id: int) -> contracts.TerraformLock:
     config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
     has_account = config is not None and config.managed_by_id is not None
     managed = has_account and config.is_managed_by_terraform
-    return contracts.TerraformManagement(
+    return contracts.TerraformLock(
         managed=managed,
         managed_at=config.managed_at if managed else None,
         has_terraform_account=has_account,
     )
 
 
-def mark_terraform_managed(*, team_id: int, user_id: int) -> None:
-    """Record the user behind the Terraform API key that just wrote this project's access rules and
-    turn the lock on. A second Terraform account takes over, so that a rotated service account keeps
-    working."""
+def set_terraform_lock(*, team_id: int, enabled: bool, terraform_user_id: int | None = None) -> contracts.TerraformLock:
+    """Enable or disable the lock.
+
+    With terraform_user_id, a Terraform write made the call. The owner of that API key becomes the
+    Terraform account of the project, and the lock is enabled. A different account replaces the
+    stored one, so a rotated service account continues to work.
+
+    Without terraform_user_id, an admin made the call. Disable keeps the account. Enable uses the
+    stored account. Enable with no stored account raises NoTerraformAccountError."""
     team = get_object_or_404(Team, id=team_id)
-    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).first()
-    if membership is None:
-        return
     config = get_or_create_team_extension(team, TeamAccessControlConfig)
-    if config.managed_by_id == membership.id and config.is_managed_by_terraform:
-        return
-    if config.managed_by_id != membership.id:
-        config.managed_by = membership
-        config.managed_at = timezone.now()
-    config.is_managed_by_terraform = True
-    config.save(update_fields=["managed_by", "managed_at", "is_managed_by_terraform"])
-
-
-def set_terraform_lock(*, team_id: int, enabled: bool) -> contracts.TerraformManagement:
-    """Turn the lock off or on. Off keeps the Terraform account, so that the lock can be turned on
-    again. The next Terraform write turns it on in any case."""
-    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
-    if enabled and (config is None or config.managed_by_id is None):
+    if terraform_user_id is not None:
+        membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user_id=terraform_user_id
+        ).first()
+        if membership is not None and config.managed_by_id != membership.id:
+            config.managed_by = membership
+            config.managed_at = timezone.now()
+    if enabled and config.managed_by_id is None:
         raise NoTerraformAccountError()
-    if config is not None:
-        config.is_managed_by_terraform = enabled
-        config.save(update_fields=["is_managed_by_terraform"])
-    return get_terraform_management(team_id=team_id)
+    config.is_managed_by_terraform = enabled
+    config.save(update_fields=["managed_by", "managed_at", "is_managed_by_terraform"])
+    return get_terraform_lock(team_id=team_id)
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

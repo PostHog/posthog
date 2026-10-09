@@ -259,8 +259,8 @@ TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Ter
 
 
 def is_terraform_request(request: Request) -> bool:
-    """A request from the Terraform provider, authenticated with a personal API key, whose owner is the
-    Terraform account. A session never counts, so nothing done in the browser marks a project."""
+    """True for a request from the Terraform provider with personal API key authentication. A session
+    request is never a Terraform request, so a browser cannot mark a project."""
     return (
         isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
         and get_event_source(request) == EventSource.TERRAFORM
@@ -284,8 +284,8 @@ def apply_access_control_rule(
 
     user = cast(User, request.user)
     terraform_request = is_terraform_request(request)
-    # Every rule write goes through here. When Terraform manages the project, only its account may
-    # write, and a write from Terraform itself marks the project for the account behind its API key.
+    # All rule writes go through this function. When the lock is enabled, only the Terraform account
+    # can write. A write from Terraform enables the lock and sets the Terraform account.
     if not terraform_request and not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
@@ -304,7 +304,7 @@ def apply_access_control_rule(
         # Drop the preloaded access-control snapshot so later reads this request are fresh.
         user_access_control._clear_cache()
         if terraform_request:
-            access_control_api.mark_terraform_managed(team_id=team.id, user_id=user.id)
+            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
         return None
 
     if instance:
@@ -315,7 +315,7 @@ def apply_access_control_rule(
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
     if terraform_request:
-        access_control_api.mark_terraform_managed(team_id=team.id, user_id=user.id)
+        access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
 
     return rule
 

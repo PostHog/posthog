@@ -3112,7 +3112,7 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
 TERRAFORM_USER_AGENT = "posthog/terraform-provider; version: 1.0.24"
 
 
-class TestAccessControlTerraformManagementAPI(BaseAccessControlTest):
+class TestAccessControlTerraformLockAPI(BaseAccessControlTest):
     def setUp(self):
         super().setUp()
         self._org_membership(OrganizationMembership.Level.ADMIN)
