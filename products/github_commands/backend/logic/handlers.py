@@ -29,7 +29,8 @@ from .commands import CommandContext, CommandOutcome
 
 logger = structlog.get_logger(__name__)
 
-REVIEW_MODES = {"": review_hog_facade.RUN_MODE_REVIEW, "flash": review_hog_facade.RUN_MODE_FLASH}
+# Flash is the quick, cheap review, so it is what a plain `@posthog review` asks for.
+REVIEW_MODES = {"": review_hog_facade.RUN_MODE_FLASH, "full": review_hog_facade.RUN_MODE_REVIEW}
 
 
 def handle_stamp(context: CommandContext) -> CommandOutcome:
@@ -63,7 +64,7 @@ def handle_review(context: CommandContext) -> CommandOutcome:
     """Start a PostHog Review run on the pull request, with the commenter as the acting user."""
     run_mode = REVIEW_MODES.get(context.request.argument.lower())
     if run_mode is None:
-        return CommandOutcome(accepted=False, message="Use `@posthog review` or `@posthog review flash`.")
+        return CommandOutcome(accepted=False, message="Use `@posthog review` or `@posthog review full`.")
     pull_request = context.pull_request
     outcome = review_hog_facade.request_pr_review(
         team_id=context.team_ids[0],

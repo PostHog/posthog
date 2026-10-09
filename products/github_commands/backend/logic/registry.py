@@ -19,8 +19,8 @@ COMMANDS: Mapping[str, CommandSpec] = {
     for spec in (
         CommandSpec(
             verb="review",
-            summary="Start a PostHog Review of this pull request. Add `flash` for a quicker review.",
-            usage="@posthog review [flash]",
+            summary="Start a Flash review of this pull request. Add `full` for the full review.",
+            usage="@posthog review [full]",
             handler=handle_review,
             accepts_argument=True,
         ),

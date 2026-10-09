@@ -13,13 +13,13 @@ People with write access to a repository can ask PostHog to do something on a pu
 Each command dispatches into the product that owns the work.
 This product owns the parsing, the checks and the replies, and owns no work of its own.
 
-| Command                   | Dispatches to                                  | What happens                                                                                |
-| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `@posthog review [flash]` | PostHog Review (`review_hog` facade `reviews`) | Starts a review with the commenter as the acting user. It never pushes fixes to the branch. |
-| `@posthog stamp`          | Stamphog (`stamphog` facade `review_requests`) | Queues a Stamphog review. Stamphog alone decides whether to approve.                        |
-| `@posthog qa [focus]`     | PostHog Code (`tasks` facade `api`)            | Starts a task that runs the `qa-frontend` skill on the pull request head.                   |
-| `@posthog loop <name>`    | Loops (`tasks` facade `loops`)                 | Fires one of the commenter's own loops, with the pull request as its input.                 |
-| `@posthog help`           | none                                           | Lists the commands.                                                                         |
+| Command                  | Dispatches to                                  | What happens                                                                                                                       |
+| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `@posthog review [full]` | PostHog Review (`review_hog` facade `reviews`) | Starts a Flash review, or the full review with `full`, with the commenter as the acting user. It never pushes fixes to the branch. |
+| `@posthog stamp`         | Stamphog (`stamphog` facade `review_requests`) | Queues a Stamphog review. Stamphog alone decides whether to approve.                                                               |
+| `@posthog qa [focus]`    | PostHog Code (`tasks` facade `api`)            | Starts a task that runs the `qa-frontend` skill on the pull request head.                                                          |
+| `@posthog loop <name>`   | Loops (`tasks` facade `loops`)                 | Fires one of the commenter's own loops, with the pull request as its input.                                                        |
+| `@posthog help`          | none                                           | Lists the commands.                                                                                                                |
 
 ## How a comment becomes a command
 
