@@ -19,6 +19,8 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | `autoresearchPipelineLogic.ts`  | Detail logic. Also maps the old `?tab=` keys to the four tabs, so saved links still open.                                                    |
 | `pipelineLifecycle.ts`          | The five lifecycle steps (question set to checked against reality) and which one is current.                                                 |
 | `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, AUC change per experiment, log groups and the latest agent notes.  |
+| `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the headline, the realized AUC series, predicted against actual by segment.     |
+| `predictionSegments.ts`         | The likelihood segment thresholds (Likely, Possible, Unlikely). The Predictions and Accuracy tabs share them.                                |
 | `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                                   |
 | `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                                  |
 | `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                         |
