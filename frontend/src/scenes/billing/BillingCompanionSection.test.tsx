@@ -62,7 +62,7 @@ const seedBilling = async (products: BillingProductV2Type[], overrides: Partial<
 const renderSection = (product: BillingProductV2Type): void => {
     render(
         <Provider>
-            <BillingCompanionSection product={product} />
+            <BillingCompanionSection product={product} cardShowsBillingLimit cardShowsProjection />
         </Provider>
     )
 }
@@ -100,7 +100,7 @@ describe('BillingCompanionSection', () => {
         await seedBilling([logs, customRetention({ subscribed: false, onCurrentPlan: false })])
         const { container } = render(
             <Provider>
-                <BillingCompanionSection product={logs} />
+                <BillingCompanionSection product={logs} cardShowsBillingLimit cardShowsProjection />
             </Provider>
         )
 
@@ -111,7 +111,7 @@ describe('BillingCompanionSection', () => {
         await seedBilling([logs, limitedCompanion])
         const { container } = render(
             <Provider>
-                <BillingCompanionSection product={logs} />
+                <BillingCompanionSection product={logs} cardShowsBillingLimit cardShowsProjection />
             </Provider>
         )
 
@@ -212,6 +212,39 @@ describe('BillingCompanionSection', () => {
         expect(screen.getByTestId('billing-companions-total-product_analytics')).toHaveTextContent(
             'Total including this section: $47.34 month-to-date, $891.18 projected'
         )
+    })
+
+    it('drops the limit sentence when the card hides its billing limit for a temporary free product', async () => {
+        const freeLogs: BillingProductV2Type = { ...logs, addons: [], tiers: [{ ...replay.tiers![0], up_to: null }] }
+        await seedBilling([freeLogs, customRetention()])
+        render(
+            <Provider>
+                <BillingProduct product={freeLogs} />
+            </Provider>
+        )
+
+        expect(screen.getByText('included with your plan')).toBeInTheDocument()
+        expect(screen.queryByTestId('billing-limit-input-wrapper-logs')).not.toBeInTheDocument()
+        expect(screen.getByText('Not covered by your billing limit')).toBeInTheDocument()
+        expect(screen.getByTestId('billing-companion-logs_retention_custom')).toHaveTextContent('$12.50Month-to-date')
+        expect(screen.queryByText(/billing limit does not cap these charges/)).not.toBeInTheDocument()
+        expect(screen.queryByTestId('billing-companions-total-logs')).not.toBeInTheDocument()
+    })
+
+    it('drops the total line when the card shows a flat price instead of month-to-date and projected', async () => {
+        const flatLogs: BillingProductV2Type = { ...logs, addons: [], tiered: false, tiers: null }
+        await seedBilling([flatLogs, customRetention()])
+        render(
+            <Provider>
+                <BillingProduct product={flatLogs} />
+            </Provider>
+        )
+
+        const card = screen.getByTestId('billing-product-logs')
+        expect(within(card).getByText('$100.00')).toBeInTheDocument()
+        expect(within(card).getByText('per month')).toBeInTheDocument()
+        expect(screen.getByTestId('billing-companion-logs_retention_custom')).toHaveTextContent('$12.50Month-to-date')
+        expect(screen.queryByTestId('billing-companions-total-logs')).not.toBeInTheDocument()
     })
 
     it('sits on the parent card after the billing limit', async () => {

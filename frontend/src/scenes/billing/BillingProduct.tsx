@@ -589,7 +589,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 )}
 
-                <BillingCompanionSection product={product} />
+                <BillingCompanionSection
+                    product={product}
+                    cardShowsBillingLimit={!isTemporaryFreeProduct}
+                    // Same branches as the header: the variants' combined amounts or the usage-priced (tiered) layout.
+                    cardShowsProjection={isProductWithVariants || (!isTemporaryFreeProduct && product.tiered)}
+                />
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />

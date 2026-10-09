@@ -16,7 +16,16 @@ import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 
 // Companions bill under the parent card but outside its billing limit, so the card's own amounts leave them out.
-export const BillingCompanionSection = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+// The parent card says whether its layout has the limit block and a projected amount, so the section mentions only those.
+export const BillingCompanionSection = ({
+    product,
+    cardShowsBillingLimit,
+    cardShowsProjection,
+}: {
+    product: BillingProductV2Type
+    cardShowsBillingLimit: boolean
+    cardShowsProjection: boolean
+}): JSX.Element | null => {
     const { billing, isUnlicensedDebug } = useValues(billingLogic)
     const { noLimitCompanionAmounts, totalsIncludingCompanions, variantExpandedStates } = useValues(
         billingProductLogic({ product })
@@ -32,7 +41,7 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
     return (
         <div className="border-t border-primary px-8 py-4" data-attr={`billing-companions-${product.type}`}>
             <h4 className="mb-0">Not covered by your billing limit</h4>
-            {isBillingLimitShown(product, billing) && (
+            {cardShowsBillingLimit && isBillingLimitShown(product, billing) && (
                 <p className="text-sm text-secondary mb-0">
                     Your {billingProductDisplayName(product)} billing limit does not cap these charges.
                 </p>
@@ -76,7 +85,7 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
                     )
                 })}
             </div>
-            {product.subscribed && (
+            {product.subscribed && cardShowsProjection && (
                 <p className="text-sm mt-4 mb-0" data-attr={`billing-companions-total-${product.type}`}>
                     <span>Total including this section:&nbsp;</span>
                     <span translate="no">{humanFriendlyCurrency(totalsIncludingCompanions.currentTotal)}</span>
