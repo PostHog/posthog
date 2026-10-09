@@ -1,25 +1,12 @@
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
-import { useService } from "@posthog/di/react";
-import { LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
-import {
-  FEATURE_FLAGS,
-  type FeatureFlags,
-} from "@posthog/ui/features/feature-flags/identifiers";
-import {
-  resolveFeatureFlagAfterLoad,
-  useFeatureFlagsLoaded,
-} from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
-import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  buildLoopBuilderSystemInstructions,
-  type LoopBuilderBackend,
-} from "../loopBuilderPrompt";
+import { useCallback, useMemo, useRef } from "react";
+import { buildLoopBuilderSystemInstructions } from "../loopBuilderPrompt";
 import { useLoopBuilderSessionStore } from "../loopBuilderSessionStore";
 
 interface UseLoopBuilderTaskReturn {
@@ -32,8 +19,7 @@ interface UseLoopBuilderTaskReturn {
 /**
  * The loops prompt box: start a cloud sandbox agent whose job is to build a Loop
  * with the user (ask clarifying questions, confirm, then create it through the
- * PostHog MCP: `loops-create`, or the `workflows-*` tools when loops are
- * workflow-backed). Mirrors `useScoutChatTask`: a repo-less, auto-mode cloud
+ * PostHog MCP `workflows-*` tools). Mirrors `useScoutChatTask`: a repo-less, auto-mode cloud
  * task seeded with a canned instruction prompt. The user's typed text rides in
  * through a ref so the fixed `buildInput` closure reads the latest submission.
  */
@@ -44,11 +30,6 @@ export function useLoopBuilderTask(context?: {
   const instructionsRef = useRef("");
   const contextRef = useRef(context);
   contextRef.current = context;
-  // Resolved per submit, after flags load: a submit on a cold identity must
-  // not seed the legacy briefing while the Loops screens read workflows.
-  const featureFlags = useService<FeatureFlags>(FEATURE_FLAGS);
-  const featureFlagsLoaded = useFeatureFlagsLoaded();
-  const backendRef = useRef<LoopBuilderBackend>("loops");
 
   const buildInput = useCallback(
     (ctx: InboxCloudTaskInputContext): TaskCreationInput => {
@@ -57,7 +38,6 @@ export function useLoopBuilderTask(context?: {
       const systemInstructions = buildLoopBuilderSystemInstructions({
         hasSeed,
         context: contextRef.current,
-        backend: backendRef.current,
       });
       // createTask rejects empty content and the saga drops customInstructions without message text
       const taskContent = hasSeed ? userPrompt : "Build a loop";
@@ -70,7 +50,7 @@ export function useLoopBuilderTask(context?: {
           : "Loop builder",
         customInstructions: systemInstructions,
         // Building a loop is pure PostHog-MCP work (listing, then creating the
-        // loop or workflow); it never touches a working tree. Run repo-less so the
+        // workflow); it never touches a working tree. Run repo-less so the
         // sandbox skips the clone and isn't tied to some arbitrary default repo.
         repository: undefined,
         githubUserIntegrationId: undefined,
@@ -119,33 +99,13 @@ export function useLoopBuilderTask(context?: {
     onTaskCreated: handleTaskCreated,
   });
 
-  // The runner only closes its own door once it starts, which is after the flag
-  // await below. The ref holds submits that arrive in the same tick, before a
-  // render can disable the composer; the state is what disables it.
-  const startingRef = useRef(false);
-  const [isStarting, setIsStarting] = useState(false);
-
   const runTask = useCallback(
     async (instructions: string) => {
-      if (startingRef.current) return;
-      startingRef.current = true;
-      setIsStarting(true);
-      try {
-        instructionsRef.current = instructions;
-        const workflowBacked = await resolveFeatureFlagAfterLoad(
-          featureFlags,
-          LOOPS_HOG_FLOWS_FLAG,
-          featureFlagsLoaded,
-        );
-        backendRef.current = workflowBacked ? "workflow" : "loops";
-        await run();
-      } finally {
-        startingRef.current = false;
-        setIsStarting(false);
-      }
+      instructionsRef.current = instructions;
+      await run();
     },
-    [run, featureFlags, featureFlagsLoaded],
+    [run],
   );
 
-  return { runTask, isRunning: isStarting || isRunning };
+  return { runTask, isRunning };
 }
