@@ -5,6 +5,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 """
 
 import time
+import random
 import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
@@ -43,7 +44,8 @@ from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.metric_resolution import build_metric, resolve_scheduled_metrics
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import (
-    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
@@ -428,6 +430,10 @@ def _estimated_retry_delay_seconds(attempt: int) -> float:
     )
 
 
+def _concurrency_limit_retry_delay_seconds() -> float:
+    return random.uniform(CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS, CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS)
+
+
 _RETRY_SAFE_MESSAGES: dict[str, str] = {
     "rate_limited": "The query was deferred because the cluster is at capacity.",
     "timeout": "The query timed out.",
@@ -792,6 +798,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
             if is_final_attempt:
                 record_terminal_error(message, classify_experiment_query_error(e), retriable=True)
             logger.warning(
@@ -813,7 +820,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     attempt,
                     error_type,
                     safe_message,
-                    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                    retry_delay_seconds,
                 )
                 _capture_experiment_metric_event(
                     experiment,
@@ -827,14 +834,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_message": safe_message,
                         "attempt": attempt,
                         "max_attempts": MAX_METRIC_ATTEMPTS,
-                        "next_retry_delay_seconds": CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                        "next_retry_delay_seconds": round(retry_delay_seconds, 1),
                     },
                     trigger=state.trigger,
                 )
             raise ApplicationError(
                 message,
                 type=type(e).__name__,
-                next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
+                next_retry_delay=timedelta(seconds=retry_delay_seconds),
             ) from e
 
         except Exception as e:

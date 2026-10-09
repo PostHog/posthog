@@ -45,12 +45,15 @@ class TrialEvaluationSnapshot(EvaluationDocument):
     request: TrialEvaluationRequest
     request_hash: str
     rubric_document: dict[str, JsonValue]
-    rubric_reference_context: ScoutRubricReferenceContext
     rubric_reference_generation_id: str
     criteria: list[TrialEvaluationCriterion]
     judge_model: str
     judge_prompt_version: str
     runs: list[TrialRunEvidence]
+
+    @property
+    def rubric_reference_context(self) -> ScoutRubricReferenceContext:
+        return ScoutRubricReferenceContext.model_validate(self.rubric_document["reference_context"])
 
 
 class TrialCriterionAggregate(EvaluationDocument):

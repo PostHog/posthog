@@ -219,7 +219,7 @@ def test_run_test_step_rejects_destination_type_change(
     }
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.get_destination_test"
+        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
     ) as mock_get_destination_test:
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
@@ -404,7 +404,7 @@ def test_can_run_databricks_test_step_for_new_destination(
     client.force_login(user)
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.get_destination_test"
+        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
     ) as mock_get_destination_test:
         test_step = DatabricksEstablishConnectionTestStep()
         test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)

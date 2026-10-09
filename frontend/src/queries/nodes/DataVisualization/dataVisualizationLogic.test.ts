@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { queryExportContext } from '~/queries/query'
+import { ConditionalFormattingRule, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import {
@@ -15,7 +19,7 @@ import {
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
 
-const defaultQuery: DataVisualizationNode = {
+const defaultQuery: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -50,6 +54,41 @@ describe('dataVisualizationLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    test.each([
+        [true, 0, false],
+        [true, 99, false],
+        [true, 100, false],
+        [true, 101, true],
+        [false, 101, false],
+    ])('caps BI=%s results with %i rows before building chart series', (bi, rowCount, hasMore) => {
+        logic.unmount()
+        const config = { ...DEFAULT_BI_CONFIG, source: { table: 'events' }, limit: 100 as const }
+        const source = buildBIQuery(config)!.node.source
+        const query: VisualizationNode = bi
+            ? { kind: NodeKind.BIVisualizationNode, config, source, display: ChartDisplayType.ActionsBar }
+            : { ...defaultQuery, source, display: ChartDisplayType.ActionsBar }
+        const response = {
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'Int64'],
+            ],
+            results: Array.from({ length: rowCount }, (_, index) => [`row-${index}`, index]),
+        }
+        logic = dataVisualizationLogic({ key: testKey, query, dataNodeCollectionId, cachedResults: response })
+        logic.mount()
+
+        const expectedRows = bi ? Math.min(rowCount, 100) : rowCount
+        expect(logic.values.response).toMatchObject({ results: response.results.slice(0, expectedRows) })
+        expect(logic.values.xData?.data).toHaveLength(expectedRows)
+        expect(logic.values.yData?.[0].data).toHaveLength(expectedRows)
+        expect(logic.values.hasMoreData).toBe(hasMore)
+        expect(getBIVisualizationSource(query).query).toMatch(new RegExp(`LIMIT ${bi ? 101 : 100}$`))
+        expect(query.source.query).toMatch(/LIMIT 100$/)
+        expect(queryExportContext(query)).toMatchObject({ source: { query: source.query } })
+        expect(response.results).toHaveLength(rowCount)
     })
 
     test.each([
@@ -514,6 +553,56 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsProportionBar, ChartDisplayType.ActionsPie])(
+        'gives a numeric x-axis back to the values when %s draws one part per column',
+        async (displayType) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['signups', 'logins', 'purchases'],
+                types: [
+                    ['signups', 'Int64'],
+                    ['logins', 'Int64'],
+                    ['purchases', 'Int64'],
+                ],
+                results: [[1, 2, 3]],
+            })
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+            await expectLogic(logic).toMatchValues({ selectedXAxis: 'signups' })
+
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                selectedXAxis: null,
+                selectedYAxis: [
+                    expect.objectContaining({ name: 'signups' }),
+                    expect.objectContaining({ name: 'logins' }),
+                    expect.objectContaining({ name: 'purchases' }),
+                ],
+            })
+        }
+    )
+
+    it('keeps the x-axis a series breakdown needs when a part-of-whole chart is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['week', 'signups', 'logins', 'country'],
+            types: [
+                ['week', 'Int64'],
+                ['signups', 'Int64'],
+                ['logins', 'Int64'],
+                ['country', 'String'],
+            ],
+            results: [[1, 2, 3, 'US']],
+        })
+        logic.actions.updateChartSettings({
+            xAxis: { column: 'week' },
+            yAxis: [{ column: 'signups' }, { column: 'logins' }],
+            seriesBreakdownColumn: 'country',
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsProportionBar)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'week' })
+    })
+
     it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],
@@ -729,7 +818,7 @@ describe('dataVisualizationLogic', () => {
     })
 
     it('does not mutate the original query when updating y-axis formatting', async () => {
-        const queryWithAxisSettings: DataVisualizationNode = {
+        const queryWithAxisSettings: VisualizationNode = {
             ...defaultQuery,
             chartSettings: {
                 yAxis: [
@@ -840,6 +929,13 @@ describe('dataVisualizationLogic', () => {
     })
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'pads currency decimal places',
+            12.5,
+            { formatting: { style: 'number', prefix: '$', decimalPlaces: 2 } },
+            '$12.50',
+        ],
+        ['pads percentage decimal places', 25, { formatting: { style: 'percent', decimalPlaces: 1 } }, '25.0%'],
         [
             'formats zero decimal places under the none style',
             42.195,

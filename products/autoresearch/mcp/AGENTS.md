@@ -10,7 +10,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
   The whole surface: 24 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /autoresearch`. The family must stay at or below 25 tools: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
   Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`, plus every extra scope the endpoint's `required_scopes` names, such as `query:read`: MCP hides a tool whose scopes the key lacks), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
-Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
+Tools are opt-in: `pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product autoresearch` lists the operations without an entry, and `--add <operationId>` adds one. A disabled entry needs a `disabled_reason`, or sync removes it. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
 
 ## The two tool families
 

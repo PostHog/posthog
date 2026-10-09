@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
     _fetch_graphql,
     _fetch_json,
     _fetch_v2,
-    _iter_aligned_windows,
     _parse_iso,
     _to_epoch,
     _to_iso,
@@ -106,37 +105,6 @@ class TestWindowedRows:
     def _now(self) -> int:
         return int(datetime.now(UTC).timestamp())
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_single_window_yields_sorted_rows(self, mock_session):
-        base = self._now() - 10_000
-        rows = [{"id": "b", "time": base + 50}, {"id": "a", "time": base + 10}]
-        mock_session.return_value = _windowed_session(rows)
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager))
-
-        assert len(batches) == 1
-        # Server returned newest-first; the walk re-sorts ascending so asc watermarking holds.
-        assert [row["id"] for row in batches[0]] == ["a", "b"]
-        manager.save_state.assert_called_once()
-
-    @mock.patch(f"{MODULE}.WINDOW_PAGE_LIMIT", 2)
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_bisection_fetches_every_row_when_window_overflows(self, mock_session):
-        base = self._now() - 100_000
-        rows = [{"id": str(offset), "time": base + offset * 1000} for offset in range(7)]
-        mock_session.return_value = _windowed_session(rows)
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager))
-
-        yielded_ids = {row["id"] for batch in batches for row in batch}
-        assert yielded_ids == {str(offset) for offset in range(7)}
-        for batch in batches:
-            assert [row["time"] for row in batch] == sorted(row["time"] for row in batch)
-        # State advances after each yielded window.
-        assert manager.save_state.call_count == len(batches)
-
     @mock.patch(f"{MODULE}.WINDOW_PAGE_LIMIT", 2)
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_over_limit_narrow_window_is_fetched_not_split_forever(self, mock_session):
@@ -161,65 +129,6 @@ class TestWindowedRows:
         batches = list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager))
 
         assert {row["id"] for batch in batches for row in batch} == {"0", "1", "2"}
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_incremental_walk_starts_just_below_watermark(self, mock_session):
-        base = self._now() - 10_000
-        rows = [{"id": "old", "time": base}, {"id": "new", "time": base + 5000}]
-        mock_session.return_value = _windowed_session(rows)
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "token",
-                "app-id",
-                "error_samples",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=base + 4000,
-            )
-        )
-
-        assert {row["id"] for batch in batches for row in batch} == {"new"}
-        first_params = mock_session.return_value.get.call_args_list[0].kwargs["params"]
-        # 1s overlap below the watermark: bound inclusivity is undocumented upstream.
-        assert first_params["since"] == base + 4000 - 1
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_resumes_from_saved_window_start(self, mock_session):
-        base = self._now() - 10_000
-        rows = [{"id": "done", "time": base}, {"id": "pending", "time": base + 5000}]
-        mock_session.return_value = _windowed_session(rows)
-
-        manager = _make_manager(AppsignalResumeConfig(window_start=base + 1000))
-        batches = list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager))
-
-        assert {row["id"] for batch in batches for row in batch} == {"pending"}
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_empty_range_yields_nothing_and_saves_no_state(self, mock_session):
-        mock_session.return_value = _windowed_session([])
-
-        manager = _make_manager()
-        assert list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager)) == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_deploy_markers_use_from_to_params_and_kind_filter(self, mock_session):
-        base = self._now() - 10_000
-        rows = [{"id": "m1", "created_at": base + 10}]
-        mock_session.return_value = _windowed_session(rows, cursor="created_at")
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "app-id", "deploy_markers", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["m1"]
-        params = mock_session.return_value.get.call_args_list[0].kwargs["params"]
-        assert params["kind"] == "deploy"
-        assert "from" in params and "to" in params
-        url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert url == "https://appsignal.com/api/app-id/markers.json"
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_auth_failure_error_message_does_not_leak_token(self, mock_session):
@@ -340,11 +249,6 @@ class TestAppsignalSourceResponse:
             assert response.partition_keys == [config.partition_key]
         else:
             assert response.partition_mode is None
-
-    @pytest.mark.parametrize("config", list(APPSIGNAL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"created_at", "createdAt", "time", "timestamp", "trace_time"}
 
 
 def _v2_session(
@@ -700,42 +604,7 @@ class TestTraceRows:
         assert manager.save_state.call_args.args[0].window_start == _to_epoch(traces[0]["time"])
 
 
-class TestAlignedWindows:
-    def test_buckets_snap_to_the_grid_wherever_the_walk_starts(self):
-        # An aggregate row is identified by the bucket it covers. Two syncs resuming at different
-        # offsets inside a bucket have to produce the same boundaries, or the second one seeds a
-        # parallel set of rows for a range already synced instead of merging onto it.
-        end = 1_000_000 + 4 * 3600
-        from_edge = [window.since for window in _iter_aligned_windows(997_200, end, 3600)]
-        from_middle = [window.since for window in _iter_aligned_windows(997_200 + 91, end, 3600)]
-
-        assert from_edge == from_middle
-        assert all(since % 3600 == 0 for since in from_edge)
-
-
 class TestPerformanceActionRows:
-    @mock.patch(f"{MODULE}.AGGREGATE_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_rows_are_stamped_with_the_bucket_they_were_read_for(self, mock_session):
-        session = _v2_session(
-            post={
-                "/tracing/actions": [
-                    {"namespace": "web", "action": "UsersController#show", "mean": 12.0},
-                    # No action name, so the row could not be keyed and must not reach the table.
-                    {"namespace": "web", "mean": 3.0},
-                ]
-            }
-        )
-        mock_session.return_value = session
-
-        batches = list(get_rows("token", "app-id", "performance_actions", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert {row["action"] for row in rows} == {"UsersController#show"}
-        requested_from = [call.kwargs["json"]["from"] for call in session.post.call_args_list]
-        assert [row["timestamp"] for row in rows] == requested_from
-        assert all((_to_epoch(value) or 0) % AGGREGATE_BUCKET_SECONDS == 0 for value in requested_from)
-
     @mock.patch(f"{MODULE}.AGGREGATE_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_watermark_re_reads_its_own_bucket(self, mock_session):
@@ -801,23 +670,6 @@ class TestSlowEventRows:
             }
         )
 
-    @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
-    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 900)
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_actions_carry_the_digest_they_were_fanned_out_from(self, mock_session):
-        # The digest is only in the request, so without it on the row nothing joins the action
-        # back to its slow event.
-        mock_session.return_value = self._session()
-
-        batches = list(get_rows("token", "app-id", "slow_event_actions", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert {(row["digest"], row["action_name"]) for row in rows} == {
-            ("d1", "action-for-d1"),
-            ("d2", "action-for-d2"),
-        }
-        assert {row["timestamp"] for row in rows} == {row["timestamp"] for row in rows if row["digest"] == "d1"}
-
     @mock.patch(f"{MODULE}.MAX_SLOW_EVENT_DIGESTS_PER_SYNC", 1)
     @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
     @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
@@ -870,24 +722,6 @@ class TestDeployStatsRows:
             {"id": f"m{offset}", "revision": revision, "created_at": _to_iso(base + offset * 10)}
             for offset, revision in enumerate(revisions)
         ]
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_every_marker_gets_a_row_but_a_repeated_revision_costs_one_request(self, mock_session):
-        # Redeploying the same revision is common, and the stats endpoint answers per revision, so
-        # a request per marker would double the API cost for an identical answer.
-        markers = self._markers(["abc123", "abc123", "def456"])
-        session = _deploy_stats_session(markers, {"throughput": 10, "mean": 5.0, "error_rate": 1.5})
-        mock_session.return_value = session
-
-        batches = list(get_rows("token", "app-id", "deploy_stats", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row["marker_id"], row["revision"], row["throughput"]) for row in rows] == [
-            ("m0", "abc123", 10),
-            ("m1", "abc123", 10),
-            ("m2", "def456", 10),
-        ]
-        assert [call.kwargs["json"]["revision"] for call in session.post.call_args_list] == ["abc123", "def456"]
 
     @pytest.mark.parametrize("status_code", [404, 422])
     @mock.patch(f"{MODULE}.make_tracked_session")

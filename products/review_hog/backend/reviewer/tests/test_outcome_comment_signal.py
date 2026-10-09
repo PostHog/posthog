@@ -2,7 +2,10 @@ from typing import Any
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 
@@ -21,24 +24,34 @@ def _finding(title: str = "Off-by-one", file: str = "f.py") -> ReviewIssueFindin
 
 
 class TestFindFindingComment:
-    def test_matches_by_path_and_title_heading(self):
-        # ReviewHog's comment body leads with "### {title}"; matching on that + path is how a finding
-        # maps to its posted comment without a stored id, and it must survive extra body content.
-        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": "### Off-by-one\n\n![badge](x)"}]
+    @parameterized.expand(
+        [
+            ("p_level_heading", "**P1 · Off-by-one**\n\nloop runs one short"),
+            ("p_level_heading_other_level", "**P3 · Off-by-one**"),
+            ("old_heading", "### Off-by-one\n\n**Must fix** · bug"),
+            ("old_flash_banner", f"{LEGACY_FLASH_MODE_MESSAGE_PREFIX}### Off-by-one\n\n![badge](x)"),
+        ]
+    )
+    def test_matches_by_path_and_title_heading(self, _name: str, body: str):
+        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": body}]
         assert find_finding_comment(finding=_finding(), review_comments=comments) == comments[0]
 
     def test_no_match_on_different_path(self):
-        comments: list[dict[str, Any]] = [{"id": 1, "path": "other.py", "body": "### Off-by-one"}]
+        comments: list[dict[str, Any]] = [{"id": 1, "path": "other.py", "body": "**P1 · Off-by-one**"}]
         assert find_finding_comment(finding=_finding(), review_comments=comments) is None
 
-    def test_no_match_on_different_title(self):
-        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": "### Something else"}]
-        assert find_finding_comment(finding=_finding(), review_comments=comments) is None
-
-    def test_no_match_when_title_is_a_prefix_of_the_heading(self):
-        # "Off-by-one" must not claim the comment for "Off-by-one in pagination" — a prefix match
-        # would attribute one thread's engagement to a different finding.
-        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": "### Off-by-one in pagination\n\nbody"}]
+    @parameterized.expand(
+        [
+            ("different_title", "**P1 · Something else**"),
+            # "Off-by-one" must not claim the comment for "Off-by-one in pagination", because a prefix
+            # match would attribute one thread's engagement to a different finding.
+            ("title_is_a_prefix", "**P1 · Off-by-one in pagination**\n\nbody"),
+            ("title_is_a_prefix_old_heading", "### Off-by-one in pagination\n\nbody"),
+            ("level_outside_p0_to_p3", "**P4 · Off-by-one**"),
+        ]
+    )
+    def test_no_match_unless_the_whole_first_line_is_the_heading(self, _name: str, body: str):
+        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": body}]
         assert find_finding_comment(finding=_finding(), review_comments=comments) is None
 
 

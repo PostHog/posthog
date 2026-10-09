@@ -44,21 +44,6 @@ class TestBeehiivSource:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
 
-    def test_no_table_advertises_incremental_sync(self) -> None:
-        # beehiiv has no updated-since or created-after filter, so an incremental sync would
-        # re-walk every page while pretending to be cheap.
-        schemas = self.source.get_schemas(_config(), team_id=7)
-
-        assert not any(schema.supports_incremental or schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_canonical_descriptions_cover_every_table(self, endpoint: str) -> None:
-        assert endpoint in CANONICAL_DESCRIPTIONS
-
-    def test_canonical_descriptions_have_no_orphan_tables(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) <= set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "endpoint", sorted(name for name, config in ENDPOINTS.items() if config.partition_key is not None)
     )

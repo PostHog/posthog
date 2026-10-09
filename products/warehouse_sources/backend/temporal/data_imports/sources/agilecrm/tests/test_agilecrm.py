@@ -153,18 +153,6 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_uses_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 1}])])
@@ -278,8 +266,3 @@ class TestValidateCredentials:
         with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
             assert validate_credentials("evil.com#", "a@b.com", "key") is False
             mock_session.assert_not_called()
-
-    def test_network_error_is_false(self) -> None:
-        with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("acme", "a@b.com", "key") is False

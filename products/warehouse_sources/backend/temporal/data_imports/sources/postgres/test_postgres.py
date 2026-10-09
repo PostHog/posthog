@@ -3,7 +3,7 @@ import errno
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
@@ -55,6 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    CLIENT_DEADLINE_ERROR,
+    ClientDeadlineExceededError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     XminUnsupportedError,
@@ -80,12 +84,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
     _SSH_HANDSHAKE_EOF_ERROR,
+    _STREAM_SERVER_CURSOR,
+    _TCP_LIVENESS_KWARGS,
+    EXPLAIN_CLIENT_DEADLINE_SECONDS,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     MIN_SIZE_SAMPLE_PERCENT,
     SIZE_SAMPLE_MAX_ROWS,
     SIZE_SAMPLE_TARGET_ROWS,
     SSL_REQUIRED_AFTER_DATE,
+    UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
     NetworkAsStringLoader,
@@ -3531,8 +3539,8 @@ class TestServerCursorStatementTimeout:
     """
 
     class _Cursor:
-        def __init__(self, raise_on_fetch: bool):
-            self._raise_on_fetch = raise_on_fetch
+        def __init__(self, fetch_error: BaseException | None):
+            self._fetch_error = fetch_error
             col = mock.Mock()
             col.name = "id"
             self.description = [col]
@@ -3541,8 +3549,8 @@ class TestServerCursorStatementTimeout:
             return None
 
         def fetchmany(self, _n: int):
-            if self._raise_on_fetch:
-                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+            if self._fetch_error is not None:
+                raise self._fetch_error
             return []
 
         def __enter__(self):
@@ -3552,7 +3560,8 @@ class TestServerCursorStatementTimeout:
             return False
 
     class _Connection:
-        def __init__(self):
+        def __init__(self, fetch_error: BaseException):
+            self._fetch_error = fetch_error
             self.autocommit = False
             self.closed = False
             # Real psycopg connections expose `broken`; the setup path probes it via
@@ -3563,7 +3572,7 @@ class TestServerCursorStatementTimeout:
         def cursor(self, *args, **kwargs):
             # A named cursor (`name=...`) is the streaming server cursor that must
             # raise the timeout; the unnamed setup cursor stays benign.
-            return TestServerCursorStatementTimeout._Cursor(raise_on_fetch="name" in kwargs)
+            return TestServerCursorStatementTimeout._Cursor(self._fetch_error if "name" in kwargs else None)
 
         def commit(self):
             return None
@@ -3577,7 +3586,7 @@ class TestServerCursorStatementTimeout:
         def __exit__(self, *args):
             return False
 
-    def _run(self, *, should_use_incremental_field: bool):
+    def _run(self, *, should_use_incremental_field: bool, fetch_error: BaseException):
         from contextlib import contextmanager
 
         @contextmanager
@@ -3592,8 +3601,8 @@ class TestServerCursorStatementTimeout:
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
-            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
-            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
+            patch(f"{module}.psycopg.connect", return_value=self._Connection(fetch_error)),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(None)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
             patch(f"{module}._is_duckdb_connection", return_value=False),
@@ -3623,19 +3632,28 @@ class TestServerCursorStatementTimeout:
             )
             list(cast(Iterable[Any], response.items()))
 
+    _SERVER_TIMEOUT = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+    _CLIENT_DEADLINE = ClientDeadlineExceededError(660)
+
     @pytest.mark.parametrize(
-        "should_use_incremental_field,expected_exception,expected_substr",
+        "should_use_incremental_field,fetch_error,expected_exception,expected_substr",
         [
             # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
-            (True, QueryTimeoutException, "updated_at"),
+            (True, _SERVER_TIMEOUT, QueryTimeoutException, "updated_at"),
             # Full-table syncs have no stable ORDER BY, so they stay retryable to let a fresh
             # re-sync reorder rows rather than giving up — with a message that names the fix.
-            (False, Exception, "incremental replication"),
+            (False, _SERVER_TIMEOUT, Exception, "incremental replication"),
+            # The client deadline reports a server that stopped answering, so it must reach the
+            # activity unchanged for both sync types, and never as the permanent index advice.
+            (True, _CLIENT_DEADLINE, ClientDeadlineExceededError, CLIENT_DEADLINE_ERROR),
+            (False, _CLIENT_DEADLINE, ClientDeadlineExceededError, CLIENT_DEADLINE_ERROR),
         ],
     )
-    def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
+    def test_statement_timeout_handling(
+        self, should_use_incremental_field, fetch_error, expected_exception, expected_substr
+    ):
         with pytest.raises(expected_exception) as exc_info:
-            self._run(should_use_incremental_field=should_use_incremental_field)
+            self._run(should_use_incremental_field=should_use_incremental_field, fetch_error=fetch_error)
         if expected_substr is not None:
             assert expected_substr in str(exc_info.value)
 
@@ -4073,6 +4091,101 @@ class TestOffsetChunkingConnectTimeout:
 
         # 1 setup + 1 catalog re-read + 3 keyset-read connects (2 timeouts + 1 success).
         assert connect_mock.call_count == 5
+
+
+class TestStreamingConnectionDeadlines:
+    class _PageCursor(TestOffsetChunkingConnectRecoveryConflict._OffsetCursor):
+        def execute(self, *args, **kwargs):
+            raise ClientDeadlineExceededError(660)
+
+    class _Connection(TestOffsetChunkingConnectRecoveryConflict._Connection):
+        def __init__(self, setup_cursor: Any):
+            super().__init__()
+            self._setup_cursor = setup_cursor
+            self.server_cursor_factory: Any = None
+
+        def cursor(self, *args, **kwargs):
+            return self._setup_cursor
+
+    def _source(self, page_cursor: type, *, count_error: Exception | None = None) -> SourceResponse:
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        def execute(query: Any, *args: Any, **kwargs: Any) -> None:
+            if count_error is not None and "COUNT(*)" in str(query):
+                raise count_error
+
+        setup_cursor = mock.MagicMock()
+        setup_cursor.__enter__.return_value = setup_cursor
+        setup_cursor.connection.broken = False
+        setup_cursor.connection.closed = False
+        setup_cursor.execute.side_effect = execute
+        self.connection = self._Connection(setup_cursor)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with ExitStack() as stack:
+            self.connect_mock = stack.enter_context(patch(f"{module}.psycopg.connect", return_value=self.connection))
+            for target, value in {
+                "_get_table": fake_table,
+                "_is_read_replica": False,
+                "_is_duckdb_connection": False,
+                "_get_primary_keys": ["id"],
+                "_is_partitioned_table": False,
+                "_get_table_chunk_size": _TableChunking(batch_rows=1000, fetch_rows=1000),
+                "_role_subject_to_rls": False,
+                "_get_partition_settings": None,
+                "_explain_query": None,
+                "_estimated_row_count": 4321,
+            }.items():
+                stack.enter_context(patch(f"{module}.{target}", return_value=value))
+            stack.enter_context(patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: page_cursor()))
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            list(cast(Iterable[Any], response.items()))
+        return response
+
+    def test_keyset_page_deadline_ends_the_attempt_without_an_in_process_retry(self):
+        with pytest.raises(ClientDeadlineExceededError):
+            self._source(self._PageCursor)
+
+        # 1 setup + 1 catalog re-read + 1 keyset read. A retry on the same silent server would hold
+        # the worker for one more deadline each time.
+        assert self.connect_mock.call_count == 3
+        assert self.connection.closed is True
+
+    def test_every_connection_gets_the_connect_and_tcp_limits_and_the_deadline_cursor(self):
+        self._source(TestOffsetChunkingConnectRecoveryConflict._OffsetCursor)
+
+        for call in self.connect_mock.call_args_list:
+            assert call.kwargs["connect_timeout"] == 15
+            assert {name: call.kwargs[name] for name in _TCP_LIVENESS_KWARGS} == _TCP_LIVENESS_KWARGS
+        assert self.connection.server_cursor_factory is _STREAM_SERVER_CURSOR
+
+    def test_full_table_count_past_its_deadline_reports_the_catalog_estimate(self):
+        response = self._source(
+            TestOffsetChunkingConnectRecoveryConflict._OffsetCursor,
+            count_error=ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS),
+        )
+
+        assert response.rows_to_sync == 4321
 
 
 def _fake_column(name: str):
@@ -5426,6 +5539,35 @@ class TestValidateCredentialsErrorMapping:
         assert valid is False
         assert host not in (error or "")
         assert "port field" in (error or "")
+
+    @pytest.mark.parametrize("port", [-5432, 0, 65536])
+    @pytest.mark.parametrize("ssh_tunnel_enabled", [False, True])
+    def test_out_of_range_port_rejected_before_connecting(self, source, port, ssh_tunnel_enabled):
+        config = source.parse_config(
+            {
+                "host": "db.example.com",
+                "port": port,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": ssh_tunnel_enabled,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "between 1 and 65535" in (error or "")
 
     def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
         config = source.parse_config(
@@ -7440,6 +7582,94 @@ class TestGetRowsToSync:
                 )
 
         mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "estimate_on_timeout,expected",
+        [
+            (lambda: 1234, 1234),
+            # No statistics yet for the table, and a view has none at all.
+            (lambda: None, 0),
+            # An xmin count has no catalog estimate, so it stays unknown.
+            (None, 0),
+        ],
+        ids=["catalog_estimate", "no_statistics", "no_estimator"],
+    )
+    def test_unfiltered_count_past_its_deadline_gives_the_estimate(self, estimate_on_timeout, expected):
+        cursor = self._cursor_past_the_count_deadline(connection_lost=False)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        rows = _get_rows_to_sync(
+            cast(Any, cursor), count_query, structlog.get_logger(), estimate_on_timeout=estimate_on_timeout
+        )
+
+        assert rows == expected
+
+    @staticmethod
+    def _cursor_past_the_count_deadline(*, connection_lost: bool) -> mock.MagicMock:
+        cursor = mock.MagicMock()
+        cursor.connection.broken = connection_lost
+        cursor.connection.closed = connection_lost
+        cursor.execute.side_effect = [None, ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS)]
+        return cursor
+
+    def test_unfiltered_count_deadline_that_cost_the_connection_ends_the_attempt(self):
+        # After the socket shutdown no statement can run, so an estimate of 0 here would send the
+        # setup into its reconnect loop, which runs the same count again.
+        cursor = self._cursor_past_the_count_deadline(connection_lost=True)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with pytest.raises(ClientDeadlineExceededError):
+            _get_rows_to_sync(cast(Any, cursor), count_query, structlog.get_logger(), estimate_on_timeout=lambda: 1234)
+
+    def test_incremental_count_past_the_client_deadline_stays_retryable(self):
+        # The incremental handlers read `QueryCanceled` as "add an index", which stops the sync.
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = [None, ClientDeadlineExceededError(660)]
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with pytest.raises(ClientDeadlineExceededError):
+            _get_rows_to_sync(
+                cast(Any, cursor),
+                count_query,
+                structlog.get_logger(),
+                should_use_incremental_field=True,
+                estimate_on_timeout=lambda: 1234,
+            )
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expected_deadlines",
+        [
+            # The `EXPLAIN` has its own limit for both. Only the unfiltered count gets the short one.
+            (False, [EXPLAIN_CLIENT_DEADLINE_SECONDS, UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS]),
+            (True, [EXPLAIN_CLIENT_DEADLINE_SECONDS]),
+        ],
+        ids=["full_table", "incremental"],
+    )
+    def test_only_the_unfiltered_count_gets_the_short_deadline(self, should_use_incremental_field, expected_deadlines):
+        deadlines: list[float] = []
+
+        @contextmanager
+        def record_deadline(_connection: Any, timeout_seconds: float, **_kwargs: Any) -> Iterator[None]:
+            deadlines.append(timeout_seconds)
+            yield
+
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = (7,)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.client_side_deadline",
+            record_deadline,
+        ):
+            rows = _get_rows_to_sync(
+                cast(Any, cursor),
+                count_query,
+                structlog.get_logger(),
+                should_use_incremental_field=should_use_incremental_field,
+            )
+
+        assert rows == 7
+        assert deadlines == expected_deadlines
 
 
 class TestPartitionedTableChunkSizing:

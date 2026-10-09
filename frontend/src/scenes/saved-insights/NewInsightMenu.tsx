@@ -23,7 +23,7 @@ import {
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, MetricsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, BaseMathType, ChartDisplayType, InsightType } from '~/types'
 
 import {
@@ -158,17 +158,15 @@ const AI_CARD: NewInsightCardSpec = {
     dataAttr: 'new-insight-menu-ai',
 }
 
-const NEW_METRICS_QUERY: MetricsQuery = { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } }
-
 const METRICS_CARD: NewInsightCardSpec = {
     key: 'metrics',
     name: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name,
     description: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].description ?? '',
     icon: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon,
     sketch: GenericInsightSketch,
-    to: urls.insightNew({ query: NEW_METRICS_QUERY }),
+    to: urls.insightNew({ type: InsightType.METRICS }),
     dataAttr: 'new-insight-menu-metrics',
-    onClick: () => eventUsageLogic.actions.reportSavedInsightNewInsightClicked('METRICS'),
+    onClick: () => eventUsageLogic.actions.reportSavedInsightNewInsightClicked(InsightType.METRICS),
 }
 
 function useNewInsightCards(): {
@@ -357,7 +355,7 @@ export function NewInsightMenuOverlay(): JSX.Element {
     )
 }
 
-export function NewInsightButton(): JSX.Element {
+export function NewInsightButton({ compact = false }: { compact?: boolean }): JSX.Element {
     const button = (
         <LemonButton
             type="primary"
@@ -365,8 +363,9 @@ export function NewInsightButton(): JSX.Element {
             size="small"
             icon={<IconPlusSmall />}
             tooltip="New insight"
+            aria-label="New insight"
         >
-            New
+            {compact ? <span className="hidden @min-[32rem]/saved-insights:inline">New</span> : 'New'}
         </LemonButton>
     )
 
