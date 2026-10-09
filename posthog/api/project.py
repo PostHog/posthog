@@ -989,6 +989,8 @@ class ProjectBackwardCompatSerializer(
         return representation
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        if isinstance(obj, ObjectAccessRef):
+            return super().get_user_access_level(obj)
         # The access-control system is keyed on the Team, so resolve through the passthrough Team
         return super().get_user_access_level(cast(Project, obj).passthrough_team)
 

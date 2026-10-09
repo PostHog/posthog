@@ -59,7 +59,8 @@ CREATE_ACTIONS = ["create", "update"]
 
 def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
     if isinstance(object, ObjectAccessRef):
-        return Team.objects.select_related("organization").get(pk=object.team_id).organization
+        # The ref's team is the view's team, so the view already holds its organization.
+        return get_organization_from_view(view)
 
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
