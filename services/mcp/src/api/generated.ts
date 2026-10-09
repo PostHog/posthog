@@ -297,6 +297,18 @@ export namespace Schemas {
      */
     export type AccessControlDefaultsResponseResourceAccessLevels = {[key: string]: AccessControlResourceDefault};
 
+    export interface AccessControlManagedBy {
+      /** The organization membership of the account that manages this project's access rules. */
+      membership_id: string;
+      /** The email of that account. */
+      email: string;
+      /**
+         * When the project's access rules were handed to that account.
+         * @nullable
+         */
+      managed_at: string | null;
+    }
+
     /**
      * * `action` - action
      * * `access_control` - access_control
@@ -673,6 +685,8 @@ export namespace Schemas {
       available_resource_levels: string[];
       /** Whether the caller may change access rules in this project. */
       can_edit: boolean;
+      /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+      managed_by: AccessControlManagedBy | null;
       /** The default project access level for members. */
       project_access_level: string;
       /** The default level per resource type, keyed by resource name. */
@@ -1162,6 +1176,8 @@ export namespace Schemas {
       available_resource_levels: string[];
       /** Whether the caller may change access rules in this project. */
       can_edit: boolean;
+      /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+      managed_by: AccessControlManagedBy | null;
       /** One entry per organization member. */
       results: AccessControlMemberAccess[];
     }
@@ -1427,6 +1443,8 @@ export namespace Schemas {
       available_resource_levels: string[];
       /** Whether the caller may change access rules in this project. */
       can_edit: boolean;
+      /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+      managed_by: AccessControlManagedBy | null;
       /** One entry per role in the organization. */
       results: AccessControlRoleAccess[];
     }

@@ -204,6 +204,16 @@ class AccessControlRoleAccessSerializer(serializers.Serializer):
     )
 
 
+class AccessControlManagedBySerializer(serializers.Serializer):
+    membership_id = serializers.UUIDField(
+        help_text="The organization membership of the account that manages this project's access rules."
+    )
+    email = serializers.EmailField(help_text="The email of that account.")
+    managed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the project's access rules were handed to that account."
+    )
+
+
 class _AccessControlSettingsResponseSerializer(serializers.Serializer):
     available_project_levels = serializers.ListField(
         child=serializers.CharField(),
@@ -214,6 +224,11 @@ class _AccessControlSettingsResponseSerializer(serializers.Serializer):
         help_text="The resource access levels, lowest first.",
     )
     can_edit = serializers.BooleanField(help_text="Whether the caller may change access rules in this project.")
+    managed_by = AccessControlManagedBySerializer(
+        allow_null=True,
+        help_text="Set while an account, such as a Terraform service account, manages this project's access rules. "
+        "Every rule is then read-only for everyone else, and can_edit is false for them.",
+    )
 
 
 class AccessControlMembersResponseSerializer(_AccessControlSettingsResponseSerializer):

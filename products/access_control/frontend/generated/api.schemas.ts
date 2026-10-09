@@ -856,6 +856,18 @@ export interface AccessControlResourceDefaultApi {
  */
 export type AccessControlDefaultsResponseApiResourceAccessLevels = { [key: string]: AccessControlResourceDefaultApi }
 
+export interface AccessControlManagedByApi {
+    /** The organization membership of the account that manages this project's access rules. */
+    membership_id: string
+    /** The email of that account. */
+    email: string
+    /**
+     * When the project's access rules were handed to that account.
+     * @nullable
+     */
+    managed_at: string | null
+}
+
 export interface AccessControlObjectRuleResourceApi {
     /** A resource type that supports rules on single objects.
      *
@@ -992,6 +1004,8 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+    managed_by: AccessControlManagedByApi | null
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
@@ -1306,6 +1320,8 @@ export interface AccessControlMembersResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+    managed_by: AccessControlManagedByApi | null
     /** One entry per organization member. */
     results: AccessControlMemberAccessApi[]
 }
@@ -1411,6 +1427,8 @@ export interface AccessControlRolesResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Set while an account, such as a Terraform service account, manages this project's access rules. Every rule is then read-only for everyone else, and can_edit is false for them. */
+    managed_by: AccessControlManagedByApi | null
     /** One entry per role in the organization. */
     results: AccessControlRoleAccessApi[]
 }
