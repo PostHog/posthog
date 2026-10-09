@@ -1,6 +1,3 @@
-import { logger } from '~/common/utils/logger'
-
-import { DroppedIngestionOutput } from './dropped-ingestion-output'
 import { DualWriteIngestionOutput } from './dual-write-ingestion-output'
 import { IngestionOutput } from './ingestion-output'
 import { IngestionOutputs } from './ingestion-outputs'
@@ -249,17 +246,6 @@ export class IngestionOutputsBuilder<
         // TypeScript cannot verify that an imperatively-built Record has all keys of a
         // generic union O. The builder guarantees this: every register() call adds an
         // entry to definitions, and build() resolves all of them.
-        return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
-    }
-
-    /** Resolve every registered output to one that discards its messages, without any producer. */
-    buildDropped(): IngestionOutputs<O> {
-        const names = [...this.primaryDefs.keys(), ...this.dualWriteDefs.keys()]
-        const record: Record<string, IngestionOutput> = {}
-        for (const name of names) {
-            record[name] = new DroppedIngestionOutput(name)
-        }
-        logger.warn('⚠️', `Ingestion outputs are disabled; every message is discarded for: ${names.join(', ')}`)
         return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
     }
 }

@@ -2,7 +2,6 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { IngestionOutputsBuilder, parseTeamDenylist } from './ingestion-outputs-builder'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
-import { ingestionOutputsDroppedMessages } from './metrics'
 
 describe('IngestionOutputsBuilder', () => {
     type TestProducer = 'PRIMARY' | 'SECONDARY'
@@ -281,32 +280,6 @@ describe('IngestionOutputsBuilder', () => {
                 })
                 .build(registry, config)
         ).toThrow(/team denylist is empty/)
-    })
-
-    it('buildDropped discards every message on single and dual-write outputs and passes the startup checks', async () => {
-        ingestionOutputsDroppedMessages.reset()
-        const outputs = new IngestionOutputsBuilder()
-            .registerDualWrite('events', {
-                topicKey: 'EVENTS_TOPIC',
-                producerKey: 'EVENTS_PRODUCER',
-                secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
-                secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
-                modeKey: 'EVENTS_MODE',
-                percentageKey: 'EVENTS_PERCENTAGE',
-            })
-            .register('dlq', { topicKey: 'DLQ_TOPIC', producerKey: 'DLQ_PRODUCER' })
-            .buildDropped()
-
-        await outputs.produce('events', { key: Buffer.from('k'), value: Buffer.from('v') })
-        await outputs.queueMessages('dlq', [{ value: Buffer.from('a') }, { value: Buffer.from('b') }])
-
-        const dropped = (await ingestionOutputsDroppedMessages.get()).values
-        expect(Object.fromEntries(dropped.map((entry) => [entry.labels.output, entry.value]))).toEqual({
-            events: 1,
-            dlq: 2,
-        })
-        expect(await outputs.checkTopics()).toEqual([])
-        expect(await outputs.checkHealth()).toEqual([])
     })
 
     it('mixes register and registerDualWrite', async () => {

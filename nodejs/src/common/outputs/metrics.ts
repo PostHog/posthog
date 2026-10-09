@@ -24,12 +24,6 @@ export const ingestionOutputsErrors = new Counter({
     labelNames: ['output', 'producer_name', 'topic', 'method'],
 })
 
-export const ingestionOutputsDroppedMessages = new Counter({
-    name: 'ingestion_outputs_dropped_messages_total',
-    help: 'Messages discarded because ingestion outputs are disabled',
-    labelNames: ['output'],
-})
-
 export const ingestionOutputsBatchSize = new Histogram({
     name: 'ingestion_outputs_batch_size',
     help: 'Number of messages per produce/queueMessages call',

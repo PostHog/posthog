@@ -126,9 +126,6 @@ export class IngestionGeneralServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
-        if (this.config.INGESTION_OUTPUTS_DISABLED) {
-            throw new Error('INGESTION_OUTPUTS_DISABLED is supported only by the ingestion API server')
-        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 

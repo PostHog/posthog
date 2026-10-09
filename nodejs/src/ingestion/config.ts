@@ -549,7 +549,6 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_TOPHOG_TOPIC: string
     INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
 
-    /** Discards every output message instead of producing it. */
     INGESTION_OUTPUTS_DISABLED: boolean
 }
 
