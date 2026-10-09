@@ -200,7 +200,7 @@ describe('MessageInput', () => {
             await userEvent.click(screen.getByTestId('support-editor'))
             expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
 
-            screen.getByRole('menuitem', { name: /Send and set resolved/ }).focus()
+            screen.getByText('Send and set resolved').closest('button')?.focus()
             await userEvent.keyboard('{Enter}')
             expect(onSendMessage).toHaveBeenCalledTimes(1)
             expect(onSendMessage).toHaveBeenCalledWith(
