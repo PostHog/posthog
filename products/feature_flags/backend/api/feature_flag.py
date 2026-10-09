@@ -5403,10 +5403,16 @@ class FeatureFlagViewSet(
                         # Treat spaces, hyphens, and underscores as one separator class, so a pasted
                         # MY_FLAG_KEY finds my-flag-key. A query of only separators has no parts, and an empty
                         # join matches every flag, which bulk_delete would then delete, so match it literally.
+                        # A leading or trailing separator stays required, so _prod does not find production.
                         parts = [part for part in re.split(r"[\s\-_]+", value) if part]
-                        regex_pattern = (
-                            r"[\s\-_]*".join(re.escape(part) for part in parts) if parts else re.escape(value)
-                        )
+                        if parts:
+                            regex_pattern = r"[\s\-_]*".join(re.escape(part) for part in parts)
+                            if re.match(r"[\s\-_]", value):
+                                regex_pattern = r"[\s\-_]" + regex_pattern
+                            if re.search(r"[\s\-_]$", value):
+                                regex_pattern += r"[\s\-_]"
+                        else:
+                            regex_pattern = re.escape(value)
                         queryset = queryset.filter(
                             Q(key__iregex=regex_pattern)
                             | Q(name__iregex=regex_pattern)

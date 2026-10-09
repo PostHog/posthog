@@ -86,6 +86,9 @@ describe('flagMatchesSearch', () => {
             [webAnalyticsFlag, 'WEB_MOBILE', false],
             [webAnalyticsFlag, '_', false], // Separator-only query matches literally, not every flag
             [webUnderscoreFlag, '_', true],
+            [webAnalyticsFlag, 'ana_', false], // A trailing separator stays required
+            [webAnalyticsFlag, '_lytics', false], // A leading separator stays required
+            [webUnderscoreFlag, '-dashboard', true],
 
             // Single word searches (existing behavior)
             [webAnalyticsFlag, 'web', true],

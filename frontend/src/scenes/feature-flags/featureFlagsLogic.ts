@@ -45,9 +45,14 @@ export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boole
 
     // Match the backend: spaces, hyphens, and underscores are one separator class, so MY_FLAG finds my-flag
     // A query of only separators has no parts, so match it literally rather than with a pattern that matches every flag
+    // A leading or trailing separator stays required, so _prod does not find production
     const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const parts = searchValue.split(/[\s\-_]+/).filter(Boolean)
-    const regexPattern = parts.length ? parts.map(escapeRegex).join('[\\s\\-_]*') : escapeRegex(searchValue)
+    const leadingSeparator = /^[\s\-_]/.test(searchValue) ? '[\\s\\-_]' : ''
+    const trailingSeparator = /[\s\-_]$/.test(searchValue) ? '[\\s\\-_]' : ''
+    const regexPattern = parts.length
+        ? leadingSeparator + parts.map(escapeRegex).join('[\\s\\-_]*') + trailingSeparator
+        : escapeRegex(searchValue)
 
     try {
         const regex = new RegExp(regexPattern, 'i')

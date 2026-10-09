@@ -7260,6 +7260,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "web_dashboard" in matched_keys, matched_keys
         assert not {"web-analytics", "mobile-analytics"} & matched_keys, matched_keys
 
+        for search, expected in (("ana_", set()), ("_lytics", set()), ("-dashboard", {"web_dashboard"})):
+            response = self.client.get(f"/api/projects/@current/feature_flags?search={search}")
+            assert {flag["key"] for flag in response.json()["results"]} == expected, search
+
         # Test single word still works
         response = self.client.get(f"/api/projects/@current/feature_flags?search=web")
         data = response.json()
