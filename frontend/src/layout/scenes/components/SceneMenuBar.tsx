@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
 import {
@@ -29,16 +30,15 @@ import { IconBlank } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
-import type { SettingSectionId } from 'scenes/settings/types'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import { SceneContentContext } from './SceneContent'
+import { useSceneMenuBarSlot } from './sceneMenuBarSlot'
+import { getSceneSettingsUrl } from './sceneSettingsUrl'
 
 /**
  * Central instrumentation for the SceneMenuBar experiment (`SCENE_MENU_BAR` flag). Capturing
@@ -64,27 +64,14 @@ type SceneMenuBarProps = {
     className?: string
 }
 
-const SETTINGS_SECTION_BY_PRODUCT: Partial<Record<ProductKey, SettingSectionId>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: 'environment-product-analytics',
-    [ProductKey.WEB_ANALYTICS]: 'environment-web-analytics',
-    [ProductKey.SESSION_REPLAY]: 'environment-replay',
-    [ProductKey.FEATURE_FLAGS]: 'environment-feature-flags',
-    [ProductKey.EXPERIMENTS]: 'environment-experiments',
-    [ProductKey.SURVEYS]: 'environment-surveys',
-    [ProductKey.AI_OBSERVABILITY]: 'environment-ai-observability',
-    [ProductKey.LOGS]: 'environment-logs',
-    [ProductKey.WORKFLOWS]: 'environment-workflows',
-}
-
-function getSettingsUrl(productKey: ProductKey | null): string | null {
-    const section = productKey ? SETTINGS_SECTION_BY_PRODUCT[productKey] : undefined
-    return section ? urls.settings(section) : null
-}
-
 export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.Element {
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const layout = sceneLayoutConfig?.layout ?? 'app'
     const isPaddedLayout = PADDED_LAYOUTS.has(layout)
+    const { todayRailEnabled } = useValues(todayShellLogic)
+    const titleSlot = useSceneMenuBarSlot()
+    // Under the Today layout the bar sits below the scene title. A scene without a title keeps it inline.
+    const slot = todayRailEnabled ? titleSlot : null
 
     // A skipped product empty state parks its "isn't receiving data yet" reminder here so it
     // sits just below the bar. Null for every other scene, so nothing extra renders.
@@ -94,7 +81,7 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
         captureSceneMenuBar('scene menu bar shown')
     }, [])
 
-    return (
+    const content = (
         <>
             <div
                 data-attr="scene-menu-bar"
@@ -102,15 +89,15 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                 className={cn(
                     'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
                     // Below `lg` the navigation toggle floats over the top-left corner of the scene.
-                    'max-lg:pl-10',
+                    !slot && 'max-lg:pl-10',
                     // Bleed past the scene container's padding so the bar feels full-width — only
                     // safe when the layout actually has padding to cancel. Unpadded layouts
                     // (app-raw, plain, etc.) would overflow.
-                    isPaddedLayout && '-mx-4 -mt-4',
+                    !slot && isPaddedLayout && '-mx-4 -mt-4',
                     // When LemonTabs is the immediately preceding sibling it already bleeds with
                     // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
                     // bar up so they sit flush.
-                    '[.LemonTabs+&]:-mt-6',
+                    !slot && '[.LemonTabs+&]:-mt-6',
                     className
                 )}
             >
@@ -119,13 +106,43 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                   CompositeRoot — that's what coordinates ArrowLeft/Right navigation and
                   hover-to-switch between menus.
                 */}
-                <Menubar className="gap-0 border-0">{children}</Menubar>
+                <Menubar className="gap-0 border-0">
+                    {children}
+                    {todayRailEnabled && <SceneMenuBarHelpMenu />}
+                </Menubar>
 
-                <Badge className="hidden @[800px]:flex">OS-like menu (alpha)</Badge>
-                <SceneMenuBarRightLinks />
+                <Badge className={cn('hidden @[800px]:flex', todayRailEnabled && 'me-1')}>OS-like menu (alpha)</Badge>
+                {!todayRailEnabled && <SceneMenuBarRightLinks />}
             </div>
             {setupReminder}
         </>
+    )
+
+    return slot ? createPortal(content, slot) : content
+}
+
+/** The last menu, as in macOS. Every scene gets it, so scenes never add their own. */
+function SceneMenuBarHelpMenu(): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+
+    return (
+        <SceneMenuBarMenu label="Help" dataAttr="scene-menu-bar-help">
+            <SceneMenuBarItem
+                data-attr="scene-menu-bar-docs"
+                onClick={() => window.open('https://posthog.com/docs', '_blank', 'noopener')}
+            >
+                <IconExternal />
+                Docs
+            </SceneMenuBarItem>
+            <SceneMenuBarItem
+                data-attr="scene-menu-bar-support"
+                opensFloatingUi
+                onClick={() => openSidePanel(SidePanelTab.Support)}
+            >
+                <IconSidePanel />
+                Support
+            </SceneMenuBarItem>
+        </SceneMenuBarMenu>
     )
 }
 
@@ -135,9 +152,8 @@ const RIGHT_TRIGGER_LABEL_CLASSES = 'hidden @min-[36rem]/main-content:inline'
 
 function SceneMenuBarRightLinks(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { todayRailEnabled } = useValues(todayShellLogic)
     const { productKey } = useContext(SceneContentContext)
-    const settingsUrl = getSettingsUrl(productKey)
+    const settingsUrl = getSceneSettingsUrl(productKey)
 
     return (
         <div className="flex items-center gap-px pr-1">
@@ -176,22 +192,20 @@ function SceneMenuBarRightLinks(): JSX.Element {
                 <span className={RIGHT_TRIGGER_LABEL_CLASSES}>Support</span>
                 <IconSidePanel />
             </Button>
-            {!todayRailEnabled && (
-                <Button
-                    type="button"
-                    onClick={() => {
-                        captureSceneMenuBar('scene menu bar right link clicked', { link: 'ai' })
-                        openSidePanel(SidePanelTab.Max)
-                    }}
-                    data-attr="scene-menu-bar-ai"
-                    aria-label="PostHog AI"
-                    className={RIGHT_TRIGGER_CLASSES}
-                    variant="outline"
-                >
-                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                    <span className={RIGHT_TRIGGER_LABEL_CLASSES}>PostHog AI</span>
-                </Button>
-            )}
+            <Button
+                type="button"
+                onClick={() => {
+                    captureSceneMenuBar('scene menu bar right link clicked', { link: 'ai' })
+                    openSidePanel(SidePanelTab.Max)
+                }}
+                data-attr="scene-menu-bar-ai"
+                aria-label="PostHog AI"
+                className={RIGHT_TRIGGER_CLASSES}
+                variant="outline"
+            >
+                <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                <span className={RIGHT_TRIGGER_LABEL_CLASSES}>PostHog AI</span>
+            </Button>
         </div>
     )
 }
@@ -200,7 +214,7 @@ function SceneMenuBarRightLinks(): JSX.Element {
  * Canonical menu set for SceneMenuBar. Use these labels in this order so the bar feels
  * consistent across PostHog scenes. Render only the menus your scene actually needs.
  *
- * Order: File → Edit → View → Metadata → Staff only
+ * Order: File → Edit → View → Metadata → Staff only (→ Help, added by the bar itself under the Today layout)
  *
  * - **File** — `<SceneMenuBarSubMenu label="Create">` at the top, then file/project ops,
  *   Export sub-menu, ──, **Delete / Archive / Restore** (destructive, at the bottom).
@@ -214,7 +228,8 @@ function SceneMenuBarRightLinks(): JSX.Element {
  *   Activity indicator, ExternalReferences.
  * - **Staff only** *(conditional)* — Debug panels, internal toggles.
  *
- * Right cluster includes PostHog AI, Docs, Support, and Settings when configured for the scene's product.
+ * Right cluster includes PostHog AI, Docs, Support, and Settings when configured for the scene's product. Under the
+ * Today layout Docs and Support move to the Help menu and Settings moves to the scene title row.
  *
  * Full conventions: `.agents/skills/scene-menu-bar/SKILL.md`.
  */
@@ -248,6 +263,9 @@ function hasNoRenderableChildren(children: ReactNode): boolean {
     return Children.toArray(children).length === 0
 }
 
+const MENU_TRIGGER_CLASSES =
+    'flex items-center outline-hidden select-none px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+
 export function SceneMenuBarMenu({
     label,
     children,
@@ -265,11 +283,7 @@ export function SceneMenuBarMenu({
                 }
             }}
         >
-            <MenubarTrigger
-                data-attr={dataAttr}
-                disabled={isDisabled}
-                className="px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-            >
+            <MenubarTrigger data-attr={dataAttr} disabled={isDisabled} className={MENU_TRIGGER_CLASSES}>
                 {label}
             </MenubarTrigger>
             <MenubarContent
@@ -415,7 +429,7 @@ export function SceneMenuBarPopover({
 }: SceneMenuBarPopoverProps): JSX.Element {
     return (
         <Popover>
-            <PopoverTrigger data-attr={dataAttr} render={<Button />}>
+            <PopoverTrigger data-attr={dataAttr} className={MENU_TRIGGER_CLASSES}>
                 {label}
             </PopoverTrigger>
             <PopoverContent align={align} className={cn('w-80 p-2', contentClassName)}>
