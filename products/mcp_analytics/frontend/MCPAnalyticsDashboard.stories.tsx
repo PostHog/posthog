@@ -711,36 +711,17 @@ const bucketedShareResults = (shares: [string, number][]): [string, string, numb
 
 // [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
 const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
-    $mcp_tool_category: [
-        ['Data exploration', 2240, 210, 150],
-        ['Insights', 950, 120, 20],
-        ['Dashboards', 260, 70, 2],
-        ['Cohorts', 95, 40, 6],
-    ],
     $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
         String(r[0]),
         Number(r[1]),
         100,
         Number(r[2]),
     ]),
-    $mcp_intent_source: [
-        ['argument', 3100, 260, 90],
-        ['derived', 800, 120, 40],
-        ['Unknown', 300, 60, 10],
-    ],
     $mcp_error_type: [
         ['timeout', 90, 40, 90],
         ['validation', 60, 30, 60],
         ['auth', 30, 15, 30],
         ['rate_limit', 15, 9, 15],
-    ],
-    $mcp_auth_method: [
-        ['oauth', 3400, 280, 120],
-        ['personal_api_key', 800, 110, 20],
-    ],
-    $mcp_llm_model_source: [
-        ['self_reported', 3600, 290, 130],
-        ['request_metadata', 600, 90, 10],
     ],
 }
 

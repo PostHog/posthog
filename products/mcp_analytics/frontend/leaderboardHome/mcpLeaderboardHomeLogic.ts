@@ -111,12 +111,8 @@ LIMIT ${BUCKETED_ROW_LIMIT}
 export interface LeaderboardFacets {
     model: BucketedFacetRow[]
     protocolVersion: BucketedFacetRow[]
-    toolCategory: WindowFacetRow[]
     tool: WindowFacetRow[]
-    intentSource: WindowFacetRow[]
     errorType: WindowFacetRow[]
-    authMethod: WindowFacetRow[]
-    modelSource: WindowFacetRow[]
     labUsers: LabUsersRow[]
     namedModelUsers: number
     failedFacets: FacetKey[]
@@ -129,12 +125,8 @@ const USER_SHARE_FACETS: FacetKey[] = ['labUsers', 'namedModelUsers']
 const EMPTY_FACETS: LeaderboardFacets = {
     model: [],
     protocolVersion: [],
-    toolCategory: [],
     tool: [],
-    intentSource: [],
     errorType: [],
-    authMethod: [],
-    modelSource: [],
     labUsers: [],
     namedModelUsers: 0,
     failedFacets: [],
@@ -279,26 +271,11 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                             return []
                         }
                     }
-                    const [
-                        model,
-                        protocolVersion,
-                        toolCategory,
-                        tool,
-                        intentSource,
-                        errorType,
-                        authMethod,
-                        modelSource,
-                        labUsers,
-                        namedModelUsers,
-                    ] = await Promise.all([
+                    const [model, protocolVersion, tool, errorType, labUsers, namedModelUsers] = await Promise.all([
                         run('model', bucketedFacetQuery(MODEL_LABEL, interval)),
                         run('protocolVersion', bucketedFacetQuery(PROTOCOL_VERSION_LABEL, interval)),
-                        run('toolCategory', windowFacetQuery(propertyLabel('$mcp_tool_category'))),
                         run('tool', windowFacetQuery(TOOL_LABEL)),
-                        run('intentSource', windowFacetQuery(propertyLabel('$mcp_intent_source'))),
                         run('errorType', windowFacetQuery(propertyLabel('$mcp_error_type'), true)),
-                        run('authMethod', windowFacetQuery(propertyLabel('$mcp_auth_method'))),
-                        run('modelSource', windowFacetQuery(propertyLabel('$mcp_llm_model_source'))),
                         run('labUsers', labUsersQuery),
                         run('namedModelUsers', namedModelUsersQuery),
                     ])
@@ -306,12 +283,8 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                     return {
                         model: toBucketedRows(model),
                         protocolVersion: toBucketedRows(protocolVersion),
-                        toolCategory: toWindowRows(toolCategory),
                         tool: toWindowRows(tool),
-                        intentSource: toWindowRows(intentSource),
                         errorType: toWindowRows(errorType),
-                        authMethod: toWindowRows(authMethod),
-                        modelSource: toWindowRows(modelSource),
                         labUsers: labUsers.map((r) => ({ lab: String(r[0]), users: Number(r[1]) })),
                         namedModelUsers: Number(namedModelUsers[0]?.[0] ?? 0),
                         failedFacets,

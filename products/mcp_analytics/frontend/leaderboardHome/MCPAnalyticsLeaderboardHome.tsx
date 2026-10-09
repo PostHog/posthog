@@ -186,7 +186,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 </TwoColumns>
             </Section>
 
-            <Section title="Protocol and sign-in">
+            <Section title="Protocol">
                 <ShareOverTimeChart
                     title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
@@ -198,46 +198,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     interval={interval}
                     colorOf={paletteColorOf}
                 />
-                <TwoColumns>
-                    <FacetShareCard
-                        title="How agents sign in"
-                        rows={facets.authMethod}
-                        loading={facetsLoading}
-                        failed={failedFacet('authMethod')}
-                        theme={theme}
-                    />
-                    <FacetShareCard
-                        title="How we know the model"
-                        rows={facets.modelSource}
-                        loading={facetsLoading}
-                        failed={failedFacet('modelSource')}
-                        theme={theme}
-                    />
-                </TwoColumns>
             </Section>
 
             <Section title="What agents do">
-                <TwoColumns>
-                    <FacetShareCard
-                        title="Tool categories"
-                        rows={facets.toolCategory}
-                        loading={facetsLoading}
-                        failed={failedFacet('toolCategory')}
-                        theme={theme}
-                    />
-                    <FacetShareCard
-                        title="Most called tools"
-                        rows={facets.tool}
-                        loading={facetsLoading}
-                        failed={failedFacet('tool')}
-                        theme={theme}
-                    />
-                </TwoColumns>
                 <FacetShareCard
-                    title="Where intent comes from"
-                    rows={facets.intentSource}
+                    title="Most called tools"
+                    rows={facets.tool}
                     loading={facetsLoading}
-                    failed={failedFacet('intentSource')}
+                    failed={failedFacet('tool')}
                     theme={theme}
                 />
             </Section>
