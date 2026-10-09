@@ -147,6 +147,50 @@ describe('SeriesTab', () => {
         expect(await screen.findByText('Display')).toBeInTheDocument()
     })
 
+    it.each([
+        { clickhouseType: "DateTime64(6, 'UTC')", showsSwitch: true },
+        { clickhouseType: 'Nullable(DateTime)', showsSwitch: true },
+        { clickhouseType: 'Date', showsSwitch: false },
+        { clickhouseType: 'String', showsSwitch: false },
+    ])(
+        'shows the absolute time switch for a $clickhouseType column: $showsSwitch',
+        ({ clickhouseType, showsSwitch }) => {
+            initKeaTests()
+            const cachedResults: HogQLQueryResponse = {
+                results: [['2026-01-15T12:00:00Z']],
+                columns: ['created_at'],
+                types: [['created_at', clickhouseType]],
+            }
+            const query: VisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select created_at from events' },
+                display: ChartDisplayType.ActionsTable,
+            }
+            const props: DataVisualizationLogicProps = {
+                key: `series-tab-absolute-time-${clickhouseType}`,
+                query,
+                cachedResults,
+                dataNodeCollectionId: 'series-tab-absolute-time',
+                setQuery: jest.fn(),
+            }
+            dataNodeLogic({
+                key: props.key,
+                query: query.source,
+                cachedResults,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+            }).mount()
+            dataVisualizationLogic(props).mount()
+
+            const { container } = render(
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <SeriesTab />
+                </BindLogic>
+            )
+
+            expect(container.querySelector('[data-attr="data-viz-toggle-absolute-time"]') !== null).toBe(showsSwitch)
+        }
+    )
+
     it('persists table column formatting changes immediately', async () => {
         initKeaTests()
 

@@ -713,9 +713,9 @@ export interface dataVisualizationLogicValues {
     response: AnyResponseType | null
     selectedXAxis: string | null
     selectedYAxis: (SelectedYAxis | null)[] | null
+    showAbsoluteTime: boolean
     showEditingUI: boolean
     showResultControls: boolean
-    showAbsoluteTime: boolean
     showTableSettings: boolean
     sourceFeatures: Set<QueryFeature>
     sourceTabularColumns: AxisSeries<any>[]
@@ -788,6 +788,9 @@ export interface dataVisualizationLogicActions {
     setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
         setter: (node: VisualizationNode) => VisualizationNode
     }
+    setShowAbsoluteTime: (showAbsoluteTime: boolean) => {
+        showAbsoluteTime: boolean
+    }
     setSideBarTab: (tab: SideBarTab) => {
         tab: SideBarTab
     }
@@ -796,9 +799,6 @@ export interface dataVisualizationLogicActions {
     }
     setTransposeResults: (transpose: boolean) => {
         transpose: boolean
-    }
-    setShowAbsoluteTime: (showAbsoluteTime: boolean) => {
-        showAbsoluteTime: boolean
     }
     setVisualizationType: (visualizationType: ChartDisplayType) => {
         node: VisualizationNode
@@ -1434,7 +1434,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         hasDateTimeColumns: [
             (s) => [s.columns],
-            (columns: Column[]): boolean => columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name)),
+            (columns: Column[]): boolean => columns.some((column) => column.type.name === 'DATETIME'),
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
