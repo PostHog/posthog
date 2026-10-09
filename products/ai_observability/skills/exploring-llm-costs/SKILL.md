@@ -26,7 +26,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 | ------------------------------- | ------------------------------------------------------------------- |
 | `posthog:query-trends`          | Native cost trends with supported sums, breakdowns, and comparisons |
 | `posthog:execute-sql`           | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
-| `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics           |
+| `posthog:query-llm-traces-list` | List recent traces with rolled-up cost — it cannot sort by cost     |
 | `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events              |
 | `posthog:read-data-schema`      | Discover which custom properties exist for breakdowns               |
 | `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
@@ -88,6 +88,13 @@ for ready-to-run recipes:
 - Cost-per-call distribution
 - Input vs output vs cache economics
 
+To find the most expensive traces, rank them with the `execute-sql` recipe
+in [breakdown patterns](./references/breakdown-patterns.md#cost-by-trace-top-expensive-traces),
+then open each trace with `posthog:query-llm-trace`. Do not use
+`posthog:query-llm-traces-list` for this: it returns the newest traces first,
+or a random sample with `randomOrder`, and it has no sort-by-cost parameter.
+It ignores an `orderBy` key, so its results are not the most expensive traces.
+
 ## Workflow: inspect a single trace's cost
 
 When the user pastes a trace URL and asks about its cost, fetch the trace and
@@ -130,7 +137,7 @@ project prefix, so the user is redirected to login instead of the page you meant
   `/project/<id>/` prefix (e.g. `https://us.posthog.com/project/2/ai-observability/traces`). Pass
   concrete ids via `params`, never inline them into the path.
   - **Dashboard**: `generate-app-url {url: "/ai-observability/dashboard"}`
-  - **Traces list** (sort by cost): `generate-app-url {url: "/ai-observability/traces"}`
+  - **Traces list**: `generate-app-url {url: "/ai-observability/traces"}`
   - **Generations list**: `generate-app-url {url: "/ai-observability/generations"}`
   - **Users list** (per-user cost): `generate-app-url {url: "/ai-observability/users"}`
   - **Single trace**: `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`
