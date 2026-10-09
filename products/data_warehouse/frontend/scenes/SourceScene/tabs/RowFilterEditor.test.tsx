@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -19,7 +18,7 @@ describe('RowFilterEditor', () => {
     test.each([
         ['every operator is allowed', undefined, '='],
         ['the column limits its operators', ['>', '>=', '<', '<='], '>'],
-    ])('a new filter starts on an operator the column accepts when %s', async (_name, operators, expected) => {
+    ])('a new filter starts on an operator the column accepts when %s', (_name, operators, expected) => {
         const onChange = jest.fn()
         render(
             <RowFilterEditor
@@ -33,7 +32,7 @@ describe('RowFilterEditor', () => {
             />
         )
 
-        await userEvent.click(screen.getByText('Add filter'))
+        fireEvent.click(screen.getByText('Add filter'))
 
         expect(onChange).toHaveBeenLastCalledWith([{ column: 'created_at', operator: expected, value: '' }])
     })

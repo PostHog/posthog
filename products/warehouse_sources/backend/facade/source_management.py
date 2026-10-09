@@ -53,7 +53,6 @@ _LAZY = {
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
-    "RowFilterColumn": "sources.common.sql",
     "RowFilterValidationError": "sources.common.sql",
     "filter_dwh_columns_by_enabled_columns": "sources.common.sql",
     "sql_schema_metadata": "sources.common.sql",

@@ -64,7 +64,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
-    RowFilterColumn,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -123,8 +122,12 @@ def source_supports_row_filters(source_type: str) -> bool:
     return bool(source.supports_row_filters)
 
 
-def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[RowFilterColumn, ...] | None:
-    """The columns a row filter on this schema may use, or None when any column of the table may."""
+def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
+    """The columns a row filter on this schema may use, or None when any column of the table may.
+
+    Each column has `name`, `data_type` and `operators`. The class stays inside the sources
+    package, so this layer does not name it.
+    """
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
