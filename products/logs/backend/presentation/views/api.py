@@ -84,7 +84,6 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
-
 LOGS_MAX_EXPORT_ROWS = 10_000
 MAX_ATTRIBUTE_KEYS = 100
 
