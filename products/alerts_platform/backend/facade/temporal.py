@@ -13,6 +13,7 @@ from products.alerts_platform.backend.temporal.workflows import (
     EVALUATION_WORKFLOWS,
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
+    start_deliveries,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "AlertsPlatformTelemetryInterceptor",
     "create_alerts_platform_tick_schedule",
     "source_evaluation_timeout",
+    "start_deliveries",
 ]

@@ -880,6 +880,10 @@ snapshots:
         hash: v1.k794b7964.991e5f44ceae5eced661d06ca75fdd314fea213b73791c697078d601655b3876.pDXTpK6DyIMq248_s0s0QZJxOnwPiQKzjoJanIrQL-8
     components-feature-previews--empty--light:
         hash: v1.k794b7964.6fa703c825304215f198e3c1c37821a15fdec4772505a4b5db2e4e0ce491ff8d.Xp_4MqTRyevKnhM7Q2mIK9B_PhsbXY-R_lTqCpViZVY
+    components-flag-called-move-notice--under-an-event-description--dark:
+        hash: v1.k794b7964.79dffd277b259e7550cc45da0aee9fd908f07f37cc5e5e270fd8510f5849a9f2.8Lj_rPLTbRjssG5IldG5oFNe7qOmVMsFINqZ-r1y7zM
+    components-flag-called-move-notice--under-an-event-description--light:
+        hash: v1.k794b7964.22cb35f375fe9ac0e0b2e63c575298f37de632aa5914084eb6161db5e116f371.X5Gb34qDPIt9ksr4SFamxZvAqy3_EoMYzs1nvaDS0D8
     components-hedgehogmode--profile-picture-hog--dark:
         hash: v1.k794b7964.969bdab0c4f15b4457bc162b9ad87ec0341d5e98ed3a9279494cc2f019c12250.5eEGiofVhJFttdE4ETVy01n1PTA-WrkIsgHZEB9rG5I
     components-hedgehogmode--profile-picture-hog--light:
@@ -6324,6 +6328,10 @@ snapshots:
         hash: v1.k794b7964.71bf9a67abbc8af67484c4ba46db9846533f0817a6c9431dbe86671f8c0c0657.gI8aNPSnINceu0ufFOIk1eB34bjlf7nWah24hc8EZRA
     mcp-apps-trends--pie-percentages--light:
         hash: v1.k794b7964.6333bf4d729ec9ca4bfd598fcf1fa09a528f1599ce8f520e0ac0dd4e090d0664.15Ipmr89-9dldfy4jSeYJzGj68hsOmPmhgafAhHmwko
+    mcp-apps-trends--proportion-bar--light:
+        hash: v1.k794b7964.896b2526cedb61895f05e29de23ff54a0c9f413b12667e3522218f968a88ac4c.TbAZLyhlARkRW3jGvEHVXw3IzBND9S8O6teIgr-ZzqY
+    mcp-apps-trends--proportion-bar-duration--light:
+        hash: v1.k794b7964.2404c9ca07928ea973d3728a28e789591aedcc48b46b268e970fd179b3d45bae.jo4UVHYfh5kgPvzZidyT3nntlludu4xKQDLEfiZMWhU
     mcp-apps-trends--single-series--light:
         hash: v1.k794b7964.1b5decab0f76ab924d787808679c22a9d7e29d3b908dc4efa02492eb5a5975ec.v1FGWBy1MIcdGPJmdIHHBHAD0lgjDTnH067dbcZqZGw
     mcp-apps-trends--time-series-bar--light:
@@ -6480,6 +6488,30 @@ snapshots:
         hash: v1.k794b7964.9a713abe443d5a52c29c22dd7555ad8005863f1a7a009702606fa5bd8384a98f.2nVLBkjlKykaLju4RbjgIlLkS-JsIqrCGxIqlHvj2ho
     products-autoresearch-daily-volume-chart--two-weeks--light:
         hash: v1.k794b7964.657b4864698965984216442d166b797580c2400a075a32a666088955114b6e26.5aBdQrW6RrKJjUXMDizdh6cpFHYQ1hqWTxPzdc2duvk
+    products-autoresearch-lifecycle-strip--draft--dark:
+        hash: v1.k794b7964.25cf4ab97ab421d5780b370efd62d63d7abb0d95dd8650b510e48282bbcf9c29.M68xJMN3m6w9ZG-jzeoOuW4eYLZlkYdTfScJvRiHt0A
+    products-autoresearch-lifecycle-strip--draft--light:
+        hash: v1.k794b7964.7c9f6863185efda9dabad5d8dbf1eb603a1fa9b675acbd3749da8dbe6f9f4bd8._Cz8caQ1Qz-Wl_hal4xo2O3DPBYenXBxYpVqzQ3R-0A
+    products-autoresearch-lifecycle-strip--first-training-run--dark:
+        hash: v1.k794b7964.268bc5414fd83baf11d29941933131523c0427164e01b3fadf5c0a7ac12dedc0.CFJLl_Wd6suPwLWqrawNmbRifK-7N4ou89L5FgBv8Xg
+    products-autoresearch-lifecycle-strip--first-training-run--light:
+        hash: v1.k794b7964.b928c1cc4d301eb5042057ce75e4c54b474f560248237b661bdc44192f3d35a4.G4e938NNTi2ryA6HJ6QwfFipP5SKF-zFwwAyMHDoh_w
+    products-autoresearch-lifecycle-strip--preliminary-champion--dark:
+        hash: v1.k794b7964.1eeaff8df503efedfed4608eb801fbdbe6e79d9566566cceb8d4d03aeeea71e3.F4saAb2jIJKOUzYQDPIKdBcfhfQ8UiOGfL_npwPaK1M
+    products-autoresearch-lifecycle-strip--preliminary-champion--light:
+        hash: v1.k794b7964.a7d1205ba92d7916302c71ac6947eb54d19cd7b315dad2ac740159d5b9523413.cxb9LGruE5_u9KFjovAl_yoKk1W_iA0l2NX7-LOKR34
+    products-autoresearch-lifecycle-strip--validated-champion--dark:
+        hash: v1.k794b7964.ec5636bb061b046741a42c6ce3faa30704b2b4203947e956c5d7966bada33fd5.pMIwCFfVjMdfrr_RckXkoewH1hbCy3Veditgtv4hx_k
+    products-autoresearch-lifecycle-strip--validated-champion--light:
+        hash: v1.k794b7964.131ecc736b38defef5b8ba34fa9836f1d2d5132e1d109e4b995b9591a5d9255c.759giT71A_8sdMCqx-FasPgdZzZWHgRvaoUmqVtYYKw
+    products-autoresearch-model-detail-scene--narrow--narrow--dark:
+        hash: v1.k794b7964.a8261167fe190a6da69fd2bc07cd0b45b9d69ddb6c502e6a76ab6545c9e043d6.3ScvmJEDOvl0AC3sWgI9d6tawFXTfq2B8p-pvUn2htw
+    products-autoresearch-model-detail-scene--narrow--narrow--light:
+        hash: v1.k794b7964.7e9a7baa51c5bfccfdc2f9d829213fb654249124270ef725da68b668c810e377.tdJkrS3ESfUX55iohONns0waCMExMUde4q0JwmLMqaY
+    products-autoresearch-model-detail-scene--wide--wide--dark:
+        hash: v1.k794b7964.9c69746cf2c5d848ae83c301d0dd50427d11fb2970ee26be5f07800ac9001405.K6PMRUi2ZPXkyMtB5NzSUiQqrI0QcSq5UC5IRzanmnk
+    products-autoresearch-model-detail-scene--wide--wide--light:
+        hash: v1.k794b7964.45e55e328260992ff187aa5661b07ac3e8812db2df5c07f20ac9a7ff1dd0141b.ZkwHP20gbuIUXIHfzP_-zevfbJkv3AkQ7-DaMgcf5uw
     products-autoresearch-probability-histogram--bimodal--dark:
         hash: v1.k794b7964.f95d3982e7c08f2e1b51655520f15e37293aa98e5ca87126a5653d2300bd776b.2G0LsuSx-SLqWn1Oxm_bUHSqfeDPFF6Pof0vDvhZEHM
     products-autoresearch-probability-histogram--bimodal--light:
@@ -11860,6 +11892,10 @@ snapshots:
         hash: v1.k794b7964.78c398feb22adb44344fad6c155ad42ecdbd9d77d80e4e0a60227b4a32abf14f.wmWI9S-nFvoZ5tNpxol33U3eINboLyZM9cggyHqv8hU
     scenes-app-insights-error-empty-states--validation-error--light:
         hash: v1.k794b7964.2b012576da17dc343cba68c671217dcfb23f907543fd897d65e42e8793f31958.gL9lf9tk2rIHPSZBxNHmPitiTqUvCG08VR3K9hK7xMo
+    scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--dark:
+        hash: v1.k794b7964.3d946f71319ec412299b8888e9a3fed48a7098bcf0e92cda25f6f34a43071a3f.PbH5UAwbwGY8tveYtVSlUz6TeywtNh7otO1PSPZi9vw
+    scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--light:
+        hash: v1.k794b7964.c1bca29126f3f201df46989d83af5e777ad42f21aba60febca75e2ded1a00d6e.WHUf4o3J7Uo7jwnFaGNXQgqa9jMdohuIOo1eSFbW9a4
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.f190c463ee799e93ea5d408200712776460a5a9a920977e2b7a85348350fa43b.dcN7n63RW9QEXstFsPgnAaKodbV6piSN7PMhBuHkaGc
     scenes-app-insights-insight-quick-start--default--light:

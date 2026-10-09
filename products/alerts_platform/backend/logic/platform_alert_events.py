@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    SourceKind,
 )
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -161,6 +162,7 @@ def announcement(
     configuration_id: str,
     evaluation_key: str,
     *,
+    source: SourceKind,
     incident_grouping_keys: Collection[str] = (),
 ) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
@@ -207,6 +209,7 @@ def announcement(
     *_, alert_name, consecutive_failures = rows[0]
     return EvaluationAnnouncement(
         configuration_id=configuration_id,
+        source=source,
         alert_name=alert_name,
         consecutive_failures=consecutive_failures,
         transitions=transitions,
