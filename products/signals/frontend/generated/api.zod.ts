@@ -1480,6 +1480,15 @@ export const SignalsScoutConfigTrialComparisonCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const SignalsScoutConfigTrialComparisonArchiveBody = /* @__PURE__ */ zod.object({
+    comparison_id: zod.uuid().describe('Saved comparison identity.'),
+    archived: zod.boolean().describe('Hide a finished trial from history, or restore it without rerunning it.'),
+})
+
+/**
  * Recover the same comparison without repeating saved scout runs or judge attempts.
  * @summary Resume a saved scout comparison
  */

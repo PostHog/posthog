@@ -50442,7 +50442,7 @@ export namespace Schemas {
       tags?: unknown[];
       evaluation_contexts?: unknown[];
       /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
          * @nullable
          */
       readonly usage_dashboard: number | null;
@@ -50831,18 +50831,6 @@ export namespace Schemas {
       evaluation_distinct_id: string | null;
       /** Detailed analysis of each condition in the feature flag */
       conditions: FeatureFlagConditionAnalysis[];
-    }
-
-    export interface FeatureFlagUsageDashboardError {
-      /** Whether the usage dashboard operation completed successfully. */
-      success: boolean;
-      /** Why the usage dashboard operation failed. */
-      error: string;
-    }
-
-    export interface FeatureFlagUsageDashboardSuccess {
-      /** Whether the usage dashboard operation completed successfully. */
-      success: boolean;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -55915,6 +55903,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
@@ -55944,6 +55933,7 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      placementTable?: string | null;
       queryPageTable?: boolean | null;
       sourceType: SourceType;
       statsTable: string;
@@ -91091,6 +91081,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
@@ -98305,6 +98296,8 @@ export namespace Schemas {
        * * `failed` - failed
        * * `unknown` - unknown */
       status: ScoutTrialComparisonStatusEnum;
+      /** Whether this finished trial is hidden from the default history. */
+      archived: boolean;
       /**
          * Sanitized comparison error, if any.
          * @nullable
@@ -98314,11 +98307,23 @@ export namespace Schemas {
       evaluation: ScoutTrialEvaluation | null;
     }
 
+    export interface ScoutTrialComparisonArchiveRequest {
+      /** Saved comparison identity. */
+      comparison_id: string;
+      /** Hide a finished trial from history, or restore it without rerunning it. */
+      archived: boolean;
+    }
+
     export interface ScoutTrialComparisonHistory {
       /** This operator's most recent saved comparisons. */
       results: ScoutTrialComparison[];
       /** Whether more comparisons exist than the requested limit. */
       has_more: boolean;
+      /**
+         * Cursor for the next page, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface ScoutTrialComparisonQuery {
@@ -126657,6 +126662,16 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string;
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean;
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1
