@@ -970,10 +970,10 @@ export interface sessionRecordingPlayerLogicActions {
     } // sessionRecordingEventUsageLogic
     reportRecordingDebuggedWithAI: (
         playerTimeSeconds: number,
-        customPrompt: boolean
+        promptEdited: boolean
     ) => {
-        customPrompt: boolean
         playerTimeSeconds: number
+        promptEdited: boolean
     } // sessionRecordingEventUsageLogic
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
