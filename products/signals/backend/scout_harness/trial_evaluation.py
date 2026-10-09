@@ -690,7 +690,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         if await asyncio.to_thread(_read_judgment, snapshot, evidence) is not None:
             return True
         if evidence.exclusion_reason:
-            judgment: TrialRunJudgment | None = TrialRunJudgment(
+            judgment = TrialRunJudgment(
                 launch_id=launch_id,
                 variant_id=evidence.variant_id,
                 status="excluded",
@@ -701,9 +701,10 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
             try:
                 await database_sync_to_async(_assert_worker_access)(snapshot)
                 step = "judge_execution"
-                judgment = await judge_trial_run(snapshot, evidence)
-                if judgment is None:
+                collected_judgment = await judge_trial_run(snapshot, evidence)
+                if collected_judgment is None:
                     return False
+                judgment = collected_judgment
                 if judgment.launch_id != launch_id or judgment.variant_id != evidence.variant_id:
                     judgment = _error_judgment(evidence, "The judge returned a result for another trial run.")
             except TrialJudgeExecutionError as error:
