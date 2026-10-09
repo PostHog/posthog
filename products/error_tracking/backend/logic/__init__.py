@@ -3,8 +3,10 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 
+from posthog.models.event_ingestion_restriction_config import RestrictionType, regenerate_redis_for_restriction_type
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -38,6 +40,7 @@ SETTINGS_FIELDS = (
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+    "ingestion_enabled",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (
@@ -226,14 +229,26 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     return settings
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
+    ingestion_toggled = "ingestion_enabled" in updates and updates["ingestion_enabled"] != settings.ingestion_enabled
     for key, value in updates.items():
         setattr(settings, key, value)
     if updates:
         settings.save(update_fields=list(updates))
+    if ingestion_toggled:
+        # Capture reads the drop rules from Redis, so the kill switch only takes effect once they are rebuilt.
+        transaction.on_commit(lambda: regenerate_redis_for_restriction_type(RestrictionType.DROP_EVENT_FROM_INGESTION))
     return settings
+
+
+def list_ingestion_disabled_api_tokens() -> list[str]:
+    return list(
+        ErrorTrackingSettings.objects.filter(ingestion_enabled=False)
+        .order_by("team_id")
+        .values_list("team__api_token", flat=True)
+    )
 
 
 def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:
