@@ -8,7 +8,7 @@ import { getExperimentStatus } from '../experimentStatus'
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { FLAG_STATE_FINDING_CODES, experimentWarningFromHealth } from './experimentHealthFindingEvents'
 import { getTotalExposures } from './exposureHealth'
-import { type HealthPanelFinding, ZERO_EXPOSURES_GRACE_HOURS } from './healthPanelFindings'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export type HealthDebugSource = 'server' | 'browser rules' | 'exposure answer'
 
@@ -167,7 +167,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
                 ? `${total} users exposed. ${
                       input.hoursSinceStart === null
                           ? 'Not launched.'
-                          : `Started ${Math.floor(input.hoursSinceStart)} hours ago. The finding waits ${ZERO_EXPOSURES_GRACE_HOURS} hours.`
+                          : `Started ${Math.floor(input.hoursSinceStart)} hours ago.`
                   }`
                 : null,
             differs: false,
@@ -197,18 +197,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 
 /** One row per check and source, so a reader can see why the health panel shows what it shows. */
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
-    return [
-        ...flagStateChecks(input),
-        ...noMetricChecks(input),
-        {
-            check: 'bias_risk_multiple_excluded',
-            source: 'server',
-            result: serverResult(input.health, (code) => code === 'bias_risk_multiple_excluded'),
-            note: null,
-            differs: false,
-        },
-        ...exposureChecks(input),
-    ]
+    return [...flagStateChecks(input), ...noMetricChecks(input), ...exposureChecks(input)]
 }
 
 export interface HealthDebugFact {

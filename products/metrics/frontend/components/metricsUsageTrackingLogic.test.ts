@@ -96,6 +96,16 @@ describe('metricsUsageTrackingLogic', () => {
         ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
         [
+            'metrics viewer display type changed',
+            () => metricsViewerLogic.actions.setDisplayType('stat'),
+            { display_type: 'stat' },
+        ],
+        [
+            'metrics viewer value reducer changed',
+            () => metricsViewerLogic.actions.setReduce('mean'),
+            { reduce: 'mean', display_type: 'line' },
+        ],
+        [
             'metrics viewer date range changed',
             () => metricsViewerLogic.actions.setDateFrom('-24h'),
             { date_from: '-24h' },
@@ -165,6 +175,8 @@ describe('metricsUsageTrackingLogic', () => {
     // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
     // as interactions would inflate the usage tiles on every link open or refresh.
     it('a URL restore captures no viewer interactions', async () => {
+        metricsViewerLogic.actions.setDisplayType('heatmap')
+        jest.mocked(posthog.capture).mockClear()
         await expectLogic(logic, () => {
             router.actions.push('/metrics', {
                 metricName: SECRET_METRIC,
@@ -180,6 +192,7 @@ describe('metricsUsageTrackingLogic', () => {
         expect(captures('metrics viewer range function changed')).toHaveLength(0)
         expect(captures('metrics viewer date range changed')).toHaveLength(0)
         expect(captures('metrics viewer group by changed')).toHaveLength(0)
+        expect(captures('metrics viewer display type changed')).toHaveLength(0)
     })
 
     it('query completed reports shape counts and timing, never series labels', async () => {

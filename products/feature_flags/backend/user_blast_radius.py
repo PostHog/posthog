@@ -194,8 +194,7 @@ def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> Blas
     Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
 
     The gate is applied by the caller, not inside get_user_blast_radius: workflows shares that
-    function and gates its own audience counts on workflows-audience-query-v2, so a gate in
-    there would move workflows counts outside the workflows rollout.
+    function for group audience counts, so a gate in there would also change workflows counts.
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)

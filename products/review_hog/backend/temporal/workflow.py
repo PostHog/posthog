@@ -860,6 +860,8 @@ class ReviewPRWorkflow:
                         celebrate_clean_reviews=acting.celebrate_clean_reviews,
                         marker=marker,
                         capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
+                        raised_elsewhere=dedup.raised_elsewhere if dedup is not None else [],
+                        raised_elsewhere_count=dedup.raised_elsewhere_count if dedup is not None else 0,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

@@ -7,9 +7,10 @@
 //! metadata and makes no routing decision; anything that picks between
 //! backends is an output policy, not a sink.
 //!
-//! [`Sink::publish`] is infallible at the call level: every input payload gets
-//! a [`SinkResult`], and failures travel inside them. Callers that need the
-//! v0 whole-request response collapse the results with [`fold_results`].
+//! [`PublishPayloads::publish`] does not return an error: every input payload gets a
+//! [`SinkResult`], and a failure is reported in that payload's result. Callers
+//! that need the v0 whole-request response collapse the results with
+//! [`fold_results`].
 
 use async_trait::async_trait;
 use common_types::CapturedEventHeaders;
@@ -24,19 +25,14 @@ use crate::sinks::registry::Destination;
 /// reported without the sink ever seeing event metadata.
 ///
 /// The fields are backend-agnostic: each sink interprets them in its own
-/// terms, and nothing here names a Kafka concept. Kept field-for-field in
-/// sync with `v1::sinks::types::PreparedEvent`, the shape the two stacks
-/// converge on.
+/// terms, and nothing here names a Kafka concept.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedPayload {
     pub uuid: Uuid,
     /// The output this record is addressed to. Each sink resolves it to its
     /// own target, as v1's sinks resolve their `Destination`.
     pub destination: Destination,
-    /// Raw key; whether the sink uses it is decided by `ordering`.
     pub partition_key: String,
-    /// The guarantee `partition_key` exists to preserve.
-    /// [`OrderingGuarantee::None`] means publish without a key.
     pub ordering: OrderingGuarantee,
     pub payload: Vec<u8>,
     pub headers: CapturedEventHeaders,
@@ -44,40 +40,26 @@ pub(crate) struct PreparedPayload {
 
 /// What happened to one published payload.
 #[derive(Debug)]
-pub(crate) enum Outcome {
+pub enum Outcome {
     Published,
     Failed(CaptureError),
 }
 
-/// Per-event publish result, correlated to the input by uuid.
-///
-/// The sink treats the uuid as pass-through: results align with the input
-/// payloads by position, and nothing in the sink assumes uuids are unique
-/// within a batch (v0 accepts client-supplied uuids unchecked). It is
-/// carried anyway so a result is attributable to its event without the
-/// caller holding the input list, which makes the per-event response model
-/// (steps 19d and 20 of `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) a
-/// caller-side change instead of a trait change. Until that model lands,
-/// `fold_results` is the only consumer and ignores it; drop this note when
-/// the uuid gains its consumer.
 #[derive(Debug)]
-pub(crate) struct SinkResult {
-    // Unread outside tests until the per-event response model consumes it;
-    // see the doc comment above.
-    #[allow(dead_code)]
+pub struct SinkResult {
     pub uuid: Uuid,
     pub outcome: Outcome,
 }
 
 impl SinkResult {
-    pub(crate) fn published(uuid: Uuid) -> Self {
+    pub fn published(uuid: Uuid) -> Self {
         Self {
             uuid,
             outcome: Outcome::Published,
         }
     }
 
-    pub(crate) fn failed(uuid: Uuid, err: CaptureError) -> Self {
+    pub fn failed(uuid: Uuid, err: CaptureError) -> Self {
         Self {
             uuid,
             outcome: Outcome::Failed(err),
@@ -88,7 +70,7 @@ impl SinkResult {
 /// Backend mechanism: enqueue prepared payloads, ack them, report results.
 /// No prepare on the trait — payload assembly belongs to the layers above.
 #[async_trait]
-pub(crate) trait Sink {
+pub(crate) trait PublishPayloads {
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
 }
 
