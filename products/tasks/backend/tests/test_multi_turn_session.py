@@ -1516,6 +1516,28 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("untrusted_checkout", [True, False])
+    async def test_stamps_untrusted_checkout_into_run_state(self, untrusted_checkout):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user.id,
+            repository="posthog/posthog",
+            untrusted_checkout=untrusted_checkout,
+        )
+
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context)
+
+        extra_run_state = mock_create.call_args.kwargs["extra_run_state"]
+        assert extra_run_state.get("untrusted_checkout") is (True if untrusted_checkout else None)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "stamp, value",
         [

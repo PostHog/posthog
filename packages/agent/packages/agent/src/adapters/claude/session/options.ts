@@ -141,6 +141,7 @@ export interface BuildOptionsParams {
   budgetGuard?: RunBudgetGuard;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
+  untrustedCheckout?: boolean;
 }
 
 export function buildSystemPrompt(
@@ -825,6 +826,14 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.settingSources = options.settingSources?.filter(
       (source) => source !== "project" && source !== "local",
     );
+  }
+
+  // Repo settings and .mcp.json start commands before any tool approval runs.
+  if (params.untrustedCheckout) {
+    options.settingSources = (options.settingSources ?? []).filter(
+      (source) => source === "user",
+    );
+    options.strictMcpConfig = true;
   }
 
   if (params.machineAuth?.oauthToken) {

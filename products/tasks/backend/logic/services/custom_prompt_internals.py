@@ -109,6 +109,7 @@ class CustomPromptSandboxContext:
     ``repository`` for new callers, which stays for the single-repo ones that predate it."""
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
+    untrusted_checkout: bool = False
     model: str | None = None
     """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
@@ -287,6 +288,8 @@ async def _create_task_and_trigger(
     extra_run_state: dict[str, Any] = {}
     if context.mcp_exclude_tools:
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
+    if context.untrusted_checkout:
+        extra_run_state["untrusted_checkout"] = True
     if output_schema:
         extra_run_state["caller_ends_run"] = True
     if analytics_query_context is not None:

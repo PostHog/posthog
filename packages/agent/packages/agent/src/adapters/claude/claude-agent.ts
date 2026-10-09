@@ -3286,6 +3286,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
+      untrustedCheckout: meta?.untrustedCheckout === true,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,

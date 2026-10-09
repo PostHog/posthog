@@ -267,6 +267,7 @@ export type NewSessionMeta = {
   taskOriginProduct?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
+  untrustedCheckout?: boolean;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud

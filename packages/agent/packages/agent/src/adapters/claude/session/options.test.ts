@@ -172,6 +172,27 @@ describe("buildSessionOptions", () => {
     expect(options.fallbackModel).toBe("claude-sonnet-5");
   });
 
+  it.each([
+    ["the default sources", undefined, ["user"]],
+    ["every source", ["user", "project", "local"], ["user"]],
+    ["only project", ["project"], []],
+    ["no sources", [], []],
+  ] as const)(
+    "loads only user settings and passed MCP servers for an untrusted checkout given %s",
+    (_label, requested, expected) => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        untrustedCheckout: true,
+        userProvidedOptions: requested
+          ? { settingSources: [...requested], strictMcpConfig: false }
+          : { strictMcpConfig: false },
+      });
+
+      expect(options.settingSources).toEqual(expected);
+      expect(options.strictMcpConfig).toBe(true);
+    },
+  );
+
   it("threads onEnsureLocalToolsConnected into the signed-commit guard (cloud)", async () => {
     const healSpy = vi.fn().mockResolvedValue(true);
     await runPreToolUseHooks(

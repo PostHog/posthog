@@ -2437,6 +2437,7 @@ export class AgentServer {
         taskOriginProduct: preTask.origin_product,
       }),
       ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
+      ...(runState?.untrusted_checkout === true && { untrustedCheckout: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
