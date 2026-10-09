@@ -54,8 +54,9 @@ use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
+use crate::partitions::InputTopic;
 use crate::producer::MembershipSink;
-use crate::store::durability::OffsetManifest;
+use crate::store::durability::PendingRestore;
 use crate::store::StoreHandle;
 use crate::workers::{EventNameGating, EvictionRestore, MergeWorkerDeps, Stage1Worker};
 
@@ -169,6 +170,13 @@ impl EventDispatcher {
 
     pub fn readiness(&self) -> &Arc<BootReadiness> {
         &self.readiness
+    }
+
+    /// Gate `/_ready` on `readiness`, which a health server bound before the dispatcher already
+    /// serves.
+    pub fn with_readiness(mut self, readiness: Arc<BootReadiness>) -> Self {
+        self.readiness = readiness;
+        self
     }
 
     /// Enable crash-restart durability. Must be called before any worker spawns.
@@ -1059,9 +1067,9 @@ pub struct CohortStreamEventsConsumer {
     events_partitions: usize,
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
-    /// Offset manifest from a disaster restore. When set, boot also rewinds every owned partition
-    /// the manifest names to its manifest position.
-    restore_manifest: Option<OffsetManifest>,
+    /// A checkpoint restore boot must finish. Boot rewinds every owned partition the restore keeps
+    /// to its restored position, commits, and settles it before anything folds.
+    restore: Option<PendingRestore>,
 }
 
 impl CohortStreamEventsConsumer {
@@ -1076,7 +1084,7 @@ impl CohortStreamEventsConsumer {
         offset_commit_interval: Duration,
         events_partitions: usize,
         consumer_command_rx: ConsumerCommandReceiver,
-        restore_manifest: Option<OffsetManifest>,
+        restore: Option<PendingRestore>,
     ) -> Self {
         let pauser: Arc<dyn PartitionPauser> =
             Arc::new(ConsumerPauser::new(consumer.clone(), topic.clone()));
@@ -1091,7 +1099,7 @@ impl CohortStreamEventsConsumer {
             offset_commit_interval,
             events_partitions,
             consumer_command_rx,
-            restore_manifest,
+            restore,
         }
     }
 
@@ -1120,14 +1128,14 @@ impl CohortStreamEventsConsumer {
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
         let boot_started = Instant::now();
-        // `validate_startup` refuses a checkpoint restore without durable restore, so a manifest
+        // `validate_startup` refuses a checkpoint restore without durable restore, so a restore
         // always comes with it. Without durable restore the store started empty: nothing to recover.
         let mut phase = match (
             self.dispatcher.durable_restore_enabled(),
-            self.restore_manifest.take(),
+            self.restore.take(),
         ) {
             (false, None) => self.go_live(boot_started, 0),
-            (_, manifest) => BootPhase::settling(manifest),
+            (_, restore) => BootPhase::settling(restore),
         };
         // Untouched until boot recovery completes, so nothing pauses during boot.
         let mut backpressure = Backpressure::new();
@@ -1154,7 +1162,7 @@ impl CohortStreamEventsConsumer {
                             );
                             BootPhase::Live
                         }
-                        BootPhase::Settling { mut previous, mut resume, manifest } => {
+                        BootPhase::Settling { mut previous, mut resume, restore } => {
                             resume.hold_back(&outcome.events);
                             let assignment = self.assigned_partitions();
                             if boot_assignment_settled(&assignment, &mut previous) {
@@ -1165,17 +1173,18 @@ impl CohortStreamEventsConsumer {
                                 self.dispatcher
                                     .eager_redrive_pending_transfers_on_boot(&owned)
                                     .await;
-                                if let Some(manifest) = &manifest {
-                                    resume.rewind_to(manifest, &self.topic, &owned);
+                                if let Some(restore) = &restore {
+                                    let topic = InputTopic::new(self.topic.as_str());
+                                    resume.rewind_to(&restore.plan().positions(&topic));
                                 }
-                                self.rewind(resume, boot_started)
+                                self.rewind(resume, restore, boot_started)
                             } else {
-                                BootPhase::Settling { previous, resume, manifest }
+                                BootPhase::Settling { previous, resume, restore }
                             }
                         }
-                        BootPhase::Rewinding { mut resume } => {
+                        BootPhase::Rewinding { mut resume, restore } => {
                             resume.hold_back(&outcome.events);
-                            self.rewind(resume, boot_started)
+                            self.rewind(resume, restore, boot_started)
                         }
                     };
                     if transport_error {
@@ -1211,10 +1220,20 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Seek every owned partition back to its resume point, then go live. Any failure keeps boot
-    /// in `Rewinding`, so the next poll retries the seek and nothing folds from the broker offset. A
-    /// persistent failure stalls and surfaces as consumer lag and a pod that never reads ready.
-    fn rewind(&self, resume: ResumePoints, boot_started: Instant) -> BootPhase {
+    /// Seek every owned partition back to its resume point, settle a pending restore, then go live.
+    /// Any failure keeps boot in `Rewinding`, so the next poll retries and nothing folds from the
+    /// broker offset. A persistent failure stalls and surfaces as consumer lag and a pod that never
+    /// reads ready.
+    ///
+    /// A restore commits the seek list before it settles. Settling deletes the restore marker, so
+    /// without the commit a crash right after would reopen the restored store at the broker's old,
+    /// higher offsets and skip the events between.
+    fn rewind(
+        &self,
+        resume: ResumePoints,
+        restore: Option<PendingRestore>,
+        boot_started: Instant,
+    ) -> BootPhase {
         let owned = self.dispatcher.owned_set();
         let seek_list = match resume.seek_list(&self.topic, &owned) {
             Ok(seek_list) => seek_list,
@@ -1224,38 +1243,62 @@ impl CohortStreamEventsConsumer {
                     error = %err,
                     "boot seek list rejected an offset; holding off dispatch and retrying",
                 );
-                return BootPhase::Rewinding { resume };
+                return BootPhase::Rewinding { resume, restore };
             }
         };
-        let Some(seek_list) = seek_list else {
-            return self.go_live(boot_started, 0);
-        };
-        let sought = seek_list.count();
+        let sought = seek_list.as_ref().map_or(0, TopicPartitionList::count);
 
-        let failed: Vec<i32> = match self.consumer.seek_partitions(seek_list, BOOT_SEEK_TIMEOUT) {
-            Ok(result) => result
-                .elements_for_topic(&self.topic)
-                .iter()
-                .filter(|elem| elem.error().is_err())
-                .map(|elem| elem.partition())
-                .collect(),
-            Err(err) => {
+        if let Some(seek_list) = &seek_list {
+            let failed: Vec<i32> = match self
+                .consumer
+                .seek_partitions(seek_list.clone(), BOOT_SEEK_TIMEOUT)
+            {
+                Ok(result) => result
+                    .elements_for_topic(&self.topic)
+                    .iter()
+                    .filter(|elem| elem.error().is_err())
+                    .map(|elem| elem.partition())
+                    .collect(),
+                Err(err) => {
+                    warn!(
+                        topic = %self.topic,
+                        partitions = sought,
+                        error = %err,
+                        "boot seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                    );
+                    return BootPhase::Rewinding { resume, restore };
+                }
+            };
+            if !failed.is_empty() {
                 warn!(
                     topic = %self.topic,
-                    partitions = sought,
-                    error = %err,
-                    "boot seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                    failed_partitions = ?failed,
+                    "boot seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
                 );
-                return BootPhase::Rewinding { resume };
+                return BootPhase::Rewinding { resume, restore };
             }
-        };
-        if !failed.is_empty() {
-            warn!(
-                topic = %self.topic,
-                failed_partitions = ?failed,
-                "boot seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
-            );
-            return BootPhase::Rewinding { resume };
+        }
+
+        if let Some(pending) = &restore {
+            let commit_events = || match &seek_list {
+                Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
+                None => Ok(()),
+            };
+            match pending.settle(commit_events) {
+                Ok(()) => info!(
+                    topic = %self.topic,
+                    partitions = sought,
+                    "checkpoint restore settled: the events group committed the restored positions",
+                ),
+                Err(err) => {
+                    warn!(
+                        topic = %self.topic,
+                        error = %format!("{:#}", anyhow::Error::new(err)),
+                        "checkpoint restore could not settle; holding off dispatch and retrying",
+                    );
+                    return BootPhase::Rewinding { resume, restore };
+                }
+            }
         }
         self.go_live(boot_started, sought)
     }

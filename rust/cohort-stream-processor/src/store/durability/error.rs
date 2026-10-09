@@ -47,23 +47,3 @@ impl fmt::Display for PlanningCancelledError {
 }
 
 impl std::error::Error for PlanningCancelledError {}
-
-/// A checkpoint import timed out, bounding import time below Kafka's max poll interval. Detect via
-/// `downcast_ref::<Self>()`. `store` is a static descriptor since the whole DB imports as one unit.
-#[derive(Debug)]
-pub struct ImportTimeoutError {
-    pub store: &'static str,
-    pub timeout_secs: u64,
-}
-
-impl fmt::Display for ImportTimeoutError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Checkpoint import timed out after {}s for {}",
-            self.timeout_secs, self.store
-        )
-    }
-}
-
-impl std::error::Error for ImportTimeoutError {}

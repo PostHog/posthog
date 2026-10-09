@@ -117,14 +117,14 @@ A deployment that relies on backfilled state must enable it.
 With durable restore on, the processor picks where its store comes from at boot, in this order:
 
 1. **Reopen the live store** on the persistent volume, if it is there.
-2. **A local checkpoint**, if checkpoints are enabled and a recent one exists.
-3. **A remote checkpoint** downloaded from object storage, if checkpoints are enabled.
-4. **An empty store**, the cold start.
+   A store that carries a `restore.json` marker holds a checkpoint restore that has not finished, so that restore resumes instead (see [finishing a restore](#finishing-a-restore)).
+2. **A local checkpoint**, if checkpoints are enabled and one was captured within `CHECKPOINT_LOCAL_MAX_STALENESS_SECS`.
+3. **A remote checkpoint** from object storage, newest first, if checkpoints are enabled.
+4. **An empty store**, the cold start, when checkpoints are disabled or nothing is restorable.
 
+Before it decides, the boot deletes a leftover `<STORE_PATH>.restore` staging directory, which a restore killed midway leaves behind.
 Checkpoints, `CHECKPOINT_ENABLED`, are disabled by default, so in practice the choice is between reopening the live store and starting empty.
-A checkpoint restore that fails to clear the store, copy or download the checkpoint, or read its offsets falls back to a cold start.
-The restore never opens the RocksDB files, so a checkpoint whose files cannot open passes it, and the store open that follows fails the pod instead.
-A live store that fails to open does not fall back either: the pod fails to start.
+A live store that fails to open does not fall back to a checkpoint: the pod fails to start.
 
 A cold start does not rebuild history.
 The consumers resume at their committed offsets, so the store only fills from new traffic, and every cohort's past membership has to come back through a backfill.
@@ -143,16 +143,110 @@ With durable restore on, the processor also:
 Nothing is dispatched to a worker, from the events consumer or a follower, until these boot steps end.
 [Processor runtime](processor-runtime.md#startup) lists them in order.
 
-After a checkpoint restore it also rewinds the consumers to the offsets recorded in the checkpoint.
-The events consumer folds this rewind into its boot seek, which it retries until it succeeds, and dispatches nothing before.
-The merge, transfer, cascade and seed followers get one attempt each.
-A failed attempt only logs a warning, and a checkpoint with no offsets for the topic skips the rewind silently.
-Either way the follower resumes at its broker-stored offsets.
-Those can be ahead of the restored state, and the inputs in between are never applied.
-
 When a partition is revoked, its worker drains and exits, and its slice is deleted with its coverage record.
 State never moves between pods, which is why the processor runs as a single pod.
 [Processor runtime](processor-runtime.md#rebalance-and-the-single-pod-constraint) explains that constraint.
+
+### Choosing a checkpoint
+
+The restore tries the freshest local checkpoint, then up to `CHECKPOINT_IMPORT_ATTEMPT_DEPTH` remote ones from the last `CHECKPOINT_IMPORT_WINDOW_HOURS`, newest first.
+A checkpoint counts only once its `metadata.json` exists, because the sweeper and the upload both write it last.
+A local attempt without one is passed over for the attempt before it, and a remote attempt without one is unusable and does not count toward the depth.
+The restore judges each candidate from its `metadata.json` and `offsets.json` before the bulk download:
+
+- its store schema must be this build's,
+- its metadata and manifest formats must be ones this build reads,
+- its manifest must belong to this pod's ordinal.
+
+A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
+A local checkpoint is hard-linked there, SSTs only, with every other file copied.
+A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
+The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
+The restore writes the `restore.json` marker into the stage and renames the stage onto the store path.
+A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.
+
+The first candidate that publishes wins, and no older one is downloaded.
+When none publishes:
+
+| What the candidates were    | Outcome                                               |
+| --------------------------- | ----------------------------------------------------- |
+| None, or only unusable ones | The store is created empty, behind the coverage fence |
+| Any that failed             | The boot blocks and retries                           |
+
+Unusable means an upload that never finished, a metadata or manifest format this build does not read, or a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on.
+Older candidates are no better, so a retry cannot help.
+A failed candidate is one that could restore after a fix: a download error, a stage that fails validation, a schema mismatch without the wipe flag.
+A failed listing, a failed Kafka commit and a local file error also block.
+
+### A blocked restore
+
+A blocked boot retries in process, with a backoff that starts at 30 seconds and doubles to 5 minutes.
+The health server is already listening, so `/_health` answers and `/_ready` returns 503 with "events consumer boot recovery in progress".
+`checkpoint_restore_blocked` reads 1 while it retries, and each round logs the error.
+A candidate whose stage failed validation is not downloaded again in later rounds.
+To give up on object storage, set `CHECKPOINT_ENABLED=false`.
+The boot then creates the store, and every slice begins behind the coverage fence.
+
+### Slices a restore resets
+
+A restored slice is only correct if every input resumes from the checkpoint's position for it.
+A partition the manifest does not list has no positions, so the restore resets it.
+Every other partition resumes from its positions.
+
+A reset deletes the slice and its coverage record, and fsyncs the write-ahead log, so the slice begins again behind the coverage fence.
+Each reset counts in `checkpoint_restore_slices_reset_total{reason}` and logs its partition and its reason.
+An input whose gate turned on after the capture has no position, so it resumes from its group's commit.
+
+The restore does not compare a position with the broker's retention.
+A consumer whose position the broker no longer holds resets to `latest` for the events topic and `earliest` for the followers, without a trace.
+
+### Finishing a restore
+
+A published restore stays pending until the events group commits the restored positions:
+
+1. Before the store opens, the restore commits each follower group's positions on the partitions it keeps.
+   A failure blocks the boot.
+2. The store opens, and the resets apply.
+3. The events consumer seeks each owned partition to the lower of its restored position and the first event it polled, commits that seek list, then deletes the marker.
+   A failed commit or delete keeps boot rewinding, and the next poll retries.
+4. Boot ends only then, so no worker folds, no follower dispatches and no checkpoint runs before the marker is gone.
+   The followers are assigned at their restored positions while boot settles, but they dispatch nothing.
+
+A crash before step 3 ends resumes the restore at the next boot, and the follower commits repeat.
+An unreadable marker means the positions are unknown, so the boot deletes the store and restores again.
+It renames the store to the staging path first, so a deletion cut short never leaves a store that reopens without its marker.
+
+## Checkpoints
+
+With `CHECKPOINT_ENABLED`, the processor takes a whole-store RocksDB checkpoint into `CHECKPOINT_LOCAL_DIR` every `CHECKPOINT_INTERVAL_MS`, and uploads one in every few to object storage, at `CHECKPOINT_S3_UPLOAD_INTERVAL_MS`.
+The loop starts when boot ends.
+Checkpoints require durable restore, a bucket, and an absolute checkpoint directory on the store's filesystem but outside the store, and the pod fails at start without them.
+
+- **One lineage per pod.**
+  A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.
+  Ordinal 0 keeps the single pod's original layout.
+  Two pods never read or write each other's checkpoints.
+- **Positions from the broker.**
+  Each checkpoint carries `offsets.json`: for every owned slice, the committed offset of every enabled input's consumer group, or the low watermark where the group has none, so idle partitions are recorded too.
+  The positions are read after a write-ahead-log flush and before the checkpoint.
+  Every commit follows a flush of its own, so the checkpoint holds at least the state the positions cover.
+- **Incremental uploads.**
+  An upload sends only the files the previous upload of the same process lacks, so the first upload after every start is full.
+- **No expiry.**
+  Objects are not expired, because a chain of incremental uploads can reference an object of any age.
+
+The uploader is built on the first upload, so an outage of object storage never stops a pod that has its store.
+A failed build counts `checkpoint_uploads_total{result="unavailable"}`, and the next upload tries again.
+
+These metrics follow checkpoints:
+
+- `checkpoint_last_upload_timestamp_seconds` is the last successful upload, and starts at process start, so a staleness alert fires only once its threshold passes,
+- `checkpoint_last_capture_timestamp_seconds` is the last captured manifest,
+- `checkpoint_uploads_total{result}` counts uploads,
+- `checkpoint_capture_failures_total{reason}` counts ticks skipped before the checkpoint,
+- `checkpoint_restore_total{source}` counts where each boot's store came from: `reopened`, `pending`, `local`, `s3` or `created`,
+- `checkpoint_restore_candidates_total{verdict}` counts the candidates a restore tried,
+- `checkpoint_restore_blocked` reads 1 while a restore blocks the boot.
 
 ## Slice coverage
 
@@ -161,13 +255,13 @@ A slice that lost its history looks like any other empty slice, so each slice ca
 The record says either that the slice is complete, or that it holds every event its partition delivered after an instant, and maybe some before.
 It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which no person-record read reaches.
 
-| What happens                                                                                        | Coverage                                                                                                                   |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or a failed restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its partition is assigned               |
-| A store with the stamp reopens                                                                      | Each slice resumes its own record                                                                                          |
-| A store without the stamp reopens                                                                   | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once |
-| A revoke, the boot deletion of an unowned partition, or a move-in wipe                              | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment        |
-| A checkpoint restore                                                                                | The record and the stamp travel inside the checkpoint. A checkpoint from before coverage records is adopted                |
+| What happens                                                                                          | Coverage                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or nothing to restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its partition is assigned                      |
+| A store with the stamp reopens                                                                        | Each slice resumes its own record                                                                                                 |
+| A store without the stamp reopens                                                                     | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once        |
+| A revoke, the boot deletion of an unowned partition, or a move-in wipe                                | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment               |
+| A checkpoint restore                                                                                  | The record and the stamp travel inside the checkpoint. A slice the restore cannot replay is reset with its record and begins anew |
 
 A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.
 Otherwise the partition withholds the run, as [the reconcile guard](seed-apply-and-reconcile.md#the-walk) describes, and its `covered_since` is the boundary a disaster-recovery run must pin.
@@ -178,7 +272,7 @@ A rolled-back image that recreates the store leaves a store without the stamp, a
 That is the trust every store had before coverage records existed.
 
 Coverage does not detect a stale slice, one whose partition another writer advanced while this store held older state.
-With one pod, only a rollback of the store or a checkpoint restore produces one.
+With one pod, only a rollback of the store produces one.
 
 Three metrics follow coverage:
 
@@ -228,7 +322,10 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
 - Reopening the live store checks only that RocksDB's `CURRENT` file exists.
   A damaged store that has one is chosen, fails to open, and the pod crash-loops.
   It never falls back to a checkpoint.
-- A store directory without a `CURRENT` file is neither reopened nor wiped, and the open fails on the missing schema stamp.
+- With checkpoints disabled, a store directory without a `CURRENT` file is neither reopened nor wiped, and the open fails on the missing schema stamp.
+  With checkpoints enabled, the boot deletes it and restores.
+- A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
+  An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
 - Static group membership keeps a restart from causing a revoke.
   A second group member, or a pod that loses its session or stops polling, still causes one.
   Each revoke deletes the whole slice, including merge transfers not yet sent, whose merge offsets may already be committed.

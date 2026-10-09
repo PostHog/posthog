@@ -70,7 +70,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Kept by: every consumer forces the write-ahead log to disk before each commit, and skips the commit if that fails.
 - If broken: a crash loses writes whose inputs are never redelivered.
 - Limit: it covers writes that succeeded.
-  A live event skipped on a store error, the batch the events consumer drops when boot recovery settles, a wiped slice, and a follower rewind that failed after a checkpoint restore are outside it.
+  A live event skipped on a store error, the batch the events consumer drops when boot recovery settles, and a wiped slice are outside it.
 - See [state store and durability](state-store-and-durability.md#the-durability-invariant).
 
 **9. A later success never commits past an earlier failure that set a floor.**
@@ -196,7 +196,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Limit: the walk covers only rows the store holds.
   It cannot restore a skipped event or find a person whose first Stage 2 row was never written.
   Coverage catches a slice that lost its history, but not a stale slice, one whose partition another writer advanced while this store held older state.
-  Nothing in one pod produces a stale slice except a rollback of the store or a checkpoint restore.
+  Nothing in one pod produces a stale slice except a rollback of the store.
 
 **25. A run completes only with proof.**
 

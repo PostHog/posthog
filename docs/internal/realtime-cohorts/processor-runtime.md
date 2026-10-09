@@ -191,10 +191,12 @@ Nothing moves state between pods, so more than one replica is unsupported, and r
 At boot the processor:
 
 1. validates its configuration and refuses unsafe combinations,
-2. loads the catalog once,
-3. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store,
-4. checks the partition counts of the co-partitioned topics against broker metadata,
-5. starts the timer loops and the events consumer, and starts the followers once the catalog has loaded and boot recovery has ended.
+2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
+3. loads the catalog once,
+4. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
+   A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes,
+5. checks the partition counts of the co-partitioned topics against broker metadata,
+6. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 
@@ -203,9 +205,10 @@ With durable restore enabled, a restart reopens the same local store instead, an
 1. It polls until two consecutive polls report the same non-empty assignment.
    It dispatches nothing these polls return, and records the lowest offset it polled on each partition.
 2. It deletes the slices of partitions it does not own, and re-produces every transfer waiting in the merge outbox, clearing each outbox row from outside the worker.
-3. After a checkpoint restore, it lowers each owned partition's resume point to the offset the checkpoint recorded.
+3. After a checkpoint restore, it lowers each owned partition's resume point to the position the restore kept for it.
 4. It seeks every owned partition back to its resume point, so every event it polled and did not dispatch is fetched again.
-   A failed seek is retried on the next poll, and nothing is dispatched until every seek succeeds.
+   After a checkpoint restore, it then commits those positions and deletes the restore marker.
+   A failed seek, commit or delete is retried on the next poll, and nothing is dispatched until all of them succeed.
 5. It spawns a worker for every owned partition.
    Each worker rebuilds its in-memory eviction queue by scanning its slice of behavioral state, so a dormant member on a partition with no traffic still leaves on time.
 

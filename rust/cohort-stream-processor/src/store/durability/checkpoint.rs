@@ -1,16 +1,17 @@
 //! The checkpoint orchestrator.
 //!
 //! [`CheckpointSweeper`] is one sweep loop, driven by
-//! [`run_sweep_loop`](crate::sweep::run_sweep_loop) at `checkpoint_interval`. Each tick takes a frozen
-//! whole-DB RocksDB checkpoint to the local PVC; every Nth tick it also uploads that checkpoint to S3
-//! incrementally (only the SSTs that changed). One `create_checkpoint` per tick — never two racing.
+//! [`run_sweep_loop`](crate::sweep::run_sweep_loop) at `checkpoint_interval`. Each tick takes a
+//! frozen whole-DB RocksDB checkpoint to the local volume, beside an offset manifest read from the
+//! consumer groups; every Nth tick it also uploads that checkpoint to S3 incrementally. One
+//! `create_checkpoint` per tick, never two racing.
 //!
-//! ## Interior mutability without a mutex across `.await`
+//! ## Interior mutability without a lock across `.await`
 //!
-//! The tick counter is an [`AtomicU64`] (`fetch_add`, no await). The incremental-upload baseline (the
-//! last-uploaded [`CheckpointMetadata`]) is a [`tokio::sync::Mutex`], but it is never held across an
-//! `.await`: the baseline is cloned out under the guard, which is then dropped, the plan + upload run
-//! lock-free, and on a successful upload the new baseline is stored under a fresh, momentary lock.
+//! The tick counter is an [`AtomicU64`]. The incremental-upload baseline (the last uploaded
+//! [`CheckpointMetadata`]) sits behind a [`Mutex`] that is never held across an `.await`: the
+//! baseline is cloned out under the guard, the plan and upload run lock-free, and a successful
+//! upload stores the new baseline under a fresh, momentary lock.
 //!
 //! ## Must not panic
 //!
@@ -23,34 +24,33 @@
 // sanctioned. See `checkpoint_once`.
 #![allow(clippy::disallowed_methods)]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 use tracing::{error, info, warn};
 
+use super::lineage::CheckpointLineage;
 use super::{
-    plan_checkpoint, CheckpointExporter, CheckpointMetadata, DurabilityConfig, OffsetManifest,
-    STORE_PARTITION, STORE_TOPIC,
+    plan_checkpoint, CheckpointExporter, CheckpointMetadata, CheckpointPlan, DurabilityConfig,
+    OffsetManifest, S3Uploader, METADATA_FILENAME,
 };
 use crate::consumers::EventDispatcher;
 use crate::observability::metrics::{
-    CHECKPOINT_FILES_UPLOADED_TOTAL, CHECKPOINT_FILE_COUNT, CHECKPOINT_SIZE_BYTES,
-    CHECKPOINT_UPLOADS_TOTAL,
+    CHECKPOINT_CAPTURE_FAILURES_TOTAL, CHECKPOINT_FILE_COUNT,
+    CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS, CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS,
+    CHECKPOINT_SIZE_BYTES, CHECKPOINT_UPLOADS_TOTAL,
 };
-use crate::partitions::OffsetTracker;
+use crate::partitions::InputGroups;
 use crate::store::CohortStore;
 use crate::sweep::Sweeper;
 
 /// The loop-name label for the checkpoint sweep cycle metrics.
 pub const CHECKPOINT_LOOP_NAME: &str = "checkpoint";
-
-/// One topic and the [`OffsetTracker`] that tracks its committed positions, passed to
-/// [`CheckpointSweeper::new`].
-pub type TrackedTopic = (String, Arc<OffsetTracker>);
 
 /// True on every `every_n`-th tick (tick 0, N, 2N, …). `every_n == 0` is treated as 1.
 pub fn should_upload(tick: u64, every_n: u64) -> bool {
@@ -64,65 +64,58 @@ pub fn upload_cadence(checkpoint_interval_ms: u64, s3_upload_interval_ms: u64) -
     (s3_upload_interval_ms / checkpoint_interval_ms.max(1)).max(1)
 }
 
-/// Drives periodic whole-DB checkpoints to the local PVC + incremental S3 backup.
+/// Drives periodic whole-DB checkpoints to the local volume plus incremental S3 backup.
 pub struct CheckpointSweeper {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
-    /// The `(topic, tracker)` pairs whose committed offsets the manifest captures.
-    trackers: Vec<TrackedTopic>,
-    exporter: CheckpointExporter,
+    groups: Arc<InputGroups>,
+    lineage: CheckpointLineage,
     config: DurabilityConfig,
-    /// Base dir for local checkpoints; a sibling subtree of `store_path` (RocksDB hard-links SSTs, so
-    /// it must be on the same filesystem and must not be a child of the store path).
-    checkpoint_local_dir: PathBuf,
+    /// Built on the first upload, so an S3 outage never stops a pod that has its store.
+    exporter: OnceCell<CheckpointExporter>,
     tick: AtomicU64,
     upload_every_n: u64,
-    /// Baseline for the next incremental S3 diff. Cloned out before the upload await (never held
-    /// across `.await`); updated only after a successful upload. `None` until the first upload.
-    last_uploaded: Mutex<Option<CheckpointMetadata>>,
+    /// Baseline for the next incremental upload. Updated only after a successful upload.
+    baseline: Mutex<Option<CheckpointMetadata>>,
 }
 
 impl CheckpointSweeper {
     pub fn new(
         store: CohortStore,
         dispatcher: Arc<EventDispatcher>,
-        trackers: Vec<TrackedTopic>,
-        exporter: CheckpointExporter,
+        groups: Arc<InputGroups>,
+        lineage: CheckpointLineage,
         config: DurabilityConfig,
-        checkpoint_local_dir: PathBuf,
         upload_every_n: u64,
     ) -> Self {
+        let started = Utc::now().timestamp() as f64;
+        metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS).set(started);
+        metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS).set(started);
         Self {
             store,
             dispatcher,
-            trackers,
-            exporter,
+            groups,
+            lineage,
             config,
-            checkpoint_local_dir,
+            exporter: OnceCell::new(),
             tick: AtomicU64::new(0),
             upload_every_n,
-            last_uploaded: Mutex::new(None),
+            baseline: Mutex::new(None),
         }
     }
 
-    fn attempt_parent(&self) -> PathBuf {
-        self.checkpoint_local_dir
-            .join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
+    fn local_dir(&self) -> PathBuf {
+        self.lineage
+            .local_dir(Path::new(&self.config.local_checkpoint_dir))
     }
 
     async fn checkpoint_once(&self) {
         let tick = self.tick.fetch_add(1, Ordering::SeqCst);
 
-        // The checkpoint sweeper runs its own `spawn_blocking` and catches every `JoinError` to
-        // log-and-skip: the `Sweeper` contract forbids panicking (a panic aborts the timer task and
-        // stops all future checkpoints), so store panics must not propagate out of this loop.
-        //
-        // 1. fsync the WAL before the snapshot so `committed <= durable` holds. A failure here would
-        //    yield a checkpoint whose manifest claims more than is durable — skip the tick.
+        // 1. fsync the WAL before the snapshot. The checkpoint must hold at least what the commits
+        //    read in step 3 cover, and each of those followed its own fsync.
         let flush_store = self.store.clone();
-        let flush_result = tokio::task::spawn_blocking(move || flush_store.flush_wal_sync()).await;
-        match flush_result {
+        match tokio::task::spawn_blocking(move || flush_store.flush_wal_sync()).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 warn!(error = %e, "checkpoint tick: WAL fsync failed; skipping tick");
@@ -138,35 +131,66 @@ impl CheckpointSweeper {
             }
         }
 
-        // 2. Capture committed offsets (not committable/processed) for all owned partitions.
-        let owned = self.dispatcher.owned_partitions();
-        let tracker_refs: Vec<(&str, &OffsetTracker)> = self
-            .trackers
-            .iter()
-            .map(|(topic, tracker)| (topic.as_str(), tracker.as_ref()))
+        // 2. The slices to capture. A revoke after this point leaves a slice the manifest names but
+        //    the checkpoint lacks, which a restore resumes as empty; an assign leaves one the
+        //    checkpoint holds but the manifest lacks, which a restore resets. Both are safe.
+        let owned: BTreeSet<u16> = self
+            .dispatcher
+            .owned_partitions()
+            .into_iter()
+            .filter_map(|partition| u16::try_from(partition).ok())
             .collect();
-        let manifest = OffsetManifest::capture(&owned, &tracker_refs);
+        if owned.is_empty() {
+            info!("checkpoint tick: no owned slice; skipping tick");
+            return;
+        }
 
-        // 3. Take a whole-DB RocksDB checkpoint (sync I/O → spawn_blocking). The attempt dir must
+        // 3. Every input's resume positions, from its consumer group on the broker.
+        let groups = self.groups.clone();
+        let partitions = owned.clone();
+        let positions = match tokio::task::spawn_blocking(move || {
+            groups.resume_positions(&partitions)
+        })
+        .await
+        {
+            Ok(Ok(positions)) => positions,
+            Ok(Err(e)) => {
+                warn!(error = %e, "checkpoint tick: reading input positions failed; skipping tick");
+                metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "positions")
+                    .increment(1);
+                return;
+            }
+            Err(join_err) => {
+                error!(error = %join_err, "checkpoint tick: reading input positions panicked; skipping tick");
+                metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "positions")
+                    .increment(1);
+                return;
+            }
+        };
+
+        // 4. The manifest refuses a slice that lacks a position on any input.
+        let manifest = match OffsetManifest::capture(self.lineage.ordinal(), &owned, positions) {
+            Ok(manifest) => manifest,
+            Err(e) => {
+                warn!(error = %e, "checkpoint tick: incomplete manifest; skipping tick");
+                metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "incomplete")
+                    .increment(1);
+                return;
+            }
+        };
+
+        // 5. Take a whole-DB RocksDB checkpoint (sync I/O → spawn_blocking). The attempt dir must
         //    not be a child of store_path; SST hard-links require the same filesystem.
         let attempt_timestamp = Utc::now();
-        let checkpoint_id = format!(
-            "{}-{tick}",
-            CheckpointMetadata::generate_id(attempt_timestamp)
-        );
-        let attempt_dir = self.attempt_parent().join(&checkpoint_id);
+        let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
+        let attempt_dir = self.local_dir().join(&checkpoint_id);
         // `create_checkpoint` requires the leaf to NOT exist; it creates it and errors if it does.
-        if let Err(e) = tokio::fs::create_dir_all(self.attempt_parent()).await {
-            warn!(error = %e, dir = %self.attempt_parent().display(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
+        if let Err(e) = tokio::fs::create_dir_all(self.local_dir()).await {
+            warn!(error = %e, dir = %self.local_dir().display(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
             return;
         }
         let checkpoint_store = self.store.clone();
         let checkpoint_dir = attempt_dir.clone();
-        debug_assert!(
-            !attempt_dir.exists(),
-            "checkpoint attempt dir must not exist before create_checkpoint: {}",
-            attempt_dir.display(),
-        );
         let create_result = tokio::task::spawn_blocking(move || {
             checkpoint_store.create_checkpoint(&checkpoint_dir)
         })
@@ -185,22 +209,24 @@ impl CheckpointSweeper {
             }
         }
 
-        // 4. Write offsets.json after create_checkpoint (so it is never frozen mid-write) but before
+        // 6. Write offsets.json after create_checkpoint (so it is never frozen mid-write) but before
         //    planning, so the planner tracks it as a non-SST file and the S3 upload carries it.
-        //    Without offsets.json an S3 restore cannot seek. metadata.json is written after planning.
         if let Err(e) = manifest.write_to_dir(&attempt_dir) {
             warn!(error = %e, "checkpoint tick: writing offsets.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }
 
-        // 5. Plan the incremental diff vs the last-uploaded baseline, then write metadata.json.
-        let baseline = { self.last_uploaded.lock().await.clone() };
+        // 7. Plan against the baseline, then write metadata.json.
+        let baseline = self
+            .baseline
+            .lock()
+            .expect("the baseline lock is never held across a panic")
+            .clone();
         let plan = match plan_checkpoint(
             &attempt_dir,
+            CheckpointMetadata::new(self.lineage.ordinal(), attempt_timestamp),
             self.config.s3_key_prefix.clone(),
-            attempt_timestamp,
-            tick,
             baseline.as_ref(),
             None,
         ) {
@@ -211,18 +237,22 @@ impl CheckpointSweeper {
                 return;
             }
         };
-
-        let mut info = plan.info.clone();
-        if let Err(e) = info.metadata.write_to_dir(&attempt_dir).await {
+        if let Err(e) = plan
+            .info
+            .metadata
+            .save(&attempt_dir.join(METADATA_FILENAME))
+        {
             warn!(error = %e, "checkpoint tick: writing metadata.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }
 
-        // 6. Emit local-checkpoint size and file-count metrics.
+        // 8. Emit local-checkpoint size and file-count metrics.
         let (size_bytes, file_count) = dir_size_and_count(&attempt_dir);
         metrics::histogram!(CHECKPOINT_SIZE_BYTES).record(size_bytes as f64);
         metrics::histogram!(CHECKPOINT_FILE_COUNT).record(file_count as f64);
+        metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS)
+            .set(manifest.captured_at().timestamp() as f64);
         info!(
             checkpoint_id,
             dir = %attempt_dir.display(),
@@ -231,42 +261,53 @@ impl CheckpointSweeper {
             "local checkpoint taken",
         );
 
-        // 7. Every Nth tick: upload to S3 and advance the baseline on success.
+        // 9. Upload when due, and advance the baseline on success.
         if should_upload(tick, self.upload_every_n) {
             self.upload(&plan).await;
         }
 
-        // 8. Prune older local checkpoint dirs (keep latest only) to avoid pinning SSTs that the live
+        // 10. Prune older local checkpoint dirs (keep latest only) to avoid pinning SSTs that the live
         //    DB compacted away, which would cause unbounded PVC growth.
         self.prune_old_checkpoints(&attempt_dir).await;
     }
 
-    async fn upload(&self, plan: &super::CheckpointPlan) {
-        let files_in_plan = plan.files_to_upload.len();
-        match self
+    async fn upload(&self, plan: &CheckpointPlan) {
+        let exporter = match self
             .exporter
-            .export_checkpoint_with_plan_cancellable(plan, None, None)
+            .get_or_try_init(|| async {
+                S3Uploader::new(self.config.clone(), self.lineage)
+                    .await
+                    .map(|uploader| CheckpointExporter::new(Box::new(uploader)))
+            })
             .await
         {
-            Ok(()) => {
-                metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "success")
-                    .increment(files_in_plan as u64);
-                {
-                    let mut baseline = self.last_uploaded.lock().await;
-                    *baseline = Some(plan.info.metadata.clone());
-                }
-                info!(uploaded_files = files_in_plan, "checkpoint uploaded to S3");
-            }
+            Ok(exporter) => exporter,
             Err(e) => {
-                metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "error")
-                    .increment(files_in_plan as u64);
-                warn!(error = %e, "checkpoint S3 upload failed; baseline unchanged");
+                metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "unavailable").increment(1);
+                warn!(error = %format!("{e:#}"), "checkpoint S3 uploader unavailable; retrying on the next upload");
+                return;
             }
+        };
+
+        if let Err(e) = exporter.export_checkpoint_with_plan(plan).await {
+            warn!(error = %format!("{e:#}"), "checkpoint S3 upload failed; baseline unchanged");
+            return;
         }
+        metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS)
+            .set(Utc::now().timestamp() as f64);
+        *self
+            .baseline
+            .lock()
+            .expect("the baseline lock is never held across a panic") =
+            Some(plan.info.metadata.clone());
+        info!(
+            uploaded_files = plan.files_to_upload.len(),
+            "checkpoint uploaded to S3"
+        );
     }
 
     async fn prune_old_checkpoints(&self, keep: &Path) {
-        let parent = self.attempt_parent();
+        let parent = self.local_dir();
         let entries = match tokio::fs::read_dir(&parent).await {
             Ok(entries) => entries,
             Err(_) => return,

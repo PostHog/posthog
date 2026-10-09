@@ -100,13 +100,25 @@ pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
 /// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`); when
 /// `result=cancelled`, an additional `cause` label (`rebalance`|`shutdown`|`unknown`) (counter).
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
+/// Unix time of the last captured manifest (gauge, seconds). Starts at the sweeper's start, so a
+/// staleness alert fires only after its threshold passes.
+pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_capture_timestamp_seconds";
+/// Unix time of the last successful upload (gauge, seconds). Starts at the sweeper's start.
+/// **Alert on staleness**: no restorable checkpoint is getting newer.
+pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_upload_timestamp_seconds";
+/// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
+/// (counter).
+pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
 /// Individual checkpoint files uploaded to S3, labelled by `status` (`success`|`error`|`cancelled`)
 /// (counter).
 pub const CHECKPOINT_FILES_UPLOADED_TOTAL: &str = "checkpoint_files_uploaded_total";
 /// Individual checkpoint files downloaded from S3, labelled by `status`
-/// (`success`|`error`|`cancelled`) (counter).
+/// (`success`|`error`|`cancelled`|`not_found`) (counter). `not_found` is mostly the `metadata.json`
+/// of an upload that never finished.
 pub const CHECKPOINT_FILES_DOWNLOADED_TOTAL: &str = "checkpoint_files_downloaded_total";
 /// Files seen during incremental checkpoint planning, labelled by `action`
 /// (`added`|`replaced`|`retained`) (counter).
@@ -120,17 +132,22 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot restores, labelled by `source` (`reopen_live`|`pvc`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopened`|`pending`|`local`|`s3`|`created`) (counter).
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
+/// Checkpoint candidates a boot restore tried, labelled by `verdict`
+/// (`published`|`unusable`|`failed`) (counter).
+pub const CHECKPOINT_RESTORE_CANDIDATES_TOTAL: &str = "checkpoint_restore_candidates_total";
+/// Slices a checkpoint restore deleted because it holds no positions for them, labelled by `reason`
+/// (`not_in_checkpoint`) (counter). Each one begins again behind the coverage fence.
+pub const CHECKPOINT_RESTORE_SLICES_RESET_TOTAL: &str = "checkpoint_restore_slices_reset_total";
+/// 1 while the boot retries a restore that cannot finish, else 0 (gauge). **Alert on it**: the pod
+/// never reads ready until S3 access is fixed or `CHECKPOINT_ENABLED` is turned off.
+pub const CHECKPOINT_RESTORE_BLOCKED: &str = "checkpoint_restore_blocked";
 /// Wall-clock duration of one boot restore (histogram, seconds).
 pub const CHECKPOINT_RESTORE_DURATION_SECONDS: &str = "checkpoint_restore_duration_seconds";
-/// End-to-end checkpoint import (list + metadata + files + fallbacks), labelled by `result`
-/// (`success`|`failed`|`cancelled`|`timeout`) (histogram, seconds).
+/// Download of one checkpoint candidate's files, labelled by `result` (`success`|`failed`)
+/// (histogram, seconds).
 pub const CHECKPOINT_IMPORT_DURATION_SECONDS: &str = "checkpoint_import_duration_seconds";
-/// Duration of one import attempt (one checkpoint's files), labelled by `result`
-/// (`success`|`failed`) (histogram, seconds).
-pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS: &str =
-    "checkpoint_import_attempt_duration_seconds";
 
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
@@ -804,9 +821,26 @@ mod tests {
             "checkpoint_import_duration_seconds",
         );
         assert_eq!(
-            CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS,
-            "checkpoint_import_attempt_duration_seconds",
+            CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS,
+            "checkpoint_last_capture_timestamp_seconds",
         );
+        assert_eq!(
+            CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS,
+            "checkpoint_last_upload_timestamp_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_CAPTURE_FAILURES_TOTAL,
+            "checkpoint_capture_failures_total",
+        );
+        assert_eq!(
+            CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
+            "checkpoint_restore_candidates_total",
+        );
+        assert_eq!(
+            CHECKPOINT_RESTORE_SLICES_RESET_TOTAL,
+            "checkpoint_restore_slices_reset_total",
+        );
+        assert_eq!(CHECKPOINT_RESTORE_BLOCKED, "checkpoint_restore_blocked");
         assert_eq!(
             DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
             "durable_restore_pending_transfers_recovered_partitions_total",

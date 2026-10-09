@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use super::config::DurabilityConfig;
 use super::error::UploadCancelledError;
+use super::lineage::CheckpointLineage;
 use super::s3_client::create_s3_client;
 use super::uploader::CheckpointUploader;
 use crate::observability::metrics::CHECKPOINT_FILES_UPLOADED_TOTAL;
@@ -62,9 +63,13 @@ pub struct S3Uploader {
 }
 
 impl S3Uploader {
-    pub async fn new(config: DurabilityConfig) -> Result<Self> {
-        let store =
-            create_s3_client(&config, config.max_concurrent_checkpoint_file_uploads).await?;
+    pub async fn new(config: DurabilityConfig, lineage: CheckpointLineage) -> Result<Self> {
+        let store = create_s3_client(
+            &config,
+            config.max_concurrent_checkpoint_file_uploads,
+            &lineage.remote_dir(&config.s3_key_prefix),
+        )
+        .await?;
 
         info!(
             "S3 uploader initialized for bucket '{}' with max {} concurrent uploads",

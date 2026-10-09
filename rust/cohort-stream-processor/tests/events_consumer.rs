@@ -9,7 +9,7 @@
 //! ```
 //!
 //! The S3/PVC disaster-recovery e2e
-//! ([`s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant_left`]) additionally
+//! ([`s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on`]) additionally
 //! needs an S3-compatible store. The compose stack's SeaweedFS (`objectstorage`) serves one:
 //!
 //! ```sh
@@ -43,16 +43,15 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
-    ShuffleMessage, WorkerInbox,
+    run_rebalance_worker, CohortConsumerContext, InputGroups, InputTopic, OffsetTracker,
+    PartitionMirror, PartitionRouter, ShuffleMessage, WorkerInbox,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
-    run_boot_restore, store_hash_prefix, upload_cadence, CheckpointExporter, CheckpointSweeper,
-    OffsetManifest, RestoreSource, S3Uploader,
+    open_store, CheckpointLineage, CheckpointSweeper, PendingRestore, PodOrdinal, MARKER_FILENAME,
 };
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
@@ -1244,11 +1243,12 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
 
 /// Build a `Config` for the disaster-recovery e2e. `store_path` and `checkpoint_local_dir` must be
 /// separate temp subtrees: rocksdb hard-links SSTs into the checkpoint, so it must be a *sibling* of
-/// the store, never nested.
+/// the store, never nested. Every input topic and group is the test's own.
 fn s3_restore_config(
     store_path: &std::path::Path,
     checkpoint_dir: &std::path::Path,
     prefix: &str,
+    topics: &RestoreTopics,
 ) -> Config {
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("CHECKPOINT_ENABLED".into(), "true".into());
@@ -1276,13 +1276,45 @@ fn s3_restore_config(
             env.insert(key.into(), value);
         }
     }
-    Config::init_from_hashmap(&env).expect("build s3-restore config")
+    let mut config = Config::init_from_hashmap(&env).expect("build s3-restore config");
+    config.cohort_partition_count = NUM_PARTITIONS as u32;
+    config.cohort_stream_events_topic = topics.events.clone();
+    config.kafka_consumer_group = topics.group.clone();
+    config.person_merge_events_topic = topics.merges.clone();
+    config.kafka_merge_consumer_group = format!("{}-merges", topics.group);
+    config.cohort_merge_state_transfer_topic = topics.transfers.clone();
+    config.kafka_merge_apply_consumer_group = format!("{}-transfers", topics.group);
+    config
 }
 
-/// Like [`build_consumer_with_restore`], but threads the restore `manifest` into the consumer so it
-/// seeks the events topic to the restored committed offsets on boot.
+/// The e2e's own input topics: the events topic and the two follower topics every processor reads.
+struct RestoreTopics {
+    events: String,
+    merges: String,
+    transfers: String,
+    group: String,
+}
+
+impl RestoreTopics {
+    fn unique() -> Self {
+        let suffix = Uuid::new_v4();
+        Self {
+            events: format!("cohort_stream_events_s3restore_{suffix}"),
+            merges: format!("person_merge_events_s3restore_{suffix}"),
+            transfers: format!("cohort_merge_state_transfer_s3restore_{suffix}"),
+            group: format!("cohort-stream-processor-s3restore-{suffix}"),
+        }
+    }
+
+    fn all(&self) -> [&str; 3] {
+        [&self.events, &self.merges, &self.transfers]
+    }
+}
+
+/// Like [`build_consumer_with_restore`] with durable restore on, but hands the consumer a pending
+/// checkpoint restore to finish on boot.
 #[allow(clippy::too_many_arguments)]
-fn build_consumer_with_manifest(
+fn build_consumer_finishing_restore(
     topic: &str,
     group: &str,
     store: CohortStore,
@@ -1290,7 +1322,7 @@ fn build_consumer_with_manifest(
     handle: lifecycle::Handle,
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
-    manifest: Option<OffsetManifest>,
+    restore: PendingRestore,
 ) -> CohortStreamEventsConsumer {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
@@ -1334,28 +1366,18 @@ fn build_consumer_with_manifest(
         offset_commit_interval,
         NUM_PARTITIONS as usize,
         consumer_command_rx,
-        manifest,
+        Some(restore),
     )
 }
 
-/// Read each partition's committed offset from the broker into a `partition -> next-offset` map — the
-/// next-to-consume position the manifest must carry.
-fn committed_offsets_map(consumer: &StreamConsumer, topic: &str) -> HashMap<i32, i64> {
-    let mut tpl = TopicPartitionList::new();
-    for partition in 0..NUM_PARTITIONS {
-        tpl.add_partition(topic, partition);
-    }
-    let committed = consumer
-        .committed_offsets(tpl, Duration::from_secs(5))
-        .expect("fetch committed offsets");
+/// Each partition's high watermark.
+fn high_watermarks(consumer: &StreamConsumer, topic: &str) -> HashMap<i32, i64> {
     (0..NUM_PARTITIONS)
-        .filter_map(|partition| {
-            committed
-                .find_partition(topic, partition)
-                .and_then(|elem| match elem.offset() {
-                    Offset::Offset(value) => Some((partition, value)),
-                    _ => None,
-                })
+        .map(|partition| {
+            let (_, high) = consumer
+                .fetch_watermarks(topic, partition, Duration::from_secs(5))
+                .expect("fetch watermarks");
+            (partition, high)
         })
         .collect()
 }
@@ -1395,42 +1417,44 @@ async fn delete_s3_prefix(config: &Config) {
         Ok(store) => store,
         Err(_) => return,
     };
-    // Checkpoint SSTs are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json at the bare prefix.
-    let hashed = format!("{}/{}", store_hash_prefix(), d.s3_key_prefix);
-    for raw_prefix in [d.s3_key_prefix.as_str(), hashed.as_str()] {
-        let prefix = ObjPath::from(raw_prefix);
-        let mut stream = store.list(Some(&prefix));
-        while let Some(entry) = stream.next().await {
-            if let Ok(meta) = entry {
-                let _result = store.delete(&meta.location).await;
-            }
+    let lineage = CheckpointLineage::new(PodOrdinal::STANDALONE);
+    let prefix = ObjPath::from(lineage.remote_dir(&d.s3_key_prefix).as_str());
+    let mut stream = store.list(Some(&prefix));
+    while let Some(entry) = stream.next().await {
+        if let Ok(meta) = entry {
+            let _result = store.delete(&meta.location).await;
         }
     }
 }
 
-/// Full disaster-recovery path through a real broker + S3: fold + checkpoint to S3 (tenure 1), delete
-/// the store + checkpoint dirs (PVC loss), then restore from S3 and seek the manifest offsets (tenure
-/// 2). Asserts state is restored (not cold-replayed), the resume neither skips nor re-folds, and a
-/// dormant `Left` fires from the eviction queue rebuilt over the restored `cf_behavioral`.
+/// Runbook item A's case through a real broker and S3: fold, checkpoint with positions read from
+/// the broker, fold more and commit past the checkpoint, then lose the volume. The restore must
+/// replay exactly the events after the checkpoint even though the events group already committed
+/// past them, record the idle partition, finish by committing, and fire a dormant `Left` from the
+/// eviction queue rebuilt over the restored `cf_behavioral`.
 ///
 /// Asserting count-exact (not mere presence) sidesteps the documented fast-broker flake.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS) AND an S3-compatible store (CHECKPOINT_S3_*); see module docs"]
-async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant_left() {
-    let suffix = Uuid::new_v4();
-    let topic = format!("cohort_stream_events_s3restore_{suffix}");
-    let group = format!("cohort-stream-processor-s3restore-{suffix}");
-    let prefix = format!("cohort-stream-checkpoints-itest/{suffix}");
-
-    create_topic(&topic).await;
-    let total = produce_events(&topic).await;
+async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
+    let topics = RestoreTopics::unique();
+    let topic = topics.events.clone();
+    let group = topics.group.clone();
+    let prefix = format!("cohort-stream-checkpoints-itest/{}", Uuid::new_v4());
+    for name in topics.all() {
+        create_topic(name).await;
+    }
+    let before_checkpoint = produce_events(&topic).await;
 
     // Store and checkpoint dirs must be sibling subtrees, never nested (see `s3_restore_config`).
     let root = TempDir::new().unwrap();
     let store_path = root.path().join("db");
     let checkpoint_dir = root.path().join("checkpoints");
-    let config = s3_restore_config(&store_path, &checkpoint_dir, &prefix);
+    let config = s3_restore_config(&store_path, &checkpoint_dir, &prefix, &topics);
+    let lineage = config.checkpoint_lineage().expect("standalone lineage");
+    let groups = Arc::new(InputGroups::new(&config).expect("create input group readers"));
     let lsk = behavioral_lsk(&behavioral_catalog());
+    let total_persons = (PERSONS + NEW_PERSONS) as usize;
 
     // Reads committed offsets without joining the group.
     let verifier: StreamConsumer = ClientConfig::new()
@@ -1439,8 +1463,13 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         .set("enable.auto.commit", "false")
         .create()
         .expect("create verifier consumer");
+    // PERSONS keys over NUM_PARTITIONS partitions leave at least one partition without an event.
+    let idle_partition = high_watermarks(&verifier, &topic)
+        .into_iter()
+        .find_map(|(partition, high)| (high == 0).then_some(partition))
+        .expect("an events partition with no event");
 
-    // --- Tenure 1: fold + fsync-commit, then checkpoint + upload to S3. ---
+    // --- Tenure 1: fold, checkpoint through the sweeper, then fold and commit past it. ---
     {
         let store = CohortStore::open(&config.store_config()).expect("open tenure-1 store");
         let mut manager = Manager::builder("s3restore-itest-1")
@@ -1452,7 +1481,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         );
         let shutdown_handle = handle.clone();
         let _monitor = manager.monitor_background();
-        let (consumer, _dispatcher) = build_consumer_with_restore(
+        let (consumer, dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
             store.clone(),
@@ -1466,6 +1495,27 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         let task = tokio::spawn(consumer.process());
 
         let start = Instant::now();
+        while committed_sum(&verifier, &topic) != before_checkpoint as i64 {
+            assert!(
+                start.elapsed() < Duration::from_secs(60),
+                "tenure 1: timed out waiting for committed offsets to reach {before_checkpoint}",
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+
+        // upload_every_n = 1, so the tick uploads.
+        let sweeper = CheckpointSweeper::new(
+            store.clone(),
+            dispatcher,
+            groups.clone(),
+            lineage,
+            config.durability_config(),
+            1,
+        );
+        sweeper.run_once().await;
+
+        let total = before_checkpoint + produce_new_persons(&topic, NEW_PERSONS).await;
+        let start = Instant::now();
         while committed_sum(&verifier, &topic) != total as i64 {
             assert!(
                 start.elapsed() < Duration::from_secs(60),
@@ -1476,77 +1526,41 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         shutdown_handle.request_shutdown();
         task.await.expect("tenure-1 consumer panicked");
         assert_eq!(
-            entered_persons(&store, lsk),
-            PERSONS as usize,
-            "tenure 1 folded every produced person",
+            entered_persons_range(&store, lsk, total_persons),
+            total_persons
         );
-
-        // Drive one checkpoint tick directly: a dispatcher owning all partitions + an events tracker
-        // seeded from the broker's committed offsets, so the captured manifest carries the resume
-        // positions. upload_every_n = 1 ⇒ the first tick uploads.
-        let ckpt_dispatcher = Arc::new(EventDispatcher::new(
-            PartitionRouter::new(64),
-            Arc::new(OffsetTracker::new()),
-            test_handle(&store),
-            Arc::new(behavioral_catalog()),
-            Arc::new(CaptureSink::new()),
-            MergeWorkerDeps::capture(),
-        ));
-        let events_tracker = Arc::new(OffsetTracker::new());
-        for (partition, next_offset) in committed_offsets_map(&verifier, &topic) {
-            ckpt_dispatcher.assign_partition(partition);
-            // Seed committed so `OffsetManifest::capture` (which reads committed_offset) records it.
-            events_tracker.mark_dispatched(partition, next_offset);
-            let _ = events_tracker.mark_processed(partition, next_offset);
-            events_tracker.mark_committed(partition, next_offset);
-        }
-        let uploader = S3Uploader::new(config.durability_config())
-            .await
-            .expect("build S3 uploader (is the bucket reachable?)");
-        let exporter = CheckpointExporter::new(Box::new(uploader));
-        let sweeper = CheckpointSweeper::new(
-            store.clone(),
-            ckpt_dispatcher,
-            vec![(topic.clone(), events_tracker)],
-            exporter,
-            config.durability_config(),
-            checkpoint_dir.clone(),
-            upload_cadence(
-                config.checkpoint_interval_ms,
-                config.checkpoint_s3_upload_interval_ms,
-            ),
-        );
-        sweeper.run_once().await;
     } // tenure-1 store + dispatcher drop here, releasing the RocksDB lock
+    let total = committed_sum(&verifier, &topic);
 
-    // --- PVC loss: delete BOTH the live store and the local checkpoint dir. ---
+    // --- Volume loss: delete BOTH the live store and the local checkpoint dir. ---
     std::fs::remove_dir_all(&store_path).expect("remove store_path (simulate PVC loss)");
     std::fs::remove_dir_all(&checkpoint_dir)
         .expect("remove checkpoint_local_dir (simulate PVC loss)");
 
-    // --- Tenure 2: restore from S3 + seek the manifest offsets. ---
-    let restore = run_boot_restore(&config, &store_path).await;
+    // --- Tenure 2: the boot restores from S3, then the consumer finishes the restore. ---
+    let (store2, restore) = open_store(&config, Some(lineage), groups.clone())
+        .await
+        .expect("open the restored store");
+    let restore = restore
+        .expect("with the live store and local checkpoint gone, the boot restores a checkpoint");
+    assert_eq!(restore.source().label(), "s3");
+    let resumed = restore.plan().positions(&InputTopic::new(topic.as_str()));
     assert_eq!(
-        restore.source,
-        RestoreSource::S3,
-        "with the live store and local checkpoint gone, the restore must come from S3",
+        resumed
+            .get(&(idle_partition as u16))
+            .map(|offset| offset.get()),
+        Some(0),
+        "the manifest records the idle partition at its low watermark",
     );
-    let manifest = restore
-        .manifest
-        .clone()
-        .expect("an S3 restore yields an offset manifest to seek");
-
-    let store2 = CohortStore::open(&StoreConfig {
-        path: store_path.clone(),
-        wipe_on_start: false,
-        ..StoreConfig::default()
-    })
-    .expect("open restored store");
-    // (a) Full state present — restored from S3, not cold-replayed. Count-exact (not mere presence).
     assert_eq!(
-        entered_persons(&store2, lsk),
+        resumed.len(),
+        NUM_PARTITIONS as usize,
+        "every partition resumes"
+    );
+    assert_eq!(
+        entered_persons_range(&store2, lsk, total_persons),
         PERSONS as usize,
-        "the S3 restore re-seeded every member's state (a cold start would read 0)",
+        "the restore holds exactly the state at the checkpoint",
     );
 
     let mut manager = Manager::builder("s3restore-itest-2")
@@ -1558,7 +1572,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
     );
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
-    let consumer = build_consumer_with_manifest(
+    let consumer = build_consumer_finishing_restore(
         &topic,
         &group,
         store2.clone(),
@@ -1566,27 +1580,35 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         handle,
         Arc::new(CaptureSink::new()),
         Duration::from_millis(250),
-        Some(manifest),
+        restore,
     );
     let task = tokio::spawn(consumer.process());
 
-    // (b) Resumes at the manifest offset: no skip and no re-fold. Let the loop settle, seek, and idle;
-    // with no events past `total`, committed must stay exactly `total`.
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    let start = Instant::now();
+    while entered_persons_range(&store2, lsk, total_persons) != total_persons {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "tenure 2: timed out replaying the events after the checkpoint",
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     shutdown_handle.request_shutdown();
     task.await.expect("tenure-2 consumer panicked");
     assert_eq!(
         committed_sum(&verifier, &topic),
-        total as i64,
-        "resumed exactly at the manifest offset — no skip, no re-fold past the committed position",
+        total,
+        "the replay ends where tenure 1 committed: no skip, no event past the topic's end",
     );
     assert_eq!(
-        entered_persons(&store2, lsk),
-        PERSONS as usize,
-        "state count is still exact after the restore-seek resume",
+        entered_persons_range(&store2, lsk, total_persons),
+        total_persons
+    );
+    assert!(
+        !store_path.join(MARKER_FILENAME).exists(),
+        "the restore settled after the events group committed",
     );
 
-    // (c) Dormant Left: workers re-seed the eviction queue from the restored cf_behavioral, then a sweep
+    // Dormant Left: workers re-seed the eviction queue from the restored cf_behavioral, then a sweep
     // past the window evicts every now-dormant member.
     let catalog = Arc::new(behavioral_catalog());
     let readiness = BootReadiness::new(catalog.clone());
@@ -1619,11 +1641,13 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         .filter(|change| change.status == MembershipStatus::Left)
         .count();
     assert_eq!(
-        lefts, PERSONS as usize,
+        lefts, total_persons,
         "every restored-then-dormant member emits a Left from the eviction queue rebuilt over the S3-restored cf_behavioral",
     );
 
-    // --- Cleanup: delete the topic and the S3 prefix. ---
-    delete_topic(&topic).await;
+    // --- Cleanup: delete the topics and the S3 prefix. ---
+    for name in topics.all() {
+        delete_topic(name).await;
+    }
     delete_s3_prefix(&config).await;
 }
