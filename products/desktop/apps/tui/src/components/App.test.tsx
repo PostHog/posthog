@@ -105,11 +105,12 @@ describe("App", () => {
     expect(runs.watch).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a local chat that has a task row and no run", async () => {
+  it("shows a local chat that has a task row and no run, and an empty new chat after Ctrl+N", async () => {
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
     writeFileSync(join(sessions, "t2.jsonl"), "");
     saveLayout(openTask(initialLayout(), "t2"));
+    savePrefs({ newChatPlace: "local" });
     const work = {
       listRecent: async () => ({
         tasks: [{ id: "t2", title: "Local", runtime: "pi" } as Task],
@@ -129,7 +130,7 @@ describe("App", () => {
       stop: async () => {},
     } as unknown as LocalSession;
 
-    const { instance, output } = renderInTerminal(
+    const { instance, output, type } = renderInTerminal(
       <App
         session={{
           work,
@@ -146,6 +147,11 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(output()).toContain("from the local agent"),
       );
+      type("\x0e");
+      await vi.waitFor(() =>
+        expect(output()).toContain("Type a message to start a local chat"),
+      );
+      expect(output()).not.toContain("Starting local agent");
     } finally {
       instance.unmount();
       rmSync(sessions, { recursive: true });
@@ -854,7 +860,7 @@ describe("App", () => {
   });
 
   // A signed-in app on local chat t5, in a full-height frame as Root gives it, so the chat has rows to draw messages in.
-  const localApp = () => {
+  const localApp = (chats: Partial<PiChats> = {}) => {
     initTheme("dark");
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
@@ -890,7 +896,7 @@ describe("App", () => {
                 }),
               } as unknown as WorkList,
               runs: { prefetch: async () => {} } as unknown as CloudRuns,
-              chats: {} as PiChats,
+              chats: chats as PiChats,
               control: () => ({}) as PiControl,
               startLocal: async () => local,
             }
@@ -965,20 +971,33 @@ describe("App", () => {
     }
   });
 
-  it("keeps a sent message out of the next chat the pane shows", async () => {
-    const { output, press, drawnSince, close } = localApp();
+  it("shows an empty new chat after Ctrl+N on a local chat the pane started itself", async () => {
+    savePrefs({ newChatPlace: "local" });
+    const { output, press, drawnSince, close } = localApp({
+      createLocal: async () =>
+        ({ id: "t6", title: "Greeting", runtime: "pi" }) as Task,
+    });
     try {
       await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      // Ctrl+\ splits, so the chat starts in a split pane and Ctrl+N clears that pane in place.
+      press("\x1c");
+      await vi.waitFor(() =>
+        expect(output()).toContain("Type a message to start"),
+      );
       press("hello?");
       press("\r");
-      await vi.waitFor(() => expect(drawnSince(0)).toContain("hello?"));
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("Greeting"));
       const sent = output().length;
-      // Ctrl+N puts a new chat in the same pane.
       press("\x0e");
-      await vi.waitFor(() => expect(drawnSince(sent)).toContain("New chat"));
-      expect(drawnSince(sent)).not.toContain("hello?");
+      await vi.waitFor(() =>
+        expect(drawnSince(sent)).toContain("Type a message to start"),
+      );
+      expect(drawnSince(sent)).not.toContain("Starting local agent");
     } finally {
       close();
+      rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
+        force: true,
+      });
     }
   });
 });
