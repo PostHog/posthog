@@ -1045,6 +1045,34 @@ class TestFileDownloadHogQL:
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"count": expected_count}
 
+    # `formatDateTime` gets the query timezone as its last argument, so `%z` shows which timezone the count ran in.
+    @pytest.mark.parametrize(
+        "hogql_modifiers,expected_count",
+        [(None, 10), ({"convertToProjectTimezone": True}, 0)],
+        ids=["utc-by-default", "project-timezone-from-modifier"],
+    )
+    @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_uses_the_export_timezone(
+        self, async_client: AsyncClient, team, user, hogql_modifiers, expected_count
+    ):
+        team.timezone = "Asia/Tokyo"
+        await team.asave()
+        await async_client.aforce_login(user)
+
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+            {
+                "model": "hogql",
+                "hogql_query": "SELECT event AS event FROM events WHERE formatDateTime(timestamp, '%z') = '+0000'",
+                **({"hogql_modifiers": hogql_modifiers} if hogql_modifiers is not None else {}),
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"count": expected_count}
+
     @pytest.mark.usefixtures("enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     async def test_count_rows_masks_properties_in_where(
