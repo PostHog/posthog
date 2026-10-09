@@ -30,12 +30,21 @@ def run_canvas_app_widget(
     """
     typed_config = validate_widget_config(CANVAS_APP_WIDGET_TYPE, config)
     canvas_id = typed_config.get("canvasId")
-    if canvas_id is None:
-        return {"canvas": None, "needsConfiguration": True}
-
     viewer = CanvasViewer(
         team_id=team.id, user_id=user.id if user is not None else None, sandboxed=False, sandbox_task_id=None
     )
+    if canvas_id is None:
+        # Same canvases the tile's picker offers, so the tile can offer "New canvas" when there are none.
+        visible_canvases = canvas_facade.count_canvases(
+            viewer,
+            channel_id=None,
+            kind="freeform",
+            search=None,
+            user_access_control=UserAccessControl(user=user, team=team) if user is not None else None,
+            include_all_if_admin=False,
+        )
+        return {"canvas": None, "needsConfiguration": True, "hasCanvases": visible_canvases > 0}
+
     try:
         canvas = canvas_facade.get_canvas(viewer, CanvasAccess.READ, canvas_id)
     except CanvasNotFoundError:
