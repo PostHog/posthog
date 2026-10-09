@@ -1,9 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { IconSend } from '@posthog/icons'
-import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
-
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { LemonButton, LemonMenu, LemonMenuItem, Link } from '@posthog/lemon-ui'
 
 import type { TicketChannel, TicketStatus } from '../../types'
 import { getReplyDestination } from '../Channels/ChannelsTag'
@@ -43,7 +41,6 @@ export function SendMenu({
     loading: boolean
     children: React.ReactNode
 }): JSX.Element {
-    const overlayRef = useRef<HTMLDivElement>(null)
     const choices = statusOptions.slice(0, DIGITS.length)
 
     // Capture phase, so the keys never reach the editor while the menu is open (Enter would add a line).
@@ -57,7 +54,7 @@ export function SendMenu({
                 return
             }
             const target = e.target as HTMLElement
-            const inMenu = !!overlayRef.current?.contains(target)
+            const inMenu = !!target.closest('.SendMenu')
             // Another focused control, like a ticket sidebar field, keeps its own keys.
             if (!inMenu && target !== document.body && !composerRef.current?.contains(target)) {
                 return
@@ -89,58 +86,59 @@ export function SendMenu({
         return () => document.removeEventListener('keydown', onKeyDown, true)
     }, [visible, onSend, onCancel, choices, composerRef])
 
+    const items: LemonMenuItem[] = [
+        {
+            label: verb,
+            icon: <IconSend />,
+            keyboardShortcut: ['enter'],
+            onClick: () => onSend(),
+        },
+        ...choices.map(
+            (option, i): LemonMenuItem => ({
+                key: option.value,
+                label: `${verb} and set ${option.statusLabel}`,
+                keyboardShortcut: [DIGITS[i]],
+                onClick: () => onSend(option.value),
+            })
+        ),
+    ]
+
     return (
-        <LemonDropdown
+        <LemonMenu
+            className="SendMenu"
             visible={visible}
             onVisibilityChange={onVisibilityChange}
             closeOnClickInside={false}
             placement="top-end"
-            overlay={
-                <div ref={overlayRef} className="min-w-80" data-attr="send-menu">
-                    <div className="px-2 pt-1 pb-2 border-b">
-                        <div className="flex items-center gap-1 text-xs text-secondary">
-                            <ReplyIcon isPrivate={isPrivate} channel={channel} />
-                            <span>{isPrivate ? 'Private note' : getReplyDestination(channel)}</span>
+            items={[
+                {
+                    title: (
+                        <div className="min-w-80 px-2 pt-1 pb-2 border-b" data-attr="send-menu">
+                            <div className="flex items-center gap-1 text-xs text-secondary">
+                                <ReplyIcon isPrivate={isPrivate} channel={channel} />
+                                <span>{isPrivate ? 'Private note' : getReplyDestination(channel)}</span>
+                            </div>
+                            <div className="ph-no-capture font-semibold">
+                                {isPrivate ? 'Only your team will see this.' : audience}
+                            </div>
+                            {statusLabel ? (
+                                <div className="text-xs text-secondary">{`Ticket status is ${statusLabel}.`}</div>
+                            ) : null}
                         </div>
-                        <div className="ph-no-capture font-semibold">
-                            {isPrivate ? 'Only your team will see this.' : audience}
+                    ),
+                    items,
+                    footer: (
+                        <div className="flex items-center justify-between gap-4 px-2 pt-1 border-t text-xs text-secondary">
+                            <span>Esc to go back and keep editing</span>
+                            <Link onClick={onCancel}>Cancel</Link>
                         </div>
-                        {statusLabel ? (
-                            <div className="text-xs text-secondary">{`Ticket status is ${statusLabel}.`}</div>
-                        ) : null}
-                    </div>
-                    <div className="py-1">
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            icon={<IconSend />}
-                            sideIcon={<KeyboardShortcut enter />}
-                            onClick={() => onSend()}
-                        >
-                            {verb}
-                        </LemonButton>
-                        {choices.map((option, i) => (
-                            <LemonButton
-                                key={option.value}
-                                fullWidth
-                                size="small"
-                                sideIcon={<KeyboardShortcut {...{ [DIGITS[i]]: true }} />}
-                                onClick={() => onSend(option.value)}
-                            >
-                                {`${verb} and set ${option.statusLabel}`}
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <div className="flex items-center justify-between gap-4 px-2 pt-1 border-t text-xs text-secondary">
-                        <span>Esc to go back and keep editing</span>
-                        <Link onClick={onCancel}>Cancel</Link>
-                    </div>
-                </div>
-            }
+                    ),
+                },
+            ]}
         >
             <LemonButton type="primary" loading={loading} disabledReason={disabledReason}>
                 {children}
             </LemonButton>
-        </LemonDropdown>
+        </LemonMenu>
     )
 }

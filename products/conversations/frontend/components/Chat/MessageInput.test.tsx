@@ -194,6 +194,24 @@ describe('MessageInput', () => {
             expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, false, expect.any(Function), status)
         })
 
+        it('Enter on a focused menu row sends with that row, not the default', async () => {
+            const onSendMessage = renderSimplified()
+
+            await userEvent.click(screen.getByTestId('support-editor'))
+            expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
+
+            screen.getByRole('menuitem', { name: /Send and set resolved/ }).focus()
+            await userEvent.keyboard('{Enter}')
+            expect(onSendMessage).toHaveBeenCalledTimes(1)
+            expect(onSendMessage).toHaveBeenCalledWith(
+                'hello',
+                { type: 'doc' },
+                false,
+                expect.any(Function),
+                'resolved'
+            )
+        })
+
         test.each<[string, string]>([
             ['Enter', '{Enter}'],
             ['a digit', '2'],
