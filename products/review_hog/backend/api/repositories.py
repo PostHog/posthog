@@ -23,7 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.activity_logging import installation_account_name
 from products.review_hog.backend.automatic_review_rules import (
@@ -373,6 +373,11 @@ class EffectiveTeamStrictManagementPermission(BasePermission):
 
     def has_permission(self, request: Request, view: Any) -> bool:
         if not isinstance(view, ReviewHogProjectViewSetMixin):
+            return False
+        # The API scope check covers only the URL project, so a key scoped to an environment must not
+        # reach its parent project.
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_teams is not None and view.effective_team_id not in scoped_teams:
             return False
         if request.method in SAFE_METHODS:
             return view.user_permissions.team(view.effective_team).effective_membership_level is not None

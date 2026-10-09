@@ -8,6 +8,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.review_hog.backend.models import (
@@ -98,6 +100,32 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
         assert res.status_code == 403, res.json()
         assert self.client.get(self._url(path, environment)).status_code == 200
+
+    @parameterized.expand(
+        [
+            ("environment_only", False, (403, 403)),
+            ("environment_and_parent", True, (200, 200)),
+        ]
+    )
+    def test_a_project_scoped_key_needs_the_parent_project(
+        self, _name: str, include_parent: bool, expected: tuple[int, int]
+    ) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["*"],
+            scoped_teams=[environment.id, self.team.id] if include_parent else [environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        read = self.client.get(self._url("repositories/", environment))
+        write = self.client.post(self._url("repositories/", environment), {**WEB, "selected": True})
+
+        assert (read.status_code, write.status_code) == expected
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(
