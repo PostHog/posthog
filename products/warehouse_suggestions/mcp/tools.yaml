@@ -1,0 +1,90 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product warehouse_suggestions
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product warehouse_suggestions
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Warehouse suggestions
+feature: warehouse_suggestions
+url_prefix: /models
+feature_flag: warehouse-suggestions
+ui_apps: {}
+tools:
+    warehouse-suggestions-accept:
+        operation: warehouse_suggestions_accept_create
+        enabled: true
+        scopes:
+            - warehouse_objects:write
+            - data_catalog_approval:write
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Accept a warehouse suggestion
+        description: >
+            Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as
+            certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
+            the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
+            schedule. Requires human typed confirmation.
+        confirmed_action:
+            message: >
+                About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
+                Reply 'confirm' to proceed.
+            action_label: accept warehouse suggestion
+    warehouse-suggestions-dismiss:
+        operation: warehouse_suggestions_dismiss_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Dismiss a warehouse suggestion
+        description: >
+            Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note.
+            Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
+    warehouse-suggestions-get:
+        operation: warehouse_suggestions_retrieve
+        enabled: true
+        title: Get a warehouse suggestion
+        description: >
+            Get one warehouse suggestion by id, including `evidence`: the read counts and usage window that led to it.
+            Use this to explain to the user why a view or table should be certified, deprecated or materialized before
+            accepting.
+    warehouse-suggestions-list:
+        operation: warehouse_suggestions_list
+        enabled: true
+        list: true
+        title: List warehouse suggestions
+        description: >
+            Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from
+            how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision.
+            `payload` says what accepting would create or change, and `can_act` says whether the caller may accept or
+            dismiss it. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is
+            empty, call warehouse-suggestions-status to learn why.
+        response:
+            include:
+                - id
+                - kind
+                - subject_kind
+                - subject_id
+                - payload
+                - status
+                - score
+                - can_act
+    warehouse-suggestions-resume:
+        operation: warehouse_suggestions_resume_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Resume a dismissed warehouse suggestion
+        description: |
+            Put a dismissed warehouse suggestion back to proposed, so it can be accepted.
+    warehouse-suggestions-status:
+        operation: warehouse_suggestions_status_retrieve
+        enabled: true
+        title: Get warehouse suggestions status
+        description: >
+            Explain why the project has or lacks warehouse suggestions. Reports whether suggestions are turned on,
+            whether the project reads its views often enough to get them, how many days of read history the daily job
+            has so far, and when it last ran.
