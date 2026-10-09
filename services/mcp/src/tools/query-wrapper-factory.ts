@@ -100,6 +100,30 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
     }) as unknown as T
 }
 
+const SUB_DAY_INTERVALS = new Set(['hour', 'minute', 'second'])
+const CALENDAR_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * The tool schema promises that a calendar-day `date_to` (`2026-09-01`) covers that whole day.
+ * The backend only does this for intervals of a day or longer. With an hour, minute or second
+ * interval it ends the range at midnight at the start of that day, so the last day drops out
+ * and a single-day range returns no data. An explicit end-of-day time keeps the promise. The
+ * backend reads a time without an offset in the project timezone, as it does for the bare day.
+ */
+function withInclusiveCalendarDayDateTo(query: Record<string, unknown>): void {
+    const dateRange = query.dateRange as Record<string, unknown> | undefined
+    const dateTo = dateRange?.date_to
+    if (
+        !dateRange ||
+        typeof dateTo !== 'string' ||
+        !CALENDAR_DAY_RE.test(dateTo.trim()) ||
+        !SUB_DAY_INTERVALS.has(query.interval as string)
+    ) {
+        return
+    }
+    query.dateRange = { ...dateRange, date_to: `${dateTo.trim()}T23:59:59.999999` }
+}
+
 /**
  * Kea Router decodes paths before route matching, and scenes decode captured parameters again.
  * Double encoding keeps opaque values within the route matcher character set through both steps.
@@ -183,6 +207,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 ...queryParams,
                 kind: config.kind,
             }
+            withInclusiveCalendarDayDateTo(query)
             if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
                 const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
                 // Only inject `true`: when the project default is unchecked the field
