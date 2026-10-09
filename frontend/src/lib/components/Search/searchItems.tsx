@@ -130,7 +130,7 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             name = safeString(result.extra_fields.name) || result.result_id
             href = `/dashboard/${result.result_id}`
             break
-        case 'data_warehouse_saved_query':
+        case 'data_warehouse_view':
             name = safeString(result.extra_fields.name) || result.result_id
             href = urls.nodeDetail(safeString(result.extra_fields.node_id) || result.result_id)
             itemType = 'data_modeling'

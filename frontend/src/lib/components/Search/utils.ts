@@ -128,7 +128,7 @@ export const getCategoryDisplayName = (category: string): string => {
         askAI: 'Posthog AI',
         insight: 'Insights',
         dashboard: 'Dashboards',
-        data_warehouse_saved_query: 'Views',
+        data_warehouse_view: 'Views',
         endpoint: 'Endpoints',
         feature_flag: 'Feature flags',
         experiment: 'Experiments',

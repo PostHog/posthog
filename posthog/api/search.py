@@ -40,7 +40,7 @@ class EntityConfig(TypedDict, total=False):
     extra_fields: list[str]
     annotations: dict[str, Any]
     filters: dict[str, Any]
-    excludes: dict[str, Any]
+    excludes: list[dict[str, Any]]
 
 
 FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
@@ -62,7 +62,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "data_warehouse_saved_query": {
+    "data_warehouse_view": {
         "klass": DataWarehouseSavedQuery,
         "search_fields": {"name": "A"},
         "extra_fields": ["name", "node_id"],
@@ -70,20 +70,25 @@ ENTITY_MAP: dict[str, EntityConfig] = {
             "node_id": Subquery(Node.objects.filter(saved_query_id=OuterRef("pk")).order_by("id").values("id")[:1])
         },
         "filters": {
-            "deleted": False,
             "is_test": False,
             "managed_viewset__isnull": True,
             "node_id__isnull": False,
         },
-        "excludes": {
-            "origin__in": [DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET]
-        },
+        "excludes": [
+            {"deleted": True},
+            {
+                "origin__in": [
+                    DataWarehouseSavedQuery.Origin.ENDPOINT,
+                    DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                ]
+            },
+        ],
     },
     "endpoint": {
         "klass": Endpoint,
         "search_fields": {"name": "A"},
         "extra_fields": ["name"],
-        "filters": {"deleted": False},
+        "excludes": [{"deleted": True}],
     },
     "experiment": {
         "klass": Experiment,
@@ -216,7 +221,8 @@ def search_entities(
     )
 
     # add entities
-    for entity_meta in [entity_map[entity] for entity in entities]:
+    for entity_type in entities:
+        entity_meta = entity_map[entity_type]
         assert entity_meta is not None
         klass_qs, entity_name = class_queryset(
             view=view,
@@ -225,6 +231,7 @@ def search_entities(
             query=query,
             search_fields=entity_meta["search_fields"],
             extra_fields=entity_meta["extra_fields"],
+            entity_type=entity_type,
             annotations=entity_meta.get("annotations"),
             filters=entity_meta.get("filters"),
             excludes=entity_meta.get("excludes"),
@@ -318,12 +325,13 @@ def class_queryset(
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
+    entity_type: str | None = None,
     annotations: dict[str, Any] | None = None,
     filters: dict[str, Any] | None = None,
-    excludes: dict[str, Any] | None = None,
+    excludes: list[dict[str, Any]] | None = None,
 ):
     """Builds a queryset for the class."""
-    entity_type = class_to_entity_name(klass)
+    entity_type = entity_type or class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
     qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
@@ -347,7 +355,8 @@ def class_queryset(
     if filters:
         qs = qs.filter(**filters)
     if excludes:
-        qs = qs.exclude(**excludes)
+        for exclude in excludes:
+            qs = qs.exclude(**exclude)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)

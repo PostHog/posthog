@@ -190,7 +190,7 @@ describe('searchLogic', () => {
                     results: [
                         {
                             result_id: 'view-id',
-                            type: 'data_warehouse_saved_query',
+                            type: 'data_warehouse_view',
                             rank: 1,
                             extra_fields: { name: 'orders_by_day', node_id: 'node-id' },
                         },
@@ -210,12 +210,10 @@ describe('searchLogic', () => {
             'loadUnifiedSearchResultsSuccess',
         ])
 
-        expect(
-            logic.values.allCategories.find((category) => category.key === 'data_warehouse_saved_query')?.items
-        ).toEqual([
+        expect(logic.values.allCategories.find((category) => category.key === 'data_warehouse_view')?.items).toEqual([
             expect.objectContaining({
                 name: 'orders_by_day',
-                category: 'data_warehouse_saved_query',
+                category: 'data_warehouse_view',
                 href: urls.nodeDetail('node-id'),
                 itemType: 'data_modeling',
             }),

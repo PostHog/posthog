@@ -113,6 +113,7 @@ class TestSearch(APIBaseTest):
             created_by=self.user,
             origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
             is_materialized=True,
+            deleted=None,
         )
         node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
 
@@ -123,10 +124,18 @@ class TestSearch(APIBaseTest):
             internal_view = DataWarehouseSavedQuery.objects.create(name=name, team=self.team, origin=origin)
             Node.objects.create(team=self.team, dag=dag, saved_query=internal_view, type=NodeType.VIEW)
 
-        endpoint = Endpoint.objects.create(name="searchable_endpoint", team=self.team, created_by=self.user)
+        endpoint = Endpoint.objects.create(
+            name="searchable_endpoint", team=self.team, created_by=self.user, deleted=None
+        )
+
+        deleted_view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_deleted_view", team=self.team, deleted=True
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=deleted_view, type=NodeType.VIEW)
+        Endpoint.objects.create(name="searchable_deleted_endpoint", team=self.team, deleted=True)
 
         response = self.client.get(
-            "/api/projects/@current/search?q=searchable&entities=data_warehouse_saved_query&entities=endpoint"
+            "/api/projects/@current/search?q=searchable&entities=data_warehouse_view&entities=endpoint"
         )
         sorted_results = sorted(response.json()["results"], key=lambda result: result["type"])
 
@@ -136,7 +145,7 @@ class TestSearch(APIBaseTest):
             [
                 {
                     "rank": sorted_results[0]["rank"],
-                    "type": "data_warehouse_saved_query",
+                    "type": "data_warehouse_view",
                     "result_id": str(view.id),
                     "extra_fields": {"name": "searchable_view", "node_id": str(node.id)},
                     "user_access_level": "manager",

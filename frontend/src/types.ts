@@ -1781,7 +1781,7 @@ export interface PersonListParams {
 export type SearchableEntity =
     | 'action'
     | 'cohort'
-    | 'data_warehouse_saved_query'
+    | 'data_warehouse_view'
     | 'insight'
     | 'dashboard'
     | 'early_access_feature'
