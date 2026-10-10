@@ -780,7 +780,14 @@ describe('MenuFilterCombobox', () => {
             expect(rowTexts()[0]).toContain('my_current_event')
         })
 
-        it('puts the "url contains <query>" shortcut first, then recent, then pinned', async () => {
+        it.each([
+            { smartLead: false, order: ['shortcut', 'recent', 'pinned'] },
+            { smartLead: true, order: ['recent', 'pinned', 'shortcut'] },
+        ])('with smart lead $smartLead, orders a plain word search as $order', async ({ smartLead, order }) => {
+            featureFlagLogicModule.featureFlagLogic.mount()
+            featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_URL_CONTAINS_SMART_LEAD]: smartLead,
+            })
             mockUrlValues(['https://app.posthog.com/replay', 'https://app.posthog.com/replay/home'])
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.PageviewEvents, TaxonomicFilterGroupType.Events],
@@ -789,21 +796,15 @@ describe('MenuFilterCombobox', () => {
                 searchQuery: 'replay',
             })
 
-            // Wait on a stable post-search signal (a matching recent) so the ordering
-            // assertions fail fast rather than timing out waiting for a row that never renders.
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('replay_recent'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "replay"'))).toBe(true))
             const rows = rowTexts()
-            const shortcutIdx = rows.findIndex((t) => /contains/i.test(t) && /replay/i.test(t))
-            const recentIdx = rows.findIndex((t) => t.includes('replay_recent'))
-            const pinnedIdx = rows.findIndex((t) => t.includes('replay_pinned'))
-
-            // The contains shortcut leads the whole list, ahead of recents/pinned/events.
-            expect(shortcutIdx).toBe(0)
-            // Assert both rows are actually present (findIndex returns -1 when absent) so a
-            // regression that drops the recent/pinned row fails loudly, not on index arithmetic.
-            expect(recentIdx).toBeGreaterThan(0)
-            expect(pinnedIdx).toBeGreaterThan(recentIdx)
-            // and the raw matched URLs are collapsed away into the single shortcut.
+            const indexes = {
+                shortcut: rows.findIndex((t) => t.includes('URL contains "replay"')),
+                recent: rows.findIndex((t) => t.includes('replay_recent')),
+                pinned: rows.findIndex((t) => t.includes('replay_pinned')),
+            }
+            expect(order.map((row) => indexes[row as keyof typeof indexes])).toEqual([0, 1, 2])
+            // The raw matched URLs collapse into the single contains shortcut.
             expect(rows.some((t) => t.includes('https://app.posthog.com/replay'))).toBe(false)
         })
     })

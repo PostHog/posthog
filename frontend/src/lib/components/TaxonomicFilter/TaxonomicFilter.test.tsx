@@ -1526,25 +1526,37 @@ describe('TaxonomicFilter', () => {
             expect(trigger).not.toHaveTextContent('Events')
         })
 
-        it('makes the "url contains <query>" shortcut the first Suggested-filters row', async () => {
-            const user = userEvent.setup()
-            renderFilter({
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.PageviewEvents,
-                    TaxonomicFilterGroupType.EventProperties,
-                ],
-                collapseUrlsToContainsRow: true,
-            })
+        it.each([
+            { smartLead: false, query: 'purchase', firstRow: 'URL contains "purchase"' },
+            { smartLead: true, query: 'replay', firstRow: 'URL contains "replay"' },
+            { smartLead: true, query: 'purchase', firstRow: 'purchase_value' },
+        ])(
+            'with smart lead $smartLead, a search for "$query" puts $firstRow in the first Suggested-filters row',
+            async ({ smartLead, query, firstRow }) => {
+                featureFlagLogicModule.featureFlagLogic.mount()
+                featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.TAXONOMIC_FILTER_URL_CONTAINS_SMART_LEAD]: smartLead,
+                })
+                const user = userEvent.setup()
+                renderFilter({
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.PageviewEvents,
+                        TaxonomicFilterGroupType.EventProperties,
+                    ],
+                    collapseUrlsToContainsRow: true,
+                })
 
-            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'replay')
+                const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+                await user.type(searchInput, query)
 
-            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
-            // The leading aggregated row should be the single contains shortcut, not a raw URL.
-            expect(firstRow.textContent || '').toMatch(/contains.*replay|replay.*contains/i)
-            expect(firstRow.textContent || '').not.toContain('https://app.posthog.com/replay')
-        })
+                await waitFor(() => expect(screen.getAllByText(`URL contains "${query}"`).length).toBeGreaterThan(0))
+                const row = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+                expect(row).toHaveTextContent(firstRow)
+                // The raw matched URLs collapse into the single contains shortcut.
+                expect(screen.queryByText('https://app.posthog.com/replay')).not.toBeInTheDocument()
+            }
+        )
     })
 
     describe('category navigation', () => {

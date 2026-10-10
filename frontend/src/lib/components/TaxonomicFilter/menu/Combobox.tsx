@@ -36,6 +36,7 @@ import {
 } from '@posthog/quill'
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -53,6 +54,7 @@ import {
 } from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
+    containsShortcutLeads,
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
@@ -542,6 +544,7 @@ export function MenuFilterCombobox({
     // (matching the pill variant's per-row source tags).
     const recentKeys = useMemo(() => new Set((recentEntries ?? []).map(entryKey)), [recentEntries])
     const pinnedKeys = useMemo(() => new Set((pinnedEntries ?? []).map(entryKey)), [pinnedEntries])
+    const containsShortcutSmartLead = useFeatureFlag('TAXONOMIC_FILTER_URL_CONTAINS_SMART_LEAD')
     const recencyForEntry = useCallback(
         (entry: MenuFilterEntry): 'recent' | 'pinned' | null => {
             const key = entryKey(entry)
@@ -611,12 +614,13 @@ export function MenuFilterCombobox({
             // wants the contains match. Everything else keeps the recents-then-pinned order,
             // with the promoted properties for the events in context leading the content.
             const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
-            const assembled = [
-                ...shortcuts,
+            const others = [
                 ...recentsPinnedPrefix,
                 ...suggestedPrefix,
                 ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
+            const shortcutLeads = !containsShortcutSmartLead || containsShortcutLeads(searchQuery, others.length)
+            const assembled = shortcutLeads ? [...shortcuts, ...others] : [...others, ...shortcuts]
             // Idle (no search): float the committed selection to the very first row so the
             // user can see/verify what's currently chosen without leaving the All surface.
             if (!q && selectedRowId) {
@@ -638,6 +642,7 @@ export function MenuFilterCombobox({
         showChips,
         activeChip,
         drillTo,
+        containsShortcutSmartLead,
     ])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an

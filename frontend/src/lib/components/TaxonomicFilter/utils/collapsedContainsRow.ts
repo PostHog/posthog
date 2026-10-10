@@ -55,6 +55,15 @@ export function isContainsShortcutItem(item: unknown): boolean {
     return !!item && typeof item === 'object' && (item as { isContainsShortcut?: boolean }).isContainsShortcut === true
 }
 
+const URL_SHAPED_QUERY = /[/.:]/
+
+/** A plain word often also names a property, such as `email` or `country`. People who
+ *  searched for that property picked a leading shortcut by mistake, so the shortcut leads
+ *  only when the query looks like a URL or no other row matches. Shared by both surfaces. */
+export function containsShortcutLeads(query: string, otherMatchCount: number): boolean {
+    return URL_SHAPED_QUERY.test(query.trim()) || otherMatchCount === 0
+}
+
 /** Split a list so the synthetic "URL contains <query>" shortcut(s) come first.
  *  `getItem` maps a list element to its underlying definition item — the rebuild wraps it
  *  in a `{ item }` entry, the legacy list holds the item directly. Returns `[shortcuts, rest]`
