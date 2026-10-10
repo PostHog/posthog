@@ -17,6 +17,7 @@ from products.review_hog.backend.models import (
     ReviewProjectSettings,
     ReviewRepository,
     ReviewUserRepositoryChoice,
+    ReviewUserSettings,
 )
 
 INSTALLATION = "1001"
@@ -314,21 +315,28 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
             team=self.team, user=self.user, installation_id=INSTALLATION, full_name="example-org/docs", mode="off"
         )
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
+        )
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
         everything = self.client.get(url)
 
         assert everything.status_code == 200, everything.json()
         assert everything.json()["claim_scope"] == "all"
+        # The one choice, "off" on docs, differs from the "flash" default.
+        assert everything.json()["my_choices_unlike_default"] == 1
         entries = {entry["full_name"]: entry for entry in everything.json()["results"]}
         assert entries["example-org/web"]["owner"] == "this_project"
-        assert entries["example-org/web"]["my_result"] == {"flash": False, "reason": "project_opt_in"}
+        assert entries["example-org/web"]["my_result"] == {"flash": True, "reason": "own_default"}
+        assert entries["example-org/web"]["repository_result"] == {"flash": False, "reason": "project_opt_in"}
         assert entries["example-org/api"]["owner"] == "other_project"
         assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
         assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
         assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
-        assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "repository_everyone"}
+        assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
+        assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]

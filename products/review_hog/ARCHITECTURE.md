@@ -1,5 +1,16 @@
 # ReviewHog Architecture
 
+## Terms
+
+The UI and the text ReviewHog posts use the user-facing names. Code, API values, and stored data use the internal names.
+
+- **Standard** (internal name **Flash**, `flash`): the automatic review every push gets. A fixed set of reviewers on a lower-cost model. It never pushes to the branch.
+- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `reviewhog` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
+- **Resolve**: the stage after a Deep review that fixes review comments on the PR branch, only when the PR owner opted in (`resolve_comments`).
+- **Inbox review**: a Deep review of a PR the PostHog agent opened for an Inbox report. The report's assigned reviewer counts as the PR owner.
+- **Perspective**: one angle a Deep review reads the code from, such as logic and correctness. Each one is a review skill.
+- **Threshold**: the lowest finding priority a Deep review posts to GitHub (`urgency_threshold`). Findings below it stay in the report in PostHog.
+
 ## Overview
 
 **ReviewHog** (`products/review_hog`) is an automated GitHub PR code reviewer. It is a Django app
@@ -40,7 +51,7 @@ in flight, with the detail in DECISIONS.md.
 ## Status & next
 
 ReviewHog runs end-to-end: label / UI / inbox / automatic authored-PR triggers → the Temporal pipeline → published PR review.
-Opted-in authors receive Flash reviews on new PRs and pushes in `PostHog/posthog`, including drafts.
+Automatic Standard reviews run on new PRs and pushes, including drafts, in every repository a project reviews, for the authors that the project rule, the repository exceptions, and each person's own choices select (`backend/automatic_review_rules.py`).
 The per-PR queue serializes reviews and coalesces automatic pushes into a follow-up for the latest head.
 The current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
 (validator strictness, fewer junk candidates, the coverage gap).

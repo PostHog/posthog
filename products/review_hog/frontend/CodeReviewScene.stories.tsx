@@ -255,12 +255,12 @@ function inProject(name: string): boolean {
 }
 
 /** A story-sized copy of the backend resolver, so the panes answer like the real API after each change. */
-function inherited(name: string): AutomaticReviewDecisionApi {
+function inherited(name: string, { withDefault = true }: { withDefault?: boolean } = {}): AutomaticReviewDecisionApi {
     if (!inProject(name)) {
         return { flash: false, reason: 'not_in_project' }
     }
     const defaultMode = storyState.settings.default_review_mode ?? 'follow'
-    if (defaultMode !== 'follow') {
+    if (withDefault && defaultMode !== 'follow') {
         return { flash: defaultMode === 'flash', reason: 'own_default' }
     }
     const row = storyState.rows[name]
@@ -301,7 +301,14 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
         inherited_result: base,
+        repository_result: inherited(name, { withDefault: false }),
     }
+}
+
+function choicesUnlikeDefault(): number {
+    const defaultMode = storyState.settings.default_review_mode ?? 'follow'
+    return Object.values(storyState.choices).filter((choice) => defaultMode === 'follow' || choice.mode !== defaultMode)
+        .length
 }
 
 function saveRepository(write: ReviewRepositoryWriteApi): void {
@@ -406,6 +413,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]
                     },
@@ -535,7 +543,7 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Full review settings')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Deep review settings')).not.toBeInTheDocument()
     },
 }
 
@@ -549,17 +557,27 @@ export const Settings: Story = {
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
-        await expect(canvas.getByText('Full review settings')).toBeVisible()
+        await expect(canvas.getByText('Deep review settings')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },
 }
 
 export const SettingsForMember: Story = {
-    parameters: { tab: 'settings', canEdit: false, claimScope: 'selected' },
+    parameters: {
+        tab: 'settings',
+        canEdit: false,
+        claimScope: 'selected',
+        savedSettings: { default_review_mode: 'flash' },
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Project admins edit')).toBeVisible()
+        await expect(
+            await canvas.findByText(
+                'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
+            )
+        ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()

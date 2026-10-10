@@ -669,13 +669,13 @@ function TriggerReviewSection(): JSX.Element {
     const resolvingReason = triggerUrlResolving ? 'Still resolving comments from the last review' : undefined
     const inFlightReason = triggeringReview ? 'A run is already starting…' : undefined
     const flashAfterFullReason = triggerUrlHasFullReview
-        ? 'This pull request already has a Full review. Flash does not run after one.'
+        ? 'This pull request already has a Deep review. Standard does not run after one.'
         : undefined
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
-                Start a Full review of any pull request the GitHub App can access. The review is posted back to the pull
-                request and shows up under recent reviews. Your perspectives and other review skills apply to Full
+                Start a Deep review of any pull request the GitHub App can access. The review is posted back to the pull
+                request and shows up under recent reviews. Your perspectives and other review skills apply to Deep
                 reviews only.
             </SectionHeader>
             <form
@@ -724,10 +724,10 @@ function TriggerReviewSection(): JSX.Element {
                                     <LemonButton
                                         fullWidth
                                         onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
-                                        tooltip="A faster, cheaper review that never resolves comments and uses none of your review skills. Its status comment is marked as flash."
+                                        tooltip="A lower-cost review that never resolves comments and uses none of your review skills. Its status comment is marked as standard."
                                         disabledReason={flashAfterFullReason}
                                     >
-                                        Review in Flash mode
+                                        Standard review
                                     </LemonButton>
                                 </>
                             ),
@@ -1542,9 +1542,9 @@ function SettingsTab(): JSX.Element {
         <>
             <section className="flex flex-col gap-3">
                 <p className="m-0 text-sm text-secondary">
-                    Flash runs automatically on every push, following the rules below. Full runs only when someone asks
-                    for it: the Review button, the reviewhog label, or the Inbox. No Flash runs on a pull request after
-                    it had a Full review.
+                    Standard runs automatically on every push, following the rules below. Deep runs only when someone
+                    asks for it: the Review button, the reviewhog label, or the Inbox. No Standard review runs on a pull
+                    request after it had a Deep review.
                 </p>
                 <InstallationClaims />
                 <RepositoriesPanes />

@@ -113,7 +113,7 @@ class ReviewRepositoryPersonSerializer(serializers.ModelSerializer):
     kind = serializers.ChoiceField(
         choices=ReviewRepositoryPerson.Kind.choices,
         read_only=True,
-        help_text="Which list: 'listed' (gets Flash when the rule reviews only listed people) or "
+        help_text="Which list: 'listed' (gets automatic reviews when the rule reviews only listed people) or "
         "'excepted' (skipped when the rule reviews everyone).",
     )
 
@@ -132,7 +132,7 @@ class ReviewRepositoryPersonRequestSerializer(serializers.Serializer):
 
 class AutomaticReviewDecisionSerializer(serializers.Serializer):
     flash = serializers.BooleanField(
-        help_text="Whether the requesting user's own pull requests get automatic Flash reviews in this repository."
+        help_text="Whether the requesting user's own pull requests get automatic Standard reviews in this repository."
     )
     reason = serializers.ChoiceField(
         choices=AutomaticReviewReason.choices,
@@ -234,7 +234,7 @@ class ReviewInstallationSerializer(serializers.Serializer):
     account_name = serializers.CharField(help_text="The GitHub account (organization or user) of the installation.")
     connected_by = UserBasicSerializer(
         allow_null=True,
-        help_text="Who connected the installation to this project. Automatic Flash reviews of bot pull requests "
+        help_text="Who connected the installation to this project. Automatic Standard reviews of bot pull requests "
         "run as this user.",
     )
     claim_id = serializers.UUIDField(

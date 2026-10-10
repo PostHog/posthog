@@ -115,7 +115,7 @@ class ReviewProgressSerializer(serializers.Serializer):
         choices=REVIEW_STAGES,
         help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
         "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
-        "or finalizing (building and publishing the review). A single-agent Flash turn reports its "
+        "or finalizing (building and publishing the review). A single-agent Standard turn reports its "
         "own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and "
         "finalizing (merging, capping, and publishing the findings).",
     )
@@ -196,7 +196,7 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
     full_review_published = serializers.BooleanField(
-        help_text="Whether a Full review of this pull request has been published. No Flash review runs after one."
+        help_text="Whether a Deep review of this pull request has been published. No Standard review runs after one."
     )
     in_progress = serializers.BooleanField(
         help_text="Whether a run is on this report right now: a review turn or a resolution run "
@@ -272,7 +272,7 @@ class ReviewTriggerRequestRunMode(models.TextChoices):
     REVIEW = RUN_MODE_REVIEW, "Review"
     REVIEW_ONLY = RUN_MODE_REVIEW_ONLY, "Review only"
     RESOLVE_ONLY = RUN_MODE_RESOLVE_ONLY, "Resolve only"
-    FLASH = RUN_MODE_FLASH, "Flash"
+    FLASH = RUN_MODE_FLASH, "Standard"
 
 
 class ReviewTriggerRequestSerializer(serializers.Serializer):
@@ -288,8 +288,8 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
         "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
         "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
-        "opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves "
-        "comments, and is refused once the PR has a published Full review. The owner is the PR's author, "
+        "opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves "
+        "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
         "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
@@ -302,7 +302,7 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
         "pull request's current commit already has a published review in the requested mode, "
         "'joined_running_review' when a review was already in flight and the request joined its queue. "
-        "A requested Full review waits for an active Flash review."
+        "A requested Deep review waits for an active Standard review."
     )
 
 
@@ -312,7 +312,7 @@ class ReviewTriggerErrorSerializer(serializers.Serializer):
         required=False,
         choices=ReviewRequestRefusal.choices,
         help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
-        "(the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not "
+        "(the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not "
         "turned on resolving comments). Absent for other errors.",
     )
 
@@ -761,7 +761,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 response=ReviewTriggerErrorSerializer,
                 description="The pull request's cycle is busy (busy-guard): reviews are blocked while its "
                 "comments are being resolved, and resolve-only runs are blocked while a review is running. "
-                "Also returned with a code when Flash follows a published Full review ('flash_after_full') "
+                "Also returned with a code when a Standard review follows a published Deep review ('flash_after_full') "
                 "or the PR owner has not opted in to resolution ('resolution_not_opted_in').",
             ),
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
@@ -773,7 +773,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "appears under their recent reviews. Resolution writes to the branch only when the pull request "
         "owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution "
         "stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a "
-        "lower-cost Flash review that never resolves comments and is refused after a published Full review. "
+        "lower-cost Standard review that never resolves comments and is refused after a published Deep review. "
         "Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
         "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "

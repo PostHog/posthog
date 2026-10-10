@@ -1427,7 +1427,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 # The reviews API shows this as the finding's validator note, so it says that no validator ran.
-SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. A Standard review publishes its findings directly."
 
 
 def _is_final_attempt() -> bool:
