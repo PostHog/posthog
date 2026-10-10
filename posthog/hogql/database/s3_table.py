@@ -189,9 +189,6 @@ def _azure_blob_storage_call(
         raise ExposedHogQLError("Can't parse Azure blob storage URL")
 
     groups = regex_result.groups()
-    if len(groups) < 3:
-        raise ExposedHogQLError("Can't parse Azure blob storage URL")
-
     storage_account_url = params.add(groups[0])
     container = params.add(groups[1])
     blob_path = params.add(groups[2])
