@@ -103,7 +103,8 @@ function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecen
     }
 }
 
-const recentReviews: ReviewRecentReviewApi[] = [
+// The first two back the drawer stories: a Deep review and a Standard review.
+const reviewRows: ReviewRecentReviewApi[] = [
     completedReview({}),
     completedReview({
         id: 'review-2',
@@ -145,6 +146,33 @@ const recentReviews: ReviewRecentReviewApi[] = [
     }),
 ]
 
+// A first review still running: no completed turn yet, so no findings and no drawer.
+const runningReview = completedReview({
+    id: 'review-running',
+    repository: 'example-org/example-api',
+    pr_number: 212,
+    pr_title: 'Paginate the reviews table',
+    pr_author: 'example-teammate',
+    github_url: 'https://github.com/example-org/example-api/pull/212',
+    head_branch: 'feat/reviews-table',
+    run_count: 0,
+    last_run_at: null,
+    published: false,
+    turn_published: false,
+    review_mode: null,
+    review_design: null,
+    status_comment_url: null,
+    full_review_published: false,
+    in_progress: true,
+    progress: { review_stage: 'reviewing', done: 3, total: 8 },
+    must_fix_count: 0,
+    should_fix_count: 0,
+    consider_count: 0,
+})
+
+// More reviews than one page, so the pager shows.
+const REVIEW_TOTAL = 61
+
 function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
     return {
         title: 'Retry loop never gives up on a permanent error',
@@ -176,7 +204,7 @@ function reviewDetail(review: ReviewRecentReviewApi, overrides: Partial<ReviewDe
     }
 }
 
-const deepReviewDetail = reviewDetail(recentReviews[0], {
+const deepReviewDetail = reviewDetail(reviewRows[0], {
     run_urgency_threshold: 'should_fix',
     findings: [
         finding({}),
@@ -239,7 +267,7 @@ const deepReviewDetail = reviewDetail(recentReviews[0], {
 // A single-agent turn stamps one placeholder verdict on every finding instead of a validator's reasoning.
 const SINGLE_AGENT_NOTE = 'Not validated separately. A Standard review publishes its findings directly.'
 
-const standardReviewDetail = reviewDetail(recentReviews[1], {
+const standardReviewDetail = reviewDetail(reviewRows[1], {
     findings: [
         finding({
             title: 'Digest window uses the server timezone',
@@ -646,7 +674,20 @@ const meta: Meta<typeof CodeReviewScene> = {
                         previous: null,
                         count: members.length,
                     },
-                    '/api/projects/:team_id/review_hog/reviews/': { results: recentReviews, has_more: false },
+                    // Before `reviews/:id/`, which would otherwise take `table` for a review id.
+                    '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                        // A running row keeps its spinner, so only the story that shows it opts in.
+                        const rows = context.parameters.withRunningReview ? [runningReview, ...reviewRows] : reviewRows
+                        const running = new URL(request.url).searchParams.get('status') === 'running'
+                        return [
+                            200,
+                            {
+                                count: running ? rows.length - reviewRows.length : REVIEW_TOTAL,
+                                running_count: rows.length - reviewRows.length,
+                                results: running ? rows.filter((row) => row.in_progress) : rows,
+                            },
+                        ]
+                    },
                     '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
                     '/api/projects/:team_id/review_hog/reviews/:id/': ({ params }) => {
                         const detail = reviewDetails[String(params.id)]
@@ -798,6 +839,18 @@ export const Default: Story = {
     },
 }
 
+export const RunningReview: Story = {
+    parameters: {
+        withRunningReview: true,
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="code-review-reviews-table"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Reviewing 3/8')).toBeVisible()
+        await expect(canvas.getByText('Running · 1')).toBeVisible()
+    },
+}
+
 export const Settings: Story = {
     parameters: { tab: 'settings' },
     play: async ({ canvasElement }) => {
@@ -900,6 +953,9 @@ const narrowDecorator: Decorator = (Story): JSX.Element => (
 
 export const Narrow: Story = {
     decorators: [narrowDecorator],
+    play: async ({ canvasElement }) => {
+        await expect(await within(canvasElement).findByText('Add retry to the export job')).toBeVisible()
+    },
 }
 
 export const NarrowSettings: Story = {
