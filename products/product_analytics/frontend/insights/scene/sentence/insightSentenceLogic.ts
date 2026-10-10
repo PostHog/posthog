@@ -377,7 +377,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
                 getTrendsColor: (dataset: IndexedTrendResult) => string
             ): (string | null)[] => {
                 const series = trendsQuery?.series ?? []
-                // The dot tells events apart, so one event needs none. A split or a formula draws lines that do
+                // The color tells events apart, so one event needs none. A split or a formula draws lines that do
                 // not map to one event each, so then no event owns a color either.
                 if (
                     !trendsQuery ||

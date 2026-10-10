@@ -18,7 +18,6 @@ export interface DataCheck {
     /** What the check looks for. It stays the same whatever the check finds. */
     name: string
     result: string
-    /** How to fix what the check found. */
     fix?: string
     action?: DataCheckAction
 }
@@ -34,9 +33,7 @@ export interface DataCheckCounts {
 }
 
 export interface DataChecksContext {
-    /** The chart applies the internal and test users filter. */
     filtersInternalUsers: boolean
-    /** The project has an internal and test users filter. */
     hasInternalUsersFilter: boolean
 }
 

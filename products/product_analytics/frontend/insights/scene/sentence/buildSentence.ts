@@ -37,11 +37,9 @@ export type SentencePart =
     | { type: 'value'; slot: SentenceSlot; text: string; seriesIndex?: number; splitIndex?: number }
 
 export interface Sentence {
-    /** One line for each event. Empty when the events are part of the sentence. */
     seriesLines: SentencePart[][]
     /** The whole sentence, or what follows the events when each event has a line of its own. */
     parts: SentencePart[]
-    /** The lines can fold back into "the first event and N more". */
     canCollapseSeries: boolean
 }
 
@@ -52,7 +50,6 @@ const SERIES_COLLAPSE_FROM = 3
 const SERIES_INLINE_MAX_LENGTH = 80
 
 export interface SeriesFiltersPhrase {
-    /** "where" before a described filter, "with" before a count of filters. */
     lead: string
     text: string
 }
@@ -64,12 +61,10 @@ export interface SentenceSeries {
     /** The word between the measure and its event: "total count of Pageview", "unique users doing Pageview". */
     link: string
     event: string
-    /** The filters on this event only. Null when it has none. */
     filters: SeriesFiltersPhrase | null
 }
 
 export interface SentenceOptions {
-    /** Give each event a line of its own instead of counting the ones after the first. */
     seriesExpanded: boolean
     /** An event whose first filter is being chosen, so its filter word shows before a filter exists. */
     pendingFilterSeriesIndex: number | null
@@ -80,7 +75,6 @@ export interface SentenceOptions {
 const PENDING_SERIES_FILTERS: SeriesFiltersPhrase = { lead: 'where', text: 'choose a filter' }
 const PENDING_FORMULA = 'write a formula'
 
-/** The letter a formula uses for an event: A for the first, B for the second. */
 export function seriesLetter(seriesIndex: number): string {
     return String.fromCharCode(65 + (seriesIndex % 26))
 }
@@ -354,7 +348,6 @@ export function seriesLabel(series: SentenceSeries): string {
     return `${measure} ${series.link} ${series.event}`
 }
 
-/** The events the collapsed sentence counts without naming them. */
 export function collapsedSeries(input: SentenceInput): SentenceSeries[] {
     return input.series.length >= SERIES_COLLAPSE_FROM ? input.series.slice(1) : []
 }
