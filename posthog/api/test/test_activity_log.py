@@ -410,6 +410,34 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         # Cross-org row does NOT appear
         assert "flag-outside" not in item_ids
 
+    @parameterized.expand(
+        [
+            ("project_activity_log", "projects", "activity_log"),
+            ("project_advanced_activity_logs", "projects", "advanced_activity_logs"),
+            ("organization_advanced_activity_logs", "organizations", "advanced_activity_logs"),
+        ]
+    )
+    def test_legacy_loop_rows_are_hidden(self, _name: str, parent: str, endpoint: str) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="loop-1",
+            scope="Loop",
+            activity="updated",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        parent_id = self.team.id if parent == "projects" else self.organization.id
+
+        res = self.client.get(f"/api/{parent}/{parent_id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+        item_ids = {row["item_id"] for row in res.json()["results"]}
+        assert "flag-1" in item_ids
+        assert "loop-1" not in item_ids
+
     def test_invalid_filter_is_rejected(self) -> None:
         # Wiring guard: the viewset must run AdvancedActivityLogFiltersSerializer on the query params.
         # The exhaustive filter-shape matrix is unit-tested without a DB in

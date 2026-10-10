@@ -142,7 +142,6 @@ class TestErrorTrackingGitHubWebhook(SimpleTestCase):
 
         with (
             patch("products.conversations.backend.facade.api.accept_github_event"),
-            patch("products.tasks.backend.facade.api.accept_github_event_for_loops"),
             patch("products.tasks.backend.facade.api.accept_github_pull_request"),
             patch("products.workflows.backend.facade.api.accept_github_event"),
         ):

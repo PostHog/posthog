@@ -245,7 +245,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.tasks.backend.presentation.views.config_api.TasksTeamConfigViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksUserConfigViewSet",
     "products.tasks.backend.presentation.views.desktop.DesktopBetaTermsViewSet",
-    "products.tasks.backend.presentation.views.loops.LoopViewSet",
     "products.tasks.backend.presentation.views.sandbox_pricing_api.SandboxComputePricingViewSet",
     "products.visual_review.backend.presentation.views.RepoRunsViewSet",
     "products.visual_review.backend.presentation.views.RepoViewSet",
