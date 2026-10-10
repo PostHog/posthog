@@ -1,0 +1,554 @@
+{
+    "method": "skills.llmaSkillFileRename",
+    "toolName": "llma-skill-file-rename",
+    "title": "Rename skill file (deprecated)",
+    "category": "Skills",
+    "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
+    "requiredScopes": ["llm_skill:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/skills/client.ts",
+    "input": {
+        "name": "SkillsLlmaSkillFileRenameInput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/llma-skill-file-rename.ts",
+        "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+    },
+    "output": {
+        "name": "SkillsLlmaSkillFileRenameOutput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/llma-skill-file-rename.ts",
+        "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SkillsLlmaSkillFileRenameRequestSchema0",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape2",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape4",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape3",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape5",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape6",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameResponseShape7",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileRenameData",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-rename.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-rename.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/llma-skill-file-rename/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SkillsLlmaSkillFileRenameInput",
+            "field": "old_path",
+            "effectiveDescription": "Current file path to rename.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current file path to rename.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/old_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameInput",
+            "field": "new_path",
+            "effectiveDescription": "New file path. Must not already exist in the skill.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New file path. Must not already exist in the skill.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/new_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameInput",
+            "field": "base_version",
+            "effectiveDescription": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/base_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape2",
+            "effectiveDescription": "Arbitrary key-value metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary key-value metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape5",
+            "field": "line_count",
+            "effectiveDescription": "Number of lines in the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of lines in the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/line_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape5",
+            "field": "char_count",
+            "effectiveDescription": "Number of characters in the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of characters in the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/char_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape5",
+            "field": "size",
+            "effectiveDescription": "Size of the file content in bytes. Null on rows written before digests were stamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Size of the file content in bytes. Null on rows written before digests were stamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape5",
+            "field": "sha256",
+            "effectiveDescription": "Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape6",
+            "field": "level",
+            "effectiveDescription": "Markdown heading level (1-6).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown heading level (1-6).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape6/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape6",
+            "field": "text",
+            "effectiveDescription": "Heading text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heading text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape6/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape7",
+            "field": "code",
+            "effectiveDescription": "Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape7",
+            "field": "message",
+            "effectiveDescription": "What is wrong and what to change, written for the skill's author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What is wrong and what to change, written for the skill's author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameResponseShape7",
+            "field": "file_path",
+            "effectiveDescription": "The bundled file the problem is about. Null when it is about the skill itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The bundled file the problem is about. Null when it is about the skill itself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/file_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "name",
+            "effectiveDescription": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "description",
+            "effectiveDescription": "What this skill does and when to use it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this skill does and when to use it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "body_total_length",
+            "effectiveDescription": "Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/body_total_length"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "body_next_offset",
+            "effectiveDescription": "When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/body_next_offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "body",
+            "effectiveDescription": "The SKILL.md instruction content (markdown).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The SKILL.md instruction content (markdown).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/body"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "license",
+            "effectiveDescription": "License name or reference to a bundled license file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "License name or reference to a bundled license file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/license"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "compatibility",
+            "effectiveDescription": "Environment requirements (intended product, system packages, network access, etc.).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Environment requirements (intended product, system packages, network access, etc.).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/compatibility"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "allowed_tools",
+            "effectiveDescription": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/allowed_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "metadata",
+            "effectiveDescription": "Arbitrary key-value metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary key-value metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "category",
+            "effectiveDescription": "Server-owned classification — set by the producing system (the Signals harness stamps \"scout\"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Server-owned classification — set by the producing system (the Signals harness stamps \"scout\"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "owners",
+            "effectiveDescription": "Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/owners"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "files",
+            "effectiveDescription": "Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/files"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "outline",
+            "effectiveDescription": "Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/outline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "spec_problems",
+            "effectiveDescription": "Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/spec_problems"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/version_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileRenameData",
+            "field": "_deprecation_notice",
+            "effectiveDescription": "The current tool name to use instead of this deprecated alias.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current tool name to use instead of this deprecated alias.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/_deprecation_notice"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

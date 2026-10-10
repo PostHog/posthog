@@ -1,0 +1,734 @@
+{
+    "method": "today.todayBriefingGet",
+    "toolName": "today-briefing-get",
+    "operationId": "today_briefing_retrieve",
+    "title": "Get my Today briefing",
+    "category": "Today",
+    "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the self-driving reports that need them most (reports that wait for them, that they claimed or review, and urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
+    "requiredScopes": ["today:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: today-rail-nav"],
+    "methodSource": "src/generated/today/client.ts",
+    "input": {
+        "name": "TodayTodayBriefingGetInput",
+        "importPath": "@posthog/sdk/today",
+        "source": "src/generated/today/today-briefing-get.ts",
+        "declaration": "dist/generated/today/today-briefing-get.d.ts"
+    },
+    "output": {
+        "name": "TodayTodayBriefingGetOutput",
+        "importPath": "@posthog/sdk/today",
+        "source": "src/generated/today/today-briefing-get.ts",
+        "declaration": "dist/generated/today/today-briefing-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TodayTodayBriefingGetRequestSchema0",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetResponseShape2",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetResponseShape5",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetResponseShape6",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetResponseShape4",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetResponseShape3",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        },
+        {
+            "name": "TodayTodayBriefingGetData",
+            "importPath": "@posthog/sdk/today",
+            "source": "src/generated/today/today-briefing-get.ts",
+            "declaration": "dist/generated/today/today-briefing-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Today's personal briefing: a short text about up to 5 items and the same items for the left bar. A new one is written every morning from 8:00 local time. Starts generating today's when there is none yet and returns it as 'collecting'. While a refresh is being written, the ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds. 404 when the person gets no briefing: the flag is off, the organization has not approved AI data processing, or it is out of AI credits.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1today~1briefing~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the self-driving reports that need them most (reports that wait for them, that they claimed or review, and urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/today/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TodayTodayBriefingGetInput",
+            "field": "timezone",
+            "effectiveDescription": "IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/today/briefing/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape2",
+            "field": "text",
+            "effectiveDescription": "A run of text in a paragraph. Includes its own spaces.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A run of text in a paragraph. Includes its own spaces.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape2/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape2",
+            "field": "item_key",
+            "effectiveDescription": "Key of the item this run links to, or null for plain text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the item this run links to, or null for plain text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape2/properties/item_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape2",
+            "field": "highlight",
+            "effectiveDescription": "True only for the run that names the top item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True only for the run that names the top item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape2/properties/highlight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "key",
+            "effectiveDescription": "Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "title",
+            "effectiveDescription": "The item's own title, as the source names it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The item's own title, as the source names it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "label",
+            "effectiveDescription": "Short left-bar label of at most 6 words.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short left-bar label of at most 6 words.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "signal",
+            "effectiveDescription": "Short fact under the label, at most 40 characters, for example 'Spend down 37%'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short fact under the label, at most 40 characters, for example 'Spend down 37%'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/signal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "url",
+            "effectiveDescription": "Where the item opens: an app path, or a GitHub URL for pull requests.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the item opens: an app path, or a GitHub URL for pull requests.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "rank",
+            "effectiveDescription": "Position in the briefing, 1 is the top item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position in the briefing, 1 is the top item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/rank"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "source_product",
+            "effectiveDescription": "For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/source_product"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "report",
+            "effectiveDescription": "For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/report"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape3",
+            "field": "state",
+            "effectiveDescription": "`done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.\n\n* `open` - OPEN\n* `done` - DONE\n* `dismissed` - DISMISSED\n* `left` - LEFT",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.\n\n* `open` - OPEN\n* `done` - DONE\n* `dismissed` - DISMISSED\n* `left` - LEFT",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape3/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "priority",
+            "effectiveDescription": "The report's priority, P0 to P4, or null if unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's priority, P0 to P4, or null if unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "summary",
+            "effectiveDescription": "The report's summary, shortened to a few sentences.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's summary, shortened to a few sentences.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "pull_request_state",
+            "effectiveDescription": "State of the report's implementation pull request, or null when it has none.\n\n* `draft` - draft\n* `open` - open\n* `closed` - closed\n* `merged` - merged",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "State of the report's implementation pull request, or null when it has none.\n\n* `draft` - draft\n* `open` - open\n* `closed` - closed\n* `merged` - merged",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/pull_request_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "pull_request_url",
+            "effectiveDescription": "URL of the report's implementation pull request, or null when it has none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the report's implementation pull request, or null when it has none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/pull_request_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "signal_count",
+            "effectiveDescription": "How many signals the report groups.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many signals the report groups.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/signal_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "updated_at",
+            "effectiveDescription": "When the report last changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the report last changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "metrics",
+            "effectiveDescription": "The report's metrics that have a saved snapshot, in the report's order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's metrics that have a saved snapshot, in the report's order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape4",
+            "field": "charts",
+            "effectiveDescription": "The charts in the report body, in the report's order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The charts in the report body, in the report's order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape4/properties/charts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "metric_id",
+            "effectiveDescription": "Stable slug of the metric within its report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug of the metric within its report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/metric_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "title",
+            "effectiveDescription": "Short label of what the metric measures.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short label of what the metric measures.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "kind",
+            "effectiveDescription": "What the value measures, for example affected_users.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the value measures, for example affected_users.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "role",
+            "effectiveDescription": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "value",
+            "effectiveDescription": "The latest saved snapshot of the metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The latest saved snapshot of the metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "series",
+            "effectiveDescription": "Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "value_format",
+            "effectiveDescription": "How to format the value, for example count.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to format the value, for example count.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/value_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "unit",
+            "effectiveDescription": "Optional short suffix or currency code, such as USD.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional short suffix or currency code, such as USD.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape5",
+            "field": "query",
+            "effectiveDescription": "The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape5/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape6",
+            "field": "chart_id",
+            "effectiveDescription": "Stable slug of the chart within its report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug of the chart within its report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape6/properties/chart_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape6",
+            "field": "title",
+            "effectiveDescription": "Short heading of the chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short heading of the chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape6/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetResponseShape6",
+            "field": "query",
+            "effectiveDescription": "The query node the report body draws, as the report stores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The query node the report body draws, as the report stores it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape6/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "id",
+            "effectiveDescription": "Briefing id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Briefing id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "local_day",
+            "effectiveDescription": "The day this briefing is for, in the person's timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The day this briefing is for, in the person's timezone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/local_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "headline",
+            "effectiveDescription": "One sentence that counts what needs the person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One sentence that counts what needs the person.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/headline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "paragraphs",
+            "effectiveDescription": "Up to 3 paragraphs, each a list of text runs; runs with an item_key are links.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to 3 paragraphs, each a list of text runs; runs with an item_key are links.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/paragraphs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "items",
+            "effectiveDescription": "The items the text names, in rank order: what the page and the left bar show.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The items the text names, in rank order: what the page and the left bar show.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "more_reports_count",
+            "effectiveDescription": "Other open reports for the person, beyond the ones the briefing shows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Other open reports for the person, beyond the ones the briefing shows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/more_reports_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TodayTodayBriefingGetData",
+            "field": "open_reports_count",
+            "effectiveDescription": "Open reports in the whole project beyond the ones the briefing shows, whoever they are for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Open reports in the whole project beyond the ones the briefing shows, whoever they are for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/today.ts",
+                        "pointer": "#/Shape1/properties/open_reports_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

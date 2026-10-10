@@ -1,0 +1,621 @@
+{
+    "method": "tasks.tasksList",
+    "toolName": "tasks-list",
+    "operationId": "tasks_list",
+    "title": "Search and list tasks",
+    "category": "Tasks",
+    "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled. To inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksListInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-list.ts",
+        "declaration": "dist/generated/tasks/tasks-list.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksListOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-list.ts",
+        "declaration": "dist/generated/tasks/tasks-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksListRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema7",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema12",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema13",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema14",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema15",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema16",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema17",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema18",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema19",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema20",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema21",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListRequestSchema22",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItem",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListDataResultsItemVariant4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        },
+        {
+            "name": "TasksTasksListData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-list.ts",
+            "declaration": "dist/generated/tasks/tasks-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled. To inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "all_team_tasks",
+            "effectiveDescription": "Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "archived",
+            "effectiveDescription": "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "basic",
+            "effectiveDescription": "With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "channel",
+            "effectiveDescription": "Filter tasks to a channel's feed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks to a channel's feed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "ci_status",
+            "effectiveDescription": "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n* `passing` - passing\n* `failing` - failing\n* `pending` - pending\n* `none` - none",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n* `passing` - passing\n* `failing` - failing\n* `pending` - pending\n* `none` - none",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "client_provenance",
+            "effectiveDescription": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "commented_by",
+            "effectiveDescription": "Filter to tasks carrying a thread comment written by this user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to tasks carrying a thread comment written by this user ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "created_by",
+            "effectiveDescription": "Filter by creator user ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by creator user ID",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "exclude_origin_product",
+            "effectiveDescription": "Exclude tasks with this origin product from the results\n\n* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `autoresearch` - Autoresearch\n* `signals_scout` - Signals Scout\n* `scout_suggestions` - Signals Scout Suggestions\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop\n* `mcp_analytics` - MCP Analytics\n* `signals_chat` - Signals Chat\n* `task_analysis` - Task Analysis\n* `workflow` - Workflow\n* `space_setup` - Space Setup\n* `business_knowledge` - Business Knowledge",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude tasks with this origin product from the results\n\n* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `autoresearch` - Autoresearch\n* `signals_scout` - Signals Scout\n* `scout_suggestions` - Signals Scout Suggestions\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop\n* `mcp_analytics` - MCP Analytics\n* `signals_chat` - Signals Chat\n* `task_analysis` - Task Analysis\n* `workflow` - Workflow\n* `space_setup` - Space Setup\n* `business_knowledge` - Business Knowledge",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "hog_flow_id",
+            "effectiveDescription": "Filter tasks to the runs spawned by this workflow's 'Create AI task' action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks to the runs spawned by this workflow's 'Create AI task' action.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "internal",
+            "effectiveDescription": "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "mentions",
+            "effectiveDescription": "Filter to tasks whose thread mentions this user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to tasks whose thread mentions this user ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "ordering",
+            "effectiveDescription": "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n* `-created_at` - -created_at\n* `-last_activity_at` - -last_activity_at",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n* `-created_at` - -created_at\n* `-last_activity_at` - -last_activity_at",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "organization",
+            "effectiveDescription": "Filter by repository organization",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by repository organization",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "origin_product",
+            "effectiveDescription": "Filter by origin product",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by origin product",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "pinned",
+            "effectiveDescription": "With true, only tasks the requesting user has pinned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "With true, only tasks the requesting user has pinned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "pr_state",
+            "effectiveDescription": "Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).\n\n* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).\n\n* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "repository",
+            "effectiveDescription": "Filter by repository name (can include org/repo format)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by repository name (can include org/repo format)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "stage",
+            "effectiveDescription": "Filter by task run stage",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by task run stage",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListInput",
+            "field": "status",
+            "effectiveDescription": "Filter tasks by the status of their most recent run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks by the status of their most recent run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,579 @@
+{
+    "method": "tracing.apmAttributeBreakdown",
+    "toolName": "apm-attribute-breakdown",
+    "operationId": "tracing_spans_attribute_breakdown_create",
+    "title": "Break down spans by attribute value",
+    "category": "Tracing",
+    "description": "Group spans by one attribute's value — the \"what is different about the bad spans?\" tool.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"breakdownKey\": \"server.address\", \"breakdownType\": \"span_attribute\" } }\n```\n\nReturns one row per distinct value of the chosen attribute, across the spans matching the filters:\n\n- `value` — the attribute's value (`''` for spans that don't carry the attribute)\n- `count` — spans with that value\n- `error_count` — of those, spans with OTel status `Error` (status_code = 2)\n- `p50_duration_nano`, `p95_duration_nano` — duration quantiles in nanoseconds\n\nRows are ordered by `count` DESC (or `error_count` DESC via `orderBy`) and capped at 5000.\n\nUse to answer:\n\n- \"Which attribute values are over-represented among the errored/slow spans?\"\n- \"Which downstream destination (`server.address`) is failing?\"\n- \"What `http.response.status_code` values are we getting back, and how often?\"\n- \"Which pod / version / region is the bad traffic concentrated on?\" (resource attributes)\n\nFor aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.\n\n# \"What's different\" workflow\n\n1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.\n2. Discover candidate keys with `apm-attributes-list` (don't guess — keys vary per project).\n3. Run `apm-attribute-breakdown` per candidate key. A value owning most of the `count` is your signature.\n4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.\n\n# Parameters\n\n## query.breakdownKey (required)\n\nThe attribute key to group by (e.g. `server.address`, `http.response.status_code`, `k8s.pod.name`). Discover keys with `apm-attributes-list`.\n\n## query.breakdownType (required)\n\n- `span_attribute` — span-level attributes (e.g. `server.address`, `db.statement`)\n- `span_resource_attribute` — resource-level attributes (e.g. `k8s.pod.name`, `service.version`)\n\n## query.orderBy\n\n`count` (default) or `error_count` — rows are sorted by the chosen column, descending.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Set `compare: true` to also get the breakdown for a previous window under `compare` — useful for \"did this value's share change vs last week?\" (`compare_to: \"-7d\"`).\n\n## query.serviceNames\n\nList of service names to restrict the breakdown to. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Which destinations do the errored spans hit?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"server.address\",\n    \"breakdownType\": \"span_attribute\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"Error\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which values drive the most errors overall?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"http.response.status_code\",\n    \"breakdownType\": \"span_attribute\",\n    \"orderBy\": \"error_count\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Is the bad pod's share new? (compare vs last week)\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"k8s.pod.name\",\n    \"breakdownType\": \"span_resource_attribute\",\n    \"serviceNames\": [\"cdp-worker\"],\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n# Reminders\n\n- `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.\n- Duration values in results are in nanoseconds (1s = 1,000,000,000). A `duration` filter value is in milliseconds.\n- Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.\n- `error_count / count` per row is the error rate for that value — compute it when judging over-representation.",
+    "requiredScopes": ["tracing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tracing"],
+    "methodSource": "src/generated/tracing/client.ts",
+    "input": {
+        "name": "TracingApmAttributeBreakdownInput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+        "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+    },
+    "output": {
+        "name": "TracingApmAttributeBreakdownOutput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+        "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema0",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema1",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema4",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema6",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema10",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema11",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema8",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema14",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema15",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema12",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema16",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema18ItemType",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema18ItemOperator",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema18Item",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema18",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownRequestSchema20",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownInputQuery",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownResponseShape2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeBreakdownData",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-breakdown.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-breakdown.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Group spans by one attribute's value — the \"what is different about the bad spans?\" tool.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"breakdownKey\": \"server.address\", \"breakdownType\": \"span_attribute\" } }\n```\n\nReturns one row per distinct value of the chosen attribute, across the spans matching the filters:\n\n- `value` — the attribute's value (`''` for spans that don't carry the attribute)\n- `count` — spans with that value\n- `error_count` — of those, spans with OTel status `Error` (status_code = 2)\n- `p50_duration_nano`, `p95_duration_nano` — duration quantiles in nanoseconds\n\nRows are ordered by `count` DESC (or `error_count` DESC via `orderBy`) and capped at 5000.\n\nUse to answer:\n\n- \"Which attribute values are over-represented among the errored/slow spans?\"\n- \"Which downstream destination (`server.address`) is failing?\"\n- \"What `http.response.status_code` values are we getting back, and how often?\"\n- \"Which pod / version / region is the bad traffic concentrated on?\" (resource attributes)\n\nFor aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.\n\n# \"What's different\" workflow\n\n1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.\n2. Discover candidate keys with `apm-attributes-list` (don't guess — keys vary per project).\n3. Run `apm-attribute-breakdown` per candidate key. A value owning most of the `count` is your signature.\n4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.\n\n# Parameters\n\n## query.breakdownKey (required)\n\nThe attribute key to group by (e.g. `server.address`, `http.response.status_code`, `k8s.pod.name`). Discover keys with `apm-attributes-list`.\n\n## query.breakdownType (required)\n\n- `span_attribute` — span-level attributes (e.g. `server.address`, `db.statement`)\n- `span_resource_attribute` — resource-level attributes (e.g. `k8s.pod.name`, `service.version`)\n\n## query.orderBy\n\n`count` (default) or `error_count` — rows are sorted by the chosen column, descending.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Set `compare: true` to also get the breakdown for a previous window under `compare` — useful for \"did this value's share change vs last week?\" (`compare_to: \"-7d\"`).\n\n## query.serviceNames\n\nList of service names to restrict the breakdown to. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Which destinations do the errored spans hit?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"server.address\",\n    \"breakdownType\": \"span_attribute\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"Error\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which values drive the most errors overall?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"http.response.status_code\",\n    \"breakdownType\": \"span_attribute\",\n    \"orderBy\": \"error_count\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Is the bad pod's share new? (compare vs last week)\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"k8s.pod.name\",\n    \"breakdownType\": \"span_resource_attribute\",\n    \"serviceNames\": [\"cdp-worker\"],\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n# Reminders\n\n- `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.\n- Duration values in results are in nanoseconds (1s = 1,000,000,000). A `duration` filter value is in milliseconds.\n- Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.\n- `error_count / count` per row is the error rate for that value — compute it when judging over-representation.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/tracing/mcp/prompts/apm-attribute-breakdown.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema0",
+            "effectiveDescription": "Attribute key to group by (e.g. \"server.address\", \"http.response.status_code\"). Discover keys with apm-attributes-list. For the \"span\" breakdown type, must be one of the allowlisted top-level columns: \"service_name\", \"status_code\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key to group by (e.g. \"server.address\", \"http.response.status_code\"). Discover keys with apm-attributes-list. For the \"span\" breakdown type, must be one of the allowlisted top-level columns: \"service_name\", \"status_code\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema1",
+            "effectiveDescription": "Where the key lives: \"span\" for allowlisted top-level span columns, \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the key lives: \"span\" for allowlisted top-level span columns, \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema2",
+            "effectiveDescription": "Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema4",
+            "effectiveDescription": "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema6",
+            "effectiveDescription": "Order rows by span count or error count, descending. Defaults to count.\n\n* `count` - count\n* `error_count` - error_count",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Order rows by span count or error count, descending. Defaults to count.\n\n* `count` - count\n* `error_count` - error_count",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema8",
+            "effectiveDescription": "Date range for the primary window. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the primary window. Defaults to last hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema8",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema8",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema12",
+            "effectiveDescription": "Optional comparison-window configuration. When omitted, only the primary window is returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional comparison-window configuration. When omitted, only the primary window is returned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema12",
+            "field": "compare",
+            "effectiveDescription": "When true, also fetch results for a comparison window and return them under `compare`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, also fetch results for a comparison window and return them under `compare`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema13/properties/compare"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema12",
+            "field": "compare_to",
+            "effectiveDescription": "Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema13/properties/compare_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema16",
+            "effectiveDescription": "Filter by service names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by service names.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema18",
+            "effectiveDescription": "Property filters scoping the spans the breakdown runs over (e.g. only error spans).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters scoping the spans the breakdown runs over (e.g. only error spans).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema18",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema18",
+            "field": "[].type",
+            "effectiveDescription": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema18",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownRequest_Schema18",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownInput",
+            "field": "query",
+            "effectiveDescription": "The attribute breakdown query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The attribute breakdown query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/attribute-breakdown/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownResponseShape2",
+            "field": "value",
+            "effectiveDescription": "The attribute's value for this group. Spans without the attribute group under ''.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The attribute's value for this group. Spans without the attribute group under ''.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Number of matching spans with this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching spans with this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownResponseShape2",
+            "field": "error_count",
+            "effectiveDescription": "Number of matching error spans (status_code = 2).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching error spans (status_code = 2).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/error_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownResponseShape2",
+            "field": "p50_duration_nano",
+            "effectiveDescription": "Median span duration in nanoseconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Median span duration in nanoseconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/p50_duration_nano"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownResponseShape2",
+            "field": "p95_duration_nano",
+            "effectiveDescription": "95th percentile span duration in nanoseconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "95th percentile span duration in nanoseconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/p95_duration_nano"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownData",
+            "field": "results",
+            "effectiveDescription": "One row per distinct attribute value, ordered by the requested column descending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row per distinct attribute value, ordered by the requested column descending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeBreakdownData",
+            "field": "compare",
+            "effectiveDescription": "Rows for the comparison window when compareFilter.compare is true, else null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows for the comparison window when compareFilter.compare is true, else null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape1/properties/compare"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "apm-spans-aggregate",
+            "method": "tracing.apmSpansAggregate"
+        },
+        {
+            "toolName": "apm-spans-sparkline",
+            "method": "tracing.apmSpansSparkline"
+        },
+        {
+            "toolName": "apm-attributes-list",
+            "method": "tracing.apmAttributesList"
+        },
+        {
+            "toolName": "apm-services-list",
+            "method": "tracing.apmServicesList"
+        },
+        {
+            "toolName": "query-apm-spans",
+            "method": "tracing.queryApmSpans"
+        },
+        {
+            "toolName": "apm-attribute-values-list",
+            "method": "tracing.apmAttributeValuesList"
+        }
+    ]
+}

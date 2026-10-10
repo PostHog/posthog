@@ -1,0 +1,219 @@
+{
+    "method": "tasks.channelCreate",
+    "toolName": "channel-create",
+    "operationId": "task_channels_create",
+    "title": "Create a channel",
+    "category": "Tasks",
+    "description": "Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a public channel has that name, return it. Use channel-list to find an existing channel's ID. Set `channel_type` to \"private\" to create a private channel with the requester and the users in `member_ids`. Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates another channel.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksChannelCreateInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/channel-create.ts",
+        "declaration": "dist/generated/tasks/channel-create.d.ts"
+    },
+    "output": {
+        "name": "TasksChannelCreateOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/channel-create.ts",
+        "declaration": "dist/generated/tasks/channel-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksChannelCreateRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateRequestSchema2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateRequestSchema3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        },
+        {
+            "name": "TasksChannelCreateData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-create.ts",
+            "declaration": "dist/generated/tasks/channel-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a channel. Public channels use lowercase names with hyphens. If a public channel has that name, return it. The name general returns the project's general space. Private channels always get a new ID, even if another channel has the same name. The requester and users in member_ids with project access become members. New channels are starred for the requester unless star is false. The names \"me\" and \"personal\" are reserved.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1task_channels~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a public channel has that name, return it. Use channel-list to find an existing channel's ID. Set `channel_type` to \"private\" to create a private channel with the requester and the users in `member_ids`. Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates another channel.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksChannelCreateRequest_Schema0",
+            "effectiveDescription": "* `public` - public\n* `private` - private",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `public` - public\n* `private` - private",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateInput",
+            "field": "name",
+            "effectiveDescription": "Channel name, shown as #<name>. Uses lowercase letters and hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel name, shown as #<name>. Uses lowercase letters and hyphens.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateInput",
+            "field": "channel_type",
+            "effectiveDescription": "Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.\n\n* `public` - public\n* `private` - private",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.\n\n* `public` - public\n* `private` - private",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateInput",
+            "field": "member_ids",
+            "effectiveDescription": "User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateInput",
+            "field": "star",
+            "effectiveDescription": "Star a new channel for the requester. This field does not change stars on an existing channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Star a new channel for the requester. This field does not change stars on an existing channel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateResponseShape2",
+            "effectiveDescription": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateData",
+            "effectiveDescription": "Response shape for a task channel, read from a frozen ``ChannelDTO``.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task channel, read from a frozen ``ChannelDTO``.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelCreateData",
+            "field": "system_role",
+            "effectiveDescription": "Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.\n\n* `personal` - Personal\n* `general` - General",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.\n\n* `personal` - Personal\n* `general` - General",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/system_role"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

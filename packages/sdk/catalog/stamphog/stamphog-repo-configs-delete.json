@@ -1,0 +1,57 @@
+{
+    "method": "stamphog.stamphogRepoConfigsDelete",
+    "toolName": "stamphog-repo-configs-delete",
+    "operationId": "stamphog_repo_configs_destroy",
+    "title": "Delete stamphog repo config",
+    "category": "Stamphog",
+    "description": "Delete a repo config by id. This removes stamphog's review and digest configuration for the repo entirely — prefer `stamphog-repo-configs-update` with `enabled: false` if you only want to pause review temporarily.",
+    "requiredScopes": ["stamphog:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: stamphog"],
+    "methodSource": "src/generated/stamphog/client.ts",
+    "input": {
+        "name": "StamphogStamphogRepoConfigsDeleteInput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-repo-configs-delete.ts",
+        "declaration": "dist/generated/stamphog/stamphog-repo-configs-delete.d.ts"
+    },
+    "output": {
+        "name": "StamphogStamphogRepoConfigsDeleteOutput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-repo-configs-delete.ts",
+        "declaration": "dist/generated/stamphog/stamphog-repo-configs-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StamphogStamphogRepoConfigsDeleteData",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-repo-configs-delete.ts",
+            "declaration": "dist/generated/stamphog/stamphog-repo-configs-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1stamphog~1repo_configs~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a repo config by id. This removes stamphog's review and digest configuration for the repo entirely — prefer `stamphog-repo-configs-update` with `enabled: false` if you only want to pause review temporarily.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/stamphog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

@@ -1,0 +1,1039 @@
+{
+    "method": "webAnalytics.queryWebStats",
+    "toolName": "query-web-stats",
+    "title": "Run a web analytics breakdown table query",
+    "category": "Web analytics",
+    "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsQueryWebStatsInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-stats.ts",
+        "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsQueryWebStatsOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-stats.ts",
+        "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema7",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema4Variant2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema4Variant3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema4Variant4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema2Variant1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema2Variant2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema8",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema10",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema9",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema11",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsRequestSchema12",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsInputBreakdownBy",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsInputCompareFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseWebStatsBreakdown",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseCompareFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseInteger",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseCohortPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseWebAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseWebAnalyticsPropertyFilters",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseActionConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseCustomEventConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseWebAnalyticsConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponsePositiveInteger",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsResponseNonNegativeInteger",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsDataQuery",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsDataWarningsItem",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebStatsData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-stats.ts",
+            "declaration": "dist/generated/web-analytics/query-web-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/web_analytics/mcp/prompts/query-web-stats.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsQueryWebStatsRequest_Schema0",
+            "effectiveDescription": "Whether to compare the current date range to a previous date range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to compare the current date range to a previous date range.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsRequest_Schema1",
+            "effectiveDescription": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsRequest_Schema9",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsRequest_Schema9",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsRequest_Schema11",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema11/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "breakdownBy",
+            "effectiveDescription": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/breakdownBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "compareFilter",
+            "effectiveDescription": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/compareFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "conversionGoal",
+            "effectiveDescription": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/conversionGoal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "includeAvgTimeOnPage",
+            "effectiveDescription": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/includeAvgTimeOnPage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "includeBounceRate",
+            "effectiveDescription": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/includeBounceRate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "includeHost",
+            "effectiveDescription": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/includeHost"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseCompareFilter",
+            "field": "compare",
+            "effectiveDescription": "Whether to compare the current date range to a previous date range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to compare the current date range to a previous date range.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CompareFilter/properties/compare"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseCompareFilter",
+            "field": "compare_to",
+            "effectiveDescription": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CompareFilter/properties/compare_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseCohortPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CohortPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query",
+            "effectiveDescription": "Tabular web-analytics breakdown — top pages, UTMs, devices, browsers, countries, etc. — with visitors, pageviews, and optional bounce rate / average time on page columns.\n\nThis is the right query for \"top pages with bounce rate\" (set `breakdownBy=Page` and `includeBounceRate=true`) and for entry/exit-page navigation analysis (`breakdownBy=InitialPage|ExitPage|PreviousPage`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tabular web-analytics breakdown — top pages, UTMs, devices, browsers, countries, etc. — with visitors, pageviews, and optional bounce rate / average time on page columns.\n\nThis is the right query for \"top pages with bounce rate\" (set `breakdownBy=Page` and `includeBounceRate=true`) and for entry/exit-page navigation analysis (`breakdownBy=InitialPage|ExitPage|PreviousPage`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.breakdownBy",
+            "effectiveDescription": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/breakdownBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.compareFilter",
+            "effectiveDescription": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/compareFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.conversionGoal",
+            "effectiveDescription": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/conversionGoal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the team's test-account filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the team's test-account filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.includeAvgTimeOnPage",
+            "effectiveDescription": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/includeAvgTimeOnPage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.includeBounceRate",
+            "effectiveDescription": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/includeBounceRate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.includeHost",
+            "effectiveDescription": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/includeHost"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.limit",
+            "effectiveDescription": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.offset",
+            "effectiveDescription": "Pagination offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "query.properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebStatsTableQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebStatsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-trends",
+            "method": "queries.trends"
+        },
+        {
+            "toolName": "query-paths",
+            "method": "queries.paths"
+        },
+        {
+            "toolName": "query-web-overview",
+            "method": "webAnalytics.queryWebOverview"
+        },
+        {
+            "toolName": "read-data-schema",
+            "method": "dataSchema.readDataSchema"
+        },
+        {
+            "toolName": "execute-sql",
+            "method": "queries.sql"
+        }
+    ]
+}

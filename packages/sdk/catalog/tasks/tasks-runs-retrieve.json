@@ -1,0 +1,609 @@
+{
+    "method": "tasks.tasksRunsRetrieve",
+    "toolName": "tasks-runs-retrieve",
+    "operationId": "tasks_runs_retrieve",
+    "title": "Get task run",
+    "category": "Tasks",
+    "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`, `state.sandbox_url`) and the presigned `log_url` are omitted from the response.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksRunsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksRunsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksRunsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve a single run for a specific task.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1{task_id}~1runs~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`, `state.sandbox_url`) and the presigned `log_url` are omitted from the response.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "id",
+            "effectiveDescription": "Stable identifier for the artifact within this run",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for the artifact within this run",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "name",
+            "effectiveDescription": "Artifact file name",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact file name",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "type",
+            "effectiveDescription": "Artifact classification (plan, context, etc.)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact classification (plan, context, etc.)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "source",
+            "effectiveDescription": "Source of the artifact, such as agent_output or user_attachment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source of the artifact, such as agent_output or user_attachment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "size",
+            "effectiveDescription": "Artifact size in bytes",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact size in bytes",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "content_type",
+            "effectiveDescription": "Optional MIME type",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional MIME type",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/content_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "metadata",
+            "effectiveDescription": "Structured metadata for a skill bundle or a PostHog object reference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured metadata for a skill bundle or a PostHog object reference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "storage_path",
+            "effectiveDescription": "S3 object key for file artifacts. Reference artifacts do not have one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "S3 object key for file artifacts. Reference artifacts do not have one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/storage_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "uploaded_at",
+            "effectiveDescription": "Timestamp when the artifact was uploaded or registered",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the artifact was uploaded or registered",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/uploaded_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "uploaded_by",
+            "effectiveDescription": "Whether the artifact version was uploaded by the task agent or an interactive user.\n\n* `agent` - agent\n* `user` - user",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the artifact version was uploaded by the task agent or an interactive user.\n\n* `agent` - agent\n* `user` - user",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/uploaded_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "uploaded_by_user_id",
+            "effectiveDescription": "User id for an interactive user upload. Absent for agent uploads and legacy entries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User id for an interactive user upload. Absent for agent uploads and legacy entries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/uploaded_by_user_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "dismissed_at",
+            "effectiveDescription": "Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/dismissed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape4",
+            "field": "url",
+            "effectiveDescription": "Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape4/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape5",
+            "field": "skill_name",
+            "effectiveDescription": "Name of the local skill included in a skill_bundle artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the local skill included in a skill_bundle artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape5/properties/skill_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape5",
+            "field": "skill_source",
+            "effectiveDescription": "Local source for the uploaded skill bundle, such as user or repo.\n\n* `user` - user\n* `repo` - repo\n* `marketplace` - marketplace\n* `codex` - codex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Local source for the uploaded skill bundle, such as user or repo.\n\n* `user` - user\n* `repo` - repo\n* `marketplace` - marketplace\n* `codex` - codex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape5/properties/skill_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape5",
+            "field": "content_sha256",
+            "effectiveDescription": "SHA-256 hex digest of the uploaded skill bundle bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHA-256 hex digest of the uploaded skill bundle bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape5/properties/content_sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape5",
+            "field": "bundle_format",
+            "effectiveDescription": "Archive format used for the local skill bundle.\n\n* `zip` - zip",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Archive format used for the local skill bundle.\n\n* `zip` - zip",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape5/properties/bundle_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape5",
+            "field": "schema_version",
+            "effectiveDescription": "Version of the local skill bundle metadata schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the local skill bundle metadata schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape5/properties/schema_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape6",
+            "field": "reference_type",
+            "effectiveDescription": "Reference metadata type. posthog_object identifies a live PostHog object.\n\n* `posthog_object` - posthog_object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reference metadata type. posthog_object identifies a live PostHog object.\n\n* `posthog_object` - posthog_object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape6/properties/reference_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape6",
+            "field": "object_kind",
+            "effectiveDescription": "PostHog object kind used to resolve the reference.\n\n* `insight` - insight\n* `hogql` - hogql\n* `dashboard` - dashboard\n* `error` - error\n* `replay` - replay\n* `flag` - flag\n* `experiment` - experiment\n* `survey` - survey\n* `ticket` - ticket\n* `report` - report\n* `trace` - trace\n* `eval` - eval\n* `event` - event\n* `cohort` - cohort\n* `action` - action\n* `person` - person",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog object kind used to resolve the reference.\n\n* `insight` - insight\n* `hogql` - hogql\n* `dashboard` - dashboard\n* `error` - error\n* `replay` - replay\n* `flag` - flag\n* `experiment` - experiment\n* `survey` - survey\n* `ticket` - ticket\n* `report` - report\n* `trace` - trace\n* `eval` - eval\n* `event` - event\n* `cohort` - cohort\n* `action` - action\n* `person` - person",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape6/properties/object_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape6",
+            "field": "object_id",
+            "effectiveDescription": "Exact PostHog object identifier, flag key, event name, or SQL query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact PostHog object identifier, flag key, event name, or SQL query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape6/properties/object_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape6",
+            "field": "source_message_ids",
+            "effectiveDescription": "Completed assistant message identifiers that referenced the object.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completed assistant message identifiers that referenced the object.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape6/properties/source_message_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveResponseShape6",
+            "field": "occurrence_count",
+            "effectiveDescription": "Number of distinct completed assistant messages that referenced the object.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct completed assistant messages that referenced the object.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape6/properties/occurrence_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "effectiveDescription": "Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "task",
+            "effectiveDescription": "Parent task id this run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parent task id this run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/task"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "runtime_adapter",
+            "effectiveDescription": "Configured runtime adapter for this run, such as 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured runtime adapter for this run, such as 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/runtime_adapter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "provider",
+            "effectiveDescription": "Configured LLM provider for this run, such as 'anthropic' or 'openai'.\n\n* `anthropic` - anthropic\n* `openai` - openai",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured LLM provider for this run, such as 'anthropic' or 'openai'.\n\n* `anthropic` - anthropic\n* `openai` - openai",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "model",
+            "effectiveDescription": "Configured LLM model identifier for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured LLM model identifier for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "reasoning_effort",
+            "effectiveDescription": "Configured reasoning effort for this run when the selected model supports it.\n\n* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured reasoning effort for this run when the selected model supports it.\n\n* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/reasoning_effort"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "task_summary",
+            "effectiveDescription": "Latest summary for this task, including a summary inherited from an earlier run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest summary for this task, including a summary inherited from an earlier run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/task_summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "task_tags",
+            "effectiveDescription": "Latest slug tags for this task, including tags inherited from an earlier run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest slug tags for this task, including tags inherited from an earlier run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/task_tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "scheduled_at",
+            "effectiveDescription": "Earliest start time in UTC. Null for runs without a schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Earliest start time in UTC. Null for runs without a schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/scheduled_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsRetrieveData",
+            "field": "preview_available",
+            "effectiveDescription": "True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/preview_available"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

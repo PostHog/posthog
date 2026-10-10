@@ -1,0 +1,65 @@
+{
+    "method": "skills.skillArchive",
+    "toolName": "skill-archive",
+    "operationId": "llm_skills_name_archive_create",
+    "title": "Archive skill",
+    "category": "Skills",
+    "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
+    "requiredScopes": ["llm_skill:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/skills/client.ts",
+    "input": {
+        "name": "SkillsSkillArchiveInput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-archive.ts",
+        "declaration": "dist/generated/skills/skill-archive.d.ts"
+    },
+    "output": {
+        "name": "SkillsSkillArchiveOutput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-archive.ts",
+        "declaration": "dist/generated/skills/skill-archive.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SkillsSkillArchiveData",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-archive.ts",
+            "declaration": "dist/generated/skills/skill-archive.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/skills/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SkillsSkillArchiveInput",
+            "field": "skill_name",
+            "effectiveDescription": "The kebab-case name of the skill to archive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The kebab-case name of the skill to archive.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/skill_name"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

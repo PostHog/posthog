@@ -1,0 +1,157 @@
+{
+    "method": "tasks.loopChannelInstructionsUpdate",
+    "toolName": "loop-channel-instructions-update",
+    "operationId": "task_channels_instructions_update",
+    "title": "Update fallback loop context",
+    "category": "Tasks",
+    "description": "Update legacy channel context when an unattended loop cannot access an initialized context wiki.",
+    "requiredScopes": ["task:write", "loop_context_internal:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopChannelInstructionsUpdateInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loop-channel-instructions-update.ts",
+        "declaration": "dist/generated/tasks/loop-channel-instructions-update.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopChannelInstructionsUpdateOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loop-channel-instructions-update.ts",
+        "declaration": "dist/generated/tasks/loop-channel-instructions-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopChannelInstructionsUpdateResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-update.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-update.d.ts"
+        },
+        {
+            "name": "TasksLoopChannelInstructionsUpdateResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-update.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-update.d.ts"
+        },
+        {
+            "name": "TasksLoopChannelInstructionsUpdateData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-update.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1task_channels~1{id}~1instructions~1/put"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update legacy channel context when an unattended loop cannot access an initialized context wiki.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopChannelInstructionsUpdateInput",
+            "field": "id",
+            "effectiveDescription": "ID of the loop's context channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the loop's context channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsUpdateInput",
+            "field": "content",
+            "effectiveDescription": "The complete markdown instructions (CONTEXT.md) for the channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete markdown instructions (CONTEXT.md) for the channel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/{id}/instructions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsUpdateInput",
+            "field": "base_version",
+            "effectiveDescription": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/{id}/instructions/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/tasks/mcp/tools.yaml",
+                        "pointer": "/tools/loop-channel-instructions-update/param_overrides/base_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsUpdateResponseShape2",
+            "effectiveDescription": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsUpdateData",
+            "effectiveDescription": "Response shape for a channel's CONTEXT.md instructions version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a channel's CONTEXT.md instructions version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

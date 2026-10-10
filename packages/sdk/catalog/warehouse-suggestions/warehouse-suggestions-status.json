@@ -1,0 +1,145 @@
+{
+    "method": "warehouseSuggestions.warehouseSuggestionsStatus",
+    "toolName": "warehouse-suggestions-status",
+    "operationId": "warehouse_suggestions_status_retrieve",
+    "title": "Get warehouse suggestions status",
+    "category": "Warehouse suggestions",
+    "description": "Explain why the project has or lacks warehouse suggestions. Reports whether suggestions are turned on, whether the project reads its views often enough to get them, how many days of read history the daily job has so far, and when it last ran.",
+    "requiredScopes": ["warehouse_view:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: warehouse-suggestions"],
+    "methodSource": "src/generated/warehouse-suggestions/client.ts",
+    "input": {
+        "name": "WarehouseSuggestionsWarehouseSuggestionsStatusInput",
+        "importPath": "@posthog/sdk/warehouse-suggestions",
+        "source": "src/generated/warehouse-suggestions/warehouse-suggestions-status.ts",
+        "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-status.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSuggestionsWarehouseSuggestionsStatusOutput",
+        "importPath": "@posthog/sdk/warehouse-suggestions",
+        "source": "src/generated/warehouse-suggestions/warehouse-suggestions-status.ts",
+        "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "importPath": "@posthog/sdk/warehouse-suggestions",
+            "source": "src/generated/warehouse-suggestions/warehouse-suggestions-status.ts",
+            "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Explain why the project has or lacks warehouse suggestions. Reports whether suggestions are turned on, whether the project reads its views often enough to get them, how many days of read history the daily job has so far, and when it last ran.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_suggestions/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "enabled",
+            "effectiveDescription": "False when the project turned suggestions off.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False when the project turned suggestions off.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "eligible",
+            "effectiveDescription": "Whether the project reads its views often enough to get suggestions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the project reads its views often enough to get suggestions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/eligible"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "days_with_data",
+            "effectiveDescription": "Days of read history the last run had, up to the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days of read history the last run had, up to the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/days_with_data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "window_days",
+            "effectiveDescription": "Days of read history a full window holds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days of read history a full window holds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "paused_reason",
+            "effectiveDescription": "Why new suggestions stopped showing. Null while they show.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why new suggestions stopped showing. Null while they show.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/paused_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsStatusData",
+            "field": "refreshed_at",
+            "effectiveDescription": "When the daily job last ran for this project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the daily job last ran for this project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/refreshed_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

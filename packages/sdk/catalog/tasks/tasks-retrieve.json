@@ -1,0 +1,144 @@
+{
+    "method": "tasks.tasksRetrieve",
+    "toolName": "tasks-retrieve",
+    "operationId": "tasks_retrieve",
+    "title": "Get task",
+    "category": "Tasks",
+    "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRetrieveResponseShape10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRetrieveResponseShape9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRetrieveResponseShape11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve a single task by ID.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksRetrieveResponseShape9",
+            "effectiveDescription": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRetrieveData",
+            "field": "runtime",
+            "effectiveDescription": "Agent protocol and harness used for this task's runs.\n\n* `acp` - ACP\n* `pi` - Pi",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent protocol and harness used for this task's runs.\n\n* `acp` - ACP\n* `pi` - Pi",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRetrieveData",
+            "field": "origin_key",
+            "effectiveDescription": "Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/origin_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

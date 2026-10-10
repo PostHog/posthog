@@ -1,0 +1,87 @@
+{
+    "method": "skills.skillFileGet",
+    "toolName": "skill-file-get",
+    "operationId": "llm_skills_name_files_retrieve",
+    "title": "Get skill file",
+    "category": "Skills",
+    "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+    "requiredScopes": ["llm_skill:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/skills/client.ts",
+    "input": {
+        "name": "SkillsSkillFileGetInput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-file-get.ts",
+        "declaration": "dist/generated/skills/skill-file-get.d.ts"
+    },
+    "output": {
+        "name": "SkillsSkillFileGetOutput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-file-get.ts",
+        "declaration": "dist/generated/skills/skill-file-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SkillsSkillFileGetRequestSchema0",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-get.ts",
+            "declaration": "dist/generated/skills/skill-file-get.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileGetData",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-get.ts",
+            "declaration": "dist/generated/skills/skill-file-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/skills/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SkillsSkillFileGetInput",
+            "field": "file_path",
+            "effectiveDescription": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/file_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileGetInput",
+            "field": "version",
+            "effectiveDescription": "Specific skill version to fetch. If omitted, the latest version is returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specific skill version to fetch. If omitted, the latest version is returned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

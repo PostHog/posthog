@@ -1,0 +1,379 @@
+{
+    "method": "tasks.loopsList",
+    "toolName": "loops-list",
+    "operationId": "loops_list",
+    "title": "List loops",
+    "category": "Tasks",
+    "description": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
+    "requiredScopes": ["loop:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: loops", "hidden_when_flag_on: loops-hog-flows"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopsListInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-list.ts",
+        "declaration": "dist/generated/tasks/loops-list.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopsListOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-list.ts",
+        "declaration": "dist/generated/tasks/loops-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopsListRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape7",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape12",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape13",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        },
+        {
+            "name": "TasksLoopsListData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-list.ts",
+            "declaration": "dist/generated/tasks/loops-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List loops visible to the caller: personal loops they own, plus every team loop. The response also carries `max_loops_per_team` and `total_loop_count` so a client can show remaining capacity and disable creation at the cap without hardcoding the limit.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1loops~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/loops/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/loops/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "effectiveDescription": "Detail/create/update response for a loop, including its triggers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Detail/create/update response for a loop, including its triggers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "repositories",
+            "effectiveDescription": "Repositories this loop operates on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repositories this loop operates on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/repositories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "behaviors",
+            "effectiveDescription": "PR / CI-follow-up behavior configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PR / CI-follow-up behavior configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/behaviors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "connectors",
+            "effectiveDescription": "MCP connector configuration for this loop's runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP connector configuration for this loop's runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/connectors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "notifications",
+            "effectiveDescription": "Per-channel notification configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-channel notification configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/notifications"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "context_target",
+            "effectiveDescription": "Context this loop is attached to, or null when unattached.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context this loop is attached to, or null when unattached.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/context_target"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "triggers",
+            "effectiveDescription": "Triggers attached to this loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Triggers attached to this loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/triggers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape2",
+            "field": "skill_bundles",
+            "effectiveDescription": "Skill bundles attached to this loop, seeded into every fired run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Skill bundles attached to this loop, seeded into every fired run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/skill_bundles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape9",
+            "field": "outputs",
+            "effectiveDescription": "What the loop maintains in this context each run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the loop maintains in this context each run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape9/properties/outputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListResponseShape11",
+            "effectiveDescription": "Read response for a single loop trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read response for a single loop trigger.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListData",
+            "field": "max_loops_per_team",
+            "effectiveDescription": "Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/max_loops_per_team"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListData",
+            "field": "total_loop_count",
+            "effectiveDescription": "Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/total_loop_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

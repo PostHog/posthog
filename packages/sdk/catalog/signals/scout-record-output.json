@@ -1,0 +1,212 @@
+{
+    "method": "signals.scoutRecordOutput",
+    "toolName": "scout-record-output",
+    "operationId": "signals_scout_record_output",
+    "title": "Record structured output for a run",
+    "category": "Signals",
+    "description": "Record schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record); without it the call fails closed, as it does for a dry-run scout (emit off). Pass the `run_id` and a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.",
+    "requiredScopes": ["signal_scout_internal:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutRecordOutputInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-record-output.ts",
+        "declaration": "dist/generated/signals/scout-record-output.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutRecordOutputOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-record-output.ts",
+        "declaration": "dist/generated/signals/scout-record-output.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutRecordOutputRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        },
+        {
+            "name": "SignalsScoutRecordOutputRequestSchema4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        },
+        {
+            "name": "SignalsScoutRecordOutputRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        },
+        {
+            "name": "SignalsScoutRecordOutputRequestSchema3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        },
+        {
+            "name": "SignalsScoutRecordOutputRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        },
+        {
+            "name": "SignalsScoutRecordOutputData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-record-output.ts",
+            "declaration": "dist/generated/signals/scout-record-output.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1runs~1{run_id}~1record-output~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Record schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record); without it the call fails closed, as it does for a dry-run scout (emit off). Pass the `run_id` and a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutRecordOutputRequest_Schema0",
+            "effectiveDescription": "One record submitted through `scout-record-output`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One record submitted through `scout-record-output`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputRequest_Schema1",
+            "effectiveDescription": "The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputRequest_Schema4",
+            "effectiveDescription": "Optional key naming what this record is about — a report id, URL, account key — so per-entity lookups don't need to parse `payload`. Omit for a run-level record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional key naming what this record is about — a report id, URL, account key — so per-entity lookups don't need to parse `payload`. Omit for a run-level record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputInput",
+            "field": "run_id",
+            "effectiveDescription": "UUID of the `SignalScoutRun` bridge row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the `SignalScoutRun` bridge row.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/record-output/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputInput",
+            "field": "records",
+            "effectiveDescription": "Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/record-output/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputData",
+            "effectiveDescription": "Outcome of an accepted `scout-record-output` call.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome of an accepted `scout-record-output` call.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputData",
+            "field": "recorded_count",
+            "effectiveDescription": "How many records were recorded (all of them, or none).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many records were recorded (all of them, or none).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/recorded_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutRecordOutputData",
+            "field": "record_ids",
+            "effectiveDescription": "Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/record_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,249 @@
+{
+    "method": "streamlitApps.streamlitAppsUpdate",
+    "toolName": "streamlit-apps-update",
+    "operationId": "streamlit_apps_partial_update",
+    "title": "Update Streamlit app",
+    "category": "Streamlit apps",
+    "description": "Update an app's metadata or sandbox sizing: name, description, cpu_cores (0.25–8), memory_gb (0.5–16). Only the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through streamlit-apps-edit-source (or streamlit-apps-set-source for a full rewrite), not this tool.",
+    "requiredScopes": ["streamlit_app:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsUpdateInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsUpdateOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateResponseShape3",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateResponseShape2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateResponseShape4",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateResponseShape5",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsUpdateData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-update.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Partially update a streamlit app",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "streamlit_apps_partial_update"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update an app's metadata or sandbox sizing: name, description, cpu_cores (0.25–8), memory_gb (0.5–16). Only the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through streamlit-apps-edit-source (or streamlit-apps-set-source for a full rewrite), not this tool.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateInput",
+            "field": "name",
+            "effectiveDescription": "New name for the app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New name for the app.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateInput",
+            "field": "description",
+            "effectiveDescription": "New description for the app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New description for the app.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateInput",
+            "field": "cpu_cores",
+            "effectiveDescription": "New CPU core allocation for the sandbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New CPU core allocation for the sandbox.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateInput",
+            "field": "memory_gb",
+            "effectiveDescription": "New memory (GB) allocation for the sandbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New memory (GB) allocation for the sandbox.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateResponseShape4",
+            "field": "created_by",
+            "effectiveDescription": "User who uploaded this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who uploaded this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape4/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created this app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateData",
+            "field": "active_version",
+            "effectiveDescription": "Currently active version, or null if none uploaded yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Currently active version, or null if none uploaded yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/active_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateData",
+            "field": "sandbox",
+            "effectiveDescription": "Current sandbox state, or null if the app has never started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current sandbox state, or null if the app has never started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/sandbox"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsUpdateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

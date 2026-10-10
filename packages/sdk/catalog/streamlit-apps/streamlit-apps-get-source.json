@@ -1,0 +1,254 @@
+{
+    "method": "streamlitApps.streamlitAppsGetSource",
+    "toolName": "streamlit-apps-get-source",
+    "operationId": "streamlit_apps_source_retrieve",
+    "title": "Get Streamlit app source",
+    "category": "Streamlit apps",
+    "description": "Read the code of a Streamlit app version. Defaults to the active version; pass version_number for an older one. Returns version_number and a manifest of every file (path, size, sha256, content_type) with the full text of each text file. Binary files are listed without content. Pass `paths` to get the content of only some files, which keeps the response small for a large app. Always read the source here before you change an app, then use streamlit-apps-edit-source with the returned version_number, so you do not overwrite a newer version with an old local copy.",
+    "requiredScopes": ["streamlit_app:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsGetSourceInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsGetSourceOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsGetSourceRequestSchema0",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetSourceRequestSchema1",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetSourceData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get-source.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get-source.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Returns the file manifest of a version and the text of each text file. Binary files appear in the manifest without content.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1streamlit_apps~1{short_id}~1source~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read the code of a Streamlit app version. Defaults to the active version; pass version_number for an older one. Returns version_number and a manifest of every file (path, size, sha256, content_type) with the full text of each text file. Binary files are listed without content. Pass `paths` to get the content of only some files, which keeps the response small for a large app. Always read the source here before you change an app, then use streamlit-apps-edit-source with the returned version_number, so you do not overwrite a newer version with an old local copy.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceInput",
+            "field": "paths",
+            "effectiveDescription": "Comma-separated file paths to return content for, for example `app.py,utils.py`. The manifest still lists every file. Omit it to get every text file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated file paths whose content to return, for example 'app.py,utils.py'. Other files appear in the manifest without content. Defaults to all text files.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/source/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Comma-separated file paths to return content for, for example `app.py,utils.py`. The manifest still lists every file. Omit it to get every text file.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/streamlit_apps/mcp/tools.yaml",
+                        "pointer": "/tools/streamlit-apps-get-source/param_overrides/paths"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceInput",
+            "field": "version_number",
+            "effectiveDescription": "Version number to read. Omit it to read the active version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number to read. Defaults to the active version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/{short_id}/source/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Version number to read. Omit it to read the active version.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/streamlit_apps/mcp/tools.yaml",
+                        "pointer": "/tools/streamlit-apps-get-source/param_overrides/version_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "path",
+            "effectiveDescription": "Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "size",
+            "effectiveDescription": "File size in bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File size in bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "sha256",
+            "effectiveDescription": "SHA-256 hash of the file bytes, as hex.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHA-256 hash of the file bytes, as hex.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "content_type",
+            "effectiveDescription": "MIME type guessed from the file extension.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MIME type guessed from the file extension.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/content_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "is_binary",
+            "effectiveDescription": "True when the file is not UTF-8 text. Binary content is never inlined.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the file is not UTF-8 text. Binary content is never inlined.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/is_binary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceResponseShape2",
+            "field": "content",
+            "effectiveDescription": "Full text of the file. Null for binary files and for files that the paths filter excludes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full text of the file. Null for binary files and for files that the paths filter excludes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceData",
+            "field": "version_number",
+            "effectiveDescription": "Version number that this source belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number that this source belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/version_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetSourceData",
+            "field": "files",
+            "effectiveDescription": "Every file in the version, sorted by path. The manifest always lists all files.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every file in the version, sorted by path. The manifest always lists all files.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/files"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

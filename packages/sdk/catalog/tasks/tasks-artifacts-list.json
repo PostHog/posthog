@@ -1,0 +1,119 @@
+{
+    "method": "tasks.tasksArtifactsList",
+    "toolName": "tasks-artifacts-list",
+    "title": "List current task artifacts",
+    "category": "Tasks",
+    "description": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksArtifactsListInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-artifacts-list.ts",
+        "declaration": "dist/generated/tasks/tasks-artifacts-list.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksArtifactsListOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-artifacts-list.ts",
+        "declaration": "dist/generated/tasks/tasks-artifacts-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksArtifactsListResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-artifacts-list.ts",
+            "declaration": "dist/generated/tasks/tasks-artifacts-list.d.ts"
+        },
+        {
+            "name": "TasksTasksArtifactsListData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-artifacts-list.ts",
+            "declaration": "dist/generated/tasks/tasks-artifacts-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/tasks-artifacts-list/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksArtifactsListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable artifact id used to filter task comments.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable artifact id used to filter task comments.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksArtifactsListResponseShape2",
+            "field": "type",
+            "effectiveDescription": "Artifact type: artifact or canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact type: artifact or canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape2/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksArtifactsListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Display name of the artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksArtifactsListData",
+            "field": "artifacts",
+            "effectiveDescription": "Artifacts and canvases linked to this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifacts and canvases linked to this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/artifacts"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

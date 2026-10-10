@@ -1,0 +1,211 @@
+{
+    "method": "visualReview.visualReviewReposQuarantineList",
+    "toolName": "visual-review-repos-quarantine-list",
+    "operationId": "visual_review_repos_quarantine_list",
+    "title": "List quarantined snapshots",
+    "category": "Visual review",
+    "description": "Quarantines in a repo, with reason, author, expiry and the run that prompted each. Returns active entries by default. Pass `identifier` for that identifier's full history, or `run_type` to narrow.",
+    "requiredScopes": ["visual_review:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: visual-review"],
+    "methodSource": "src/generated/visual-review/client.ts",
+    "input": {
+        "name": "VisualReviewVisualReviewReposQuarantineListInput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+        "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+    },
+    "output": {
+        "name": "VisualReviewVisualReviewReposQuarantineListOutput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+        "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListRequestSchema0",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListRequestSchema1",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListRequestSchema2",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListRequestSchema3",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListResponseShape3",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListResponseShape4",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListResponseShape2",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewReposQuarantineListData",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-quarantine-list.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-quarantine-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List quarantined identifiers. Without filter: active only. With identifier: full history.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1visual_review~1repos~1{id}~1quarantine~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Quarantines in a repo, with reason, author, expiry and the run that prompted each. Returns active entries by default. Pass `identifier` for that identifier's full history, or `run_type` to narrow.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/visual_review/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListInput",
+            "field": "id",
+            "effectiveDescription": "The repo's UUID, from `visual-review-repos-list`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The repo's UUID, from `visual-review-repos-list`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListInput",
+            "field": "identifier",
+            "effectiveDescription": "Filter by identifier (returns full history)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by identifier (returns full history)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/repos/{id}/quarantine/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/repos/{id}/quarantine/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/repos/{id}/quarantine/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListInput",
+            "field": "run_type",
+            "effectiveDescription": "Filter by run type",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by run type",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/repos/{id}/quarantine/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListResponseShape2",
+            "field": "source_run",
+            "effectiveDescription": "Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/Shape2/properties/source_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewReposQuarantineListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,129 @@
+{
+    "method": "warehouseSources.externalDataSourcesWizard",
+    "toolName": "external-data-sources-wizard",
+    "operationId": "external_data_sources_wizard_retrieve",
+    "title": "List data warehouse source types you can import",
+    "category": "Warehouse sources",
+    "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type — and when enumerating, pass fields: ['*.name', '*.caption'] to skip the large per-source field definitions. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+    "requiredScopes": ["external_data_source:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSourcesWizardInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSourcesWizardOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSourcesWizardRequestSchema0",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesWizardRequestSchema2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesWizardRequestSchema1",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesWizardDataProperty",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesWizardData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-wizard.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-wizard.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, Read, Update and Delete External data Sources.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_sources~1wizard~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type — and when enumerating, pass fields: ['*.name', '*.caption'] to skip the large per-source field definitions. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesWizardInput",
+            "field": "source_type",
+            "effectiveDescription": "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/wizard/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesWizardInput",
+            "field": "fields",
+            "effectiveDescription": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/properties/fields"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesWizardData",
+            "effectiveDescription": "Map of source type identifier to its config, as both catalog endpoints return it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Map of source type identifier to its config, as both catalog endpoints return it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

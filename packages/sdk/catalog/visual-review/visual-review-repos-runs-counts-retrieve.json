@@ -1,0 +1,74 @@
+{
+    "method": "visualReview.visualReviewReposRunsCountsRetrieve",
+    "toolName": "visual-review-repos-runs-counts-retrieve",
+    "operationId": "visual_review_repos_runs_counts_retrieve",
+    "title": "Visual review run counts for a repo",
+    "category": "Visual review",
+    "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) for one repo's runs.",
+    "requiredScopes": ["visual_review:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: visual-review"],
+    "methodSource": "src/generated/visual-review/client.ts",
+    "input": {
+        "name": "VisualReviewVisualReviewReposRunsCountsRetrieveInput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-repos-runs-counts-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-repos-runs-counts-retrieve.d.ts"
+    },
+    "output": {
+        "name": "VisualReviewVisualReviewReposRunsCountsRetrieveOutput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-repos-runs-counts-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-repos-runs-counts-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "VisualReviewVisualReviewReposRunsCountsRetrieveData",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-repos-runs-counts-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-repos-runs-counts-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Review state counts for runs in this repo.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1visual_review~1repos~1{repo_id}~1runs~1counts~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) for one repo's runs.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/visual_review/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "VisualReviewVisualReviewReposRunsCountsRetrieveInput",
+            "field": "repo_id",
+            "effectiveDescription": "The repo's UUID, from `visual-review-repos-list`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The repo's UUID, from `visual-review-repos-list`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/properties/repo_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

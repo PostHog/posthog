@@ -1,0 +1,295 @@
+{
+    "method": "stamphog.stamphogPullRequestsGet",
+    "toolName": "stamphog-pull-requests-get",
+    "operationId": "stamphog_pull_requests_retrieve",
+    "title": "Get stamphog pull request",
+    "category": "Stamphog",
+    "description": "Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
+    "requiredScopes": ["stamphog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: stamphog"],
+    "methodSource": "src/generated/stamphog/client.ts",
+    "input": {
+        "name": "StamphogStamphogPullRequestsGetInput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-pull-requests-get.ts",
+        "declaration": "dist/generated/stamphog/stamphog-pull-requests-get.d.ts"
+    },
+    "output": {
+        "name": "StamphogStamphogPullRequestsGetOutput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-pull-requests-get.ts",
+        "declaration": "dist/generated/stamphog/stamphog-pull-requests-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StamphogStamphogPullRequestsGetData",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-pull-requests-get.ts",
+            "declaration": "dist/generated/stamphog/stamphog-pull-requests-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read-only pull requests stamphog knows about, filterable by PR number and merge state.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1stamphog~1pull_requests~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/stamphog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "repository",
+            "effectiveDescription": "Full name of the repository this pull request belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full name of the repository this pull request belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "pr_number",
+            "effectiveDescription": "Pull request number on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request number on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/pr_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "title",
+            "effectiveDescription": "Pull request title, refreshed on every relevant webhook delivery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request title, refreshed on every relevant webhook delivery.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "author_login",
+            "effectiveDescription": "GitHub login of the pull request author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub login of the pull request author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/author_login"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "pr_url",
+            "effectiveDescription": "Full URL to the pull request on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full URL to the pull request on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/pr_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "head_branch",
+            "effectiveDescription": "Branch name of the PR head.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Branch name of the PR head.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/head_branch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "merged",
+            "effectiveDescription": "Whether this pull request has merged (merged_at is set).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this pull request has merged (merged_at is set).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "merged_at",
+            "effectiveDescription": "When the pull request merged, null if it hasn't.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the pull request merged, null if it hasn't.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/merged_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "merge_commit_sha",
+            "effectiveDescription": "Merge commit SHA, blank until the pull request merges.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge commit SHA, blank until the pull request merges.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/merge_commit_sha"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "additions",
+            "effectiveDescription": "Lines added, recorded when the pull request merges.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lines added, recorded when the pull request merges.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/additions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "deletions",
+            "effectiveDescription": "Lines deleted, recorded when the pull request merges.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lines deleted, recorded when the pull request merges.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/deletions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "changed_files",
+            "effectiveDescription": "Files changed, recorded when the pull request merges.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Files changed, recorded when the pull request merges.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/changed_files"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "created_at",
+            "effectiveDescription": "When this pull request was first captured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this pull request was first captured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogPullRequestsGetData",
+            "field": "updated_at",
+            "effectiveDescription": "When this pull request was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this pull request was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "stamphog-pull-requests-list",
+            "method": "stamphog.stamphogPullRequestsList"
+        },
+        {
+            "toolName": "pull-requests",
+            "method": "engineeringAnalytics.pullRequests"
+        },
+        {
+            "toolName": "pr-lifecycle",
+            "method": "engineeringAnalytics.prLifecycle"
+        }
+    ]
+}

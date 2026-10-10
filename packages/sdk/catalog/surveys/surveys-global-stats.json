@@ -1,0 +1,176 @@
+{
+    "method": "surveys.surveysGlobalStats",
+    "toolName": "surveys-global-stats",
+    "operationId": "surveys_global_stats_retrieve",
+    "title": "Get aggregated response statistics across all surveys.",
+    "category": "Surveys",
+    "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+    "requiredScopes": ["survey:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/surveys/client.ts",
+    "input": {
+        "name": "SurveysSurveysGlobalStatsInput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-global-stats.ts",
+        "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+    },
+    "output": {
+        "name": "SurveysSurveysGlobalStatsOutput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-global-stats.ts",
+        "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SurveysSurveysGlobalStatsRequestSchema0",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-global-stats.ts",
+            "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+        },
+        {
+            "name": "SurveysSurveysGlobalStatsRequestSchema1",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-global-stats.ts",
+            "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+        },
+        {
+            "name": "SurveysSurveysGlobalStatsResponseShape2",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-global-stats.ts",
+            "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+        },
+        {
+            "name": "SurveysSurveysGlobalStatsResponseShape3",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-global-stats.ts",
+            "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+        },
+        {
+            "name": "SurveysSurveysGlobalStatsData",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-global-stats.ts",
+            "declaration": "dist/generated/surveys/surveys-global-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get aggregated response statistics across all surveys.\n\nArgs:\n    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)\n    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)\n\nReturns:\n    Aggregated statistics across all surveys including total counts and rates",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1surveys~1stats~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/surveys/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SurveysSurveysGlobalStatsInput",
+            "field": "date_from",
+            "effectiveDescription": "Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysGlobalStatsInput",
+            "field": "date_to",
+            "effectiveDescription": "Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysGlobalStatsResponseShape2",
+            "effectiveDescription": "Event counts keyed by event name (survey shown, survey dismissed, survey sent).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event counts keyed by event name (survey shown, survey dismissed, survey sent).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysGlobalStatsResponseShape3",
+            "effectiveDescription": "Calculated response and dismissal rates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Calculated response and dismissal rates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysGlobalStatsData",
+            "field": "stats",
+            "effectiveDescription": "Event counts keyed by event name (survey shown, survey dismissed, survey sent).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event counts keyed by event name (survey shown, survey dismissed, survey sent).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/stats"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysGlobalStatsData",
+            "field": "rates",
+            "effectiveDescription": "Calculated response and dismissal rates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Calculated response and dismissal rates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/rates"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

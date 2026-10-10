@@ -1,0 +1,1205 @@
+{
+    "method": "tasks.loopsReview",
+    "toolName": "loops-review",
+    "title": "Review loop before creating",
+    "category": "Tasks",
+    "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
+    "requiredScopes": ["loop:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: loops", "hidden_when_flag_on: loops-hog-flows"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopsReviewInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-review.ts",
+        "declaration": "dist/generated/tasks/loops-review.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopsReviewOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-review.ts",
+        "declaration": "dist/generated/tasks/loops-review.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopsReviewRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema7",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema15",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema13",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema16",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema18",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema20",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema24",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema25",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema26",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema27",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema22",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema30",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema31",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema28",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema35",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema36Item",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema36",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema37",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema34",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema39",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema40Item",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema40",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema41",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema38",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema43",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema44Item",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema44",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema45",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema42",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema32",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema49",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema50",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema51",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema48",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema46",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema46Variant1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema52ItemType",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema54",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema55",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema52Item",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema52",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewRequestSchema56",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape7",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewResponseShape12",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        },
+        {
+            "name": "TasksLoopsReviewData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-review.ts",
+            "declaration": "dist/generated/tasks/loops-review.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/loops-review/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema0",
+            "effectiveDescription": "Display name for the loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema1",
+            "effectiveDescription": "Free-form description of what this loop does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form description of what this loop does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema3",
+            "effectiveDescription": "On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema5",
+            "effectiveDescription": "`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n* `personal` - personal\n* `team` - team",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n* `personal` - personal\n* `team` - team",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema7",
+            "effectiveDescription": "The prompt delivered to the agent on every run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The prompt delivered to the agent on every run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema8",
+            "effectiveDescription": "Runtime adapter: 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runtime adapter: 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema9",
+            "effectiveDescription": "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema11",
+            "effectiveDescription": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema13",
+            "effectiveDescription": "Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema15",
+            "field": "github_integration_id",
+            "effectiveDescription": "GitHub integration id this repository is accessed through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub integration id this repository is accessed through.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema15/properties/github_integration_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema15",
+            "field": "full_name",
+            "effectiveDescription": "Repository in `organization/repo` format, e.g. `posthog/posthog`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository in `organization/repo` format, e.g. `posthog/posthog`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema15/properties/full_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema16",
+            "effectiveDescription": "Sandbox environment carrying encrypted env vars and the network allowlist into every run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox environment carrying encrypted env vars and the network allowlist into every run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema18",
+            "effectiveDescription": "Whether the loop's triggers are active. Pausing disables all triggers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the loop's triggers are active. Pausing disables all triggers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema20",
+            "effectiveDescription": "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n* `skip` - skip\n* `allow` - allow\n* `cancel_previous` - cancel_previous",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n* `skip` - skip\n* `allow` - allow\n* `cancel_previous` - cancel_previous",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema22",
+            "effectiveDescription": "PR / CI-follow-up behavior configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PR / CI-follow-up behavior configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema22",
+            "field": "create_prs",
+            "effectiveDescription": "Whether the agent may push branches and open PRs. False makes this a report-only loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the agent may push branches and open PRs. False makes this a report-only loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema23/properties/create_prs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema22",
+            "field": "watch_ci",
+            "effectiveDescription": "Whether to watch CI on loop-created PRs and report status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to watch CI on loop-created PRs and report status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema23/properties/watch_ci"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema22",
+            "field": "fix_review_comments",
+            "effectiveDescription": "Whether to automatically address review comments on loop-created PRs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to automatically address review comments on loop-created PRs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema23/properties/fix_review_comments"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema22",
+            "field": "max_fix_iterations",
+            "effectiveDescription": "Ceiling on automatic CI/review-comment fix iterations, capped at 10.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ceiling on automatic CI/review-comment fix iterations, capped at 10.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema23/properties/max_fix_iterations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema28",
+            "effectiveDescription": "MCP connector configuration for this loop's runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP connector configuration for this loop's runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema28",
+            "field": "mcp_installation_ids",
+            "effectiveDescription": "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema29/properties/mcp_installation_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema28",
+            "field": "posthog_mcp_scopes",
+            "effectiveDescription": "Scope of the PostHog MCP access injected into this loop's runs.\n\n* `read_only` - read_only\n* `full` - full",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope of the PostHog MCP access injected into this loop's runs.\n\n* `read_only` - read_only\n* `full` - full",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema29/properties/posthog_mcp_scopes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema31",
+            "effectiveDescription": "* `read_only` - read_only\n* `full` - full",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `read_only` - read_only\n* `full` - full",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema31"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema32",
+            "effectiveDescription": "Per-channel notification configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-channel notification configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema32"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema32",
+            "field": "push",
+            "effectiveDescription": "Push notification settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push notification settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema33/properties/push"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema32",
+            "field": "email",
+            "effectiveDescription": "Email notification settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email notification settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema33/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema32",
+            "field": "slack",
+            "effectiveDescription": "Slack notification settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack notification settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema33/properties/slack"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema34",
+            "field": "enabled",
+            "effectiveDescription": "Whether this channel is active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this channel is active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema34/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema34",
+            "field": "events",
+            "effectiveDescription": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema34/properties/events"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema34",
+            "field": "params",
+            "effectiveDescription": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema34/properties/params"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema36",
+            "field": "[]",
+            "effectiveDescription": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema36/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema38",
+            "field": "enabled",
+            "effectiveDescription": "Whether this channel is active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this channel is active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema38/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema38",
+            "field": "events",
+            "effectiveDescription": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema38/properties/events"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema38",
+            "field": "params",
+            "effectiveDescription": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema38/properties/params"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema40",
+            "field": "[]",
+            "effectiveDescription": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema40/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema42",
+            "field": "enabled",
+            "effectiveDescription": "Whether this channel is active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this channel is active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema42/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema42",
+            "field": "events",
+            "effectiveDescription": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema42/properties/events"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema42",
+            "field": "params",
+            "effectiveDescription": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema42/properties/params"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema44",
+            "field": "[]",
+            "effectiveDescription": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `pr_merged` - pr_merged\n* `pr_closed` - pr_closed\n* `needs_attention` - needs_attention",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema44/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema46",
+            "effectiveDescription": "Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema46"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema48",
+            "field": "post_to_feed",
+            "effectiveDescription": "Whether each run is filed into the context's feed as a card (sets the run's channel).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether each run is filed into the context's feed as a card (sets the run's channel).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema48/properties/post_to_feed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema48",
+            "field": "update_context",
+            "effectiveDescription": "Whether each run reads and republishes the context's context.md to reflect the latest state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether each run reads and republishes the context's context.md to reflect the latest state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema48/properties/update_context"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema48",
+            "field": "canvas_id",
+            "effectiveDescription": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema48/properties/canvas_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema52",
+            "effectiveDescription": "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema52"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema52",
+            "field": "[].id",
+            "effectiveDescription": "Existing trigger id to update in place. Omit to create a new trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existing trigger id to update in place. Omit to create a new trigger.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema53/items/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema52",
+            "field": "[].type",
+            "effectiveDescription": "Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema53/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema52",
+            "field": "[].enabled",
+            "effectiveDescription": "Whether this trigger is active. Disabling pauses only this trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this trigger is active. Disabling pauses only this trigger.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema53/items/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewRequest_Schema52",
+            "field": "[].config",
+            "effectiveDescription": "Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema53/items/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewInput",
+            "effectiveDescription": "Request body for creating or updating a loop. Field required/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request body for creating or updating a loop. Field required/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewResponseShape7",
+            "effectiveDescription": "Construct a type with a set of properties K of type T",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Construct a type with a set of properties K of type T",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsReviewResponseShape12",
+            "field": "config",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape12/properties/config"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

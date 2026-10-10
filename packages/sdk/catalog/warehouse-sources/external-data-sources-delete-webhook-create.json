@@ -1,0 +1,231 @@
+{
+    "method": "warehouseSources.externalDataSourcesDeleteWebhookCreate",
+    "toolName": "external-data-sources-delete-webhook-create",
+    "operationId": "external_data_sources_delete_webhook_create",
+    "title": "Delete a source's webhook",
+    "category": "Warehouse sources",
+    "description": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequestSchema0",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequestSchema1",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequestSchema2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequestSchema4",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequestSchema3",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-delete-webhook-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-delete-webhook-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, Read, Update and Delete External data Sources.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_sources~1{id}~1delete_webhook~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateRequest_Schema4",
+            "effectiveDescription": "An fnmatch-style glob pattern, e.g. `raw_*`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "An fnmatch-style glob pattern, e.g. `raw_*`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/delete_webhook/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+            "field": "created_via",
+            "effectiveDescription": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/delete_webhook/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+            "field": "direct_query_enabled",
+            "effectiveDescription": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/delete_webhook/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+            "field": "auto_sync_new_schemas",
+            "effectiveDescription": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/delete_webhook/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateInput",
+            "field": "auto_sync_schema_patterns",
+            "effectiveDescription": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/delete_webhook/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateData",
+            "field": "success",
+            "effectiveDescription": "Whether the webhook delivery function was deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the webhook delivery function was deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/success"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateData",
+            "field": "external_deleted",
+            "effectiveDescription": "Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/external_deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesDeleteWebhookCreateData",
+            "field": "error",
+            "effectiveDescription": "Why the external deletion failed, when external_deleted is false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the external deletion failed, when external_deleted is false.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

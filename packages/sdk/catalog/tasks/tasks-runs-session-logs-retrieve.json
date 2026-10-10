@@ -1,0 +1,207 @@
+{
+    "method": "tasks.tasksRunsSessionLogsRetrieve",
+    "toolName": "tasks-runs-session-logs-retrieve",
+    "operationId": "tasks_runs_session_logs_retrieve",
+    "title": "Get task run session logs",
+    "category": "Tasks",
+    "description": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksRunsSessionLogsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksRunsSessionLogsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveRequestSchema3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveRequestSchema5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsSessionLogsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-session-logs-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-session-logs-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1{task_id}~1runs~1{id}~1session_logs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveRequest_Schema3",
+            "effectiveDescription": "Maximum number of entries to return (default 1000, max 5000)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of entries to return (default 1000, max 5000)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveInput",
+            "field": "after",
+            "effectiveDescription": "Only return events after this ISO8601 timestamp",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return events after this ISO8601 timestamp",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveInput",
+            "field": "event_types",
+            "effectiveDescription": "Comma-separated list of event types to include",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of event types to include",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveInput",
+            "field": "exclude_types",
+            "effectiveDescription": "Comma-separated list of event types to exclude",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of event types to exclude",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of entries to return (default 100, max 5000)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of entries to return (default 1000, max 5000)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Maximum number of entries to return (default 100, max 5000)",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/tasks/mcp/tools.yaml",
+                        "pointer": "/tools/tasks-runs-session-logs-retrieve/param_overrides/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "Zero-based offset into the filtered log entries",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Zero-based offset into the filtered log entries",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsSessionLogsRetrieveData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

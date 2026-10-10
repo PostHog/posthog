@@ -1,0 +1,130 @@
+{
+    "method": "signals.inboxSourceConfigsList",
+    "toolName": "inbox-source-configs-list",
+    "operationId": "signals_source_configs_list",
+    "title": "List signal source configs",
+    "category": "Signals",
+    "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxSourceConfigsListInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-source-configs-list.ts",
+        "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxSourceConfigsListOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-source-configs-list.ts",
+        "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxSourceConfigsListRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-source-configs-list.ts",
+            "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxSourceConfigsListRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-source-configs-list.ts",
+            "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxSourceConfigsListDataResultsItem",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-source-configs-list.ts",
+            "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxSourceConfigsListData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-source-configs-list.ts",
+            "declaration": "dist/generated/signals/inbox-source-configs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxSourceConfigsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/source_configs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxSourceConfigsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/source_configs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxSourceConfigsListData",
+            "field": "results[].status",
+            "effectiveDescription": "Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxSourceConfigsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

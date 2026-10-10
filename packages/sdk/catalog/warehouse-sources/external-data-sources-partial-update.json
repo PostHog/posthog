@@ -1,0 +1,440 @@
+{
+    "method": "warehouseSources.externalDataSourcesPartialUpdate",
+    "toolName": "external-data-sources-partial-update",
+    "operationId": "external_data_sources_partial_update",
+    "title": "Update data warehouse source",
+    "category": "Warehouse sources",
+    "description": "Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change the source_type or access_method after creation. Avoid sending new connection credentials inline here — to rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them securely in their browser rather than pasting secrets into the chat.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSourcesPartialUpdateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape3",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape4",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, Read, Update and Delete External data Sources.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_sources~1{id}~1/patch"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change the source_type or access_method after creation. Avoid sending new connection credentials inline here — to rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them securely in their browser rather than pasting secrets into the chat.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateRequest_Schema4",
+            "effectiveDescription": "An fnmatch-style glob pattern, e.g. `raw_*`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "An fnmatch-style glob pattern, e.g. `raw_*`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+            "field": "created_via",
+            "effectiveDescription": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+            "field": "direct_query_enabled",
+            "effectiveDescription": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+            "field": "auto_sync_new_schemas",
+            "effectiveDescription": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateInput",
+            "field": "auto_sync_schema_patterns",
+            "effectiveDescription": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape4",
+            "field": "version",
+            "effectiveDescription": "The deprecated vendor API version this source is pinned to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The deprecated vendor API version this source is pinned to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape4",
+            "field": "sunset_at",
+            "effectiveDescription": "Date the vendor stops serving this version; null if not announced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date the vendor stops serving this version; null if not announced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/sunset_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateResponseShape4",
+            "field": "default_version",
+            "effectiveDescription": "The source's current default vendor API version — the migration target.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source's current default vendor API version — the migration target.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/default_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "effectiveDescription": "Mixin for serializers to add user access control fields",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mixin for serializers to add user access control fields",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "created_via",
+            "effectiveDescription": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/created_via"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "direct_query_enabled",
+            "effectiveDescription": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/direct_query_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "auto_sync_new_schemas",
+            "effectiveDescription": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/auto_sync_new_schemas"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "auto_sync_schema_patterns",
+            "effectiveDescription": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/auto_sync_schema_patterns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "engine",
+            "effectiveDescription": "Backend engine detected for the direct connection.\n\n* `duckdb` - duckdb\n* `postgres` - postgres\n* `mysql` - mysql\n* `snowflake` - snowflake\n* `redshift` - redshift\n* `clickhouse` - clickhouse\n* `motherduck` - motherduck\n* `trino` - trino",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Backend engine detected for the direct connection.\n\n* `duckdb` - duckdb\n* `postgres` - postgres\n* `mysql` - mysql\n* `snowflake` - snowflake\n* `redshift` - redshift\n* `clickhouse` - clickhouse\n* `motherduck` - motherduck\n* `trino` - trino",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/engine"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "job_inputs",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/job_inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "supports_column_selection",
+            "effectiveDescription": "Whether this source supports per-column sync selection via `enabled_columns`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this source supports per-column sync selection via `enabled_columns`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/supports_column_selection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "api_version",
+            "effectiveDescription": "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/api_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "api_version_deprecation",
+            "effectiveDescription": "Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/api_version_deprecation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesPartialUpdateData",
+            "field": "connection_warning",
+            "effectiveDescription": "Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/connection_warning"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

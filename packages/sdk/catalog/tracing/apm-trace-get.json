@@ -1,0 +1,541 @@
+{
+    "method": "tracing.apmTraceGet",
+    "toolName": "apm-trace-get",
+    "operationId": "tracing_spans_trace_create",
+    "title": "Retrieve trace spans",
+    "category": "Tracing",
+    "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Each span carries self_time_nano — its duration not covered by child spans — so \"where did the wall-clock go\" is answered by sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
+    "requiredScopes": ["tracing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tracing"],
+    "methodSource": "src/generated/tracing/client.ts",
+    "input": {
+        "name": "TracingApmTraceGetInput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-trace-get.ts",
+        "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+    },
+    "output": {
+        "name": "TracingApmTraceGetOutput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-trace-get.ts",
+        "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TracingApmTraceGetRequestSchema1",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetRequestSchema2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetRequestSchema0",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetRequestSchema3",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetRequestSchema4",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetResponseShape3",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetResponseShape4",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetResponseShape2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        },
+        {
+            "name": "TracingApmTraceGetData",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-trace-get.ts",
+            "declaration": "dist/generated/tracing/apm-trace-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Each span carries self_time_nano — its duration not covered by child spans — so \"where did the wall-clock go\" is answered by sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tracing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TracingApmTraceGetRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query. Omit it to search all retained spans for this trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Omit it to search all retained spans for this trace.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/trace/{trace_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetInput",
+            "field": "excludeAttributes",
+            "effectiveDescription": "Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/trace/{trace_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/trace/{trace_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "effectiveDescription": "A span in a single trace. The trace action adds self time, which the list does not compute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A span in a single trace. The trace action adds self time, which the list does not compute.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "uuid",
+            "effectiveDescription": "Span's own UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span's own UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "trace_id",
+            "effectiveDescription": "Trace this span belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace this span belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "span_id",
+            "effectiveDescription": "Span's ID within the trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span's ID within the trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/span_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "parent_span_id",
+            "effectiveDescription": "Parent span's ID. Empty for a root span.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parent span's ID. Empty for a root span.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/parent_span_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Span name, which is the operation it represents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span name, which is the operation it represents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "OpenTelemetry span kind.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenTelemetry span kind.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "service_name",
+            "effectiveDescription": "Service that emitted the span.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Service that emitted the span.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/service_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "status_code",
+            "effectiveDescription": "OpenTelemetry status code: 0 unset, 1 ok, 2 error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenTelemetry status code: 0 unset, 1 ok, 2 error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/status_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "timestamp",
+            "effectiveDescription": "When the span started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the span started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "end_time",
+            "effectiveDescription": "When the span ended.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the span ended.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/end_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "duration_nano",
+            "effectiveDescription": "Span duration in nanoseconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span duration in nanoseconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/duration_nano"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "is_root_span",
+            "effectiveDescription": "Whether the span has no parent in the trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the span has no parent in the trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/is_root_span"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "matched_filter",
+            "effectiveDescription": "1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/matched_filter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "trace_start",
+            "effectiveDescription": "Start of the whole trace, for ordering traces by recency.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the whole trace, for ordering traces by recency.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/trace_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "trace_duration",
+            "effectiveDescription": "Duration of the whole trace in nanoseconds. Falls back to this span's duration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration of the whole trace in nanoseconds. Falls back to this span's duration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/trace_duration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "attributes",
+            "effectiveDescription": "Span attributes. Keys are whatever the instrumentation set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span attributes. Keys are whatever the instrumentation set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/attributes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "resource_attributes",
+            "effectiveDescription": "Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/resource_attributes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape2",
+            "field": "self_time_nano",
+            "effectiveDescription": "Span duration minus the time spent in its children, in nanoseconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span duration minus the time spent in its children, in nanoseconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/self_time_nano"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape3",
+            "effectiveDescription": "Span attributes. Keys are whatever the instrumentation set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span attributes. Keys are whatever the instrumentation set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetResponseShape4",
+            "effectiveDescription": "Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetData",
+            "field": "results",
+            "effectiveDescription": "Spans in the trace, earliest first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Spans in the trace, earliest first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmTraceGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

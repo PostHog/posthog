@@ -1,0 +1,154 @@
+{
+    "method": "streamlitApps.streamlitAppsStatus",
+    "toolName": "streamlit-apps-status",
+    "operationId": "streamlit_apps_status_retrieve",
+    "title": "Get Streamlit app status",
+    "category": "Streamlit apps",
+    "description": "Get the live sandbox status for a Streamlit app: one of starting, running, stopping, stopped, or error, plus restart_count and last_error. Use this to poll after starting an app.",
+    "requiredScopes": ["streamlit_app:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsStatusInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-status.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-status.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsStatusOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-status.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsStatusData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-status.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get app sandbox status",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "streamlit_apps_status_retrieve"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get the live sandbox status for a Streamlit app: one of starting, running, stopping, stopped, or error, plus restart_count and last_error. Use this to poll after starting an app.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "status",
+            "effectiveDescription": "Sandbox lifecycle status, or 'stopped' when no sandbox exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox lifecycle status, or 'stopped' when no sandbox exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "restart_count",
+            "effectiveDescription": "Number of times the app's sandbox has been restarted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of times the app's sandbox has been restarted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/restart_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "last_error",
+            "effectiveDescription": "Most recent sandbox error message, empty when there is none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most recent sandbox error message, empty when there is none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/last_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "started_at",
+            "effectiveDescription": "When the current sandbox started, null when stopped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the current sandbox started, null when stopped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "last_activity_at",
+            "effectiveDescription": "Timestamp of the last recorded viewer activity, null when none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the last recorded viewer activity, null when none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/last_activity_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStatusData",
+            "field": "version_number",
+            "effectiveDescription": "Version number the running sandbox was booted from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number the running sandbox was booted from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/version_number"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

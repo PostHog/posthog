@@ -1,0 +1,161 @@
+{
+    "method": "streamlitApps.streamlitAppsGet",
+    "toolName": "streamlit-apps-get",
+    "operationId": "streamlit_apps_retrieve",
+    "title": "Get Streamlit app",
+    "category": "Streamlit apps",
+    "description": "Get a single Streamlit app by its short_id, including its active version and live sandbox status.",
+    "requiredScopes": ["streamlit_app:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsGetInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsGetOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsGetResponseShape3",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetResponseShape2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetResponseShape4",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetResponseShape5",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsGetData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-get.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve a streamlit app",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "streamlit_apps_retrieve"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a single Streamlit app by its short_id, including its active version and live sandbox status.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetResponseShape4",
+            "field": "created_by",
+            "effectiveDescription": "User who uploaded this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who uploaded this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape4/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetData",
+            "field": "created_by",
+            "effectiveDescription": "User who created this app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetData",
+            "field": "active_version",
+            "effectiveDescription": "Currently active version, or null if none uploaded yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Currently active version, or null if none uploaded yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/active_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetData",
+            "field": "sandbox",
+            "effectiveDescription": "Current sandbox state, or null if the app has never started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current sandbox state, or null if the app has never started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/sandbox"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

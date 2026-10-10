@@ -1,0 +1,544 @@
+{
+    "method": "webAnalytics.heatmapsSavedList",
+    "toolName": "heatmaps-saved-list",
+    "operationId": "saved_list",
+    "title": "List saved heatmaps",
+    "category": "Web analytics",
+    "description": "List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`, `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is viewable by the user in the PostHog UI.",
+    "requiredScopes": ["heatmap:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsHeatmapsSavedListInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsHeatmapsSavedListOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListRequestSchema6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListResponseShape4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListResponseShape6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListResponseShape5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListResponseShape2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedListData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-list.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List saved heatmaps for the project. A saved heatmap pins a page URL and a set of viewport widths, and (for type 'screenshot') renders the page so heatmap data can be overlaid on it.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1saved~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`, `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is viewable by the user in the PostHog UI.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/web_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "created_by",
+            "effectiveDescription": "Filter by the creating user's ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the creating user's ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum saved heatmaps to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum saved heatmaps to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "offset",
+            "effectiveDescription": "Number to skip, for pagination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number to skip, for pagination.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "order",
+            "effectiveDescription": "Field to order by, e.g. '-updated_at' (default) or 'created_at'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Field to order by, e.g. '-updated_at' (default) or 'created_at'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring match on URL or name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring match on URL or name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "status",
+            "effectiveDescription": "Filter by generation status: 'processing', 'completed', or 'failed'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by generation status: 'processing', 'completed', or 'failed'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListInput",
+            "field": "type",
+            "effectiveDescription": "Filter by render mode: 'screenshot', 'iframe', or 'recording'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by render mode: 'screenshot', 'iframe', or 'recording'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/saved/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Total number of saved heatmaps matching the filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of saved heatmaps matching the filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "effectiveDescription": "Mixin for serializers to add user access control fields",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mixin for serializers to add user access control fields",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "short_id",
+            "effectiveDescription": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Human-readable label for the saved heatmap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable label for the saved heatmap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "url",
+            "effectiveDescription": "The page URL this saved heatmap renders and overlays data on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The page URL this saved heatmap renders and overlays data on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "data_url",
+            "effectiveDescription": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/data_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "target_widths",
+            "effectiveDescription": "Viewport widths (CSS pixels) the screenshot is rendered at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport widths (CSS pixels) the screenshot is rendered at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/target_widths"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "type",
+            "effectiveDescription": "Render mode: 'screenshot', 'iframe', or 'recording'.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Render mode: 'screenshot', 'iframe', or 'recording'.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "source",
+            "effectiveDescription": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).\n\n* `server` - Server\n* `toolbar` - Toolbar",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).\n\n* `server` - Server\n* `toolbar` - Toolbar",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "status",
+            "effectiveDescription": "Screenshot generation status: 'processing', 'completed', or 'failed'.\n\n* `processing` - Processing\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Screenshot generation status: 'processing', 'completed', or 'failed'.\n\n* `processing` - Processing\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "has_content",
+            "effectiveDescription": "Whether at least one rendered image is ready to fetch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether at least one rendered image is ready to fetch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/has_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "snapshots",
+            "effectiveDescription": "Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/snapshots"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag; deleted heatmaps are hidden from the list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag; deleted heatmaps are hidden from the list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "block_consent_modals",
+            "effectiveDescription": "Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/block_consent_modals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "exception",
+            "effectiveDescription": "Error detail when screenshot generation failed, otherwise null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error detail when screenshot generation failed, otherwise null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/exception"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape3",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape4",
+            "field": "width",
+            "effectiveDescription": "Viewport width (CSS pixels) this screenshot was rendered at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport width (CSS pixels) this screenshot was rendered at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape4/properties/width"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListResponseShape4",
+            "field": "has_content",
+            "effectiveDescription": "Whether the rendered image for this width is ready to fetch from the content endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the rendered image for this width is ready to fetch from the content endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape4/properties/has_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

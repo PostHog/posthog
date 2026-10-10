@@ -1,0 +1,180 @@
+{
+    "method": "visualReview.visualReviewRunsFinalizeCreate",
+    "toolName": "visual-review-runs-finalize-create",
+    "operationId": "visual_review_runs_finalize_create",
+    "title": "Finalize a visual review run",
+    "category": "Visual review",
+    "description": "Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved, tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones. With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On `409 stale_run`, finalize the newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an explicit human yes for this run.",
+    "requiredScopes": ["visual_review:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: visual-review"],
+    "methodSource": "src/generated/visual-review/client.ts",
+    "input": {
+        "name": "VisualReviewVisualReviewRunsFinalizeCreateInput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+    },
+    "output": {
+        "name": "VisualReviewVisualReviewRunsFinalizeCreateOutput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateRequestSchema0",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateRequestSchema1",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateRequestSchema2",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape3",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape4",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape5",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape2",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsFinalizeCreateData",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-finalize-create.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-finalize-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Finalize a fully-reviewed run: commit the approved baseline and green the gate.\n\nCommits exactly the snapshots approved in the DB (tolerated ones keep their baseline)\nand only succeeds once every changed/new snapshot is resolved. With approve_all=true,\nany still-pending changed/new snapshot is approved first; quarantined snapshots are\nskipped, but a quarantined snapshot approved by identifier is still committed.\nWith commit_to_github=false the server returns the signed baseline YAML instead of\ncommitting it.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1visual_review~1runs~1{id}~1finalize~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved, tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones. With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On `409 stale_run`, finalize the newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an explicit human yes for this run.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/visual_review/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "VisualReviewVisualReviewRunsFinalizeCreateInput",
+            "field": "approve_all",
+            "effectiveDescription": "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/runs/{id}/finalize/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsFinalizeCreateInput",
+            "field": "commit_to_github",
+            "effectiveDescription": "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/runs/{id}/finalize/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsFinalizeCreateInput",
+            "field": "add_images_to_comment_on_pr",
+            "effectiveDescription": "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/visual_review/runs/{id}/finalize/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape2",
+            "field": "purpose",
+            "effectiveDescription": "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.\n\n* `review` - review\n* `observe` - observe",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.\n\n* `review` - review\n* `observe` - observe",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/Shape2/properties/purpose"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsFinalizeCreateResponseShape2",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.\n\n* `exact` - exact\n* `similar` - similar",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.\n\n* `exact` - exact\n* `similar` - similar",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/Shape2/properties/search_match_type"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,151 @@
+{
+    "method": "streamlitApps.streamlitAppsList",
+    "toolName": "streamlit-apps-list",
+    "operationId": "streamlit_apps_list",
+    "title": "List Streamlit apps",
+    "category": "Streamlit apps",
+    "description": "List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated sandbox. Returns short_id, name, description, resource config, and current sandbox status.",
+    "requiredScopes": ["streamlit_app:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsListInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsListOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsListRequestSchema0",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsListRequestSchema1",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsListResponseShape4",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsListResponseShape3",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsListResponseShape2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsListData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-list.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List streamlit apps",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "streamlit_apps_list"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated sandbox. Returns short_id, name, description, resource config, and current sandbox status.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/streamlit_apps/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsListResponseShape2",
+            "field": "created_by",
+            "effectiveDescription": "User who created this app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape2/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

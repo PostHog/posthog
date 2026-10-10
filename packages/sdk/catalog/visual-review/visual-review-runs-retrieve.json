@@ -1,0 +1,128 @@
+{
+    "method": "visualReview.visualReviewRunsRetrieve",
+    "toolName": "visual-review-runs-retrieve",
+    "operationId": "visual_review_runs_retrieve",
+    "title": "Get visual review run",
+    "category": "Visual review",
+    "description": "Get one run: status, review decision, commit, branch, PR, change summary, and the newer run that supersedes it, if any. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
+    "requiredScopes": ["visual_review:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: visual-review"],
+    "methodSource": "src/generated/visual-review/client.ts",
+    "input": {
+        "name": "VisualReviewVisualReviewRunsRetrieveInput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+    },
+    "output": {
+        "name": "VisualReviewVisualReviewRunsRetrieveOutput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "VisualReviewVisualReviewRunsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+        },
+        {
+            "name": "VisualReviewVisualReviewRunsRetrieveData",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get run status and summary.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1visual_review~1runs~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get one run: status, review decision, commit, branch, PR, change summary, and the newer run that supersedes it, if any. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/visual_review/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "VisualReviewVisualReviewRunsRetrieveData",
+            "field": "purpose",
+            "effectiveDescription": "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.\n\n* `review` - review\n* `observe` - observe",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.\n\n* `review` - review\n* `observe` - observe",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/Shape1/properties/purpose"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsRetrieveData",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.\n\n* `exact` - exact\n* `similar` - similar",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.\n\n* `exact` - exact\n* `similar` - similar",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/visual_review.ts",
+                        "pointer": "#/Shape1/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "VisualReviewVisualReviewRunsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "visual-review-runs-snapshots-list",
+            "method": "visualReview.visualReviewRunsSnapshotsList"
+        }
+    ]
+}

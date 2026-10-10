@@ -1,0 +1,352 @@
+{
+    "method": "webAnalytics.heatmapsSavedGet",
+    "toolName": "heatmaps-saved-get",
+    "operationId": "saved_retrieve",
+    "title": "Get a saved heatmap",
+    "category": "Web analytics",
+    "description": "Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the PostHog UI.",
+    "requiredScopes": ["heatmap:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsHeatmapsSavedGetInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsHeatmapsSavedGetOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsHeatmapsSavedGetResponseShape2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedGetResponseShape4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedGetResponseShape3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsSavedGetData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-saved-get.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-saved-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get a single saved heatmap by its short_id, including per-width render status.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1saved~1{short_id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the PostHog UI.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/web_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetResponseShape2",
+            "field": "width",
+            "effectiveDescription": "Viewport width (CSS pixels) this screenshot was rendered at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport width (CSS pixels) this screenshot was rendered at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/width"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetResponseShape2",
+            "field": "has_content",
+            "effectiveDescription": "Whether the rendered image for this width is ready to fetch from the content endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the rendered image for this width is ready to fetch from the content endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/has_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "effectiveDescription": "Mixin for serializers to add user access control fields",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mixin for serializers to add user access control fields",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "short_id",
+            "effectiveDescription": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "name",
+            "effectiveDescription": "Human-readable label for the saved heatmap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable label for the saved heatmap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "url",
+            "effectiveDescription": "The page URL this saved heatmap renders and overlays data on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The page URL this saved heatmap renders and overlays data on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "data_url",
+            "effectiveDescription": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/data_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "target_widths",
+            "effectiveDescription": "Viewport widths (CSS pixels) the screenshot is rendered at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport widths (CSS pixels) the screenshot is rendered at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/target_widths"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "type",
+            "effectiveDescription": "Render mode: 'screenshot', 'iframe', or 'recording'.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Render mode: 'screenshot', 'iframe', or 'recording'.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "source",
+            "effectiveDescription": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).\n\n* `server` - Server\n* `toolbar` - Toolbar",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).\n\n* `server` - Server\n* `toolbar` - Toolbar",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "status",
+            "effectiveDescription": "Screenshot generation status: 'processing', 'completed', or 'failed'.\n\n* `processing` - Processing\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Screenshot generation status: 'processing', 'completed', or 'failed'.\n\n* `processing` - Processing\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "has_content",
+            "effectiveDescription": "Whether at least one rendered image is ready to fetch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether at least one rendered image is ready to fetch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/has_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "snapshots",
+            "effectiveDescription": "Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/snapshots"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag; deleted heatmaps are hidden from the list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag; deleted heatmaps are hidden from the list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "block_consent_modals",
+            "effectiveDescription": "Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/block_consent_modals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "exception",
+            "effectiveDescription": "Error detail when screenshot generation failed, otherwise null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error detail when screenshot generation failed, otherwise null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/exception"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsSavedGetData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "heatmaps-saved-create",
+            "method": "webAnalytics.heatmapsSavedCreate"
+        }
+    ]
+}

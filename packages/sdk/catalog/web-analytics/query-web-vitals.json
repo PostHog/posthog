@@ -1,0 +1,698 @@
+{
+    "method": "webAnalytics.queryWebVitals",
+    "toolName": "query-web-vitals",
+    "title": "Run a web vitals path breakdown query",
+    "category": "Web analytics",
+    "description": "Per-page Core Web Vitals breakdown — one metric at one percentile, with pages bucketed into `good` / `needs_improvements` / `poor` bands. Mirrors the in-product **Web analytics → Web vitals** tab.\n\n# When to use this vs `query-trends` / `execute-sql`\n\nUse `query-web-vitals` for **page-level** vitals questions: \"which pages are slow?\", \"where is LCP bad?\", \"audit our Core Web Vitals\". One call replaces a hand-written percentile query over `$web_vitals` and classifies each page against the band thresholds for you.\n\nUse `query-trends` on the `$web_vitals` event (property math on `$web_vitals_LCP_value` etc.) for a **site-wide trend over time** — this tool has no time axis; it aggregates the whole window.\n\nReach for `execute-sql` only for shapes neither covers (e.g. per-page sample counts, device splits per page, or custom baselines).\n\nRequires the project to capture the `$web_vitals` event (`capture_performance` in posthog-js). If results come back empty, check capture with `read-data-schema` before concluding pages are fine.\n\n# Inputs\n\n- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.\n- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.\n- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:\n\n| Metric | thresholds     |\n| ------ | -------------- |\n| LCP    | `[2500, 4000]` |\n| INP    | `[200, 500]`   |\n| CLS    | `[0.1, 0.25]`  |\n| FCP    | `[1800, 3000]` |\n\n- `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.\n- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.\n- `filterTestAccounts`, `doPathCleaning`: same semantics as the other web analytics tools.\n\n# Reading the result\n\nEach band lists `{path, value}` pairs. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Percentiles on low-traffic pages wobble — corroborate a surprising result with a sample count via `execute-sql` before making strong claims. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.\n\n# Example\n\nWorst LCP pages at p75, last 7 days, marketing site only:\n\n```json\n{\n  \"metric\": \"LCP\",\n  \"percentile\": \"p75\",\n  \"thresholds\": [2500, 4000],\n  \"properties\": [{ \"type\": \"event\", \"key\": \"$host\", \"operator\": \"exact\", \"value\": [\"example.com\"] }]\n}\n```",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsQueryWebVitalsInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-vitals.ts",
+        "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsQueryWebVitalsOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-vitals.ts",
+        "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema7",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema4Variant2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsRequestSchema8",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsInputMetric",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsInputPercentile",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseWebVitalsMetric",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseWebVitalsPercentile",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseWebVitalsPathBreakdownResultItem",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsResponseWebVitalsPathBreakdownResult",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsDataQuery",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsDataWarningsItem",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebVitalsData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-vitals.ts",
+            "declaration": "dist/generated/web-analytics/query-web-vitals.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Per-page Core Web Vitals breakdown — one metric at one percentile, with pages bucketed into `good` / `needs_improvements` / `poor` bands. Mirrors the in-product **Web analytics → Web vitals** tab.\n\n# When to use this vs `query-trends` / `execute-sql`\n\nUse `query-web-vitals` for **page-level** vitals questions: \"which pages are slow?\", \"where is LCP bad?\", \"audit our Core Web Vitals\". One call replaces a hand-written percentile query over `$web_vitals` and classifies each page against the band thresholds for you.\n\nUse `query-trends` on the `$web_vitals` event (property math on `$web_vitals_LCP_value` etc.) for a **site-wide trend over time** — this tool has no time axis; it aggregates the whole window.\n\nReach for `execute-sql` only for shapes neither covers (e.g. per-page sample counts, device splits per page, or custom baselines).\n\nRequires the project to capture the `$web_vitals` event (`capture_performance` in posthog-js). If results come back empty, check capture with `read-data-schema` before concluding pages are fine.\n\n# Inputs\n\n- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.\n- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.\n- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:\n\n| Metric | thresholds     |\n| ------ | -------------- |\n| LCP    | `[2500, 4000]` |\n| INP    | `[200, 500]`   |\n| CLS    | `[0.1, 0.25]`  |\n| FCP    | `[1800, 3000]` |\n\n- `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.\n- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.\n- `filterTestAccounts`, `doPathCleaning`: same semantics as the other web analytics tools.\n\n# Reading the result\n\nEach band lists `{path, value}` pairs. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Percentiles on low-traffic pages wobble — corroborate a surprising result with a sample count via `execute-sql` before making strong claims. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.\n\n# Example\n\nWorst LCP pages at p75, last 7 days, marketing site only:\n\n```json\n{\n  \"metric\": \"LCP\",\n  \"percentile\": \"p75\",\n  \"thresholds\": [2500, 4000],\n  \"properties\": [{ \"type\": \"event\", \"key\": \"$host\", \"operator\": \"exact\", \"value\": [\"example.com\"] }]\n}\n```",
+            "source": {
+                "kind": "description_file",
+                "file": "products/web_analytics/mcp/prompts/query-web-vitals.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsRequest_Schema2",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema2/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to the returned paths.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to the returned paths.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "metric",
+            "effectiveDescription": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/metric"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "percentile",
+            "effectiveDescription": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsInput",
+            "field": "thresholds",
+            "effectiveDescription": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/thresholds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query",
+            "effectiveDescription": "Per-page Core Web Vitals breakdown for one metric at one percentile. Returns the pages bucketed into `good` / `needs_improvements` / `poor` bands, with each page's value — mirrors the in-product **Web vitals** tab.\n\nUse this when the user asks \"which pages are slow?\", \"where is our LCP/INP/ CLS/FCP bad?\", or wants a page-level performance audit. Run it once per metric. For a site-wide trend of a vitals metric over time, use `query-trends` on the `$web_vitals` event instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-page Core Web Vitals breakdown for one metric at one percentile. Returns the pages bucketed into `good` / `needs_improvements` / `poor` bands, with each page's value — mirrors the in-product **Web vitals** tab.\n\nUse this when the user asks \"which pages are slow?\", \"where is our LCP/INP/ CLS/FCP bad?\", or wants a page-level performance audit. Run it once per metric. For a site-wide trend of a vitals metric over time, use `query-trends` on the `$web_vitals` event instead.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to the returned paths.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to the returned paths.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the team's test-account filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the team's test-account filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.metric",
+            "effectiveDescription": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/metric"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.percentile",
+            "effectiveDescription": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "query.thresholds",
+            "effectiveDescription": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebVitalsPathBreakdownQuery/properties/thresholds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebVitalsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-trends",
+            "method": "queries.trends"
+        },
+        {
+            "toolName": "execute-sql",
+            "method": "queries.sql"
+        },
+        {
+            "toolName": "read-data-schema",
+            "method": "dataSchema.readDataSchema"
+        }
+    ]
+}

@@ -1,0 +1,416 @@
+{
+    "method": "subscriptions.subscriptionsDeliveriesRetrieve",
+    "toolName": "subscriptions-deliveries-retrieve",
+    "operationId": "subscriptions_deliveries_retrieve",
+    "title": "Get subscription delivery",
+    "category": "Subscriptions",
+    "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. Unlike the list tool, ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside ai_report_prompt (the prompt it was generated from). ai_report_diagnostics (per-query generated HogQL + failure types) is excluded to keep the response focused on the report itself.",
+    "requiredScopes": ["subscription:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/subscriptions/client.ts",
+    "input": {
+        "name": "SubscriptionsSubscriptionsDeliveriesRetrieveInput",
+        "importPath": "@posthog/sdk/subscriptions",
+        "source": "src/generated/subscriptions/subscriptions-deliveries-retrieve.ts",
+        "declaration": "dist/generated/subscriptions/subscriptions-deliveries-retrieve.d.ts"
+    },
+    "output": {
+        "name": "SubscriptionsSubscriptionsDeliveriesRetrieveOutput",
+        "importPath": "@posthog/sdk/subscriptions",
+        "source": "src/generated/subscriptions/subscriptions-deliveries-retrieve.ts",
+        "declaration": "dist/generated/subscriptions/subscriptions-deliveries-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SubscriptionsSubscriptionsDeliveriesRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-deliveries-retrieve.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-deliveries-retrieve.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-deliveries-retrieve.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-deliveries-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch one delivery row by id.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1subscriptions~1{subscription_id}~1deliveries~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. Unlike the list tool, ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside ai_report_prompt (the prompt it was generated from). ai_report_diagnostics (per-query generated HogQL + failure types) is excluded to keep the response focused on the report itself.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/subscriptions/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this subscription delivery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this subscription delivery.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{subscription_id}/deliveries/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveResponseShape3",
+            "field": "export_asset_id",
+            "effectiveDescription": "Id of the rendered PNG export backing this chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the rendered PNG export backing this chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/export_asset_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveResponseShape3",
+            "field": "title",
+            "effectiveDescription": "Chart caption, taken from the plan step it illustrates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Chart caption, taken from the plan step it illustrates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveResponseShape3",
+            "field": "step_index",
+            "effectiveDescription": "Index of the plan step this chart came from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Index of the plan step this chart came from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/step_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "id",
+            "effectiveDescription": "Primary key for this delivery row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary key for this delivery row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "subscription",
+            "effectiveDescription": "Parent subscription id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parent subscription id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/subscription"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "temporal_workflow_id",
+            "effectiveDescription": "Temporal workflow id for this delivery run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal workflow id for this delivery run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/temporal_workflow_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "idempotency_key",
+            "effectiveDescription": "Dedupes activity retries for the same logical run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dedupes activity retries for the same logical run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/idempotency_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "trigger_type",
+            "effectiveDescription": "Why the run started (e.g. scheduled, manual, subscription update).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the run started (e.g. scheduled, manual, subscription update).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/trigger_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "scheduled_at",
+            "effectiveDescription": "Planned send time when applicable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Planned send time when applicable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/scheduled_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "target_type",
+            "effectiveDescription": "Channel snapshot at send time: email, slack, or teams.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel snapshot at send time: email, slack, or teams.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/target_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "target_value",
+            "effectiveDescription": "Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/target_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "exported_asset_ids",
+            "effectiveDescription": "ExportedAsset ids generated for this send.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ExportedAsset ids generated for this send.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/exported_asset_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "status",
+            "effectiveDescription": "Overall run status: starting, completed, failed, or skipped.\n\n* `starting` - Starting\n* `completed` - Completed\n* `failed` - Failed\n* `skipped` - Skipped",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overall run status: starting, completed, failed, or skipped.\n\n* `starting` - Starting\n* `completed` - Completed\n* `failed` - Failed\n* `skipped` - Skipped",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "created_at",
+            "effectiveDescription": "When the delivery row was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the delivery row was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "last_updated_at",
+            "effectiveDescription": "Last ORM update to this row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last ORM update to this row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/last_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "finished_at",
+            "effectiveDescription": "When the run finished, if applicable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run finished, if applicable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "change_summary",
+            "effectiveDescription": "AI-generated summary included in this delivery, when one was produced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI-generated summary included in this delivery, when one was produced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/change_summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "ai_report",
+            "effectiveDescription": "AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_report"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "ai_report_charts",
+            "effectiveDescription": "Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_report_charts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "ai_report_prompt",
+            "effectiveDescription": "The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_report_prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsDeliveriesRetrieveData",
+            "field": "ai_query_plan_status",
+            "effectiveDescription": "Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_query_plan_status"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

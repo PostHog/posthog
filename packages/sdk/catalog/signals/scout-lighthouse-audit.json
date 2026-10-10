@@ -1,0 +1,546 @@
+{
+    "method": "signals.scoutLighthouseAudit",
+    "toolName": "scout-lighthouse-audit",
+    "operationId": "signals_scout_lighthouse_audit",
+    "title": "Run a Lighthouse audit for a run",
+    "category": "Signals",
+    "description": "Load one page in a real browser and get back what makes it slow: the lab metrics (LCP, FCP, CLS, TBT), the element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the ranked savings estimates. Use it to name the cause behind a field finding — `$web_vitals` events say a route is slow and for how many people, but never which element was late or why. Pass the `run_id`, a `url`, and optionally `form_factor` (`desktop` or `mobile`, matching whichever field data you are explaining). Restricted to an allowlist of public PostHog pages: the browser signs in to nothing, so a page behind a login would measure the login screen and report its numbers as the page's, and a url that redirects off the allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads the slot is spent whatever the result — so pick the page before calling. Every error message ends with how many audits the run has left, which tells a rejection apart from an exhausted budget.",
+    "requiredScopes": ["signal_scout_internal:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutLighthouseAuditInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-lighthouse-audit.ts",
+        "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutLighthouseAuditOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-lighthouse-audit.ts",
+        "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutLighthouseAuditRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        },
+        {
+            "name": "SignalsScoutLighthouseAuditResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        },
+        {
+            "name": "SignalsScoutLighthouseAuditResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        },
+        {
+            "name": "SignalsScoutLighthouseAuditResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        },
+        {
+            "name": "SignalsScoutLighthouseAuditResponseShape5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        },
+        {
+            "name": "SignalsScoutLighthouseAuditData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-lighthouse-audit.ts",
+            "declaration": "dist/generated/signals/scout-lighthouse-audit.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1runs~1{run_id}~1lighthouse-audit~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Load one page in a real browser and get back what makes it slow: the lab metrics (LCP, FCP, CLS, TBT), the element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the ranked savings estimates. Use it to name the cause behind a field finding — `$web_vitals` events say a route is slow and for how many people, but never which element was late or why. Pass the `run_id`, a `url`, and optionally `form_factor` (`desktop` or `mobile`, matching whichever field data you are explaining). Restricted to an allowlist of public PostHog pages: the browser signs in to nothing, so a page behind a login would measure the login screen and report its numbers as the page's, and a url that redirects off the allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads the slot is spent whatever the result — so pick the page before calling. Every error message ends with how many audits the run has left, which tells a rejection apart from an exhausted budget.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutLighthouseAuditRequest_Schema0",
+            "effectiveDescription": "* `desktop` - desktop\n* `mobile` - mobile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `desktop` - desktop\n* `mobile` - mobile",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditInput",
+            "field": "run_id",
+            "effectiveDescription": "UUID of the `SignalScoutRun` bridge row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the `SignalScoutRun` bridge row.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditInput",
+            "field": "url",
+            "effectiveDescription": "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditInput",
+            "field": "form_factor",
+            "effectiveDescription": "Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.\n\n* `desktop` - desktop\n* `mobile` - mobile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.\n\n* `desktop` - desktop\n* `mobile` - mobile",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape2",
+            "effectiveDescription": "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape3",
+            "effectiveDescription": "The element the browser chose as the Largest Contentful Paint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The element the browser chose as the Largest Contentful Paint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape3",
+            "field": "selector",
+            "effectiveDescription": "CSS selector for the element.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CSS selector for the element.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/selector"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape3",
+            "field": "snippet",
+            "effectiveDescription": "The element's opening tag, truncated by Lighthouse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The element's opening tag, truncated by Lighthouse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/snippet"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape3",
+            "field": "node_label",
+            "effectiveDescription": "Human-readable label, usually the alt or text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable label, usually the alt or text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/node_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape4",
+            "effectiveDescription": "One phase of the LCP timeline, which is where the time actually went.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One phase of the LCP timeline, which is where the time actually went.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape4",
+            "field": "phase",
+            "effectiveDescription": "Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape4",
+            "field": "timing_ms",
+            "effectiveDescription": "Milliseconds spent in this phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Milliseconds spent in this phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/timing_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape4",
+            "field": "percent",
+            "effectiveDescription": "This subpart's share of the total LCP, e.g. '62%'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This subpart's share of the total LCP, e.g. '62%'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/percent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape5",
+            "effectiveDescription": "A failing check or a savings estimate from the audit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A failing check or a savings estimate from the audit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape5",
+            "field": "audit_id",
+            "effectiveDescription": "Lighthouse audit id, for example `prioritize-lcp-image`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lighthouse audit id, for example `prioritize-lcp-image`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/audit_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape5",
+            "field": "title",
+            "effectiveDescription": "Lighthouse's own title for the check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lighthouse's own title for the check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditResponseShape5",
+            "field": "savings_ms",
+            "effectiveDescription": "Estimated milliseconds this would save. Null for a pass/fail check with no estimate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated milliseconds this would save. Null for a pass/fail check with no estimate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/savings_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "effectiveDescription": "The audit, reduced to what a web vitals finding cites.\n\nThe full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the\nresponse carries the metrics, the LCP element and its phase breakdown, and the ranked\nopportunities, and drops the rest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The audit, reduced to what a web vitals finding cites.\n\nThe full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the\nresponse carries the metrics, the LCP element and its phase breakdown, and the ranked\nopportunities, and drops the rest.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "requested_url",
+            "effectiveDescription": "The url that was audited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The url that was audited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/requested_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "final_url",
+            "effectiveDescription": "Where the browser ended up after redirects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the browser ended up after redirects.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/final_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "form_factor",
+            "effectiveDescription": "The device profile the audit emulated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The device profile the audit emulated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/form_factor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "lighthouse_version",
+            "effectiveDescription": "The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/lighthouse_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "performance_score",
+            "effectiveDescription": "Lighthouse performance score out of 100 for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lighthouse performance score out of 100 for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/performance_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "metrics",
+            "effectiveDescription": "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "lcp_element",
+            "effectiveDescription": "The element the browser chose as the LCP, or null when Lighthouse could not name one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The element the browser chose as the LCP, or null when Lighthouse could not name one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/lcp_element"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "lcp_phases",
+            "effectiveDescription": "Where the LCP time went, phase by phase. Empty when the report omits the breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the LCP time went, phase by phase. Empty when the report omits the breakdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/lcp_phases"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "lcp_checks_failed",
+            "effectiveDescription": "LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/lcp_checks_failed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "opportunities",
+            "effectiveDescription": "Ranked savings estimates across the whole page, largest first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ranked savings estimates across the whole page, largest first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/opportunities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutLighthouseAuditData",
+            "field": "audits_remaining",
+            "effectiveDescription": "How many audits this run may still spend. Each run gets 5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many audits this run may still spend. Each run gets 5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/audits_remaining"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,198 @@
+{
+    "method": "tasks.loopsRunsRetrieve",
+    "toolName": "loops-runs-retrieve",
+    "operationId": "loops_runs_retrieve",
+    "title": "List loop runs",
+    "category": "Tasks",
+    "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
+    "requiredScopes": ["loop:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: loops", "hidden_when_flag_on: loops-hog-flows"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopsRunsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-runs-retrieve.ts",
+        "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopsRunsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-runs-retrieve.ts",
+        "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopsRunsRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRunsRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRunsRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRunsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRunsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRunsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-runs-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-runs-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run history for a loop, newest first, cursor-paginated.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1loops~1{id}~1runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopsRunsRetrieveInput",
+            "field": "cursor",
+            "effectiveDescription": "Opaque pagination cursor from a previous response's `next_cursor`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opaque pagination cursor from a previous response's `next_cursor`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/loops/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Max results per page (default 50, max 100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max results per page (default 50, max 100).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/loops/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveInput",
+            "field": "status",
+            "effectiveDescription": "Only return runs with this status. Use failed to read errors even when canvas state is unavailable.\n\n* `not_started` - Not Started\n* `queued` - Queued\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed\n* `cancelled` - Cancelled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return runs with this status. Use failed to read errors even when canvas state is unavailable.\n\n* `not_started` - Not Started\n* `queued` - Queued\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed\n* `cancelled` - Cancelled",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/loops/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveResponseShape2",
+            "effectiveDescription": "A single entry in a loop's run history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single entry in a loop's run history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveData",
+            "field": "results",
+            "effectiveDescription": "Run history entries, newest first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run history entries, newest first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveData",
+            "field": "next_cursor",
+            "effectiveDescription": "Opaque cursor for the next page, or null when there are no more results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opaque cursor for the next page, or null when there are no more results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/next_cursor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRunsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

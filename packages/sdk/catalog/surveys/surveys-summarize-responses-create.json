@@ -1,0 +1,155 @@
+{
+    "method": "surveys.surveysSummarizeResponsesCreate",
+    "toolName": "surveys-summarize-responses-create",
+    "operationId": "surveys_summarize_responses_create",
+    "title": "Summarize survey responses (per question, or survey-wide headline).",
+    "category": "Surveys",
+    "description": "Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the endpoint dispatches automatically based on what you pass.\nPass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the survey object; headline summaries are cached on the survey row.\nUse this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use surveys-responses-list instead.",
+    "requiredScopes": ["survey:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/surveys/client.ts",
+    "input": {
+        "name": "SurveysSurveysSummarizeResponsesCreateInput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+        "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+    },
+    "output": {
+        "name": "SurveysSurveysSummarizeResponsesCreateOutput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+        "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SurveysSurveysSummarizeResponsesCreateRequestSchema0",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+            "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+        },
+        {
+            "name": "SurveysSurveysSummarizeResponsesCreateRequestSchema1",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+            "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+        },
+        {
+            "name": "SurveysSurveysSummarizeResponsesCreateRequestSchema2",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+            "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+        },
+        {
+            "name": "SurveysSurveysSummarizeResponsesCreateData",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-summarize-responses-create.ts",
+            "declaration": "dist/generated/surveys/surveys-summarize-responses-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1surveys~1{id}~1summarize_responses~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the endpoint dispatches automatically based on what you pass.\nPass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the survey object; headline summaries are cached on the survey row.\nUse this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use surveys-responses-list instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/surveys/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SurveysSurveysSummarizeResponsesCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this survey.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this survey.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/summarize_responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysSummarizeResponsesCreateInput",
+            "field": "question_id",
+            "effectiveDescription": "Question UUID. Preferred over question_index — stable across question edits.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Question UUID. Preferred over question_index — stable across question edits.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/summarize_responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysSummarizeResponsesCreateInput",
+            "field": "question_index",
+            "effectiveDescription": "Zero-based question index. Omit to get the survey-wide headline instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Zero-based question index. Omit to get the survey-wide headline instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/summarize_responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysSummarizeResponsesCreateInput",
+            "field": "force_refresh",
+            "effectiveDescription": "When true, bypass cached summaries and regenerate. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, bypass cached summaries and regenerate. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/summarize_responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysSummarizeResponsesCreateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

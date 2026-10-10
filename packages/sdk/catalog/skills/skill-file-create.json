@@ -1,0 +1,560 @@
+{
+    "method": "skills.skillFileCreate",
+    "toolName": "skill-file-create",
+    "operationId": "llm_skills_name_files_create",
+    "title": "Create skill file",
+    "category": "Skills",
+    "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+    "requiredScopes": ["llm_skill:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/skills/client.ts",
+    "input": {
+        "name": "SkillsSkillFileCreateInput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-file-create.ts",
+        "declaration": "dist/generated/skills/skill-file-create.d.ts"
+    },
+    "output": {
+        "name": "SkillsSkillFileCreateOutput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/skill-file-create.ts",
+        "declaration": "dist/generated/skills/skill-file-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SkillsSkillFileCreateRequestSchema0",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateRequestSchema1",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape2",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape4",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape3",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape5",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape6",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateResponseShape7",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        },
+        {
+            "name": "SkillsSkillFileCreateData",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/skill-file-create.ts",
+            "declaration": "dist/generated/skills/skill-file-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/skills/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SkillsSkillFileCreateInput",
+            "field": "path",
+            "effectiveDescription": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_skills/name/{skill_name}/files/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateInput",
+            "field": "content",
+            "effectiveDescription": "Text content of the file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Text content of the file.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_skills/name/{skill_name}/files/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateInput",
+            "field": "content_type",
+            "effectiveDescription": "MIME type of the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MIME type of the file content.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_skills/name/{skill_name}/files/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateInput",
+            "field": "base_version",
+            "effectiveDescription": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_skills/name/{skill_name}/files/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape2",
+            "effectiveDescription": "Arbitrary key-value metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary key-value metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape5",
+            "field": "line_count",
+            "effectiveDescription": "Number of lines in the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of lines in the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/line_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape5",
+            "field": "char_count",
+            "effectiveDescription": "Number of characters in the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of characters in the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/char_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape5",
+            "field": "size",
+            "effectiveDescription": "Size of the file content in bytes. Null on rows written before digests were stamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Size of the file content in bytes. Null on rows written before digests were stamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape5",
+            "field": "sha256",
+            "effectiveDescription": "Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape5/properties/sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape6",
+            "field": "level",
+            "effectiveDescription": "Markdown heading level (1-6).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown heading level (1-6).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape6/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape6",
+            "field": "text",
+            "effectiveDescription": "Heading text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heading text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape6/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape7",
+            "field": "code",
+            "effectiveDescription": "Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape7",
+            "field": "message",
+            "effectiveDescription": "What is wrong and what to change, written for the skill's author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What is wrong and what to change, written for the skill's author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateResponseShape7",
+            "field": "file_path",
+            "effectiveDescription": "The bundled file the problem is about. Null when it is about the skill itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The bundled file the problem is about. Null when it is about the skill itself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape7/properties/file_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "name",
+            "effectiveDescription": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "description",
+            "effectiveDescription": "What this skill does and when to use it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this skill does and when to use it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "body_total_length",
+            "effectiveDescription": "Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/body_total_length"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "body_next_offset",
+            "effectiveDescription": "When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/body_next_offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "body",
+            "effectiveDescription": "The SKILL.md instruction content (markdown).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The SKILL.md instruction content (markdown).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/body"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "license",
+            "effectiveDescription": "License name or reference to a bundled license file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "License name or reference to a bundled license file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/license"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "compatibility",
+            "effectiveDescription": "Environment requirements (intended product, system packages, network access, etc.).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Environment requirements (intended product, system packages, network access, etc.).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/compatibility"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "allowed_tools",
+            "effectiveDescription": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/allowed_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "metadata",
+            "effectiveDescription": "Arbitrary key-value metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary key-value metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "category",
+            "effectiveDescription": "Server-owned classification — set by the producing system (the Signals harness stamps \"scout\"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Server-owned classification — set by the producing system (the Signals harness stamps \"scout\"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "owners",
+            "effectiveDescription": "Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/owners"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "files",
+            "effectiveDescription": "Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/files"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "outline",
+            "effectiveDescription": "Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/outline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "spec_problems",
+            "effectiveDescription": "Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/spec_problems"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsSkillFileCreateData",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/Shape1/properties/version_description"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

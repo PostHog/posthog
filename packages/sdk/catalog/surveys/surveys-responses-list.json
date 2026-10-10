@@ -1,0 +1,636 @@
+{
+    "method": "surveys.surveysResponsesList",
+    "toolName": "surveys-responses-list",
+    "operationId": "surveys_responses_list",
+    "title": "List individual survey responses with resolved question text.",
+    "category": "Surveys",
+    "description": "List individual responses for a specific survey. Question text is already resolved server-side — callers do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of executing raw SQL against `survey sent` events.\nCommon patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.\nFor person properties on respondents, follow up with persons-get using the row's distinct_id — this tool only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).",
+    "requiredScopes": ["survey:read", "query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/surveys/client.ts",
+    "input": {
+        "name": "SurveysSurveysResponsesListInput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-responses-list.ts",
+        "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+    },
+    "output": {
+        "name": "SurveysSurveysResponsesListOutput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/surveys-responses-list.ts",
+        "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema0",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema1",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema2",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema3",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema4",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema5",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema6",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListRequestSchema7",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListResponseShape3",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListResponseShape4",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListResponseShape2",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        },
+        {
+            "name": "SurveysSurveysResponsesListData",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/surveys-responses-list.ts",
+            "declaration": "dist/generated/surveys/surveys-responses-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1surveys~1{id}~1responses~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List individual responses for a specific survey. Question text is already resolved server-side — callers do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of executing raw SQL against `survey sent` events.\nCommon patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.\nFor person properties on respondents, follow up with persons-get using the row's distinct_id — this tool only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/surveys/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this survey.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this survey.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "exclude_archived",
+            "effectiveDescription": "When true, exclude responses that have been archived via the archive_response endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, exclude responses that have been archived via the archive_response endpoint.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of rows to return (1-500). Defaults to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of rows to return (1-500). Defaults to 100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "offset",
+            "effectiveDescription": "Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "question_id",
+            "effectiveDescription": "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "score_gte",
+            "effectiveDescription": "Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "score_lte",
+            "effectiveDescription": "Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "since",
+            "effectiveDescription": "Only return responses submitted on or after this ISO 8601 timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return responses submitted on or after this ISO 8601 timestamp.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListInput",
+            "field": "until",
+            "effectiveDescription": "Only return responses submitted on or before this ISO 8601 timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return responses submitted on or before this ISO 8601 timestamp.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/responses/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "uuid",
+            "effectiveDescription": "UUID of the underlying `survey sent` event. Use as the response identifier for archive operations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the underlying `survey sent` event. Use as the response identifier for archive operations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "distinct_id",
+            "effectiveDescription": "distinct_id of the respondent. Cross-pivot to the persons API or session recordings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "distinct_id of the respondent. Cross-pivot to the persons API or session recordings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/distinct_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "session_id",
+            "effectiveDescription": "$session_id of the respondent when available. Use to pull the session recording for this response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$session_id of the respondent when available. Use to pull the session recording for this response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "submitted_at",
+            "effectiveDescription": "Event timestamp when the response was sent (ISO 8601, UTC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event timestamp when the response was sent (ISO 8601, UTC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/submitted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "answers",
+            "effectiveDescription": "One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/answers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape2",
+            "field": "extra",
+            "effectiveDescription": "Convenience fields extracted from the event properties (device, browser, geoip, iteration).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Convenience fields extracted from the event properties (device, browser, geoip, iteration).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/extra"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape3",
+            "field": "question_id",
+            "effectiveDescription": "UUID of the survey question this answer belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the survey question this answer belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3/properties/question_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape3",
+            "field": "question_index",
+            "effectiveDescription": "Zero-based index of the question within the survey.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Zero-based index of the question within the survey.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3/properties/question_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape3",
+            "field": "question_text",
+            "effectiveDescription": "Untranslated question text as configured by the survey author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Untranslated question text as configured by the survey author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3/properties/question_text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape3",
+            "field": "question_type",
+            "effectiveDescription": "Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3/properties/question_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape3",
+            "field": "answer",
+            "effectiveDescription": "Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape3/properties/answer"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "device_type",
+            "effectiveDescription": "$device_type at the time the response was sent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$device_type at the time the response was sent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/device_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "browser",
+            "effectiveDescription": "$browser at the time the response was sent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$browser at the time the response was sent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/browser"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "os",
+            "effectiveDescription": "$os (operating system) at the time the response was sent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$os (operating system) at the time the response was sent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/os"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "geoip_country_code",
+            "effectiveDescription": "$geoip_country_code at submission time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$geoip_country_code at submission time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/geoip_country_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "geoip_country_name",
+            "effectiveDescription": "$geoip_country_name at submission time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$geoip_country_name at submission time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/geoip_country_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "geoip_city_name",
+            "effectiveDescription": "$geoip_city_name at submission time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$geoip_city_name at submission time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/geoip_city_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "current_url",
+            "effectiveDescription": "$current_url where the survey was submitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$current_url where the survey was submitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/current_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListResponseShape4",
+            "field": "iteration",
+            "effectiveDescription": "Survey iteration number when the response was sent. Only set for recurring surveys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey iteration number when the response was sent. Only set for recurring surveys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape4/properties/iteration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListData",
+            "field": "results",
+            "effectiveDescription": "Survey response rows for the requested page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey response rows for the requested page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListData",
+            "field": "has_more",
+            "effectiveDescription": "True if more rows exist beyond the current page — fetch the next page with offset + limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if more rows exist beyond the current page — fetch the next page with offset + limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/has_more"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListData",
+            "field": "limit",
+            "effectiveDescription": "The limit applied to this query (echoed back for pagination).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The limit applied to this query (echoed back for pagination).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveysResponsesListData",
+            "field": "offset",
+            "effectiveDescription": "The offset applied to this query (echoed back for pagination).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The offset applied to this query (echoed back for pagination).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/offset"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

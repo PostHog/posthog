@@ -1,0 +1,74 @@
+{
+    "method": "warehouseSources.externalDataSourcesRepairCdcCreate",
+    "toolName": "external-data-sources-repair-cdc-create",
+    "operationId": "external_data_sources_repair_cdc_create",
+    "title": "Repair CDC on a source",
+    "category": "Warehouse sources",
+    "description": "Repair change data capture on a source whose replication slot or publication was lost — use when 'external-data-sources-cdc-status-retrieve' shows slot_exists=false or publication_exists=false, or the source reports a CDC error about a missing slot. Recreates the replication resources from the stored CDC config, resets every active CDC schema to a fresh snapshot (a full re-sync — changes made while the slot was gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is already running. Safe to retry after a failure. Returns {success, schemas_reset}.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSourcesRepairCdcCreateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-repair-cdc-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-repair-cdc-create.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSourcesRepairCdcCreateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-repair-cdc-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-repair-cdc-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSourcesRepairCdcCreateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-repair-cdc-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-repair-cdc-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Repair CDC on a source whose replication resources were lost.\n\nOnly proceeds on evidence of breakage (a persisted broken marker, or a live probe\nshowing the slot/publication missing) — repairing a healthy source would drop its\nslot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side\nslot/publication against the stored CDC config, resets every active CDC schema to\nsnapshot mode for a full re-sync (changes since the old slot died are\nunrecoverable), clears the broken markers, and resumes the paused schedules.\nIdempotent: safe to retry after a partial failure. Concurrent repairs of the same\nsource are rejected with a 409.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_sources~1{id}~1repair_cdc~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Repair change data capture on a source whose replication slot or publication was lost — use when 'external-data-sources-cdc-status-retrieve' shows slot_exists=false or publication_exists=false, or the source reports a CDC error about a missing slot. Recreates the replication resources from the stored CDC config, resets every active CDC schema to a fresh snapshot (a full re-sync — changes made while the slot was gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is already running. Safe to retry after a failure. Returns {success, schemas_reset}.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesRepairCdcCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_sources/{id}/repair_cdc/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

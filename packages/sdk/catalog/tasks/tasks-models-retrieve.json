@@ -1,0 +1,159 @@
+{
+    "method": "tasks.tasksModelsRetrieve",
+    "toolName": "tasks-models-retrieve",
+    "operationId": "tasks_models_retrieve",
+    "title": "List available task run models",
+    "category": "Tasks",
+    "description": "List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use the returned identifiers when setting task run default preferences or creating a run. An empty list means the model catalogue is temporarily unavailable, not that no models exist.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksModelsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-models-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-models-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksModelsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-models-retrieve.ts",
+        "declaration": "dist/generated/tasks/tasks-models-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksModelsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-models-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-models-retrieve.d.ts"
+        },
+        {
+            "name": "TasksTasksModelsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-models-retrieve.ts",
+            "declaration": "dist/generated/tasks/tasks-models-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1models~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use the returned identifiers when setting task run default preferences or creating a run. An empty list means the model catalogue is temporarily unavailable, not that no models exist.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksModelsRetrieveResponseShape2",
+            "effectiveDescription": "One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.\n\nBoth enums are declared with the same choices the run-detail response uses, so clients get the\ngenerated adapter/effort types here rather than bare strings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.\n\nBoth enums are declared with the same choices the run-detail response uses, so clients get the\ngenerated adapter/effort types here rather than bare strings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksModelsRetrieveResponseShape2",
+            "field": "runtime_adapter",
+            "effectiveDescription": "Runtime that drives this model, such as 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runtime that drives this model, such as 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/runtime_adapter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksModelsRetrieveResponseShape2",
+            "field": "display_name",
+            "effectiveDescription": "Display name for the model, such as 'Claude Opus 4.8'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the model, such as 'Claude Opus 4.8'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksModelsRetrieveResponseShape2",
+            "field": "supported_efforts",
+            "effectiveDescription": "Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/supported_efforts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksModelsRetrieveResponseShape2",
+            "field": "cost_multiplier",
+            "effectiveDescription": "Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/cost_multiplier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksModelsRetrieveData",
+            "field": "models",
+            "effectiveDescription": "Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/models"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
