@@ -95445,6 +95445,74 @@ export namespace Schemas {
       validator_note: string;
     }
 
+    /**
+     * * `old_code` - On unchanged code
+     * * `dedup_prior` - Repeat of an earlier review
+     * * `dedup_comment` - Already in a PR comment
+     * * `dedup_anchor` - Same spot as another finding
+     * * `dedup_sibling` - Repeat of a finding
+     * * `cap` - Over the limit
+     */
+    export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
+
+
+    export const ReviewDropDispositionEnum = {
+      OldCode: 'old_code',
+      DedupPrior: 'dedup_prior',
+      DedupComment: 'dedup_comment',
+      DedupAnchor: 'dedup_anchor',
+      DedupSibling: 'dedup_sibling',
+      Cap: 'cap',
+    } as const;
+
+    export interface ReviewDroppedFinding {
+      /** One-line summary of the finding. */
+      title: string;
+      /** Repository-relative path of the affected file. */
+      file: string;
+      /** Affected line ranges within the file. */
+      lines: ReviewFindingLineRange[];
+      /** Description of the problem. */
+      body: string;
+      /** The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead. */
+      suggestion: string;
+      /** The reviewer's priority for the finding.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      priority: ReviewIssuePriorityEnum;
+      /**
+         * The session that raised the finding: the main review or a lens.
+         * @nullable
+         */
+      source_perspective: string | null;
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+       *
+       * * `old_code` - On unchanged code
+       * * `dedup_prior` - Repeat of an earlier review
+       * * `dedup_comment` - Already in a PR comment
+       * * `dedup_anchor` - Same spot as another finding
+       * * `dedup_sibling` - Repeat of a finding
+       * * `cap` - Over the limit */
+      disposition: ReviewDropDispositionEnum;
+      /**
+         * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
+         * @nullable
+         */
+      duplicate_of: string | null;
+      /**
+         * Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.
+         * @nullable
+         */
+      comment_url: string | null;
+      /**
+         * For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.
+         * @nullable
+         */
+      rank: number | null;
+    }
+
     export interface ReviewDetail {
       /** The review report's id, for fetching the review's detail. */
       id: string;
@@ -95579,6 +95647,8 @@ export namespace Schemas {
       findings: ReviewFinding[];
       /** The returned turn's findings the validator dismissed, with its reasoning. */
       dismissed_findings: ReviewFinding[];
+      /** The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record. */
+      dropped_findings: ReviewDroppedFinding[];
     }
 
     export interface ReviewHogSettingsError {

@@ -14,6 +14,7 @@ from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
+    DroppedFindingArtefact,
     FindingOutcomeArtefact,
     ResolutionRunArtefact,
     ReviewIssueFinding,
@@ -23,7 +24,13 @@ from products.review_hog.backend.reviewer.artefact_content import (
 )
 from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
+    Issue,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
     PerspectiveSelection,
@@ -517,6 +524,85 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert high["validator_note"] == "a"
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
         assert detail["perspective_selection"] is None  # no selection artefact → the drawer tab shows its empty state
+
+    def _dropped(
+        self,
+        report: ReviewReport,
+        title: str,
+        *,
+        run_index: int,
+        disposition: DropDisposition,
+        duplicate_of: str | None = None,
+        rank: int | None = None,
+    ) -> None:
+        ReviewReportArtefact.append_dropped_finding(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=DroppedFindingArtefact(
+                head_sha="c",
+                finding=ReviewIssueFinding(
+                    issue_key=f"{run_index}-{title}",
+                    run_index=run_index,
+                    title=title,
+                    file="f.py",
+                    lines=[LineRange(start=3, end=4)],
+                    body="b",
+                    suggestion="",
+                    priority=IssuePriority.CONSIDER,
+                    source_perspective="main",
+                ),
+                pass_number=2000,
+                chunk_id=1,
+                disposition=disposition,
+                duplicate_of=duplicate_of,
+                rank=rank,
+                cap=5,
+                lens_part_count=1,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    @parameterized.expand(
+        [
+            ("old_code", None, None, None),
+            ("dedup_prior", "1-f.py-10-main-1", None, None),
+            ("dedup_comment", "comment:42", None, "https://github.com/PostHog/posthog/pull/7#discussion_r42"),
+            ("dedup_anchor", "2-f.py-3-main-1", None, None),
+            ("dedup_sibling", "2-f.py-3-lens-1", None, None),
+            ("cap", None, 6, None),
+        ]
+    )
+    def test_retrieve_returns_the_turns_dropped_findings(
+        self,
+        disposition: DropDisposition,
+        duplicate_of: str | None,
+        rank: int | None,
+        comment_url: str | None,
+    ) -> None:
+        # Each turn shows only its own drops, and every recorded disposition must map to a served choice.
+        report = self._report(pr_number=7, acting_user=self.user, run_count=2)
+        self._dropped(report, "older drop", run_index=1, disposition="cap", rank=9)
+        self._dropped(report, "latest drop", run_index=2, disposition=disposition, duplicate_of=duplicate_of, rank=rank)
+
+        latest = self.client.get(f"{self.url}{report.id}/").json()
+        older = self.client.get(f"{self.url}{report.id}/", {"run_index": 1}).json()
+
+        assert latest["dropped_findings"] == [
+            {
+                "title": "latest drop",
+                "file": "f.py",
+                "lines": [{"start": 3, "end": 4}],
+                "body": "b",
+                "suggestion": "",
+                "priority": "consider",
+                "source_perspective": "main",
+                "disposition": disposition,
+                "duplicate_of": duplicate_of,
+                "comment_url": comment_url,
+                "rank": rank,
+            }
+        ]
+        assert [(f["title"], f["rank"]) for f in older["dropped_findings"]] == [("older drop", 9)]
 
     def test_in_progress_review_surfaces_with_stage_progress(self) -> None:
         # A visibly running first-turn review must appear first with a stage inferred from the

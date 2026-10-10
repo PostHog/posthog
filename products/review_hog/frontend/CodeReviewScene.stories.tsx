@@ -25,6 +25,7 @@ import type {
     PatchedReviewUserSettingsApi,
     ReviewInstallationClaimScopeEnumApi,
     ReviewDetailApi,
+    ReviewDroppedFindingApi,
     ReviewFindingApi,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
@@ -170,6 +171,7 @@ function reviewDetail(review: ReviewRecentReviewApi, overrides: Partial<ReviewDe
         run_urgency_threshold: 'consider',
         findings: [],
         dismissed_findings: [],
+        dropped_findings: [],
         ...overrides,
     }
 }
@@ -260,7 +262,48 @@ const standardReviewDetail = reviewDetail(recentReviews[1], {
             validator_note: SINGLE_AGENT_NOTE,
         }),
     ],
+    dropped_findings: [
+        droppedFinding({}),
+        droppedFinding({
+            title: 'Digest email has no plain-text part',
+            file: 'posthog/templates/email/weekly_digest.html',
+            lines: [{ start: 12, end: null }],
+            body: 'Some mail clients show an empty message without a plain-text part.',
+            priority: 'consider',
+            source_perspective: 'flash-single-agent',
+            disposition: 'dedup_comment',
+            duplicate_of: 'comment:1234567',
+            comment_url: 'https://github.com/example-org/example-repo/pull/98#discussion_r1234567',
+        }),
+        droppedFinding({
+            title: 'Digest task logs the full team list',
+            lines: [{ start: 140, end: null }],
+            body: 'The log line prints every team id on each run.',
+            priority: 'consider',
+            source_perspective: 'flash-single-agent',
+            disposition: 'cap',
+            duplicate_of: null,
+            rank: 6,
+        }),
+    ],
 })
+
+function droppedFinding(overrides: Partial<ReviewDroppedFindingApi>): ReviewDroppedFindingApi {
+    return {
+        title: 'Digest skips teams created after midnight UTC',
+        file: 'posthog/tasks/weekly_digest.py',
+        lines: [{ start: 90, end: 92 }],
+        body: 'Teams created late in the day fall outside the window. Compute the window in the team timezone.',
+        suggestion: '',
+        priority: 'should_fix',
+        source_perspective: 'flash-lens-logic-correctness',
+        disposition: 'dedup_sibling',
+        duplicate_of: '1-posthog/tasks/weekly_digest.py-88-flash-single-agent-1',
+        comment_url: null,
+        rank: null,
+        ...overrides,
+    }
+}
 
 const reviewDetails: Record<string, ReviewDetailApi> = {
     [deepReviewDetail.id]: deepReviewDetail,
@@ -827,6 +870,16 @@ export const ReviewDrawerStandard: Story = {
         await expect(await body.findByText('Digest window uses the server timezone')).toBeVisible()
         await expect(body.getByText('How it ran')).toBeVisible()
         await expect(body.queryByText(/Below threshold/)).not.toBeInTheDocument()
+    },
+}
+
+export const ReviewDrawerStandardNotPosted: Story = {
+    parameters: { review: standardReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        ;(await body.findByText('Not posted (3)')).click()
+        await expect(await body.findByText('Digest skips teams created after midnight UTC')).toBeVisible()
+        await expect(body.getByText('Over the limit (#6)')).toBeVisible()
     },
 }
 
