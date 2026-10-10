@@ -608,20 +608,18 @@ describe('MenuFilterCombobox', () => {
         })
 
         it.each([
-            { kind: 'a plain word', query: 'checkout', searchesUrls: false },
-            { kind: 'a path', query: '/checkout', searchesUrls: true },
-        ])('searches URLs for $kind only when it looks like a URL', async ({ query, searchesUrls }) => {
+            { kind: 'a plain word', query: 'checkout', offersRow: false },
+            { kind: 'a path', query: '/checkout', offersRow: true },
+        ])('offers the URL contains row for $kind only when it looks like a URL', async ({ query, offersRow }) => {
             mockUrlValues(['https://app.posthog.com/checkout'])
 
             renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: query })
 
-            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
             await waitFor(() =>
-                expect(rowTexts().some((t) => t.includes(`URL contains "${query}"`))).toBe(searchesUrls)
+                expect(apiGet.mock.calls.some(([url]: unknown[]) => String(url).includes('events/values'))).toBe(true)
             )
-            expect(apiGet.mock.calls.some(([url]: unknown[]) => String(url).includes('events/values'))).toBe(
-                searchesUrls
-            )
+            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
+            expect(rowTexts().some((t) => t.includes(`URL contains "${query}"`))).toBe(offersRow)
         })
 
         it('shows no URL suggestion when no pageview URL matches (0 slots)', async () => {

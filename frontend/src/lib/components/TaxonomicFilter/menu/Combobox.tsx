@@ -369,7 +369,7 @@ export function MenuFilterCombobox({
             // `name`), so `selectItem`'s existing PageviewUrls branch commits
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
-                if (trimmedQuery && items.length > 0) {
+                if (looksLikeUrl(trimmedQuery) && items.length > 0) {
                     const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // A plain item (not a QuickFilterItem): the commit reads its value via
@@ -1422,8 +1422,7 @@ function Fetcher({
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
-    const skipRemoteSearch = COLLAPSED_TO_CONTAINS_ROW.has(group.type) && !looksLikeUrl(input.searchQuery)
-    const list = useGroupList({ ...input, excludeStale, skipRemoteSearch })
+    const list = useGroupList({ ...input, excludeStale })
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])

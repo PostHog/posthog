@@ -914,14 +914,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    if (
-                        props.collapseUrlsToContainsRow &&
-                        COLLAPSED_TO_CONTAINS_ROW.has(listGroupType) &&
-                        !looksLikeUrl(searchQuery)
-                    ) {
-                        return createEmptyListStorage(searchQuery)
-                    }
-
                     const eventsTab =
                         listGroupType === TaxonomicFilterGroupType.Events ||
                         listGroupType === TaxonomicFilterGroupType.CustomEvents
@@ -1650,7 +1642,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // common entry path collapses identically to the dedicated group list above.
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = searchQuery.trim()
-                    const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
+                    const hasMatch = looksLikeUrl(trimmed) && remoteIsFresh && remoteItems.results.length > 0
                     return hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                 }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results

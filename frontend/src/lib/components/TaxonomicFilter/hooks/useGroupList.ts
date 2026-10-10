@@ -68,8 +68,6 @@ export interface UseGroupListInput {
     excludeStale?: boolean
     /** Override per-group minSearchQueryLength. */
     minSearchQueryLength?: number
-    /** Skip the remote fetch, for a URL group the menu collapses while the query does not look like a URL. */
-    skipRemoteSearch?: boolean
     /** Pagination page size. */
     limit?: number
     /** Allow selecting events that haven't been captured yet. */
@@ -130,7 +128,6 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         hideBehavioralCohorts = false,
         excludeStale = false,
         minSearchQueryLength: minSearchOverride,
-        skipRemoteSearch = false,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
         enableKeywordShortcuts = false,
@@ -206,7 +203,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const trimmedSearch = searchQuery.trim()
     const needsMoreSearchCharacters = minSearchQueryLength > 0 && trimmedSearch.length < minSearchQueryLength
 
-    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters && !skipRemoteSearch
+    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
 
     // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
     // the empty-search first page and let local Fuse handle keystroke
