@@ -3408,6 +3408,12 @@ export interface SignalScoutConfigOptionsApi {
      * * `read_only` - Read only
      * * `support_notes` - Support notes */
     tool_preset?: ToolPresetEnumApi
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -3739,6 +3745,11 @@ export interface SignalScoutConfigApi {
      */
     readonly tool_preset: string | null
     /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+     * @nullable
+     */
+    readonly precheck_query: string | null
+    /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
      */
@@ -3870,6 +3881,12 @@ export interface SignalScoutConfigCreateApi {
      * * `read_only` - Read only
      * * `support_notes` - Support notes */
     tool_preset?: ToolPresetEnumApi
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -4012,6 +4029,12 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     write_scopes?: string[]
     /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
+    /**
      * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
      * @maxLength 64
      */
@@ -4026,6 +4049,57 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * * `read_only` - Read only
      * * `support_notes` - Support notes */
     tool_preset?: ToolPresetEnumApi
+}
+
+export interface SignalScoutPrecheckTestRequestApi {
+    /**
+     * HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
+}
+
+/**
+ * * `rows` - Rows
+ * * `no_rows` - No Rows
+ * * `false_value` - False Value
+ * * `query_error` - Query Error
+ */
+export type ScoutPrecheckReasonEnumApi = (typeof ScoutPrecheckReasonEnumApi)[keyof typeof ScoutPrecheckReasonEnumApi]
+
+export const ScoutPrecheckReasonEnumApi = {
+    Rows: 'rows',
+    NoRows: 'no_rows',
+    FalseValue: 'false_value',
+    QueryError: 'query_error',
+} as const
+
+export interface SignalScoutPrecheckTestApi {
+    /** Whether a scheduled run that started now would run the scout. False means it would skip the run. */
+    would_run: boolean
+    /** Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), `false_value` (it returned one false value, so the run is skipped), or `query_error` (the query failed, so the run starts as if there were no pre-check).
+     *
+     * * `rows` - Rows
+     * * `no_rows` - No Rows
+     * * `false_value` - False Value
+     * * `query_error` - Query Error */
+    reason: ScoutPrecheckReasonEnumApi
+    /** The value bound to `{since}`: the start of the last run that ran, or when the scout was created. */
+    since: string
+    /** The value bound to `{now}`. */
+    now: string
+    /** How many rows the query returned, at most 50. */
+    row_count: number
+    /** The column names of the result, in order. */
+    columns: string[]
+    /** The rows as the scout reads them: one JSON object per line, cut before the text passes the size limit. Empty when the query returned no rows or failed. */
+    rows_text: string
+    /**
+     * Why the query failed, when it failed. A syntax or schema error is given as written; other failures read as a general message. Null when the query ran.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**

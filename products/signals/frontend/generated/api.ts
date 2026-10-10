@@ -115,6 +115,8 @@ import type {
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
     SignalScoutManualRunRequestApi,
+    SignalScoutPrecheckTestApi,
+    SignalScoutPrecheckTestRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -1477,6 +1479,28 @@ export const signalsScoutConfigDestroy = async (
     return apiMutator<void>(getSignalsScoutConfigDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsScoutConfigPrecheckTestUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/precheck_test/`
+}
+
+/**
+ * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the saved one. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
+ * @summary Test a scout pre-check
+ */
+export const signalsScoutConfigPrecheckTest = async (
+    projectId: string,
+    id: string,
+    signalScoutPrecheckTestRequestApi?: SignalScoutPrecheckTestRequestApi,
+    options?: RequestInit
+): Promise<SignalScoutPrecheckTestApi> => {
+    return apiMutator<SignalScoutPrecheckTestApi>(getSignalsScoutConfigPrecheckTestUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutPrecheckTestRequestApi),
     })
 }
 
