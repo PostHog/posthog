@@ -5311,10 +5311,10 @@ Today (5): `event_blasts`, `events`, `guests`, `people`, `person_tags`
 
 Diffed against: <https://docs.luma.com/llms.txt>
 
-- [ ] `GET /v1/events/ticket-types/list` — lookup resolving the ticket type ids on every guest ticket and order (high)
-- [ ] `GET /v1/calendars/event-tags/list` — event tag lookup — person_tags is synced but the event-side equivalent is not (high)
-- [ ] `GET /v1/organizations/calendars/list` — lookup resolving calendar ids that own events and contacts (high)
-- [ ] `GET /v1/events/coupons/list` — coupon dimension behind discounted ticket orders (medium)
+- [x] `GET /v1/events/ticket-types/list` — lookup resolving the ticket type ids on every guest ticket and order, synced as `ticket_types` (high)
+- [x] `GET /v1/calendars/event-tags/list` — event tag lookup — person_tags is synced but the event-side equivalent is not, synced as `event_tags` (high)
+- [x] `GET /v1/organizations/calendars/list` — lookup resolving calendar ids that own events and contacts, synced as `calendars` (organization API keys only) (high)
+- [x] `GET /v1/events/coupons/list` — coupon dimension behind discounted ticket orders, synced as `event_coupons` (medium)
 - [ ] `GET /v1/calendars/coupons/list` — calendar-wide coupons applying across events (medium)
 - [ ] `GET /v1/memberships/tiers/list` — membership tier lookup for paid community members (medium)
 - [ ] `GET /v1/calendars/admins/list` — calendar admin/host membership table (medium)
