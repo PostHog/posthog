@@ -53,6 +53,7 @@ import {
 } from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
+    looksLikeUrl,
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
@@ -1421,7 +1422,8 @@ function Fetcher({
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
-    const list = useGroupList({ ...input, excludeStale })
+    const skipRemoteSearch = COLLAPSED_TO_CONTAINS_ROW.has(group.type) && !looksLikeUrl(input.searchQuery)
+    const list = useGroupList({ ...input, excludeStale, skipRemoteSearch })
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])

@@ -598,19 +598,36 @@ describe('MenuFilterCombobox', () => {
         it('collapses matching URLs into one "URL contains <query>" row, not the raw URL list', async () => {
             mockUrlValues(['https://app.posthog.com/checkout', 'https://app.posthog.com/checkout/pay'])
 
-            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'checkout' })
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: '/checkout' })
 
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "/checkout"'))).toBe(true))
             const rows = rowTexts()
             // Exactly one synthetic row, and none of the raw matched URLs are listed.
-            expect(rows.filter((t) => t.includes('URL contains "checkout"'))).toHaveLength(1)
+            expect(rows.filter((t) => t.includes('URL contains "/checkout"'))).toHaveLength(1)
             expect(rows.some((t) => t.includes('https://app.posthog.com/checkout'))).toBe(false)
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'checkout', searchesUrls: false },
+            { kind: 'a path', query: '/checkout', searchesUrls: true },
+        ])('searches URLs for $kind only when it looks like a URL', async ({ query, searchesUrls }) => {
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: query })
+
+            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
+            await waitFor(() =>
+                expect(rowTexts().some((t) => t.includes(`URL contains "${query}"`))).toBe(searchesUrls)
+            )
+            expect(apiGet.mock.calls.some(([url]: unknown[]) => String(url).includes('events/values'))).toBe(
+                searchesUrls
+            )
         })
 
         it('shows no URL suggestion when no pageview URL matches (0 slots)', async () => {
             mockUrlValues([])
 
-            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'zzznomatch' })
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: '/zzznomatch' })
 
             await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
             expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
@@ -635,13 +652,13 @@ describe('MenuFilterCombobox', () => {
 
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.PageviewUrls],
-                searchQuery: 'checkout',
+                searchQuery: '/checkout',
                 onCommit,
             })
 
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "/checkout"'))).toBe(true))
             const row = Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).find((el) =>
-                el.textContent?.includes('URL contains "checkout"')
+                el.textContent?.includes('URL contains "/checkout"')
             ) as HTMLElement
             await user.click(row)
 
@@ -649,7 +666,7 @@ describe('MenuFilterCombobox', () => {
             expect(entry.group.type).toBe(TaxonomicFilterGroupType.PageviewUrls)
             // getValue reads the item name; the synthetic row carries the query, which
             // `taxonomicPropertyFilterLogic.selectItem` turns into `$current_url IContains`.
-            expect(entry.group.getValue(entry.item)).toBe('checkout')
+            expect(entry.group.getValue(entry.item)).toBe('/checkout')
             // Tagged so the commit telemetry can measure adoption of the shortcut.
             expect((entry.item as { isContainsShortcut?: boolean }).isContainsShortcut).toBe(true)
         })
@@ -784,18 +801,18 @@ describe('MenuFilterCombobox', () => {
             mockUrlValues(['https://app.posthog.com/replay', 'https://app.posthog.com/replay/home'])
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.PageviewEvents, TaxonomicFilterGroupType.Events],
-                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_recent', 'Events')],
-                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_pinned', 'Events')],
-                searchQuery: 'replay',
+                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'visited /replay', 'Events')],
+                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pinned /replay', 'Events')],
+                searchQuery: '/replay',
             })
 
             // Wait on a stable post-search signal (a matching recent) so the ordering
             // assertions fail fast rather than timing out waiting for a row that never renders.
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('replay_recent'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('visited /replay'))).toBe(true))
             const rows = rowTexts()
-            const shortcutIdx = rows.findIndex((t) => /contains/i.test(t) && /replay/i.test(t))
-            const recentIdx = rows.findIndex((t) => t.includes('replay_recent'))
-            const pinnedIdx = rows.findIndex((t) => t.includes('replay_pinned'))
+            const shortcutIdx = rows.findIndex((t) => t.includes('URL contains "/replay"'))
+            const recentIdx = rows.findIndex((t) => t.includes('visited /replay'))
+            const pinnedIdx = rows.findIndex((t) => t.includes('pinned /replay'))
 
             // The contains shortcut leads the whole list, ahead of recents/pinned/events.
             expect(shortcutIdx).toBe(0)

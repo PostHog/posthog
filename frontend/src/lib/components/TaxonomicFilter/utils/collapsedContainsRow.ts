@@ -17,6 +17,15 @@ export const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = 
     TaxonomicFilterGroupType.PageviewEvents,
 ])
 
+const URL_SHAPED_QUERY = /[/.:]/
+
+/** A collapsed URL group searches only for a query like `/pricing` or `example.com`. A plain word
+ *  such as `email` usually names a property, people often picked the shortcut for it by mistake,
+ *  and the URL search would run on every keystroke. Shared by both surfaces. */
+export function looksLikeUrl(query: string): boolean {
+    return URL_SHAPED_QUERY.test(query.trim())
+}
+
 export function urlContainsRowLabel(query: string): string {
     return `URL contains "${query}"`
 }

@@ -561,6 +561,41 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('page URL search in a picker that collapses URLs to a contains row', () => {
+        let searchedValues: string[]
+
+        beforeEach(() => {
+            searchedValues = []
+            useMocks({
+                get: {
+                    '/api/environments/:team/events/values': ({ request }) => {
+                        searchedValues.push(new URL(request.url).searchParams.get('value') ?? '')
+                        return [200, [{ name: 'https://example.com/pricing' }]]
+                    },
+                },
+            })
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'pricing', searchesUrls: false },
+            { kind: 'a path', query: '/pricing', searchesUrls: true },
+            { kind: 'a domain', query: 'example.com', searchesUrls: true },
+        ])('searches URLs for $kind only when it looks like a URL', async ({ query, searchesUrls }) => {
+            const urlLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.PageviewUrls,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                collapseUrlsToContainsRow: true,
+            })
+
+            await expectLogic(urlLogic, () => {
+                urlLogic.actions.setSearchQuery(query)
+            }).toDispatchActions(['setSearchQuery', 'loadRemoteItemsSuccess'])
+
+            expect(searchedValues.includes(query)).toBe(searchesUrls)
+            expect(urlLogic.values.items.results).toHaveLength(searchesUrls ? 1 : 0)
+        })
+    })
+
     describe('unmounting clears the shared api cache', () => {
         it('does not keep serving a cached response after the list unmounts', async () => {
             let requestCount = 0

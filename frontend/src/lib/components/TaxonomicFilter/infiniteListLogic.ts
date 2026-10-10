@@ -49,6 +49,7 @@ import {
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
+    looksLikeUrl,
     partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import {
@@ -910,6 +911,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+                        return createEmptyListStorage(searchQuery)
+                    }
+
+                    if (
+                        props.collapseUrlsToContainsRow &&
+                        COLLAPSED_TO_CONTAINS_ROW.has(listGroupType) &&
+                        !looksLikeUrl(searchQuery)
+                    ) {
                         return createEmptyListStorage(searchQuery)
                     }
 
