@@ -987,6 +987,8 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.SLACK,
             # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
+            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
+            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

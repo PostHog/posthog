@@ -32,6 +32,64 @@ const characterizeMetricAnomaly = (): ToolBase<
     },
 })
 
+const MetricAttributeValuesListSchema = () => {
+    const MetricsAttributeValuesRetrieveQueryParams = orvalSchemas.MetricsAttributeValuesRetrieveQueryParams()
+    return MetricsAttributeValuesRetrieveQueryParams
+}
+
+const metricAttributeValuesList = (): ToolBase<
+    ReturnType<typeof MetricAttributeValuesListSchema>,
+    Schemas._MetricAttributeValuesResponse
+> => ({
+    name: 'metric-attribute-values-list',
+    schema: MetricAttributeValuesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricAttributeValuesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas._MetricAttributeValuesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/attribute_values/`,
+            query: {
+                dateFrom: params.dateFrom,
+                dateTo: params.dateTo,
+                key: params.key,
+                limit: params.limit,
+                value: params.value,
+            },
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const MetricAttributesListSchema = () => {
+    const MetricsAttributesRetrieveQueryParams = orvalSchemas.MetricsAttributesRetrieveQueryParams()
+    return MetricsAttributesRetrieveQueryParams
+}
+
+const metricAttributesList = (): ToolBase<
+    ReturnType<typeof MetricAttributesListSchema>,
+    Schemas._MetricAttributeKeysResponse
+> => ({
+    name: 'metric-attributes-list',
+    schema: MetricAttributesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricAttributesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas._MetricAttributeKeysResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/attributes/`,
+            query: {
+                dateFrom: params.dateFrom,
+                dateTo: params.dateTo,
+                limit: params.limit,
+                metricName: params.metricName,
+                search: params.search,
+            },
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const MetricNamesListSchema = () => {
     const MetricsValuesRetrieveQueryParams = orvalSchemas.MetricsValuesRetrieveQueryParams()
     return MetricsValuesRetrieveQueryParams
@@ -53,6 +111,35 @@ const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, S
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
         return filtered
+    },
+})
+
+const MetricsDashboardPanelsValidateSchema = () => {
+    const MetricsDashboardImportsValidateCreateBody = orvalSchemas.MetricsDashboardImportsValidateCreateBody()
+    return MetricsDashboardImportsValidateCreateBody
+}
+
+const metricsDashboardPanelsValidate = (): ToolBase<
+    ReturnType<typeof MetricsDashboardPanelsValidateSchema>,
+    Schemas.PanelQueryCheckResponse
+> => ({
+    name: 'metrics-dashboard-panels-validate',
+    schema: MetricsDashboardPanelsValidateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricsDashboardPanelsValidateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.panels !== undefined) {
+            body['panels'] = params.panels
+        }
+        if (params.import_id !== undefined) {
+            body['import_id'] = params.import_id
+        }
+        const result = await context.api.request<Schemas.PanelQueryCheckResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/dashboard_imports/validate/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -82,6 +169,9 @@ const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'characterize-metric-anomaly': characterizeMetricAnomaly,
+    'metric-attribute-values-list': metricAttributeValuesList,
+    'metric-attributes-list': metricAttributesList,
     'metric-names-list': metricNamesList,
+    'metrics-dashboard-panels-validate': metricsDashboardPanelsValidate,
     'query-metrics': queryMetrics,
 }

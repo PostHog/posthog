@@ -85,6 +85,7 @@ class TestResolveSandboxAiProduct:
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
+            ("metrics_import", None, "posthog_ai"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):

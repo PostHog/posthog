@@ -27715,6 +27715,200 @@ export namespace Schemas {
       properties?: unknown;
     }
 
+    /**
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot
+     */
+    export type DashboardImportSourceEnum = typeof DashboardImportSourceEnum[keyof typeof DashboardImportSourceEnum];
+
+
+    export const DashboardImportSourceEnum = {
+      Grafana: 'grafana',
+      Screenshot: 'screenshot',
+    } as const;
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type DashboardImportStatusEnum = typeof DashboardImportStatusEnum[keyof typeof DashboardImportStatusEnum];
+
+
+    export const DashboardImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building
+     * * `checking_layout` - Checking Layout
+     */
+    export type DashboardImportPhaseEnum = typeof DashboardImportPhaseEnum[keyof typeof DashboardImportPhaseEnum];
+
+
+    export const DashboardImportPhaseEnum = {
+      Starting: 'starting',
+      Matching: 'matching',
+      Building: 'building',
+      CheckingLayout: 'checking_layout',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped
+     */
+    export type PanelProgressStateEnum = typeof PanelProgressStateEnum[keyof typeof PanelProgressStateEnum];
+
+
+    export const PanelProgressStateEnum = {
+      Waiting: 'waiting',
+      Working: 'working',
+      Done: 'done',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface DashboardImportPanelProgress {
+      /** Panel key in the import. */
+      key: string;
+      /** Panel title. */
+      title: string;
+      /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+       *
+       * * `waiting` - Waiting
+       * * `working` - Working
+       * * `done` - Done
+       * * `skipped` - Skipped */
+      state: PanelProgressStateEnum;
+    }
+
+    export interface DashboardImportSummary {
+      /** Number of panels in the input. */
+      total: number;
+      /** Panels imported with the same meaning. */
+      imported: number;
+      /** Panels imported with a change in what they show. */
+      approximated: number;
+      /** Panels that have no working query. */
+      failed: number;
+      /** Panels with no PostHog equivalent. */
+      skipped: number;
+    }
+
+    /**
+     * * `imported` - Imported
+     * * `approximated` - Approximated
+     * * `failed` - Failed
+     * * `skipped` - Skipped
+     */
+    export type PanelImportOutcomeEnum = typeof PanelImportOutcomeEnum[keyof typeof PanelImportOutcomeEnum];
+
+
+    export const PanelImportOutcomeEnum = {
+      Imported: 'imported',
+      Approximated: 'approximated',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface DashboardImportPanel {
+      /** Panel key in the import, for example 'p12' for Grafana panel 12. */
+      key: string;
+      /** Panel title. */
+      title: string;
+      /** What happened to the panel.
+       *
+       * * `imported` - Imported
+       * * `approximated` - Approximated
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      outcome: PanelImportOutcomeEnum;
+      /** What changed, or why the panel failed or was skipped. */
+      reason: string;
+    }
+
+    export interface DashboardImport {
+      /**
+         * Id to poll for the status. Null when the import finished in the request, with no agent.
+         * @nullable
+         */
+      id: string | null;
+      /** What the import reads.
+       *
+       * * `grafana` - Grafana
+       * * `screenshot` - Screenshot */
+      source: DashboardImportSourceEnum;
+      /** Where the import is.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: DashboardImportStatusEnum;
+      /** Name of the new dashboard. */
+      dashboard_name: string;
+      /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard, or 'checking_layout' against the screenshot.
+       *
+       * * `starting` - Starting
+       * * `matching` - Matching
+       * * `building` - Building
+       * * `checking_layout` - Checking Layout */
+      phase: DashboardImportPhaseEnum | null;
+      /** Where each panel is, while the import runs. */
+      panel_progress: DashboardImportPanelProgress[];
+      /**
+         * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
+         * @nullable
+         */
+      layout_rounds: number | null;
+      /**
+         * The comparison that runs, from 1, while the phase is 'checking_layout'.
+         * @nullable
+         */
+      layout_round: number | null;
+      /**
+         * Id of the new dashboard, when it exists.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Why the import failed, when it failed.
+         * @nullable
+         */
+      error: string | null;
+      /** Panel counts, when the import ended. */
+      summary: DashboardImportSummary | null;
+      /** The outcome for each panel, when the import ended. */
+      panels: DashboardImportPanel[];
+    }
+
+    export interface DashboardImportCreate {
+      /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
+       *
+       * * `grafana` - Grafana
+       * * `screenshot` - Screenshot */
+      source: DashboardImportSourceEnum;
+      /**
+         * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
+         * @maxLength 5242880
+         */
+      grafana_json?: string;
+      /**
+         * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
+         * @maxLength 7340032
+         */
+      image_base64?: string;
+    }
+
     export interface _DashboardPatchTileLayoutBoxOpenApi {
       /**
          * Column position in the dashboard grid (0-indexed).
@@ -76445,6 +76639,187 @@ export namespace Schemas {
       results: WorkflowProposal[];
     }
 
+    /**
+     * * `sum` - Sum
+     * * `avg` - Avg
+     * * `count` - Count
+     * * `min` - Min
+     * * `max` - Max
+     * * `p95` - P95
+     * * `rate` - Rate
+     * * `increase` - Increase
+     * * `histogram_quantile` - Histogram Quantile
+     */
+    export type PanelBuilderAggregationEnum = typeof PanelBuilderAggregationEnum[keyof typeof PanelBuilderAggregationEnum];
+
+
+    export const PanelBuilderAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface PanelFilter {
+      /**
+         * Attribute name, for example 'service.name'.
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison. Regex operators use RE2.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op: OpEnum;
+      /**
+         * Value or regex to compare against.
+         * @maxLength 1024
+         */
+      value: string;
+    }
+
+    export interface PanelBuilderClause {
+      /**
+         * Alias that a formula uses, for example 'a'.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Exact metric name.
+         * @maxLength 255
+         */
+      metric_name: string;
+      /** Aggregation for each bucket, with the same meaning as in the metrics query API.
+       *
+       * * `sum` - Sum
+       * * `avg` - Avg
+       * * `count` - Count
+       * * `min` - Min
+       * * `max` - Max
+       * * `p95` - P95
+       * * `rate` - Rate
+       * * `increase` - Increase
+       * * `histogram_quantile` - Histogram Quantile */
+      aggregation: PanelBuilderAggregationEnum;
+      /**
+         * Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Attribute filters, joined with AND. */
+      filters?: PanelFilter[];
+      /**
+         * Attribute names that split the result into series.
+         * @items.maxLength 255
+         */
+      group_by?: string[];
+    }
+
+    export interface PanelBuilderQuery {
+      /** One clause for each series. */
+      clauses: PanelBuilderClause[];
+      /**
+         * Arithmetic over clause aliases, for example 'a / b'.
+         * @nullable
+         */
+      formula?: string | null;
+    }
+
+    /**
+     * * `promql` - Promql
+     * * `builder` - Builder
+     * * `histogram` - Histogram
+     * * `hogql` - Hogql
+     */
+    export type PanelQueryLanguageEnum = typeof PanelQueryLanguageEnum[keyof typeof PanelQueryLanguageEnum];
+
+
+    export const PanelQueryLanguageEnum = {
+      Promql: 'promql',
+      Builder: 'builder',
+      Histogram: 'histogram',
+      Hogql: 'hogql',
+    } as const;
+
+    export interface PanelQueryCheck {
+      /**
+         * Panel key. The result for the panel carries the same key.
+         * @maxLength 64
+         */
+      key: string;
+      /**
+         * Panel title, shown in the import progress.
+         * @maxLength 200
+         */
+      title?: string;
+      /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
+       *
+       * * `promql` - Promql
+       * * `builder` - Builder
+       * * `histogram` - Histogram
+       * * `hogql` - Hogql */
+      language: PanelQueryLanguageEnum;
+      /**
+         * PromQL expression. Used when language is 'promql'.
+         * @nullable
+         */
+      promql?: string | null;
+      /** Builder query. Used when language is 'builder'. */
+      builder?: PanelBuilderQuery | null;
+      /**
+         * Histogram metric name. Used when language is 'histogram'.
+         * @nullable
+         */
+      histogram_metric?: string | null;
+      /**
+         * SQL SELECT over logs or posthog.trace_spans with {filters} in the WHERE clause. Used when language is 'hogql'.
+         * @nullable
+         */
+      hogql?: string | null;
+    }
+
+    export interface PanelQueryCheckRequest {
+      /**
+         * Up to 20 panel queries to check.
+         * @minItems 1
+         * @maxItems 20
+         */
+      panels: PanelQueryCheck[];
+      /**
+         * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+         * @nullable
+         */
+      import_id?: string | null;
+    }
+
+    export interface PanelQueryCheckResult {
+      /** Panel key from the request. */
+      key: string;
+      /** True when the query can go on a dashboard. */
+      valid: boolean;
+      /**
+         * Why the query cannot go on a dashboard.
+         * @nullable
+         */
+      error: string | null;
+      /** Warnings that do not block the query, such as no recent data. */
+      notes: string[];
+    }
+
+    export interface PanelQueryCheckResponse {
+      /** One result for each checked panel. */
+      results: PanelQueryCheckResult[];
+    }
+
     export interface PassRateBucket {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
@@ -84652,6 +85027,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -84681,6 +85057,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
     } as const;
 
     /**
@@ -84740,7 +85117,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -106932,7 +107310,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -108615,7 +108994,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -127508,6 +127888,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -127653,6 +128034,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

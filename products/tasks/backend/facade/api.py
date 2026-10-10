@@ -224,6 +224,7 @@ __all__ = [
     "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
+    "TASK_RUN_SUMMARY_STATE_KEY",
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskRunEnvironment",
@@ -254,6 +255,7 @@ __all__ = [
     "get_owner_origin_latest_run",
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
+    "owner_origin_recent_task_ids",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -359,6 +361,7 @@ __all__ = [
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
+    "upload_task_run_artifacts",
     "start_task_run",
     "task_accessible_for_run_view",
     "task_channel_id",
@@ -1873,6 +1876,23 @@ def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_produ
             task__origin_product=origin_product,
             status__in=_NON_TERMINAL_RUN_STATUSES,
         ).values_list("task_id", flat=True)
+    )
+
+
+def owner_origin_recent_task_ids(
+    *, team_id: int, created_by_id: int, origin_product: str, since: datetime, limit: int
+) -> list[UUID]:
+    """Ids of this owner's tasks of this origin created since ``since``, newest first. Deleted tasks are left out."""
+    return list(
+        Task.objects.filter(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+            created_at__gte=since,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:limit]
     )
 
 

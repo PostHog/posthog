@@ -23,6 +23,7 @@ export function resolveGatewayProduct({
   // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
+    metrics_import: "posthog_ai",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
     review_hog: "review_hog",

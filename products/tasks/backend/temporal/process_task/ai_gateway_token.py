@@ -55,6 +55,7 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 # Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
+    "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",

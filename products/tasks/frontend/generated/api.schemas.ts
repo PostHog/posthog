@@ -2038,6 +2038,7 @@ export interface PaginatedTaskListItemListApi {
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
+ * * `metrics_import` - Metrics Import
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2066,6 +2067,7 @@ export const TaskOriginProductEnumApi = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 /**
@@ -2125,7 +2127,8 @@ export interface TaskCreateApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2353,7 +2356,8 @@ export interface TaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2488,7 +2492,8 @@ export interface PatchedTaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -5873,6 +5878,7 @@ export type TasksListParams = {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -6015,6 +6021,7 @@ export const TasksListExcludeOriginProduct = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
