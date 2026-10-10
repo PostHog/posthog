@@ -59,11 +59,11 @@ tools:
             `latest_review` sums up the latest completed turn (its `id`, `run_index`, `review_mode`, `head_sha` and
             finding counts by priority), and `latest_resolution` the latest Resolve run. The loop for a run you started:
             call `review-hog-reviews-trigger`, keep the `requested_at` it returns and the `run_mode` you sent, and poll
-            this tool with them (a minute apart is enough) until `request_outcome.status` is not `pending`. On `completed`, call
-            `review-hog-reviews-get` with `request_outcome.review_id` and `run_index` for the findings; a Deep turn also
-            answers a Standard request. `skipped` and `failed` carry a `reason`, for example `flash_after_full`,
-            `review_failed`, or `no_matching_run` (nothing ran for the request and nothing is queued, so trigger again).
-            `unknown` means the run state could not be read: retry later.
+            this tool with them (a minute apart is enough) until `request_outcome.status` is not `pending`. On
+            `completed`, call `review-hog-reviews-get` with `request_outcome.review_id` and `run_index` for the
+            findings; a Deep turn also answers a Standard request. `skipped` and `failed` carry a `reason`, for example
+            `flash_after_full`, `review_failed`, or `no_matching_run` (nothing ran for the request and nothing is
+            queued, so trigger again). `unknown` means the run state could not be read: retry later.
         feature_flag: review-hog
     review-hog-reviews-trigger:
         operation: review_hog_reviews_trigger_create
