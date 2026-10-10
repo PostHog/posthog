@@ -198,6 +198,17 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
+
+- **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual
+  Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms run wherever it is on.
+  `backend/internal_features.py` and the `internal_feature` refusal code are removed.
+- **Why.** The gate was never created in production, so after the deploy all of those parts stopped with no error.
+  The flag then went to 100% for every organization, which left a second flag with no remaining audience and a
+  silent off switch for most of the product. Removing it keeps the behavior of the 100% rollout and removes the
+  failure mode. The resolution hardening TODO in ARCHITECTURE.md still applies: the `review-hog` flag does not
+  establish repository or comment trust.
+
 ### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
 
 - **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and

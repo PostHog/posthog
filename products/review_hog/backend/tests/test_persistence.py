@@ -3,7 +3,6 @@ from dataclasses import replace
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -68,8 +67,6 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import ReasoningEffort
-
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 _ContentT = TypeVar("_ContentT")
 
@@ -168,71 +165,68 @@ class TestUpsertReviewReport(BaseTest):
         # path would flip a report's reviewer between turns and feed a cheap turn's findings into a
         # stronger turn's "already covered" injection; a downgrade would hand a person a cheap review.
         signal_report_id = str(uuid.uuid4())
-        with patch(_INTERNAL_FLAG, return_value=True):
-            report_id = upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                signal_report_id=signal_report_id,
-                trigger_source=TRIGGER_INBOX,
-                signal_priority=ReportPriority.P2,
-            )
-            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
-            # Through the real loader, not just the raw columns: the values_list → resolve positional
-            # coupling would otherwise silently fall every off-default report back to the default pins.
-            assert (
-                load_review_arm(team_id=self.team.id, report_id=report_id) == REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
-            )
-            assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
+        report_id = upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source=TRIGGER_INBOX,
+            signal_priority=ReportPriority.P2,
+        )
+        assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+        # Through the real loader, not just the raw columns: the values_list → resolve positional
+        # coupling would otherwise silently fall every off-default report back to the default pins.
+        assert load_review_arm(team_id=self.team.id, report_id=report_id) == REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
+        assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
 
-            # An inbox re-turn after a re-judgment keeps the tier and the priority the decision used.
-            upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                signal_report_id=signal_report_id,
-                trigger_source=TRIGGER_INBOX,
-                signal_priority=ReportPriority.P0,
-            )
-            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+        # An inbox re-turn after a re-judgment keeps the tier and the priority the decision used.
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source=TRIGGER_INBOX,
+            signal_priority=ReportPriority.P0,
+        )
+        assert self._routing(report_id) == ("agent_p2", "P2", "medium")
 
-            # The resolution stage upserts under the person's trigger too; a resolve-only request
-            # reviews nothing, so without the review turn's opt-in the tier must hold.
-            upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                trigger_source=TRIGGER_UI,
-            )
-            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+        # The resolution stage upserts under the person's trigger too; a resolve-only request
+        # reviews nothing, so without the review turn's opt-in the tier must hold.
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_UI,
+        )
+        assert self._routing(report_id) == ("agent_p2", "P2", "medium")
 
-            # A person's label review lifts the report to the human tier for this and every later turn...
-            upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                trigger_source=TRIGGER_LABEL,
-                lift_tier_on_human_trigger=True,
-            )
-            assert self._routing(report_id) == ("human", "P2", "xhigh")
-            assert load_review_arm(team_id=self.team.id, report_id=report_id) == DEFAULT_REVIEW_ARM
+        # A person's label review lifts the report to the human tier for this and every later turn...
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_LABEL,
+            lift_tier_on_human_trigger=True,
+        )
+        assert self._routing(report_id) == ("human", "P2", "xhigh")
+        assert load_review_arm(team_id=self.team.id, report_id=report_id) == DEFAULT_REVIEW_ARM
 
-            # ...and a later inbox turn never lowers it back.
-            upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                signal_report_id=signal_report_id,
-                trigger_source=TRIGGER_INBOX,
-                signal_priority=ReportPriority.P3,
-                lift_tier_on_human_trigger=True,
-            )
-            assert self._routing(report_id) == ("human", "P2", "xhigh")
+        # ...and a later inbox turn never lowers it back.
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source=TRIGGER_INBOX,
+            signal_priority=ReportPriority.P3,
+            lift_tier_on_human_trigger=True,
+        )
+        assert self._routing(report_id) == ("human", "P2", "xhigh")
 
     def test_unknown_persisted_tier_degrades_instead_of_crashing_the_upsert(self) -> None:
         # `review_tier` is an unconstrained column, so a newer deploy can persist a tier value this
@@ -257,23 +251,6 @@ class TestUpsertReviewReport(BaseTest):
         )
         # The unparseable value is left as-is: the lift is skipped rather than raising or relabeling.
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).review_tier == "agent_p9_from_the_future"
-
-    def test_tiered_arms_stay_on_the_default_outside_the_rollout_teams(self) -> None:
-        # The tier is recorded for every team (so the label stays truthful and the tiers can be
-        # compared on their traffic), but only the dogfood teams run the cheaper arm; a gate that
-        # leaks the arm would cut review strength for teams nobody enrolled.
-        with patch(_INTERNAL_FLAG, return_value=False):
-            report_id = upsert_review_report(
-                team_id=self.team.id,
-                repository="o/r",
-                pr_url="u",
-                pr_metadata=_pr_metadata(),
-                signal_report_id=str(uuid.uuid4()),
-                trigger_source=TRIGGER_INBOX,
-                signal_priority=ReportPriority.P3,
-            )
-        assert self._routing(report_id) == ("agent_p3_p4", "P3", "xhigh")
-        assert load_review_arm(team_id=self.team.id, report_id=report_id) == DEFAULT_REVIEW_ARM
 
     def test_author_login_is_stamped_on_create_and_refreshed_each_turn(self) -> None:
         # The "For you" scope's authored-PRs match rides this stamp. It must track the PR's current
