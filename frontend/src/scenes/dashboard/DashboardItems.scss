@@ -39,13 +39,15 @@
 
         /* The hog only shows while hovered. On leave, hold the lift for the hog's slide down (browsers without discrete content-visibility transitions hide it at once) */
         &:where(:has(> .DashboardTileDecorations__hog)) {
-            transition:
-                var(--dashboard-tile-transition),
-                content-visibility 0s linear var(--dashboard-hog-slide-duration) allow-discrete;
-
             &:hover {
                 content-visibility: visible;
                 transition-delay: 0s;
+            }
+
+            @supports (transition-behavior: allow-discrete) {
+                transition:
+                    var(--dashboard-tile-transition),
+                    content-visibility 0s linear var(--dashboard-hog-slide-duration) allow-discrete;
             }
 
             @media (prefers-reduced-motion: reduce) {
