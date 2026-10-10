@@ -361,6 +361,8 @@ rules:
                               |ScoreDefinition
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
+                              |HeatmapCaptureRequest
+                              |HeatmapScreenshotHistory
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -809,6 +811,8 @@ rules:
                         |ScoreDefinition
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
+                        |HeatmapCaptureRequest
+                        |HeatmapScreenshotHistory
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording

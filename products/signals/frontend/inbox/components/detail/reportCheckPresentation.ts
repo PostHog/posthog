@@ -289,6 +289,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     stopped_by_scout: 'A scout run stopped it before it could settle',
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
     replaced_by_request: 'Replaced on request by a revised check',
+    no_check_lane: 'Stopped because this project has no scout that can run it',
 }
 
 /**

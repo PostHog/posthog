@@ -7268,6 +7268,8 @@ export namespace Schemas {
       fix?: string | null;
       message: string;
       start?: number | null;
+      /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+      url?: string | null;
     }
 
     export type PredicateFixAction = typeof PredicateFixAction[keyof typeof PredicateFixAction];
@@ -13581,7 +13583,7 @@ export namespace Schemas {
     } as const;
 
     export interface AutomaticReviewDecision {
-      /** Whether the requesting user's own pull requests get automatic Flash reviews in this repository. */
+      /** Whether the requesting user's own pull requests get automatic Standard reviews in this repository. */
       flash: boolean;
       /** Which rule decided: the user's own choice ('own_repository_choice', 'own_default'), the repository exception ('repository_*'), the project rule ('project_*'), or 'not_in_project' when this project does not review the repository.
        *
@@ -34927,8 +34929,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `follow` - Follow each repository
-     * * `flash` - Flash everywhere
+     * * `follow` - Let each repository decide
+     * * `flash` - On everywhere
      * * `off` - Off everywhere
      */
     export type DefaultReviewModeEnum = typeof DefaultReviewModeEnum[keyof typeof DefaultReviewModeEnum];
@@ -43638,6 +43640,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -43651,6 +43654,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     } as const;
 
     /**
@@ -43674,6 +43678,7 @@ export namespace Schemas {
      * * `add_primary_metric` - Add Primary Metric
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
      */
     export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
 
@@ -43685,6 +43690,7 @@ export namespace Schemas {
       AddPrimaryMetric: 'add_primary_metric',
       AddSecondaryMetric: 'add_secondary_metric',
       EditExposureCriteria: 'edit_exposure_criteria',
+      EditReleaseConditions: 'edit_release_conditions',
     } as const;
 
     /**
@@ -43702,7 +43708,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
-       * * `zero_exposures` - Zero Exposures */
+       * * `zero_exposures` - Zero Exposures
+       * * `forced_variant_release_condition` - Forced Variant Release Condition */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -72391,6 +72398,16 @@ export namespace Schemas {
       reason: string;
     }
 
+    export type SignalReportSuppressionSourceEnum = typeof SignalReportSuppressionSourceEnum[keyof typeof SignalReportSuppressionSourceEnum];
+
+
+    export const SignalReportSuppressionSourceEnum = {
+      Dismissed: 'dismissed',
+      SafetyJudge: 'safety_judge',
+      NotActionable: 'not_actionable',
+      System: 'system',
+    } as const;
+
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -72674,6 +72691,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /** Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
+      /**
+         * The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.
+         * @nullable
+         */
+      readonly suppression_explanation: string | null;
       /**
          * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
          * @nullable
@@ -73092,8 +73116,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `all` - all
-     * * `label` - label
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests
      */
     export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
 
@@ -73117,8 +73141,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -82950,7 +82974,7 @@ export namespace Schemas {
       readonly id: string;
       /** The project member on the list. */
       readonly user: UserBasic;
-      /** Which list: 'listed' (gets Flash when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
+      /** Which list: 'listed' (gets automatic reviews when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
        *
        * * `listed` - Listed
        * * `excepted` - Excepted */
@@ -82975,7 +82999,7 @@ export namespace Schemas {
       installation_id: string;
       /** The GitHub account (organization or user) of the installation. */
       account_name: string;
-      /** Who connected the installation to this project. Automatic Flash reviews of bot pull requests run as this user. */
+      /** Who connected the installation to this project. Automatic Standard reviews of bot pull requests run as this user. */
       connected_by: UserBasic | null;
       /**
          * Id of this project's claim. Null when the project reviews nothing there.
@@ -82992,24 +83016,24 @@ export namespace Schemas {
     }
 
     export interface PatchedReviewProjectSettings {
-      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+      /** Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
        *
        * * `everyone` - Automatic Flash for everyone
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum;
-      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).
        *
        * * `skip` - Not reviewed
        * * `run` - Automatic Flash */
       bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
-      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+      /** Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      /** Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins. */
       celebrate_clean_reviews?: boolean;
       /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
       readonly people?: readonly ReviewRepositoryPerson[];
@@ -83091,32 +83115,32 @@ export namespace Schemas {
     }
 
     export interface ReviewProjectDefaults {
-      /** The project's default for the minimum priority a Full review publishes.
+      /** The project's default for the minimum priority a Deep review publishes.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold: UrgencyThresholdEnum;
-      /** The project's default for the image in a Full review that finds nothing to raise. */
+      /** The project's default for the image in a Deep review that finds nothing to raise. */
       celebrate_clean_reviews: boolean;
     }
 
     export interface PatchedReviewUserSettings {
-      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
        *
-       * * `follow` - Follow each repository
-       * * `flash` - Flash everywhere
+       * * `follow` - Let each repository decide
+       * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
-      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+      /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
@@ -83124,7 +83148,7 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources?: ReviewPreferenceSources;
-      /** The project defaults the Full review preferences fall back to. */
+      /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults?: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
@@ -83545,6 +83569,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes
+     */
+    export type ToolPresetEnum = typeof ToolPresetEnum[keyof typeof ToolPresetEnum];
+
+
+    export const ToolPresetEnum = {
+      ReadOnly: 'read_only',
+      SupportNotes: 'support_notes',
+    } as const;
+
+    /**
      * Editable display name, schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
@@ -83615,6 +83651,16 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
     }
 
     /**
@@ -83658,8 +83704,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -93869,6 +93915,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /** Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
+      /**
+         * The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.
+         * @nullable
+         */
+      readonly suppression_explanation: string | null;
       /**
          * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
          * @nullable
@@ -94532,6 +94585,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `run_mode_excludes_resolve` - The run mode never resolves comments
+     * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `already_reviewed` - No run starts, because the head already has a review in this mode
+     */
+    export type ResolveSkipReasonEnum = typeof ResolveSkipReasonEnum[keyof typeof ResolveSkipReasonEnum];
+
+
+    export const ResolveSkipReasonEnum = {
+      RunModeExcludesResolve: 'run_mode_excludes_resolve',
+      OwnerNotOptedIn: 'owner_not_opted_in',
+      AlreadyReviewed: 'already_reviewed',
+    } as const;
+
+    /**
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
      * * `return_after_first_use` - Return After First Use
@@ -95135,6 +95202,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `full` - Deep
+     * * `flash` - Standard
+     */
+    export type ReviewTriggerReviewModeEnum = typeof ReviewTriggerReviewModeEnum[keyof typeof ReviewTriggerReviewModeEnum];
+
+
+    export const ReviewTriggerReviewModeEnum = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    /**
      * * `fetching` - fetching
      * * `chunking` - chunking
      * * `selecting` - selecting
@@ -95163,7 +95242,7 @@ export namespace Schemas {
     } as const;
 
     export interface ReviewProgress {
-      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Flash turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
+      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Standard turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
        *
        * * `fetching` - fetching
        * * `chunking` - chunking
@@ -95204,6 +95283,44 @@ export namespace Schemas {
       needs_attention: number;
     }
 
+    /**
+     * * `resolving` - Resolving
+     * * `stopped` - Stopped
+     * * `completed` - Completed
+     */
+    export type ReviewLatestResolutionStatusEnum = typeof ReviewLatestResolutionStatusEnum[keyof typeof ReviewLatestResolutionStatusEnum];
+
+
+    export const ReviewLatestResolutionStatusEnum = {
+      Resolving: 'resolving',
+      Stopped: 'stopped',
+      Completed: 'completed',
+    } as const;
+
+    export interface ReviewLatestResolution {
+      /** Where the run stands: 'resolving' while threads are being settled, 'completed' when it finished, 'stopped' when it died partway or a newer review turn replaced it.
+       *
+       * * `resolving` - Resolving
+       * * `stopped` - Stopped
+       * * `completed` - Completed */
+      status: ReviewLatestResolutionStatusEnum;
+      /** When the run queued its threads. */
+      started_at: string;
+      /**
+         * When the run finished; null unless the status is 'completed'.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Threads queued for this run. */
+      total: number;
+      /** Threads the run fixed with a commit to the branch. */
+      fixed: number;
+      /** Threads left for the author: judged worth doing but not safe to fix unattended. */
+      needs_attention: number;
+      /** SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request branch that touch no protected files; the replies on GitHub link the same commits. */
+      commits: string[];
+    }
+
     export interface ReviewSelectionChunk {
       /** The chunk this row describes, as numbered by the chunker. */
       chunk_id: number;
@@ -95229,6 +95346,16 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
+
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -95242,16 +95369,6 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
-
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
 
     /**
      * * `bug` - bug
@@ -95369,9 +95486,21 @@ export namespace Schemas {
          * @nullable
          */
       last_run_at: string | null;
-      /** Whether a review has been published back to GitHub. */
+      /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
       published: boolean;
-      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+      turn_published: boolean;
+      /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+         * @nullable
+         */
+      status_comment_url: string | null;
+      /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
@@ -95379,6 +95508,8 @@ export namespace Schemas {
       progress: ReviewProgress | null;
       /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
       resolution: ReviewResolutionStatus | null;
+      /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+      latest_resolution: ReviewLatestResolution | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -95414,24 +95545,29 @@ export namespace Schemas {
          * @nullable
          */
       blind_spot_issue_count: number | null;
+      /** The review turn this detail describes, from 1 to `run_count`. */
+      run_index: number;
       /**
-         * The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.
+         * The PR head commit the returned turn reviewed. Anchors GitHub links to the exact code. Null for an older turn whose head was not recorded.
          * @nullable
          */
       head_sha: string | null;
       /** The selector's per-chunk perspective plan for the latest turn; null when the turn ran without a selection (selector unavailable, failed, or the run predates it). */
       perspective_selection: ReviewPerspectiveSelection | null;
-      /** The rendered review body published to GitHub, as markdown. */
-      report_markdown: string;
-      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+      /**
+         * The rendered review body published to GitHub, as markdown. Only kept for the latest turn, so null when `run_index` selects an older turn.
+         * @nullable
+         */
+      report_markdown: string | null;
+      /** The urgency threshold the returned turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
        *
-       * * `must_fix` - must_fix
-       * * `should_fix` - should_fix
-       * * `consider` - consider */
-      run_urgency_threshold: ReviewIssuePriorityEnum | null;
-      /** The latest turn's validated findings, most urgent first. */
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      run_urgency_threshold: UrgencyThresholdEnum | null;
+      /** The returned turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
-      /** The latest turn's findings the validator dismissed, with its reasoning. */
+      /** The returned turn's findings the validator dismissed, with its reasoning. */
       dismissed_findings: ReviewFinding[];
     }
 
@@ -95473,6 +95609,132 @@ export namespace Schemas {
       scope: ReviewInstallationClaimScopeEnum;
     }
 
+    /**
+     * * `not_reviewed` - Not reviewed
+     * * `queued` - Queued
+     * * `reviewing` - Reviewing
+     * * `resolving` - Resolving
+     * * `idle` - Idle
+     * * `unknown` - Unknown
+     */
+    export type ReviewPRStateEnum = typeof ReviewPRStateEnum[keyof typeof ReviewPRStateEnum];
+
+
+    export const ReviewPRStateEnum = {
+      NotReviewed: 'not_reviewed',
+      Queued: 'queued',
+      Reviewing: 'reviewing',
+      Resolving: 'resolving',
+      Idle: 'idle',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ReviewPRStatusLatestReview {
+      /** The review's id, for `review-hog-reviews-get`. */
+      id: string;
+      /** What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * The PR head commit the turn reviewed.
+         * @nullable
+         */
+      head_sha: string | null;
+      /** The turn's index, for `review-hog-reviews-get`. */
+      run_index: number;
+      /**
+         * When the turn completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** The turn's valid findings at must_fix priority. */
+      must_fix_count: number;
+      /** The turn's valid findings at should_fix priority. */
+      should_fix_count: number;
+      /** The turn's valid findings at consider priority. */
+      consider_count: number;
+      /** Whether the turn was published to GitHub. */
+      turn_published: boolean;
+      /**
+         * Link to the review's status comment on the pull request; null when there is none.
+         * @nullable
+         */
+      status_comment_url: string | null;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     */
+    export type ReviewRequestOutcomeStatusEnum = typeof ReviewRequestOutcomeStatusEnum[keyof typeof ReviewRequestOutcomeStatusEnum];
+
+
+    export const ReviewRequestOutcomeStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Skipped: 'skipped',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ReviewPRStatusRequestOutcome {
+      /** How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `skipped` - Skipped
+       * * `failed` - Failed
+       * * `unknown` - Unknown */
+      status: ReviewRequestOutcomeStatusEnum;
+      /**
+         * Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), 'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as 'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * The review to read with `review-hog-reviews-get`; null before the PR has one.
+         * @nullable
+         */
+      review_id: string | null;
+      /**
+         * The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.
+         * @nullable
+         */
+      run_index: number | null;
+    }
+
+    export interface ReviewPRStatus {
+      /** The pull request's repository as 'owner/repo'. */
+      repository: string;
+      /** The pull request number. */
+      pr_number: number;
+      /**
+         * The PR's review id, for `review-hog-reviews-get`; null before its first run.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' (a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).
+       *
+       * * `not_reviewed` - Not reviewed
+       * * `queued` - Queued
+       * * `reviewing` - Reviewing
+       * * `resolving` - Resolving
+       * * `idle` - Idle
+       * * `unknown` - Unknown */
+      state: ReviewPRStateEnum;
+      /** The latest completed review turn; null before the first one completes. */
+      latest_review: ReviewPRStatusLatestReview | null;
+      /** The latest Resolve run, finished ones too; null when no Resolve run has queued threads. */
+      latest_resolution: ReviewLatestResolution | null;
+      /** How the request at `requested_at` ended; null without `requested_at`. */
+      request_outcome: ReviewPRStatusRequestOutcome | null;
+    }
+
     export interface ReviewPerspectiveConfig {
       /** Name of the `review-hog-perspective-*` skill this row toggles (the perspective's identity). */
       skill_name: string;
@@ -95503,24 +95765,24 @@ export namespace Schemas {
     }
 
     export interface ReviewProjectSettings {
-      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+      /** Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
        *
        * * `everyone` - Automatic Flash for everyone
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum;
-      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).
        *
        * * `skip` - Not reviewed
        * * `run` - Automatic Flash */
       bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
-      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+      /** Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      /** Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins. */
       celebrate_clean_reviews?: boolean;
       /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
@@ -95594,9 +95856,21 @@ export namespace Schemas {
          * @nullable
          */
       last_run_at: string | null;
-      /** Whether a review has been published back to GitHub. */
+      /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
       published: boolean;
-      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+      turn_published: boolean;
+      /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+         * @nullable
+         */
+      status_comment_url: string | null;
+      /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
@@ -95604,6 +95878,8 @@ export namespace Schemas {
       progress: ReviewProgress | null;
       /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
       resolution: ReviewResolutionStatus | null;
+      /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+      latest_resolution: ReviewLatestResolution | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -95789,6 +96065,8 @@ export namespace Schemas {
       my_result: AutomaticReviewDecision;
       /** What the requesting user's own pull requests would get here without their choice for this repository. Equals my_result when there is no choice. */
       inherited_result: AutomaticReviewDecision;
+      /** What the requesting user's own pull requests would get here from the repository exception or the project rule alone, without their default and their choice for this repository. */
+      repository_result: AutomaticReviewDecision;
     }
 
     export interface ReviewRepositoryOverview {
@@ -95810,6 +96088,8 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
+      /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
+      my_choices_unlike_default: number;
     }
 
     export interface ReviewRepositoryPersonRequest {
@@ -95869,9 +96149,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `flash_after_full` - Flash after a published Full review
+     * * `flash_after_full` - Standard after a published Deep review
      * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
-     * * `internal_feature` - Not available in this project
      */
     export type ReviewRequestRefusalEnum = typeof ReviewRequestRefusalEnum[keyof typeof ReviewRequestRefusalEnum];
 
@@ -95879,7 +96158,6 @@ export namespace Schemas {
     export const ReviewRequestRefusalEnum = {
       FlashAfterFull: 'flash_after_full',
       ResolutionNotOptedIn: 'resolution_not_opted_in',
-      InternalFeature: 'internal_feature',
     } as const;
 
     /**
@@ -95913,11 +96191,10 @@ export namespace Schemas {
     export interface ReviewTriggerError {
       /** Human-readable explanation of why the trigger was rejected. */
       error: string;
-      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments), 'internal_feature' (the run mode is not available in this project). Absent for other errors.
+      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments). Absent for other errors.
        *
-       * * `flash_after_full` - Flash after a published Full review
-       * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
-       * * `internal_feature` - Not available in this project */
+       * * `flash_after_full` - Standard after a published Deep review
+       * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution */
       code?: ReviewRequestRefusalEnum;
     }
 
@@ -95925,7 +96202,7 @@ export namespace Schemas {
      * * `review` - Review
      * * `review_only` - Review only
      * * `resolve_only` - Resolve only
-     * * `flash` - Flash
+     * * `flash` - Standard
      */
     export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
@@ -95940,38 +96217,67 @@ export namespace Schemas {
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
-      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
+      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
        *
        * * `review` - Review
        * * `review_only` - Review only
        * * `resolve_only` - Resolve only
-       * * `flash` - Flash */
+       * * `flash` - Standard */
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Full review waits for an active Flash review. */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already running and the request was queued on that pull request's run, to start after the running turn. A requested Deep review waits for an active Standard review. */
       status: string;
+      /** The pull request's repository as 'owner/repo'. */
+      repository: string;
+      /** The pull request number. */
+      pr_number: number;
+      /**
+         * The pull request's head commit when the request was accepted.
+         * @nullable
+         */
+      head_sha: string | null;
+      /** The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', which runs no review.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull request's first run, which creates the review later.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Server time when the request was accepted. */
+      requested_at: string;
+      /** Whether this request plans to run the resolution stage, which can push fix commits to the pull request. It is the plan at request time: a request queued behind a running turn on the same head can be skipped as already published. `review-hog-reviews-pr-status` reports what actually ran. */
+      resolve_will_run: boolean;
+      /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
+       *
+       * * `run_mode_excludes_resolve` - The run mode never resolves comments
+       * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+       * * `already_reviewed` - No run starts, because the head already has a review in this mode */
+      resolve_skip_reason: ResolveSkipReasonEnum | null;
     }
 
     export interface ReviewUserSettings {
-      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
        *
-       * * `follow` - Follow each repository
-       * * `flash` - Flash everywhere
+       * * `follow` - Let each repository decide
+       * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
-      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+      /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
        *
        * * `consider` - Consider (all)
        * * `should_fix` - Should fix
        * * `must_fix` - Must fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
@@ -95979,7 +96285,7 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources: ReviewPreferenceSources;
-      /** The project defaults the Full review preferences fall back to. */
+      /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
@@ -96652,6 +96958,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -96907,6 +97223,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       readonly write_scopes: readonly string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      readonly allowed_mcp_tools: readonly string[] | null;
+      /**
+         * Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.
+         * @nullable
+         */
+      readonly tool_preset: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -97973,12 +98299,23 @@ export namespace Schemas {
       feature_entitlement: string | null;
     }
 
+    export interface ScoutToolPreset {
+      /** Preset identifier accepted when saving a scout config. */
+      name: string;
+      /** Human-readable preset name. */
+      label: string;
+      /** Exact tool names expanded on save. A preset with non-holdable tools cannot be saved. */
+      tools: string[];
+    }
+
     /**
      * The MCP tool catalogue, with the scout scope postures to read it against.
      */
     export interface ScoutToolCatalogue {
       /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
       tools: ScoutToolCatalogueEntry[];
+      /** Tool selections expanded and validated on save. */
+      tool_presets: ScoutToolPreset[];
       /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
       presets: ScoutScopePreset[];
       /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
@@ -99445,6 +99782,17 @@ export namespace Schemas {
       readonly reports: readonly SignalReportMetricSnapshots[];
     }
 
+    export interface SignalReportPriorityUpdate {
+      /** New report priority, from P0 (critical) to P4 (minimal).
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum;
+    }
+
     export interface SignalReportRefundRequest {
       /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
        *
@@ -99760,6 +100108,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -105472,8 +105830,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -122308,6 +122666,14 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Inclusive UTC instant. Supply with timestamp_to to override date bounds.
+     */
+    timestamp_from?: string;
+    /**
+     * Exclusive UTC instant. Supply with timestamp_from to override date bounds.
+     */
+    timestamp_to?: string;
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -122394,6 +122760,14 @@ export namespace Schemas {
      * @minLength 1
      */
     points: string;
+    /**
+     * Inclusive UTC instant. Supply with timestamp_to to override date bounds.
+     */
+    timestamp_from?: string;
+    /**
+     * Exclusive UTC instant. Supply with timestamp_from to override date bounds.
+     */
+    timestamp_to?: string;
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
@@ -126223,12 +126597,20 @@ export namespace Schemas {
       Everyone: 'everyone',
     } as const;
 
+    export type ReviewHogReviewsRetrieveParams = {
+    /**
+     * The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings.
+     */
+    run_index?: number;
+    };
+
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
      *
-     * * `mine` - mine
-     * * `everyone` - everyone
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * * `own_deep` - Own Deep reviews
      * @minLength 1
      */
     scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope;
@@ -126240,6 +126622,44 @@ export namespace Schemas {
     export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
       Mine: 'mine',
       Everyone: 'everyone',
+      OwnDeep: 'own_deep',
+    } as const;
+
+    export type ReviewHogReviewsPrStatusRetrieveParams = {
+    /**
+     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
+     * @minLength 1
+     */
+    head_sha?: string;
+    /**
+     * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
+     * @minLength 1
+     */
+    pr_url: string;
+    /**
+     * The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.
+     */
+    requested_at?: string;
+    /**
+     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
+     *
+     * * `review` - Review
+     * * `review_only` - Review only
+     * * `resolve_only` - Resolve only
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    run_mode?: ReviewHogReviewsPrStatusRetrieveRunMode;
+    };
+
+    export type ReviewHogReviewsPrStatusRetrieveRunMode = typeof ReviewHogReviewsPrStatusRetrieveRunMode[keyof typeof ReviewHogReviewsPrStatusRetrieveRunMode];
+
+
+    export const ReviewHogReviewsPrStatusRetrieveRunMode = {
+      Review: 'review',
+      ReviewOnly: 'review_only',
+      ResolveOnly: 'resolve_only',
+      Flash: 'flash',
     } as const;
 
     export type SandboxCustomImagesListParams = {
@@ -126363,6 +126783,8 @@ export namespace Schemas {
     /**
      * * `insight` - insight
      * * `dashboard` - dashboard
+     * * `data_warehouse_view` - data_warehouse_view
+     * * `endpoint` - endpoint
      * * `experiment` - experiment
      * * `feature_flag` - feature_flag
      * * `notebook` - notebook
@@ -126380,6 +126802,8 @@ export namespace Schemas {
     export const SearchListEntitiesItem = {
       Insight: 'insight',
       Dashboard: 'dashboard',
+      DataWarehouseView: 'data_warehouse_view',
+      Endpoint: 'endpoint',
       Experiment: 'experiment',
       FeatureFlag: 'feature_flag',
       Notebook: 'notebook',
@@ -126484,7 +126908,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
      */
     ordering?: string;
     /**
@@ -126548,7 +126972,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
+     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string;
     };

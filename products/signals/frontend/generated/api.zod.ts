@@ -283,6 +283,19 @@ export const SignalsReportPrReviewCommentReactionsCreateBody = /* @__PURE__ */ z
     .describe('Request body for adding an emoji reaction to a review comment.')
 
 /**
+ * Append an attributed priority correction, preserving the previous judgment for future learning.
+ * @summary Change a report's priority
+ */
+export const SignalsReportsPriorityUpdateBody = /* @__PURE__ */ zod.object({
+    priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
+        .describe(
+            'New report priority, from P0 (critical) to P4 (minimal).\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
+})
+
+/**
  * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
  * @summary Refund a report's implementation PR
  */
@@ -817,6 +830,19 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
+                allowed_mcp_tools: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+                    ),
+                tool_preset: zod
+                    .enum(['read_only', 'support_notes'])
+                    .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+                    .optional()
+                    .describe(
+                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
+                    ),
                 enabled: zod
                     .boolean()
                     .optional()
@@ -1047,6 +1073,19 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
+        allowed_mcp_tools: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+            ),
+        tool_preset: zod
+            .enum(['read_only', 'support_notes'])
+            .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+            .optional()
+            .describe(
+                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1353,6 +1392,19 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored."
+            ),
+        allowed_mcp_tools: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+            ),
+        tool_preset: zod
+            .enum(['read_only', 'support_notes'])
+            .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+            .optional()
+            .describe(
+                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')

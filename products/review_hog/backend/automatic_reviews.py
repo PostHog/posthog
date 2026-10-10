@@ -8,7 +8,6 @@ from posthog.models.integration import Integration
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
@@ -19,7 +18,6 @@ _otel = OtelInstrumentFactory("review_hog")
 
 AuthoredPRReviewOutcome = Literal[
     "repository_not_added",
-    "internal_features_off",
     "installation_mismatch",
     "bot_skipped",
     "bot_no_connector",
@@ -75,8 +73,6 @@ def plan_automatic_review(
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
-    if not has_internal_features(team_id):
-        return AutomaticDispatch(outcome="internal_features_off", team_id=team_id)
     has_integration = Integration.objects.filter(
         team_id=team_id, kind="github", integration_id=owner.installation_id
     ).exists()

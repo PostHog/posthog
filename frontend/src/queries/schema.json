@@ -27985,14 +27985,14 @@
                     "type": "array"
                 },
                 "searchKeywords": {
-                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
+                    "description": "Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
                 "searchTabs": {
-                    "description": "Tabs of this item that search lists as their own results",
+                    "description": "Tabs with their own URL that search lists as separate rows, below products and people",
                     "items": {
                         "$ref": "#/definitions/FileSystemSearchTab"
                     },
@@ -29966,6 +29966,10 @@
                 },
                 "start": {
                     "$ref": "#/definitions/integer"
+                },
+                "url": {
+                    "description": "An https page with more detail about the notice. The editor links to it from the notice's hover.",
+                    "type": "string"
                 }
             },
             "required": ["message"],

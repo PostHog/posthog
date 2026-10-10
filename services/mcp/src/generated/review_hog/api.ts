@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,7 +43,7 @@ export const ReviewHogReviewsListQueryParams = () => zod.object({
 })
 
 /**
- * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const ReviewHogReviewsRetrieveParams = () => zod.object({
@@ -55,8 +55,57 @@ export const ReviewHogReviewsRetrieveParams = () => zod.object({
         ),
 })
 
+export const ReviewHogReviewsRetrieveQueryParams = () => zod.object({
+    run_index: zod
+        .number()
+        .optional()
+        .describe(
+            "The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings."
+        ),
+})
+
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Flash review that never resolves comments and is refused after a published Full review. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
+ * @summary Look up a pull request's review status
+ */
+export const ReviewHogReviewsPrStatusRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const reviewHogReviewsPrStatusRetrieveQueryRunModeDefault = `review`
+
+export const ReviewHogReviewsPrStatusRetrieveQueryParams = () => zod.object({
+    head_sha: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.'
+        ),
+    pr_url: zod
+        .string()
+        .min(1)
+        .describe("GitHub pull request URL to look up, e.g. 'https:\/\/github.com\/PostHog\/posthog\/pull\/123'."),
+    requested_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.'
+        ),
+    run_mode: zod
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
+        .default(reviewHogReviewsPrStatusRetrieveQueryRunModeDefault)
+        .describe(
+            "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
+        ),
+})
+
+/**
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const ReviewHogReviewsTriggerCreateParams = () => zod.object({
@@ -78,10 +127,10 @@ export const ReviewHogReviewsTriggerCreateBody = () => zod.object({
     run_mode: zod
         .enum(['review', 'review_only', 'resolve_only', 'flash'])
         .describe(
-            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Flash'
+            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
         )
         .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Flash"
+            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })

@@ -24,6 +24,7 @@ import type {
     PatchedReviewProjectSettingsApi,
     PatchedReviewUserSettingsApi,
     ReviewInstallationClaimScopeEnumApi,
+    ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
     ReviewRecentReviewApi,
@@ -33,6 +34,7 @@ import type {
     ReviewRepositoryPersonRequestApi,
     ReviewRepositoryWriteApi,
     ReviewUserSettingsApi,
+    ReviewValidatorConfigApi,
     UserBasicApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
@@ -75,10 +77,14 @@ function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecen
         run_count: 1,
         last_run_at: '2026-09-30T10:00:00Z',
         published: true,
+        turn_published: true,
+        review_mode: 'full',
+        status_comment_url: null,
         full_review_published: true,
         in_progress: false,
         progress: null,
         resolution: null,
+        latest_resolution: null,
         must_fix_count: 1,
         should_fix_count: 2,
         consider_count: 1,
@@ -130,6 +136,31 @@ const perspectiveStats: ReviewPerspectiveStatsApi = {
         { skill_name: 'review-hog-perspective-performance-reliability', raised: 3, kept: 1, dismissed: 2 },
         { skill_name: 'review-hog-blind-spots-general', raised: 2, kept: 1, dismissed: 1 },
     ],
+}
+
+const perspectives: ReviewPerspectiveConfigApi[] = [
+    {
+        skill_name: 'review-hog-perspective-logic-correctness',
+        enabled: true,
+        description: 'Wrong results, broken edge cases, missed branches.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-performance-reliability',
+        enabled: true,
+        description: 'Slow queries, retries, timeouts, unbounded work.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-contracts-security',
+        enabled: false,
+        description: 'Tenant leaks, injection, secrets, auth gaps.',
+        body: '',
+    },
+]
+
+function singleSkill(skill_name: string, description: string, active: boolean): ReviewValidatorConfigApi {
+    return { skill_name, description, active, body: '' }
 }
 
 const ADA: UserBasicType = {
@@ -255,12 +286,12 @@ function inProject(name: string): boolean {
 }
 
 /** A story-sized copy of the backend resolver, so the panes answer like the real API after each change. */
-function inherited(name: string): AutomaticReviewDecisionApi {
+function inherited(name: string, { withDefault = true }: { withDefault?: boolean } = {}): AutomaticReviewDecisionApi {
     if (!inProject(name)) {
         return { flash: false, reason: 'not_in_project' }
     }
     const defaultMode = storyState.settings.default_review_mode ?? 'follow'
-    if (defaultMode !== 'follow') {
+    if (withDefault && defaultMode !== 'follow') {
         return { flash: defaultMode === 'flash', reason: 'own_default' }
     }
     const row = storyState.rows[name]
@@ -301,7 +332,14 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
         inherited_result: base,
+        repository_result: inherited(name, { withDefault: false }),
     }
+}
+
+function choicesUnlikeDefault(): number {
+    const defaultMode = storyState.settings.default_review_mode ?? 'follow'
+    return Object.values(storyState.choices).filter((choice) => defaultMode === 'follow' || choice.mode !== defaultMode)
+        .length
 }
 
 function saveRepository(write: ReviewRepositoryWriteApi): void {
@@ -345,7 +383,6 @@ const meta: Meta<typeof CodeReviewScene> = {
     beforeEach: ({ parameters }) => {
         storyState.settings = {
             ...defaultSettings,
-            stamphog_connected: parameters.showInternalFeatures ?? false,
             ...parameters.savedSettings,
         }
         storyState.project = projectSettings(parameters.claimScope ?? 'all', parameters.canEdit ?? true)
@@ -407,6 +444,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]
                     },
@@ -418,10 +456,33 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                     '/api/projects/:team_id/review_hog/reviews/': { results: recentReviews, has_more: false },
                     '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
-                    '/api/projects/:team_id/review_hog/perspectives/': [],
-                    '/api/projects/:team_id/review_hog/blind_spots/': [],
-                    '/api/projects/:team_id/review_hog/validators/': [],
-                    '/api/projects/:team_id/review_hog/resolution/': [],
+                    '/api/projects/:team_id/review_hog/perspectives/': perspectives,
+                    '/api/projects/:team_id/review_hog/blind_spots/': [
+                        singleSkill(
+                            'review-hog-blind-spots-general',
+                            'One more pass over each chunk for what every perspective missed.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/validators/': [
+                        singleSkill(
+                            'review-hog-validation-default',
+                            'Drops speculative, noisy and low-value findings before they reach the PR.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/resolution/': [
+                        singleSkill(
+                            'review-hog-resolution-default',
+                            'Fixes what is worth it and safe, and replies to every thread.',
+                            true
+                        ),
+                        singleSkill(
+                            'review-hog-resolution-small-fixes',
+                            'Fixes only small, local changes and leaves bigger ones as replies.',
+                            false
+                        ),
+                    ],
                 },
                 post: {
                     '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
@@ -536,7 +597,8 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Full review settings')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
+        await expect(canvas.getByText('How we review your PRs')).toBeVisible()
     },
 }
 
@@ -550,38 +612,31 @@ export const Settings: Story = {
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
-        await expect(canvas.getByText('Full review settings')).toBeVisible()
+        await expect(canvas.getByText('Review skills')).toBeVisible()
+        await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
-        await expect(
-            canvas.queryByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },
 }
 
 export const SettingsForMember: Story = {
-    parameters: { tab: 'settings', canEdit: false, claimScope: 'selected' },
+    parameters: {
+        tab: 'settings',
+        canEdit: false,
+        claimScope: 'selected',
+        savedSettings: { default_review_mode: 'flash' },
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Project admins edit')).toBeVisible()
+        await expect(
+            await canvas.findByText(
+                'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
+            )
+        ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
-    },
-}
-
-export const InternalFeatures: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
-        savedSettings: { stamphog_connected: true },
-        tab: 'settings',
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(
-            await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).toBeVisible()
-        await expect(canvas.getByLabelText('Let Stamphog review my Inbox PRs')).toBeVisible()
     },
 }
 
@@ -589,9 +644,12 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxSwitch = await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
+        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
+        // The Inbox section renders before the settings load and can re-render with new nodes,
+        // so query again on every attempt until the saved values arrive.
+        await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
+        const inboxSwitch = canvas.getByLabelText(inboxLabel)
         const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
-        await expect(inboxSwitch).toBeChecked()
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()

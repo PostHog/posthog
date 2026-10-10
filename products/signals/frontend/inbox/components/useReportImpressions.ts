@@ -40,6 +40,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
         'needs-decision': useSectionImpressionState('needs-decision'),
         resolved: useSectionImpressionState('resolved'),
         dismissed: useSectionImpressionState('dismissed'),
+        'held-back': useSectionImpressionState('held-back'),
         'not-actionable': useSectionImpressionState('not-actionable'),
     }
     // The list stays mounted (hidden) while a report/scout detail is open, so gate impressions on the

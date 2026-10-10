@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -13,18 +12,17 @@ from products.review_hog.backend.models import (
     ReviewRepository,
     ReviewUserSettings,
 )
+from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 
 class TestResolveActingUser(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "OctoCat"})
-        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
 
     @parameterized.expand(
         [
@@ -144,6 +142,42 @@ class TestResolveActingUser(BaseTest):
         assert result.review_authored_prs is eligible
         report.refresh_from_db()
         assert report.status == (ReviewReport.Status.ACTIVE if eligible else ReviewReport.Status.IDLE)
+
+    @parameterized.expand(
+        [
+            ("flash_after_full", "flash", True, False),
+            ("flash_without_full", "flash", False, True),
+            ("full_after_full", "full", True, True),
+        ]
+    )
+    def test_queued_request_rechecks_flash_after_full(
+        self, _name: str, review_mode: str, full_published: bool, runs: bool
+    ) -> None:
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            pr_number=7,
+            pr_url="https://github.com/PostHog/posthog/pull/7",
+            head_branch="feat",
+            base_branch="main",
+            published_heads_by_mode={"full": "a" * 40} if full_published else None,
+        )
+        result = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=None,
+                trigger_source=TRIGGER_MANUAL,
+                report_id=str(report.id),
+                review_mode=review_mode,
+            )
+        )
+        assert result.acting_user_id == (self.user.id if runs else None)
+        report.refresh_from_db()
+        assert report.status == (ReviewReport.Status.ACTIVE if runs else ReviewReport.Status.IDLE)
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        expected = [] if runs else [("skipped", "flash_after_full", 1, "flash")]
+        assert [(m.outcome, m.reason, m.run_index, m.review_mode) for m in markers] == expected
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved preferences must reach the workflow — if resolve stops loading any of them,
@@ -288,10 +322,9 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("owner_opted_in_and_a_teammate_asks", "teammate", True, False, True, True),
-            ("requester_opted_in_but_the_owner_did_not", "teammate", False, True, True, False),
-            ("internal_flag_off", "teammate", True, False, False, False),
-            ("no_owner", "ghost", False, True, True, False),
+            ("owner_opted_in_and_a_teammate_asks", "teammate", True, False, True),
+            ("requester_opted_in_but_the_owner_did_not", "teammate", False, True, False),
+            ("no_owner", "ghost", False, True, False),
         ]
     )
     def test_resolution_follows_the_pr_owners_opt_in(
@@ -300,7 +333,6 @@ class TestResolveActingUser(BaseTest):
         author_login: str,
         owner_opted_in: bool,
         requester_opted_in: bool,
-        internal: bool,
         expected: bool,
     ) -> None:
         teammate = self._create_user("teammate@posthog.com")
@@ -309,8 +341,6 @@ class TestResolveActingUser(BaseTest):
             ReviewUserSettings.objects.for_team(self.team.id).create(
                 team_id=self.team.id, user_id=user.id, preferences={"resolve_comments": opted_in}
             )
-        self.internal_flag.return_value = internal
-
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login=author_login, override_user_id=self.user.id)
         )

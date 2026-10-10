@@ -145,7 +145,7 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request'
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request' | 'no_check_lane'
 }
 
 export interface TitleChangeContent {

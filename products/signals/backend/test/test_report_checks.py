@@ -115,6 +115,11 @@ _ASYNC_CONNECT = "products.signals.backend.facade.api.async_connect"
 _PAGEVIEWS = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}])
 
 
+def _seed_check_lane(team: Team) -> None:
+    LLMSkill.objects.get_or_create(team=team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
+    SignalScoutConfig.objects.get_or_create(team=team, skill_name=FALLBACK_CHECK_SKILL_NAME)
+
+
 def _threshold_config(**overrides: object) -> dict:
     return {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 10}, **overrides}
 
@@ -1374,6 +1379,7 @@ class TestReportCheckAPI(APIBaseTest):
         assert hidden["explanation"] == CHECK_RESULT_HIDDEN_EXPLANATION
 
     def test_an_agent_checks_verdict_is_readable_because_a_run_wrote_it(self) -> None:
+        _seed_check_lane(self.team)
         # The metric-access policy judges a stored query, which an agent check does not carry, so
         # gating its verdict on that policy would hide every agent result from every reader.
         check = self._create(
@@ -1550,12 +1556,12 @@ class TestAgentCheckDispatch(APIBaseTest):
                 },
                 None,
             ),
-            ("missing_lane", None, "has no"),
+            ("missing_skill_row", None, "has no"),
         ]
     )
     def test_a_lane_that_cannot_run_records_a_visible_errored_result(self, _name, config_state, expected) -> None:
         if config_state is None:
-            self.scout_config.delete()
+            LLMSkill.objects.filter(team=self.team, name=FALLBACK_CHECK_SKILL_NAME).delete()
         else:
             for field, value in config_state.items():
                 setattr(self.scout_config, field, value)
@@ -1580,6 +1586,23 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert expected in results[0].content
         check.refresh_from_db()
         assert check.consecutive_errors == 1
+
+    def test_a_check_on_a_project_with_no_scouts_is_cancelled_not_errored(self) -> None:
+        self.scout_config.delete()
+        check = self._check()
+
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            summary = run_due_report_checks()
+
+        assert (summary.cancelled, summary.errored) == (1, 0)
+        dispatch.assert_not_called()
+        assert self._results() == []
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.CANCELLED
+        cancelled = SignalReportArtefact.objects.get(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_CANCELLED
+        )
+        assert '"reason":"no_check_lane"' in cancelled.content
 
     def test_a_check_on_a_retired_scout_runs_on_the_follow_up_scout(self) -> None:
         # Retiring a scout must not turn every open check bound to it into an errored result on a
@@ -2049,6 +2072,7 @@ class TestPendingChecks(APIBaseTest):
         assert check.next_run_at == armed_at
 
     def test_longer_soak_and_agent_timing_are_preserved(self) -> None:
+        _seed_check_lane(self.team)
         metric = create_check(
             report=self.report,
             title="Short metric",
@@ -2352,7 +2376,28 @@ class TestScoutCheckTools(APIBaseTest):
 
         assert [summary.check_id for summary in listed] == [written.check_id]
 
+    @parameterized.expand(
+        [
+            ("no_skill_row", None, False),
+            ("paused_lane", {"enabled": False, "status": SignalScoutConfig.Status.PAUSED_BY_USER}, True),
+        ]
+    )
+    def test_an_agent_check_is_written_only_when_a_lane_can_run_it(
+        self, _name: str, config_state: dict | None, writable: bool
+    ) -> None:
+        # The run's own config exists either way. Without a live skill row the lane cannot run.
+        if config_state is not None:
+            _seed_check_lane(self.team)
+            SignalScoutConfig.objects.filter(id=self.scout_config.id).update(**config_state)
+
+        if writable:
+            assert self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read it."}).check_id
+        else:
+            with self.assertRaisesMessage(InvalidCheckWriteError, "Use a metric check"):
+                self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read it."})
+
     def test_cancelling_stops_the_check_and_refuses_a_second_cancel(self) -> None:
+        _seed_check_lane(self.team)
         written = self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read the issue."})
         SignalReportCheck.objects.for_team(self.team.id).filter(id=written.check_id).update(
             status=SignalReportCheck.Status.ACTIVE, dispatched_at=timezone.now() - timedelta(days=30)
@@ -2432,6 +2477,27 @@ class TestResearchAuthoredChecks(APIBaseTest):
         assert capture.call_args.kwargs["event"] == "signals_report_check_created"
         assert capture.call_args.kwargs["properties"]["check_status"] == SignalReportCheck.Status.PENDING
 
+    @parameterized.expand([("no_lane", False), ("lane", True)])
+    def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(self, _name: str, has_lane: bool) -> None:
+        if has_lane:
+            _seed_check_lane(self.team)
+        agent_spec = self._spec(title="The exception stops", kind="agent", config={"instructions": "Re-read it."})
+
+        with patch(_CAPTURE) as capture:
+            written = create_checks_from_specs(
+                report=self.report, specs=[self._spec(), agent_spec], attribution=ArtefactAttribution.system()
+            ).created
+
+        kinds = sorted(check.kind for check in written)
+        skipped = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_check_skipped"]
+        if has_lane:
+            assert kinds == ["agent", "metric_threshold"]
+            assert skipped == []
+        else:
+            assert kinds == ["metric_threshold"]
+            assert len(skipped) == 1
+            assert skipped[0].kwargs["properties"]["reason"] == "no_check_lane"
+
     def test_a_newer_research_pass_replaces_the_pending_checks_of_an_older_one(self) -> None:
         older = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
@@ -2466,6 +2532,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_research_reviews_approved_checks(
         self, _name: str, legacy_config: bool, action: str, variant: str = ""
     ) -> None:
+        _seed_check_lane(self.team)
         spec = self._spec()
         if variant == "metric_defaults":
             spec.config["baseline_value"] = None
@@ -2714,6 +2781,7 @@ class TestReportCheckLifecycleLog(APIBaseTest):
         ]
 
     def test_writing_a_check_opens_the_log_with_its_date_and_its_lane(self) -> None:
+        _seed_check_lane(self.team)
         check = self._create(
             kind=SignalReportCheck.Kind.AGENT,
             config={"instructions": "Read the issue again.", "skill_name": "signals-scout-error-tracking"},

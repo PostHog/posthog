@@ -1208,21 +1208,28 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
-    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
-    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+    @parameterized.expand(
+        [
+            (f"{field}_{direction}", f"{prefix}{field}", head)
+            for field, head in SignalReportViewSet._RANKING_ORDERING_HEADS.items()
+            for direction, prefix in (("descending", "-"), ("ascending", ""))
+        ]
+    )
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering, head):
         self.user.is_staff = True
         self.user.save()
+        other_head = "action" if head == "open" else "open"
         low = self._create_report(title="Low")
         high = self._create_report(title="High")
         unscored = self._create_report(title="Unscored")
         no_head = self._create_report(title="No head")
-        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
-        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
-        self._ranking_score_artefact(no_head, scores={"open": 0.5})
-        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        self._ranking_score_artefact(low, scores={head: 0.1, other_head: 0.9})
+        self._ranking_score_artefact(high, scores={head: 0.7, other_head: 0.1})
+        self._ranking_score_artefact(no_head, scores={other_head: 0.5})
+        stale = self._ranking_score_artefact(low, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
         impossible_time = self._create_report(title="Impossible time")
-        impossible_score = self._ranking_score_artefact(impossible_time, scores={"pr_merged": 0.4})
+        impossible_score = self._ranking_score_artefact(impossible_time, scores={head: 0.4})
         SignalReportArtefact.objects.filter(pk=impossible_score.pk).update(
             content=impossible_score.content.replace("2026-09-20T12:00:00Z", "2026-02-31T12:00:00Z")
         )
@@ -1233,7 +1240,7 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"old_title": "Old", "new_title": "Impossible time"}),
         )
         bad_latest = self._create_report(title="Bad latest")
-        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        older_valid = self._ranking_score_artefact(bad_latest, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
         self._ranking_score_artefact(bad_latest, content="not json")
 
@@ -1977,6 +1984,7 @@ class TestSignalReportListAPI(APIBaseTest):
         addressed = self._create_report(title="Already addressed")
         self._actionability_artefact(addressed, actionability="immediately_actionable", already_addressed=True)
         dismissed = self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(dismissed, reason="wontfix_irrelevant")
 
         response = self.client.get(self._list_url(view="actionable", scope="entire_project", sort="priority"))
 
@@ -2353,6 +2361,60 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] is None
         assert row["dismissal_note"] is None
+
+    @parameterized.expand(
+        [
+            ("person_dismissal", "dismissal", "dismissed", "dismissed", None),
+            ("dismissal_wins_over_verdict", "dismissal_and_unsafe", "dismissed", "dismissed", None),
+            ("safety_judge", "unsafe", "safety_judge", "held_back", "Asks to disable a safety control."),
+            ("not_actionable", "not_actionable", "not_actionable", "held_back", "Too vague to act on."),
+            ("no_artefact", "none", "system", "held_back", None),
+        ]
+    )
+    def test_suppression_source_splits_dismissed_from_held_back(
+        self, _name, setup, expected_source, expected_view, expected_explanation
+    ):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        if setup in {"dismissal", "dismissal_and_unsafe"}:
+            self._dismissal_artefact(report, reason="analysis_wrong")
+        if setup in {"unsafe", "dismissal_and_unsafe"}:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+                content=json.dumps({"choice": False, "explanation": "Asks to disable a safety control."}),
+            )
+        if setup == "not_actionable":
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content=json.dumps(
+                    {
+                        "explanation": "Too vague to act on.",
+                        "actionability": "not_actionable",
+                        "already_addressed": False,
+                    }
+                ),
+            )
+        open_report = self._create_report(title="Open")
+
+        listed = {
+            view: [
+                row["id"]
+                for row in self.client.get(self._list_url(view=view, scope="entire_project")).json()["results"]
+            ]
+            for view in ("dismissed", "held_back")
+        }
+        assert listed[expected_view] == [str(report.id)]
+        assert listed["dismissed" if expected_view == "held_back" else "held_back"] == []
+
+        rows = {
+            row["id"]: row for row in self.client.get(self._list_url(include_all_statuses="true")).json()["results"]
+        }
+        assert rows[str(report.id)]["suppression_source"] == expected_source
+        assert rows[str(report.id)]["suppression_explanation"] == expected_explanation
+        assert rows[str(open_report.id)]["suppression_source"] is None
 
     def test_list_uses_latest_dismissal_artefact_by_created_at(self):
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
@@ -3995,6 +4057,60 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
 
 
 class TestSignalReportContentUpdateAPI(APIBaseTest):
+    def test_priority_edit_keeps_dismissed_report_suppressed(self) -> None:
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": "P2"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["priority"] == "P2"
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+    @parameterized.expand([(priority,) for priority in ReportPriority])
+    def test_priority_edit_preserves_prediction_and_records_correction(self, priority: ReportPriority) -> None:
+        report = self._create_report()
+        previous_priority = ReportPriority.P4 if priority != ReportPriority.P4 else ReportPriority.P0
+        previous = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PriorityAssessment(priority=previous_priority, explanation="Original assessment", dollar_value=100),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._url(str(report.id)) + "priority/"
+        response = self.client.put(url, {"priority": priority}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["priority"] == priority
+        correction = report.artefacts.filter(type="priority_judgment").latest("created_at")
+        assert correction.created_by_id == self.user.id
+        assert correction.actor_kind == "user"
+        assert correction.created_at >= previous.created_at
+        assert json.loads(correction.content)["adjustment"] == {
+            "previous_priority": previous_priority,
+            "previous_judgment_id": str(previous.id),
+            "source": "inbox_sidebar",
+        }
+        previous.refresh_from_db()
+        assert json.loads(previous.content)["priority"] == previous_priority
+        assert json.loads(previous.content)["dollar_value"] == 100
+        assert self.client.get(self._url(str(report.id))).json()["priority"] == priority
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?priority={priority}")
+        assert str(report.id) in {row["id"] for row in listed.json()["results"]}
+        assert self.client.put(url, {"priority": priority}, format="json").status_code == status.HTTP_200_OK
+        assert report.artefacts.filter(type="priority_judgment").count() == 2
+
+    @parameterized.expand([(None,), ("P5",), ("high",)])
+    def test_priority_edit_rejects_invalid_values(self, priority: str | None) -> None:
+        report = self._create_report()
+        response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": priority}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not report.artefacts.exists()
+
+    def test_priority_edit_cannot_write_to_another_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        report = self._create_report(team=other_team)
+        response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": "P1"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not report.artefacts.exists()
+
     def _url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/"
 
