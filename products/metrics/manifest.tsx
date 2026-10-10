@@ -55,7 +55,7 @@ export const manifest: ProductManifest = {
             href: urls.metrics(),
             searchKeywords: ['time series', 'counters', 'gauges'],
             searchTabs: [
-                { name: 'Explore', href: urls.metrics('explore') },
+                { name: 'Viewer', href: urls.metrics('viewer') },
                 { name: 'SQL', href: urls.metrics('sql') },
             ],
             // Open alpha: the nav item is visible to everyone; the scene gate offers the

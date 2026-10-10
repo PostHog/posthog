@@ -2867,7 +2867,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.metrics(),
         searchKeywords: ['time series', 'counters', 'gauges'],
         searchTabs: [
-            { name: 'Explore', href: urls.metrics('explore') },
+            { name: 'Viewer', href: urls.metrics('viewer') },
             { name: 'SQL', href: urls.metrics('sql') },
         ],
         tags: ['alpha'],
