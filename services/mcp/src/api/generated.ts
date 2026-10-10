@@ -11308,6 +11308,18 @@ export namespace Schemas {
       team: number;
     }
 
+    /**
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
+     */
+    export type DashboardTileBadgeEnum = typeof DashboardTileBadgeEnum[keyof typeof DashboardTileBadgeEnum];
+
+
+    export const DashboardTileBadgeEnum = {
+      Winner: 'winner',
+      CheekyHog: 'cheeky-hog',
+    } as const;
+
     export interface DashboardTile {
       id?: number;
       insight: Insight;
@@ -11325,6 +11337,12 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
+      /**
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      badge?: DashboardTileBadgeEnum | BlankEnum | null;
     }
 
     export interface AddDashboardWidgetsBatchResponse {
@@ -27462,6 +27480,12 @@ export namespace Schemas {
      */
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardGroupTitles = {[key: string]: string} | null;
+
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
@@ -27512,6 +27536,11 @@ export namespace Schemas {
       Stable: 'stable',
     } as const;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     */
+    export type DashboardCustomizationGroupTitles = {[key: string]: string};
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -27527,6 +27556,8 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      group_titles?: DashboardCustomizationGroupTitles;
     }
 
     /**
@@ -27620,6 +27651,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -27810,6 +27846,17 @@ export namespace Schemas {
       layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
+      /**
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+       *
+       * * `winner` - Winner
+       * * `cheeky-hog` - Cheeky hog */
+      badge?: DashboardTileBadgeEnum | null;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }
@@ -27945,6 +27992,12 @@ export namespace Schemas {
      */
     export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
+
     export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
 
     /**
@@ -28039,6 +28092,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardWriteOpenApiGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -81411,6 +81469,12 @@ export namespace Schemas {
     }
 
     /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
+
+    /**
      * OpenAPI-only PATCH body for dashboards (agents/MCP).
      *
      * Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
@@ -81462,6 +81526,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
       /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
