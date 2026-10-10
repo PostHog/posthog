@@ -158,7 +158,7 @@ def _url_table_function(
     A `format` of None renders the literal 'Parquet' instead of a parameter.
     """
     escaped_url = params.add(url)
-    format_arg = params.add(format, False) if format else "'Parquet'"
+    format_arg = params.add(format, False) if format is not None else "'Parquet'"
     escaped_structure = params.add(structure, False) if structure else None
 
     expr = f"{function}{escaped_url}"
