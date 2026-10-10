@@ -2580,6 +2580,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # The activity band that sampled this project into the background lane. `None` for a
     # hand-picked `team_ids` project and for every `team`-managed row that the band lane never made.
     background_band = models.PositiveSmallIntegerField(null=True, blank=True)
+    # How many background runs in a row nobody engaged with. The coordinator multiplies the band
+    # interval by `background.backoff.factor` once per level, so `run_interval_minutes` keeps the
+    # nominal cadence. `None` means level 0. Read only while the row is `managed_by=background`.
+    background_backoff_level = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
         max_length=20,

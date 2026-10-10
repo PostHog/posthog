@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
-from django.db.models import Case, DateTimeField, Q, Value, When
+from django.db.models import Case, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -21,7 +21,12 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig
+from products.signals.backend.models import (
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalScoutBackgroundBand,
+    SignalScoutConfig,
+)
 from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
@@ -54,6 +59,7 @@ from products.signals.backend.scout_harness.limits import (
 # them unqualified and tests can patch them on this module.
 from products.signals.backend.scout_harness.team_limits import (
     DAILY_BUDGET_WINDOW,
+    BackgroundBackoff,
     BackgroundEnrollment,
     Enrollment,
     _canonicalize_team_config_keys,
@@ -231,8 +237,12 @@ async def stamp_dispatched_signals_scout_runs_activity(
         # `database_sync_to_async`'s pool is sized for DB-bound work.
         payload = await asyncio.to_thread(_read_flag_payload)
         slot_aligned = _resolve_slot_aligned_dispatch(payload)
+        background = _parse_background(payload)
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
-            stamp_input.dispatched_runs, slot_aligned=slot_aligned, dispatched_at=stamp_input.dispatched_at
+            stamp_input.dispatched_runs,
+            slot_aligned=slot_aligned,
+            dispatched_at=stamp_input.dispatched_at,
+            backoff=background.backoff if background is not None else None,
         )
     # Counted here rather than in the workflow so a replay cannot double-count it, and after the
     # stamp so a retried attempt counts the batch once.
@@ -286,7 +296,11 @@ def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datet
 
 
 def _stamp_dispatched_runs(
-    dispatched_runs: list[PlannedRun], *, slot_aligned: bool = True, dispatched_at: datetime | None = None
+    dispatched_runs: list[PlannedRun],
+    *,
+    slot_aligned: bool = True,
+    dispatched_at: datetime | None = None,
+    backoff: BackgroundBackoff | None = None,
 ) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
     activity log.
@@ -308,6 +322,12 @@ def _stamp_dispatched_runs(
     - A disabled config, which here is a lane the failure breaker paused and the coordinator is
       probing. Its `last_run_at` is the probe cooldown clock rather than a schedule anchor, so
       backdating it would shorten the cooldown the breaker is counting.
+    - A background config at a backoff level above 0. Its period changes with every level, and a
+      slot on a new period can sit up to that whole period back, which would dispatch it early and
+      undo the backoff. The tick start is already on the grid, so nothing drifts.
+
+    With `backoff` set, this also moves the backoff level of each dispatched background config (see
+    `_next_backoff_levels`).
     """
     if not dispatched_runs:
         return
@@ -316,15 +336,37 @@ def _stamp_dispatched_runs(
     for run in dispatched_runs:
         predicate |= Q(team_id=run.team_id, skill_name=run.skill_name)
     dispatched = SignalScoutConfig.all_teams.filter(predicate)
+    rows = list(
+        dispatched.values_list(
+            "pk",
+            "team_id",
+            "enabled",
+            "run_cron_schedule",
+            "run_interval_minutes",
+            "managed_by",
+            "background_backoff_level",
+            "last_run_at",
+        )
+    )
+    levels = _next_backoff_levels(rows, backoff) if backoff is not None else {}
+    if levels:
+        pks_by_level: dict[int, list[UUID]] = {}
+        for pk, level in levels.items():
+            pks_by_level.setdefault(level, []).append(pk)
+        SignalScoutConfig.all_teams.filter(pk__in=levels.keys()).update(
+            background_backoff_level=Case(
+                *(When(pk__in=pks, then=Value(level)) for level, pks in pks_by_level.items()),
+                output_field=PositiveSmallIntegerField(),
+            )
+        )
     if not slot_aligned:
         dispatched.update(last_run_at=now)
         return
 
     pks_by_anchor: dict[datetime, list[UUID]] = {}
-    for pk, enabled, cron_schedule, interval_minutes in dispatched.values_list(
-        "pk", "enabled", "run_cron_schedule", "run_interval_minutes"
-    ):
-        anchor = _slot_anchor(str(pk), interval_minutes, now) if enabled and not cron_schedule else now
+    for pk, _team_id, enabled, cron_schedule, interval_minutes, *_ in rows:
+        slotted = enabled and not cron_schedule and not levels.get(pk)
+        anchor = _slot_anchor(str(pk), interval_minutes, now) if slotted else now
         pks_by_anchor.setdefault(anchor, []).append(pk)
     if not pks_by_anchor:
         return
@@ -335,6 +377,66 @@ def _stamp_dispatched_runs(
             output_field=DateTimeField(),
         )
     )
+
+
+def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff) -> dict[UUID, int]:
+    """The backoff level to store for each enabled rolling-interval background config in `rows`.
+
+    A config that a member engaged with since its previous run goes back to level 0. A config with a
+    previous run and no engagement goes up one level. The first run of a config keeps level 0,
+    because no earlier run exists for anyone to ignore.
+    """
+    previous_runs: dict[UUID, tuple[int, int, int | None, datetime]] = {
+        pk: (team_id, interval_minutes, level, last_run_at)
+        for pk, team_id, enabled, cron_schedule, interval_minutes, managed_by, level, last_run_at in rows
+        if enabled
+        and not cron_schedule
+        and managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
+        and last_run_at is not None
+    }
+    engaged = _engaged_team_ids({team_id: since for team_id, _, _, since in previous_runs.values()})
+    return {
+        pk: 0 if team_id in engaged else backoff.next_level(interval_minutes, level)
+        for pk, (team_id, interval_minutes, level, _) in previous_runs.items()
+    }
+
+
+# Artefacts a person writes when they act on a report: a dismissal (dismiss, snooze, or a resolve
+# with a note) or a log entry such as a note. Only person-attributed rows count.
+_ENGAGEMENT_ARTEFACT_TYPES: frozenset[str] = SignalReportArtefact.LOG_ARTEFACT_TYPES | frozenset(
+    {SignalReportArtefact.ArtefactType.DISMISSAL}
+)
+
+
+def _engaged_team_ids(since_by_team: dict[int, datetime]) -> set[int]:
+    """The teams in `since_by_team` where a member engaged with a report after the given time.
+
+    Engagement is a `SignalReportAction` row (view, read, feedback, Slack discussion) or a
+    person-attributed dismissal or log artefact. A login alone is not engagement. Two queries for
+    all teams together, on the `team_id` index: `SignalReportAction.last_at` has no index.
+    """
+    if not since_by_team:
+        return set()
+    earliest = min(since_by_team.values())
+    latest: dict[int, datetime] = {}
+    for queryset in (
+        SignalReportAction.all_teams.filter(team_id__in=since_by_team, last_at__gt=earliest)
+        .values("team_id")
+        .annotate(latest=Max("last_at")),
+        SignalReportArtefact.objects.filter(
+            team_id__in=since_by_team,
+            type__in=_ENGAGEMENT_ARTEFACT_TYPES,
+            created_by__isnull=False,
+            created_at__gt=earliest,
+        )
+        .values("team_id")
+        .annotate(latest=Max("created_at")),
+    ):
+        for row in queryset:
+            team_id, engaged_at = row["team_id"], row["latest"]
+            if team_id not in latest or engaged_at > latest[team_id]:
+                latest[team_id] = engaged_at
+    return {team_id for team_id, engaged_at in latest.items() if engaged_at > since_by_team[team_id]}
 
 
 @dataclass
@@ -925,19 +1027,24 @@ def _collect_background_runs(
     Checks consent again at dispatch, because an organization can withdraw it after its config was
     created. Breaker-paused background configs get their probes here too, so no background run
     skips the consent check.
+
+    With `background.backoff` set, a config is due at its backed-off interval. Engagement since its
+    previous run makes it due at the band interval again, before the stamp stores level 0.
     """
     if not listed_team_ids:
         return []
-    configs = SignalScoutConfig.all_teams.filter(
-        Q(enabled=True)
-        | Q(
-            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-        ),
-        team_id__in=listed_team_ids,
-        skill_name=background.skill_name,
-        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
-    ).select_related("team__organization")
+    configs = list(
+        SignalScoutConfig.all_teams.filter(
+            Q(enabled=True)
+            | Q(
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            ),
+            team_id__in=listed_team_ids,
+            skill_name=background.skill_name,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        ).select_related("team__organization")
+    )
     live_team_ids = set(
         LLMSkill.objects.filter(
             team_id__in=listed_team_ids, name=background.skill_name, is_latest=True, deleted=False
@@ -945,6 +1052,17 @@ def _collect_background_runs(
     )
     due: list[_DueRun] = []
     live_skills = {background.skill_name}
+    engaged = (
+        _engaged_team_ids(
+            {
+                config.team_id: config.last_run_at
+                for config in configs
+                if config.enabled and config.background_backoff_level and config.last_run_at is not None
+            }
+        )
+        if background.backoff is not None
+        else set()
+    )
     for config in configs:
         if config.team_id not in live_team_ids or not _ai_data_processing_approved(config.team):
             continue
@@ -953,14 +1071,25 @@ def _collect_background_runs(
         if not config.enabled:
             due.extend(_collect_probe_runs([config], live_skills, now))
             continue
-        overdue_s = _overdue_seconds(config, now, config.team.timezone_info)
+        interval_minutes = None
+        if background.backoff is not None and config.team_id not in engaged:
+            interval_minutes = background.backoff.effective_interval_minutes(
+                config.run_interval_minutes, config.background_backoff_level
+            )
+        overdue_s = _overdue_seconds(config, now, config.team.timezone_info, interval_minutes=interval_minutes)
         if overdue_s is not None:
             due.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
     return due
 
 
-def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
-    """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
+def _overdue_seconds(
+    config: SignalScoutConfig, now: datetime, project_timezone: tzinfo, *, interval_minutes: int | None = None
+) -> float | None:
+    """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue.
+
+    `interval_minutes` replaces `run_interval_minutes` for a rolling schedule, such as a backed-off
+    background config.
+    """
     if config.run_cron_schedule:
         # `schedule_changed_at` (stamped only on actual schedule edits — deliberately not
         # `updated_at`, which every emit/enabled save bumps) anchors a newly saved schedule so
@@ -998,7 +1127,7 @@ def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone:
 
     if config.last_run_at is None:
         return float("inf")
-    overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60
+    overdue = (now - config.last_run_at).total_seconds() - (interval_minutes or config.run_interval_minutes) * 60
     return overdue if overdue >= -DUE_GRACE_SECONDS else None
 
 

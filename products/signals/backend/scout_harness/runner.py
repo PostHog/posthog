@@ -63,7 +63,12 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
-from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import (
+    BackgroundBackoff,
+    github_read_access_for_team,
+    resolve_background_backoff,
+    withheld_skills_for_team,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -491,6 +496,12 @@ async def _arun_signals_scout(
     business_knowledge_maintained = await database_sync_to_async(
         _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
+    # Resolved here for the same reason, so every lifecycle event reports the same cadence.
+    backoff = (
+        await asyncio.to_thread(resolve_background_backoff)
+        if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
+        else None
+    )
     trial_status = tasks_facade.TaskRunStatus.FAILED.value
     try:
         last_message, task_run_id = await _spawn_and_run(
@@ -504,6 +515,7 @@ async def _arun_signals_scout(
             user_id=user_id,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
@@ -531,6 +543,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=task_run_id,
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
@@ -615,6 +628,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=failed_task_run_id,
             status=tasks_facade.TaskRunStatus.FAILED.value,
@@ -676,6 +690,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=None,
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
@@ -872,6 +887,7 @@ async def _spawn_and_run(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     model: str | None,
+    background_backoff: BackgroundBackoff | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
@@ -1020,6 +1036,7 @@ async def _spawn_and_run(
             service_tier=service_tier,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=background_backoff,
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
@@ -1038,6 +1055,7 @@ async def _spawn_and_run(
                 skill=skill,
                 github_guidance=github_guidance,
                 business_knowledge_maintained=business_knowledge_maintained,
+                background_backoff=background_backoff,
                 run_id=run_id,
                 task_run_id=str(task_run_id),
                 triggered_by=triggered_by,
@@ -1291,6 +1309,7 @@ def _create_run_row(
     service_tier: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
@@ -1345,6 +1364,7 @@ def _create_run_row(
         # hand-picked `team_ids` project.
         if config.background_band is not None:
             metadata["background_band"] = config.background_band
+        metadata.update(_background_backoff_props(config, background_backoff))
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.
@@ -1589,6 +1609,7 @@ def _capture_run_started(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     run_id: Any,
+    background_backoff: BackgroundBackoff | None = None,
     task_run_id: str,
     triggered_by: str,
     model: str | None = None,
@@ -1619,6 +1640,7 @@ def _capture_run_started(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,
         service_tier=service_tier,
@@ -1721,6 +1743,21 @@ def _capture_config_auto_paused(
         )
 
 
+def _background_backoff_props(config: SignalScoutConfig, backoff: BackgroundBackoff | None) -> dict[str, int]:
+    """The backoff level of a background config and the interval it sets to the next run.
+
+    Empty when the backoff is off or the config is not background-managed. The stamp before this
+    run already moved the level, so the values describe the cadence after this run.
+    """
+    if backoff is None or config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND or config.run_cron_schedule:
+        return {}
+    level = config.background_backoff_level or 0
+    return {
+        "background_backoff_level": level,
+        "background_effective_interval_minutes": backoff.effective_interval_minutes(config.run_interval_minutes, level),
+    }
+
+
 def _attach_run_shape_props(
     properties: dict[str, Any],
     *,
@@ -1732,6 +1769,7 @@ def _attach_run_shape_props(
     runtime_adapter: str | None,
     service_tier: str | None,
     triggered_by: str,
+    background_backoff: BackgroundBackoff | None = None,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
     events from one place so the started and finished streams can never drift apart.
@@ -1760,6 +1798,7 @@ def _attach_run_shape_props(
     properties["managed_by"] = config.managed_by
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND and config.background_band is not None:
         properties["background_band"] = config.background_band
+    properties.update(_background_backoff_props(config, background_backoff))
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
     if granted_write_scopes := _granted_write_scopes(config):
@@ -1782,6 +1821,7 @@ def _capture_run_finished(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     run_id: Any,
+    background_backoff: BackgroundBackoff | None = None,
     task_run_id: str | None,
     status: str,
     runtime_s: float,
@@ -1829,6 +1869,7 @@ def _capture_run_finished(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,
         service_tier=service_tier,
