@@ -179,6 +179,28 @@ class TargetPlacement:
     cluster: ClickhouseCluster
 
 
+def shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
+    """Every data partition of the target's table, mapped to the shards that hold it.
+
+    Every replica is read because a partition that one replica has not fetched yet still holds rows
+    that a sweep must reach.
+    """
+    query = Query(
+        """
+        SELECT DISTINCT partition_id
+        FROM system.parts
+        WHERE database = %(database)s AND table = %(table)s AND active AND NOT startsWith(partition_id, 'patch-')
+        """,
+        {"database": settings.CLICKHOUSE_DATABASE, "table": placement.target.data_table},
+    )
+    shards_by_partition: dict[str, set[int]] = {}
+    for host, rows in placement.cluster.map_all_hosts(query).result().items():
+        assert host.shard_num is not None
+        for (partition_id,) in rows:
+            shards_by_partition.setdefault(partition_id, set()).add(host.shard_num)
+    return shards_by_partition
+
+
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
