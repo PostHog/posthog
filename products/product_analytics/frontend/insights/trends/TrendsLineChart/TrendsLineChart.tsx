@@ -310,6 +310,7 @@ export function TrendsLineChart({
     )
 
     const hideAxes = context?.hideAxes
+    const bare = context?.bareChart
     const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
@@ -323,6 +324,7 @@ export function TrendsLineChart({
                 timezone,
                 allDays,
                 hideAxes,
+                bare,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
@@ -355,6 +357,7 @@ export function TrendsLineChart({
             timezone,
             allDays,
             hideAxes,
+            bare,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,

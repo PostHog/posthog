@@ -19,11 +19,13 @@ const PREVIEW_CONTEXT: QueryContext<InsightVizNode> = { hideAxes: true }
 // A chart-only render of a query with a known result: the same logics the insight editor mounts, minus the
 // display chrome, and with loading disabled so a tile never issues a request of its own.
 export function ChartPreviewCanvas({
+    context = PREVIEW_CONTEXT,
     embedded = true,
     query,
     response,
     uniqueKey,
 }: {
+    context?: QueryContext<InsightVizNode>
     embedded?: boolean
     query: InsightVizNode
     response: AnyResponseType
@@ -60,12 +62,7 @@ export function ChartPreviewCanvas({
             <BindLogic logic={insightDataLogic} props={insightProps}>
                 <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                        <TrendInsight
-                            view={InsightType.TRENDS}
-                            embedded={embedded}
-                            inSharedMode
-                            context={PREVIEW_CONTEXT}
-                        />
+                        <TrendInsight view={InsightType.TRENDS} embedded={embedded} inSharedMode context={context} />
                     </BindLogic>
                 </BindLogic>
             </BindLogic>

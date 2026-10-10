@@ -48,6 +48,7 @@ import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
+    BARE_BAR_CONFIG,
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
@@ -236,6 +237,7 @@ export function TrendsBarChart({
     )
 
     const hideAxes = context?.hideAxes
+    const bare = context?.bareChart
     const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
@@ -248,6 +250,7 @@ export function TrendsBarChart({
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 hideAxes,
+                bare,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
@@ -268,6 +271,7 @@ export function TrendsBarChart({
             timezone,
             currentPeriodResult?.days,
             hideAxes,
+            bare,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -297,7 +301,8 @@ export function TrendsBarChart({
                 firstIndexOf.get(label) === i ? (displayLabels[i] ?? null) : null
         }
         return {
-            showGrid: true,
+            showGrid: !bare,
+            ...(bare ? BARE_BAR_CONFIG : {}),
             tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
@@ -320,6 +325,7 @@ export function TrendsBarChart({
         }
     }, [
         hideAxes,
+        bare,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,

@@ -97,6 +97,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     xAxisLabel?: string | null
     yAxisLabel?: string | null
     hideAxes?: boolean
+    /** Draw only the bars, with no grid or axis lines and the plot running to the edges. */
+    bare?: boolean
     // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
     // interval/timezone for the auto date formatter. Mirrors the line config.
     xAxisTickFormatter?: (value: string, index: number) => string | null
@@ -105,6 +107,13 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     tooltip?: TimeSeriesBarChartConfig['tooltip']
 }
 
+// The bars sit on the bottom edge, and the top margin keeps the tallest bar off the top edge.
+export const BARE_BAR_CONFIG = {
+    margins: { top: 2, right: 0, bottom: 0, left: 0 },
+    showAxisLines: false,
+    showTickMarks: false,
+} satisfies Partial<TimeSeriesBarChartConfig>
+
 export function buildTrendsBarTimeSeriesConfig(
     opts: BuildTrendsBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
@@ -112,7 +121,7 @@ export function buildTrendsBarTimeSeriesConfig(
     // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: !opts.bare,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {
@@ -136,6 +145,7 @@ export function buildTrendsBarTimeSeriesConfig(
         // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
         divergingStack: !opts.isPercentStackView && !opts.isGrouped,
         tooltip: opts.tooltip,
+        ...(opts.bare ? BARE_BAR_CONFIG : {}),
     }
 }
 

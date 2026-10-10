@@ -194,6 +194,8 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     xAxisLabel?: string | null
     yAxisLabel?: string | null
     hideAxes?: boolean
+    /** Draw only the series, with no grid or axis lines and the plot running to the edges. */
+    bare?: boolean
     xAxisTickFormatter?: (value: string, index: number) => string | null
     goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
@@ -217,12 +219,19 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     legend?: TimeSeriesLineChartConfig['legend']
 }
 
+// The top and bottom margins keep the stroke of a line at the edge of the range inside the canvas.
+const BARE_LINE_CONFIG = {
+    margins: { top: 6, right: 2, bottom: 6, left: 2 },
+    showAxisLines: false,
+    showTickMarks: false,
+} satisfies Partial<TimeSeriesLineChartConfig>
+
 export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     opts: BuildTrendsLineTimeSeriesConfigOpts<R>
 ): TimeSeriesLineChartConfig {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: !opts.bare,
         startAtZero: opts.yAxisStartAtZero,
         min: opts.yAxisMin,
         max: opts.yAxisMax,
@@ -262,5 +271,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
         legend: opts.legend,
+        ...(opts.bare ? BARE_LINE_CONFIG : {}),
     }
 }
