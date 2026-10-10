@@ -10077,7 +10077,7 @@ export interface DashboardTileApi {
      * @nullable
      */
     group_key?: string | null
-    badge?: DashboardTileBadgeEnumApi | BlankEnumApi | null
+    badge?: DashboardTileBadgeEnumApi | null
 }
 
 export interface DeleteTileRequestApi {
