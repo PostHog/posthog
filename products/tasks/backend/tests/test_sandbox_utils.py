@@ -12,6 +12,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
+    READONLY_SANDBOX_GITHUB_PERMISSIONS,
     can_mint_readonly_github_token,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -168,6 +169,7 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         ctx, task=MagicMock(), actor_user=None, repository=repository, has_repo=has_repo
     )
 
+    mock_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
     assert token == "READONLY_TOKEN"
     mock_full.assert_not_called()
 
@@ -238,3 +240,19 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
 
     with pytest.raises(CredentialUnavailableError):
         _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+
+
+@pytest.mark.parametrize("repositories, expected", [([], None), (["Acme/API", "acme/api", "acme/web"], ["api", "web"])])
+def test_readonly_token_scopes_repositories_without_widening_permissions(repositories, expected):
+    integration = _team_integration()
+    with patch(
+        "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
+        return_value=integration,
+    ):
+        assert (
+            get_readonly_github_token(1, repositories=repositories)
+            == integration.mint_scoped_installation_token.return_value
+        )
+    integration.mint_scoped_installation_token.assert_called_once_with(
+        READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=expected
+    )

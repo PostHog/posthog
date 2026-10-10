@@ -92,7 +92,7 @@ class TestInjectFreshTokensOnResumeActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token",
                 return_value="ghs_readonly",
-            ),
+            ) as resolve_readonly,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
             ) as resolve_full,
@@ -110,6 +110,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
+        resolve_readonly.assert_called_once_with(context.team_id, repositories=context.repositories)
         resolve_full.assert_not_called()
         # Both clones carry the token in their own `origin`, so both remotes are rewritten.
         rewritten = [c.args[0] for c in sandbox.execute.call_args_list if "x-access-token:ghs_readonly" in c.args[0]]

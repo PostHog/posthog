@@ -160,13 +160,14 @@ class TestGitHubSandboxCredential:
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_readonly_github_token",
                 return_value="ghs_readonly",
-            ),
+            ) as resolve_readonly,
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
             ) as resolve_full,
         ):
             outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
 
+        resolve_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
         resolve_full.assert_not_called()
         assert outcome.refreshed is True
         assert b"ghs_readonly" in sandbox.write_file.call_args.args[1]

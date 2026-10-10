@@ -398,7 +398,7 @@ class GitHubSandboxCredential:
         # repositories decide what the sandbox can read, never what it can write. Re-mint the same
         # read-only grant instead; best-effort like the original.
         if ctx.github_read_access:
-            token = get_readonly_github_token(ctx.team_id)
+            token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories)
             if token and _loop_owner_credentials_revoked(task, ctx.state):
                 token = None
             if token:
