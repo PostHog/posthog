@@ -7,6 +7,7 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSkeleton,
+    LemonTab,
     LemonTabs,
     LemonTag,
     Link,
@@ -1152,6 +1153,55 @@ function ReviewDetailDrawer(): JSX.Element {
     const review = reviewDetail ?? openedReview
     const singleAgent = isSingleAgentReview(review)
 
+    const tabs: (LemonTab<ReviewDrawerTab> | false)[] = [
+        {
+            key: 'published',
+            // "Published" is a claim about the PR — only make it when the review
+            // actually posted; findings a store-only run kept above the bar read
+            // "Kept". `review` falls back to the list row, so a published review
+            // doesn't flash "Kept" while its detail loads.
+            label: `${review?.published ? (singleAgent ? 'Posted' : 'Published') : 'Kept'}${
+                reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
+            }`,
+            content: <DrawerPublishedTab />,
+        },
+        singleAgent && {
+            key: 'not_posted',
+            label: `Not posted${reviewDetail ? ` (${reviewDetail.dropped_findings.length})` : ''}`,
+            content: <DrawerNotPostedTab />,
+        },
+        // A single-agent turn publishes at every urgency, so nothing sits below a threshold.
+        !singleAgent && {
+            key: 'below_threshold',
+            label: `Below threshold${reviewFindingsSplit ? ` (${reviewFindingsSplit.belowThreshold.length})` : ''}`,
+            content: <DrawerBelowThresholdTab />,
+        },
+        // A single-agent turn has no validator, so there are no dismissals to show.
+        !singleAgent && {
+            key: 'dismissed',
+            label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
+            content: <DrawerDismissedTab />,
+        },
+        singleAgent
+            ? { key: 'how_it_ran', label: 'How it ran', content: <DrawerHowItRanTab /> }
+            : { key: 'chunks', label: 'Chunks', content: <DrawerChunksTab /> },
+        {
+            key: 'review',
+            label: 'Review body',
+            content: reviewDetail ? (
+                reviewDetail.report_markdown ? (
+                    <LemonMarkdown className="text-sm" disableImages>
+                        {reviewDetail.report_markdown}
+                    </LemonMarkdown>
+                ) : (
+                    <div className="text-sm text-secondary">No review body was rendered for this pull request.</div>
+                )
+            ) : (
+                <LemonSkeleton className="h-40 w-full" />
+            ),
+        },
+    ]
+
     return (
         <LemonDrawer
             isOpen={reviewDrawerOpen}
@@ -1207,67 +1257,11 @@ function ReviewDetailDrawer(): JSX.Element {
                     </div>
                 )}
                 <LemonTabs<ReviewDrawerTab>
-                    // Standard has no Dismissed tab and Deep has no Not posted tab, so a stale selection
-                    // falls back to the posted tab.
-                    activeKey={
-                        (singleAgent && reviewDrawerTab === 'dismissed') ||
-                        (!singleAgent && reviewDrawerTab === 'not_posted')
-                            ? 'published'
-                            : reviewDrawerTab
-                    }
+                    // Standard and Deep show different tabs, and a deep link can pick a tab before the
+                    // detail says which design ran, so a selection the design lacks falls back to the posted tab.
+                    activeKey={tabs.some((tab) => tab && tab.key === reviewDrawerTab) ? reviewDrawerTab : 'published'}
                     onChange={setReviewDrawerTab}
-                    tabs={[
-                        {
-                            key: 'published',
-                            // "Published" is a claim about the PR — only make it when the review
-                            // actually posted; findings a store-only run kept above the bar read
-                            // "Kept". `review` falls back to the list row, so a published review
-                            // doesn't flash "Kept" while its detail loads.
-                            label: `${review?.published ? (singleAgent ? 'Posted' : 'Published') : 'Kept'}${
-                                reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
-                            }`,
-                            content: <DrawerPublishedTab />,
-                        },
-                        singleAgent && {
-                            key: 'not_posted',
-                            label: `Not posted${reviewDetail ? ` (${reviewDetail.dropped_findings.length})` : ''}`,
-                            content: <DrawerNotPostedTab />,
-                        },
-                        // A single-agent turn publishes at every urgency, so nothing sits below a threshold.
-                        !singleAgent && {
-                            key: 'below_threshold',
-                            label: `Below threshold${
-                                reviewFindingsSplit ? ` (${reviewFindingsSplit.belowThreshold.length})` : ''
-                            }`,
-                            content: <DrawerBelowThresholdTab />,
-                        },
-                        // A single-agent turn has no validator, so there are no dismissals to show.
-                        !singleAgent && {
-                            key: 'dismissed',
-                            label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
-                            content: <DrawerDismissedTab />,
-                        },
-                        singleAgent
-                            ? { key: 'how_it_ran', label: 'How it ran', content: <DrawerHowItRanTab /> }
-                            : { key: 'chunks', label: 'Chunks', content: <DrawerChunksTab /> },
-                        {
-                            key: 'review',
-                            label: 'Review body',
-                            content: reviewDetail ? (
-                                reviewDetail.report_markdown ? (
-                                    <LemonMarkdown className="text-sm" disableImages>
-                                        {reviewDetail.report_markdown}
-                                    </LemonMarkdown>
-                                ) : (
-                                    <div className="text-sm text-secondary">
-                                        No review body was rendered for this pull request.
-                                    </div>
-                                )
-                            ) : (
-                                <LemonSkeleton className="h-40 w-full" />
-                            ),
-                        },
-                    ]}
+                    tabs={tabs}
                 />
             </div>
         </LemonDrawer>

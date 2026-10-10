@@ -38,6 +38,7 @@ function reviewDetail(id: string, runUrgencyThreshold: string | null): Record<st
 // ceiling are reachable.
 const everyoneReviews = Array.from({ length: MAX_REVIEWS_LIMIT + REVIEWS_PAGE_SIZE }, (_, i) => ({
     id: `r${i}`,
+    repository: 'example-org/example-repo',
     in_progress: false,
 }))
 
@@ -54,6 +55,14 @@ describe('reviewHogSettingsLogic', () => {
                     const pool =
                         url.searchParams.get('scope') === ReviewHogReviewsListScope.Everyone ? everyoneReviews : []
                     return [200, { results: pool.slice(0, limit), has_more: pool.length > limit }]
+                },
+                '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                    const url = new URL(request.url)
+                    const limit = Number(url.searchParams.get('limit'))
+                    const offset = Number(url.searchParams.get('offset'))
+                    const pool =
+                        url.searchParams.get('scope') === ReviewHogReviewsListScope.Everyone ? everyoneReviews : []
+                    return [200, { count: pool.length, running_count: 0, results: pool.slice(offset, offset + limit) }]
                 },
                 '/api/projects/:team_id/review_hog/reviews/perspective_stats/': () => [
                     200,
@@ -384,6 +393,64 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.showMoreReviews()
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         await expectLogic(logic).toMatchValues({ reviewsLimit: REVIEWS_PAGE_SIZE })
+    })
+
+    it('a table filter change resets the page and sends the filter with the request', async () => {
+        // Page 2 of every review is rarely a page at all once a filter narrows the set; a kept page
+        // number would land the reader on an empty table.
+        const requests: URLSearchParams[] = []
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                    requests.push(new URL(request.url).searchParams)
+                    return [200, { count: 0, running_count: 0, results: [] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setReviewsPage(2)).toDispatchActions(['loadReviewsSuccess'])
+        expect(requests[requests.length - 1].get('offset')).toBe(String(REVIEWS_PAGE_SIZE))
+
+        await expectLogic(logic, () => logic.actions.setReviewsRepository('example-org/example-repo'))
+            .toDispatchActions(['loadReviewsSuccess'])
+            .toMatchValues({ reviewsCurrentPage: 1 })
+        expect(requests[requests.length - 1].get('offset')).toBe('0')
+        expect(requests[requests.length - 1].get('repository')).toBe('example-org/example-repo')
+        expect(router.values.searchParams.reviews_repository).toBe('example-org/example-repo')
+        expect(router.values.searchParams.reviews_page).toBeUndefined()
+    })
+
+    it('restores table filters and the page from a link without resetting the page', async () => {
+        // Each filter setter resets the page, so an unguarded replay would drop every shared
+        // `reviews_page` back to page 1.
+        router.actions.push(urls.codeReview(), {
+            reviews_scope: 'everyone',
+            reviews_status: 'completed',
+            reviews_published: 'false',
+            reviews_page: '2',
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadReviewsSuccess']).toMatchValues({
+            reviewsStatus: 'completed',
+            reviewsPublished: false,
+            reviewsCurrentPage: 2,
+        })
+        expect(logic.values.reviews?.[0].id).toBe(`r${REVIEWS_PAGE_SIZE}`)
+    })
+
+    it('flags a failed table load so the table can show its error state', async () => {
+        // A first load that fails must not read as an empty table.
+        logic.mount()
+        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/table/': () => [500, {}] } })
+
+        await expectLogic(logic, () => logic.actions.setReviewsPage(2)).toDispatchActions(['loadReviewsFailure'])
+        expect(logic.values).toMatchObject({ reviewsPage: null, reviewsFailed: true })
     })
 
     it('buckets drawer findings by the stored run threshold, with the viewer proxy only for old rows', async () => {
