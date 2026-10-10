@@ -83,6 +83,7 @@ import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assi
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { MessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
@@ -161,6 +162,17 @@ function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): Mes
             },
         ],
         broadcastName: `${earlyAccessFeature.name} is now available`,
+        broadcastEmail: draftMessage({
+            kind: 'feature_available',
+            featureName: earlyAccessFeature.name,
+            featureDescription: earlyAccessFeature.description,
+        }),
+        workflowEmail: draftMessage({
+            kind: 'feature_enrolled',
+            featureName: earlyAccessFeature.name,
+            featureDescription: earlyAccessFeature.description,
+        }),
+        draftSource: { source: 'early_access', source_id: earlyAccessFeature.id },
         workflowTrigger: {
             type: 'event',
             filters: {

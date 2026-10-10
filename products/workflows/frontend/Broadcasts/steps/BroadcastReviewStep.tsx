@@ -7,6 +7,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
@@ -70,6 +71,7 @@ export function BroadcastReviewStep(): JSX.Element {
         rateLimitedSendDuration,
         stepValidationErrors,
         emailSettings,
+        aiEmailDraftLoading,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -149,6 +151,7 @@ export function BroadcastReviewStep(): JSX.Element {
                         <div className="text-xs text-secondary">Open and click tracking is off.</div>
                     )}
                     {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
+                    {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 

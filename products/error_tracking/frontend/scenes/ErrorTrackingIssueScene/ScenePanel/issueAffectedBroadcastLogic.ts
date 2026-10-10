@@ -18,6 +18,7 @@ import {
     cohortAudienceProperties,
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 
 export const AFFECTED_LOOKBACK_DAYS = 30
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
@@ -188,6 +189,8 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                         properties: cohortAudienceProperties(audienceCohort),
                         source: SOURCE,
                         broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
+                        broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
+                        draftSource: { source: 'error_tracking', source_id: props.issueId },
                     },
                     'broadcast'
                 )

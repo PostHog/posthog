@@ -23,6 +23,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { AiEmailDraftStatus } from '../MessageAudience/AiEmailDraftStatus'
+import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -74,11 +77,19 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             ? JSON.stringify(rawTriggerPrefill)
             : rawTriggerPrefill
     const entrySource = searchParams[SOURCE_PREFILL_PARAM]
+    const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
+    const emailPrefill =
+        rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
+    const draftSource =
+        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
+        emailPrefill,
+        draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
@@ -87,7 +98,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const logic = workflowLogic(workflowProps)
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
-    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
+    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById, aiEmailDraftLoading } =
+        useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -226,6 +238,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
                 {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

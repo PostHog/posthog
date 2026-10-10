@@ -10,6 +10,7 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
 import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import {
@@ -21,7 +22,7 @@ import {
 } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftLoading } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -119,6 +120,7 @@ export function BroadcastContentStep(): JSX.Element {
                     onComplete={closeSenderSetup}
                 />
             ) : null}
+            {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"
