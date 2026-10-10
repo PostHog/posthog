@@ -195,6 +195,14 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     class Meta:
         db_table = "posthog_alertconfiguration"
+        indexes = [
+            # Lets the every-minute due-alert poll read only enabled alerts that are due.
+            models.Index(
+                fields=["next_check_at"],
+                name="alert_enabled_next_check_idx",
+                condition=models.Q(enabled=True),
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
