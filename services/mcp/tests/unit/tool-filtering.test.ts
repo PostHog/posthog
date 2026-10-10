@@ -558,7 +558,6 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'context_layer_internal:write',
         'hog_flow_proposal:write',
         'internal_run:read',
-        'loop_context_internal:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',
@@ -597,8 +596,8 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
 
 describe('server-minted scope matching', () => {
     it('requires literal internal scopes instead of accepting a wildcard', () => {
-        expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
-        expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+        expect(hasScope(['*'], 'context_layer_internal:write')).toBe(false)
+        expect(hasScope(['context_layer_internal:write'], 'context_layer_internal:write')).toBe(true)
     })
 
     // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
@@ -617,7 +616,6 @@ describe('server-minted scope matching', () => {
     it.each([
         'context_layer_internal',
         'internal_run',
-        'loop_context_internal',
         'mcp_builtin_agent',
         'signal_scout_internal',
         'signal_scout_report',
