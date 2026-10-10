@@ -431,10 +431,12 @@ def _activity_artefacts(queryset: QuerySet) -> QuerySet:
         default=Value(None),
         output_field=CharField(),
     )
+    # The author is NULL on every non-note row. A plain `.exclude()` on an annotation compiles to
+    # `NOT (author = x)`, which is NULL for those rows and drops them, so keep NULL authors explicitly.
     return (
         queryset.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
         .annotate(activity_note_author=note_author)
-        .exclude(activity_note_author=RUN_OUTCOME_NOTE_AUTHOR)
+        .filter(Q(activity_note_author__isnull=True) | ~Q(activity_note_author=RUN_OUTCOME_NOTE_AUTHOR))
     )
 
 

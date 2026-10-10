@@ -836,29 +836,40 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (latest["status"], latest["total"], latest["fixed"], latest["needs_attention"]) == ("completed", 5, 4, 1)
         assert latest["commits"] == ["good"]
 
-    @parameterized.expand([("no_later_activity", False), ("later_run_outcome_note", True)])
-    def test_dead_resolution_run_shows_where_it_stopped(self, _name: str, later_outcome_note: bool) -> None:
+    @parameterized.expand(
+        [
+            ("no_later_activity", None, "stopped", 1),
+            ("later_run_outcome_note", "outcome_note", "stopped", 1),
+            ("later_thread_verdict", "thread_verdict", "resolving", 2),
+        ]
+    )
+    def test_dead_resolution_run_shows_where_it_stopped(
+        self, _name: str, later_write: str | None, expected_status: str, expected_done: int
+    ) -> None:
         # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
         # With the run anchor present, no closing note, and activity past the staleness window, the
         # row must say where it stopped instead of nothing. A later run outcome note records that a
-        # run ended, so it must not count as activity that revives the dead run.
+        # run ended, so it must not count as activity that revives the dead run. A fresh verdict is
+        # real activity, so that run is still resolving.
         with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
             self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
             self._thread_verdict(report, "PRRT_1", "fixed")
-        if later_outcome_note:
+        if later_write == "outcome_note":
             record_run_outcome(
                 self.team.id, str(report.id), stage="resolution", outcome="skipped", reason="no_unresolved_threads"
             )
+        elif later_write == "thread_verdict":
+            self._thread_verdict(report, "PRRT_2", "fixed")
 
         row = self.client.get(self.url).json()["results"][0]
 
-        assert row["in_progress"] is False
+        assert row["in_progress"] is (expected_status == "resolving")
         assert row["resolution"] == {
-            "resolution_status": "stopped",
-            "done": 1,
+            "resolution_status": expected_status,
+            "done": expected_done,
             "total": 3,
-            "fixed": 1,
+            "fixed": expected_done,
             "needs_attention": 0,
         }
 
@@ -958,34 +969,39 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
 
-    def test_outcome_artefact_does_not_revive_the_in_progress_spinner(self) -> None:
+    @parameterized.expand([("finding_outcome", False), ("turn_artefact", True)])
+    def test_only_turn_artefacts_keep_the_in_progress_spinner(self, later_write: str, expected: bool) -> None:
         # `finding_outcome` is the one artefact written outside a turn: the sweep appends it after the
         # PR merges, which can be long after the run ended. Status only leaves ACTIVE on a successful
         # finalize, so a run that crashed before finalize stays ACTIVE forever and the staleness
         # window is the only thing that retires its spinner. Counting the sweep's write as liveness
-        # would restart that window and show a live row for a report with nothing running.
+        # would restart that window and show a live row for a report with nothing running. A fresh
+        # turn-written artefact is real progress and must still keep the row live.
         # ACTIVE with a completed turn behind it (the dormant re-review shape): a first-turn ACTIVE
         # report is listed only while it is in progress, so it could not show the difference.
         report = self._report(pr_number=7, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
         ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(
             updated_at=timezone.now() - IN_PROGRESS_STALE_AFTER - timedelta(minutes=5)
         )
-        ReviewReportArtefact.add_finding_outcome(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            content=FindingOutcomeArtefact(
-                issue_key="r1:f.py:10:logic",
-                run_index=1,
-                outcome="ignored",
-                method="no_signal",
-                reviewed_head="base_sha",
-                final_head="head_sha",
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
+        if later_write == "finding_outcome":
+            ReviewReportArtefact.add_finding_outcome(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=FindingOutcomeArtefact(
+                    issue_key="r1:f.py:10:logic",
+                    run_index=1,
+                    outcome="ignored",
+                    method="no_signal",
+                    reviewed_head="base_sha",
+                    final_head="head_sha",
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+        else:
+            self._thread_verdict(report, "PRRT_1", "fixed")
 
         row = next(r for r in self.client.get(self.url).json()["results"] if r["pr_number"] == 7)
-        assert row["in_progress"] is False
+        assert row["in_progress"] is expected
 
     def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
         # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,
