@@ -208,10 +208,11 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
     if not weekly_counts:
         return DataSuggestionsResult(status="ready", suggestions=())
 
-    candidates = select_prompt_events(weekly_counts, limit=MAX_CLASSIFIED_EVENTS)
-    jev_stages = classify_event_stages(
-        team_id=team.id, event_names=[name for name, _ in candidates] + sorted(used_events)
-    )
+    # Jev classifies a capped number of events. The existing triggers go first, because the covered stages come
+    # from them, and they take at most half of the cap so that candidate events still get classified.
+    used = sorted(used_events)[: MAX_CLASSIFIED_EVENTS // 2]
+    candidates = select_prompt_events(weekly_counts, limit=MAX_CLASSIFIED_EVENTS - len(used))
+    jev_stages = classify_event_stages(team_id=team.id, event_names=used + [name for name, _ in candidates])
     covered_stages = {jev_stages.get(name, guess_stage(name)) for name in used_events} - {"other"}
     weights = STAGE_WEIGHTS if is_new else FLAT_WEIGHTS
     prompt_events = [

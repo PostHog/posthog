@@ -140,6 +140,30 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("trial_started", "trial"),
         ]
 
+    @patch(f"{SERVICE}.MAX_CLASSIFIED_EVENTS", 2)
+    @patch(f"{SERVICE}.classify_event_stages")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_existing_triggers_reach_jev_when_candidates_fill_the_cap(
+        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+    ) -> None:
+        HogFlow.objects.create(
+            team=self.team,
+            name="Existing sign-up flow",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "org_provisioned", "type": "events"}]}},
+            actions=[],
+        )
+        classify.side_effect = lambda team_id, event_names: {
+            name: stage
+            for name, stage in {"org_provisioned": "signup", "user_registered": "signup"}.items()
+            if name in event_names[:2]
+        }
+        suggest_ideas.return_value = [_idea("trial_started")]
+
+        self._list()
+
+        assert "user_registered" not in dict(suggest_ideas.call_args.kwargs["context"].events)
+
     @patch(f"{SERVICE}.suggest_ideas")
     def test_ranks_welcome_flows_above_busier_events(self, suggest_ideas: MagicMock, _flag) -> None:
         suggest_ideas.return_value = [
