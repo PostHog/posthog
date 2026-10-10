@@ -205,10 +205,6 @@ def _apply_migration(conn, cursor, sql_file: Path) -> None:
         _record_migration(cursor, sql_file.name)
 
 
-def _sql_files(directory: Path) -> list[Path]:
-    return sorted((f for f in directory.iterdir() if f.is_file() and f.suffix == ".sql"), key=lambda f: f.name)
-
-
 def _ensure_database_exists(persons_url: str) -> None:
     """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
@@ -283,10 +279,13 @@ class Command(BaseCommand):
             _ensure_database_exists(persons_url)
 
         migrations_path = self._resolve_migrations_dir(options["migrations_dir"])
-        sql_files = _sql_files(migrations_path)
+        directories = [migrations_path]
         hobby_path = migrations_path / HOBBY_ONLY_MIGRATIONS_DIR
         if hobby and hobby_path.is_dir():
-            sql_files = sorted([*sql_files, *_sql_files(hobby_path)], key=lambda f: f.name)
+            directories.append(hobby_path)
+        sql_files = sorted(
+            (f for directory in directories for f in directory.iterdir() if f.suffix == ".sql"), key=lambda f: f.name
+        )
         if not sql_files:
             self.stdout.write("No SQL migration files found.")
             return
