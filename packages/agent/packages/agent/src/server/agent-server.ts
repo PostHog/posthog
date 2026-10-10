@@ -2067,15 +2067,14 @@ export class AgentServer {
   }
 
   /**
-   * The run carries the session's system prompt, which newSession fixes once, so a later
-   * refresh cannot repair a run lost to a blip here. Without the run the stage is also
-   * unknown, so routing falls back to the env product.
+   * The run carries the session's system prompt and permission mode, which newSession fixes once,
+   * so a later refresh cannot repair a run lost to a blip here.
    */
   private async fetchTaskRunForSessionContext(
     taskId: string,
     runId: string,
-  ): Promise<TaskRun | null> {
-    return this.fetchForSessionContext(
+  ): Promise<TaskRun> {
+    const taskRun = await this.fetchForSessionContext(
       () => this.posthogAPI.getTaskRun(taskId, runId),
       (error) =>
         this.logger.warn("Failed to fetch task run for session context", {
@@ -2084,6 +2083,10 @@ export class AgentServer {
           error,
         }),
     );
+    if (!taskRun) {
+      throw new Error("Task run context is required to initialize the session");
+    }
+    return taskRun;
   }
 
   private async _doInitializeSession(payload: JwtPayload): Promise<void> {
