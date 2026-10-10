@@ -9,7 +9,7 @@ from clickhouse_driver import Client
 
 from posthog import settings
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, Query, wait_for_mutations_on_shards
+from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -18,7 +18,13 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import SQUASH_TARGETS, TargetPlacement, resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import (
+    SQUASH_TARGETS,
+    TargetPlacement,
+    resolve_placements,
+    shards_by_partition,
+    sweep_clusters,
+)
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -299,7 +305,7 @@ def run_person_id_update_mutations(
     # statement per partition keeps both to a single partition, so the other partitions keep merging.
     # The patch part is written before enqueue_on_shards returns, so these run in series.
     for placement in patch_part_placements:
-        for partition_id, shards in sorted(_shards_by_partition(placement).items()):
+        for partition_id, shards in sorted(shards_by_partition(placement).items()):
             runner = dictionary.update_mutation_runner_for(placement.target.data_table, partition_id=partition_id)
             runner.patch_parts = True
             runner.enqueue_on_shards(placement.cluster, shards)
@@ -309,28 +315,6 @@ def run_person_id_update_mutations(
     for handle, shard_mutations in enqueued:
         wait_for_mutations_on_shards(handle, shard_mutations)
     return dictionary
-
-
-def _shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
-    """Every data partition of the target's table, mapped to the shards that hold it.
-
-    Every replica is read because a partition that one replica has not fetched yet still holds rows
-    that the squash must rewrite.
-    """
-    query = Query(
-        """
-        SELECT DISTINCT partition_id
-        FROM system.parts
-        WHERE database = %(database)s AND table = %(table)s AND active AND NOT startsWith(partition_id, 'patch-')
-        """,
-        {"database": settings.CLICKHOUSE_DATABASE, "table": placement.target.data_table},
-    )
-    shards_by_partition: dict[str, set[int]] = {}
-    for host, rows in placement.cluster.map_all_hosts(query).result().items():
-        assert host.shard_num is not None
-        for (partition_id,) in rows:
-            shards_by_partition.setdefault(partition_id, set()).add(host.shard_num)
-    return shards_by_partition
 
 
 @dagster.op
