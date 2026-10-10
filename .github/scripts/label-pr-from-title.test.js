@@ -177,6 +177,12 @@ for (const scope of [
     })
 }
 
+test('the shipped config keeps labels from mixed desktop and agent infra scopes', () => {
+    const labels = labelsForTitle('feat(desktop, tasks): x', loadRules())
+    assert.ok(labels.includes('feature/desktop'))
+    assert.ok(labels.includes('feature/agent-infra'))
+})
+
 // ---------------------------------------------------------------------------
 // Feature flags team only: the `review/low-hanging-fruit` label.
 // ---------------------------------------------------------------------------
