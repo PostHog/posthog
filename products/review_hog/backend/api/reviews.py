@@ -64,6 +64,7 @@ from products.review_hog.backend.reviewer.progress import (
     TurnStats,
     in_progress_report_ids,
     latest_resolution_summaries,
+    finding_counts,
     progress_payload,
     resolution_states,
     running_q,
@@ -941,15 +942,7 @@ def _review_payload(
     latest_resolution: ResolutionSummary | None,
 ) -> dict[str, Any]:
     """The list-row payload for one report's turn at `run_index`; the detail endpoint layers findings on top."""
-    counts = dict.fromkeys(IssuePriority, 0)
-    dismissed = 0
-    for finding, verdict in pairs:
-        if verdict is None:
-            continue
-        if verdict.is_valid:
-            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
-        else:
-            dismissed += 1
+    counts, dismissed = finding_counts(pairs)
     meta = snapshot.meta
     return {
         "id": report.id,
