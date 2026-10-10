@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Case, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
 from django.utils import timezone
 
@@ -350,34 +351,37 @@ def _stamp_dispatched_runs(
         )
     )
     levels = _next_backoff_levels(rows, backoff, now) if backoff is not None else {}
-    if levels:
-        pks_by_level: dict[int, list[UUID]] = {}
-        for pk, level in levels.items():
-            pks_by_level.setdefault(level, []).append(pk)
-        SignalScoutConfig.all_teams.filter(pk__in=levels.keys()).update(
-            background_backoff_level=Case(
-                *(When(pk__in=pks, then=Value(level)) for level, pks in pks_by_level.items()),
-                output_field=PositiveSmallIntegerField(),
+    # The level and `last_run_at` commit together. After a partial write, the retried stamp would
+    # read the old `last_run_at` and raise the level a second time.
+    with transaction.atomic():
+        if levels:
+            pks_by_level: dict[int, list[UUID]] = {}
+            for pk, level in levels.items():
+                pks_by_level.setdefault(level, []).append(pk)
+            SignalScoutConfig.all_teams.filter(pk__in=levels.keys()).update(
+                background_backoff_level=Case(
+                    *(When(pk__in=pks, then=Value(level)) for level, pks in pks_by_level.items()),
+                    output_field=PositiveSmallIntegerField(),
+                )
+            )
+        if not slot_aligned:
+            dispatched.update(last_run_at=now)
+            return
+
+        pks_by_anchor: dict[datetime, list[UUID]] = {}
+        for pk, _team_id, enabled, cron_schedule, interval_minutes, *_ in rows:
+            slotted = enabled and not cron_schedule and not levels.get(pk)
+            anchor = _slot_anchor(str(pk), interval_minutes, now) if slotted else now
+            pks_by_anchor.setdefault(anchor, []).append(pk)
+        if not pks_by_anchor:
+            return
+        dispatched.update(
+            last_run_at=Case(
+                *(When(pk__in=pks, then=Value(anchor)) for anchor, pks in pks_by_anchor.items()),
+                default=Value(now),
+                output_field=DateTimeField(),
             )
         )
-    if not slot_aligned:
-        dispatched.update(last_run_at=now)
-        return
-
-    pks_by_anchor: dict[datetime, list[UUID]] = {}
-    for pk, _team_id, enabled, cron_schedule, interval_minutes, *_ in rows:
-        slotted = enabled and not cron_schedule and not levels.get(pk)
-        anchor = _slot_anchor(str(pk), interval_minutes, now) if slotted else now
-        pks_by_anchor.setdefault(anchor, []).append(pk)
-    if not pks_by_anchor:
-        return
-    dispatched.update(
-        last_run_at=Case(
-            *(When(pk__in=pks, then=Value(anchor)) for anchor, pks in pks_by_anchor.items()),
-            default=Value(now),
-            output_field=DateTimeField(),
-        )
-    )
 
 
 def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff, now: datetime) -> dict[UUID, int]:

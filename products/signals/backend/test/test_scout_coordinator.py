@@ -888,21 +888,24 @@ class TestBackgroundEnrollment:
             _stamp_dispatched_runs(planned, dispatched_at=at, backoff=background.backoff)
         dispatched = PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
         if dispatched and runs:
-            with time_machine.travel(at + timedelta(minutes=1), tick=False):
-                task = Task.objects.create(
-                    team=team,
-                    title="scout run",
-                    description="scout run",
-                    origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-                )
-                SignalScoutRun.all_teams.create(
-                    task_run=TaskRun.objects.create(task=task, team=team),
-                    team=team,
-                    scout_config=config,
-                    skill_name=_GENERAL,
-                    skill_version=1,
-                )
+            self._record_run(team, config, at + timedelta(minutes=1))
         return dispatched
+
+    def _record_run(self, team: Team, config: SignalScoutConfig, at: datetime) -> None:
+        with time_machine.travel(at, tick=False):
+            task = Task.objects.create(
+                team=team,
+                title="scout run",
+                description="scout run",
+                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            )
+            SignalScoutRun.all_teams.create(
+                task_run=TaskRun.objects.create(task=task, team=team),
+                team=team,
+                scout_config=config,
+                skill_name=_GENERAL,
+                skill_version=1,
+            )
 
     @parameterized.expand(
         [
@@ -972,6 +975,33 @@ class TestBackgroundEnrollment:
         assert (PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned) is expect_dispatch
         config.refresh_from_db()
         assert config.background_backoff_level == expected_level
+
+    @parameterized.expand([("acknowledgement_lost", False), ("failed_between_writes", True)])
+    def test_retried_stamp_raises_the_level_once(self, _name, first_attempt_fails):
+        team = self._team()
+        last_run_at = datetime(2026, 3, 2, tzinfo=UTC)
+        config = self._weekly_background_config(team, last_run_at=last_run_at)
+        self._record_run(team, config, last_run_at + timedelta(minutes=1))
+        planned = [PlannedRun(team_id=team.id, skill_name=_GENERAL)]
+        at = last_run_at + timedelta(days=7)
+
+        with time_machine.travel(at, tick=False):
+            if first_attempt_fails:
+                with (
+                    patch(
+                        "products.signals.backend.temporal.agentic.scout_coordinator.DateTimeField",
+                        side_effect=RuntimeError("stamp failed"),
+                    ),
+                    pytest.raises(RuntimeError),
+                ):
+                    _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+            else:
+                _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+
+        config.refresh_from_db()
+        assert config.background_backoff_level == 1
+        assert config.last_run_at == at
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
