@@ -1534,13 +1534,10 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
     .describe('Payload for validating a candidate source project without publishing it.')
 
 /**
- * Copy a canvas into the caller's personal space.
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
  *
- * The copy gets its own source, version history, and build; the original
- * is untouched. The source is either a canvas in this project the caller
- * can open, copied from its published version, or a public share link
- * (`share_token`) whose owner allowed copies, which may come from another
- * project and is copied from the version the link shows.
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
  */
 export const canvasesForkCreateBodyShareTokenMax = 400
 

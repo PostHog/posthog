@@ -171,13 +171,6 @@ export interface CanvasApi {
      * @nullable
      */
     readonly shared_build_id: string | null
-    /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
-    readonly component_meta: CanvasComponentMetaApi | null
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
-    readonly url: string
     /**
      * Id of the canvas this one was copied from, when it was created through fork. Null otherwise.
      * @nullable
@@ -188,6 +181,13 @@ export interface CanvasApi {
      * @nullable
      */
     readonly forked_from_version_id: string | null
+    /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
+    readonly component_meta: CanvasComponentMetaApi | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    readonly url: string
 }
 
 export interface PaginatedCanvasListApi {

@@ -631,6 +631,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
+ * * `canvas` - canvas
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -753,6 +754,7 @@ export interface AccessControlRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1012,6 +1014,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1322,6 +1325,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
