@@ -841,14 +841,16 @@ class TestGetGithubToken(TestCase):
             ("public_bootstrap_only_keeps_shared_token", ["PostHog/.github"], None, "ghs_shared"),
         ]
     )
-    def test_repositories_get_a_freshly_minted_token_instead_of_the_shared_one(
+    def test_repositories_get_a_cached_scoped_token_instead_of_the_shared_one(
         self, _name, repositories, expected_mint_repositories, expected_token
     ):
         from posthog.models import Integration, Organization, Team
         from posthog.models.integration import GitHubIntegration
 
+        from products.tasks.backend.redis import get_tasks_cache
         from products.tasks.backend.temporal.process_task.utils import get_github_token
 
+        get_tasks_cache().clear()
         org = Organization.objects.create(name="o")
         team = Team.objects.create(organization=org, name="t")
         integration = Integration.objects.create(
@@ -859,9 +861,9 @@ class TestGetGithubToken(TestCase):
         )
 
         with patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint:
-            token = get_github_token(integration.id, repositories=repositories)
+            tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
 
-        assert token == expected_token
+        assert tokens == [expected_token, expected_token]
         if expected_mint_repositories is None:
             mint.assert_not_called()
         else:

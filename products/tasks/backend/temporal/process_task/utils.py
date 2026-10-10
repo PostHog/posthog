@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -878,6 +879,11 @@ def get_sandbox_ph_mcp_configs(
     ]
 
 
+# GitHub installation tokens expire after 1 hour and sandboxes refresh theirs every 20 minutes, so a
+# token cached for 30 minutes still outlives the next refresh.
+SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+
+
 def _installation_repository_names(repositories: Sequence[str]) -> list[str]:
     # Public sandbox repos clone without credentials and usually sit outside the installation,
     # where GitHub rejects a scoped mint that names them.
@@ -894,6 +900,17 @@ def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) 
     return [repository] if repository else []
 
 
+def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: list[str]) -> str:
+    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(repositories)}"
+    cache = get_tasks_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, str) and cached:
+        return cached
+    token = github_integration.mint_scoped_installation_token(None, repositories=repositories)
+    cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
+    return token
+
+
 def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
@@ -905,7 +922,7 @@ def get_github_token(github_integration_id: int, repositories: Sequence[str] = (
         )
     installation_repositories = _installation_repository_names(repositories)
     if installation_repositories:
-        return github_integration.mint_scoped_installation_token(None, repositories=installation_repositories)
+        return _mint_repository_scoped_token(github_integration, installation_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -986,7 +1003,7 @@ def get_user_github_token(github_user_integration_id: str, repositories: Sequenc
     github_integration = UserGitHubIntegration(integration)
     installation_repositories = _installation_repository_names(repositories)
     if installation_repositories:
-        return github_integration.mint_scoped_installation_token(None, repositories=installation_repositories)
+        return _mint_repository_scoped_token(github_integration, installation_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None
