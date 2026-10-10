@@ -2617,10 +2617,10 @@ export interface DashboardTile extends Tileable {
     show_description?: boolean | null
     transparent_background?: boolean | null
     group_key?: string | null
-    badge?: DashboardTileBadge | null
+    badge?: TileBadge | null
 }
 
-export type DashboardTileBadge = 'winner' | 'cheeky-hog'
+export type TileBadge = 'winner' | 'cheeky-hog'
 
 export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
 

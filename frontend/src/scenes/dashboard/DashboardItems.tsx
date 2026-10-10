@@ -14,6 +14,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -39,7 +40,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
-import { DashboardTileDecorations } from 'products/dashboards/frontend/components/DashboardTileDecorations/DashboardTileDecorations'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 
@@ -531,10 +531,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             })
 
                             const decorations = (
-                                <DashboardTileDecorations
-                                    badge={tile.badge}
-                                    groupTitle={groupTitlesByTileId[tile.id]}
-                                />
+                                <TileDecorations badge={tile.badge} groupTitle={groupTitlesByTileId[tile.id]} />
                             )
 
                             const commonTileProps = {

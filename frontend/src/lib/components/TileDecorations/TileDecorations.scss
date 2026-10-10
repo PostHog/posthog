@@ -1,4 +1,4 @@
-.DashboardTileDecorations__group-title {
+.TileDecorations__group-title {
     position: absolute;
     top: 0;
     left: 2rem;
@@ -19,7 +19,7 @@
     transform: translateY(-50%);
 }
 
-.DashboardTileDecorations__crown {
+.TileDecorations__crown {
     position: absolute;
     top: 0;
     left: 0;
@@ -31,8 +31,8 @@
     transform: translate(-35%, -50%) rotate(-20deg);
 }
 
-// The window clips the hog, so it slides up from behind the tile's top edge on hover.
-.DashboardTileDecorations__hog {
+// The window clips the hog, so it slides up from behind the card's top edge when the card that holds it is hovered.
+.TileDecorations__hog {
     position: absolute;
     right: 1rem;
     bottom: 100%;
@@ -43,7 +43,7 @@
     pointer-events: none;
 
     img {
-        transition: transform var(--dashboard-hog-slide-duration) ease-out;
+        transition: transform var(--tile-hog-slide-duration, 200ms) ease-out;
         transform: translateY(100%);
 
         @media (prefers-reduced-motion: reduce) {
@@ -52,6 +52,6 @@
     }
 }
 
-.react-grid-item:hover .DashboardTileDecorations__hog img {
+:hover > .TileDecorations__hog img {
     transform: translateY(0);
 }
