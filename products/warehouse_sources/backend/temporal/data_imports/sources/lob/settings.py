@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -29,6 +29,9 @@ class LobEndpointConfig:
     partition_key: Optional[str] = "date_created"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
+    # Most Lob lists page with a `next_url` cursor; a few only accept `offset`, and `/uploads` returns
+    # every row in a single bare array.
+    pagination: Literal["cursor", "offset", "none"] = "cursor"
 
 
 LOB_ENDPOINTS: dict[str, LobEndpointConfig] = {
@@ -66,6 +69,23 @@ LOB_ENDPOINTS: dict[str, LobEndpointConfig] = {
     "templates": LobEndpointConfig(name="templates", path="/templates"),
     # Campaigns expose no `date_created` filter at all, so full refresh is the only option.
     "campaigns": LobEndpointConfig(name="campaigns", path="/campaigns"),
+    "billing_groups": LobEndpointConfig(
+        name="billing_groups",
+        path="/billing_groups",
+        supports_incremental=True,
+        incremental_fields=[DATE_CREATED_INCREMENTAL_FIELD],
+        pagination="offset",
+    ),
+    # One row per QR-coded mailpiece, ordered by most recent scan. Scans keep landing on old rows and
+    # there is no sort or scan-date filter, so full refresh is the only way to pick them up.
+    "qr_code_analytics": LobEndpointConfig(
+        name="qr_code_analytics",
+        path="/qr_code_analytics",
+        primary_keys=["resource_id"],
+        pagination="offset",
+    ),
+    # Uploads use camelCase fields, unlike the rest of the Lob API.
+    "uploads": LobEndpointConfig(name="uploads", path="/uploads", partition_key="dateCreated", pagination="none"),
 }
 
 ENDPOINTS = tuple(LOB_ENDPOINTS.keys())

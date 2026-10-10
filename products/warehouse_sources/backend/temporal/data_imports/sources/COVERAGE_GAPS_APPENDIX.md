@@ -5259,10 +5259,10 @@ Today (8): `addresses`, `bank_accounts`, `campaigns`, `checks`, `letters`, `post
 
 Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-public.yml>
 
-- [ ] `GET /qr_code_analytics` — QR scan events — the only real engagement/response metric Lob exposes for mail (high)
-- [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high)
-- [ ] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high)
-- [ ] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high)
+- [x] `GET /qr_code_analytics` — QR scan events — the only real engagement/response metric Lob exposes for mail (high). Added as `qr_code_analytics` (full refresh: scans keep landing on old rows).
+- [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high). Skipped: the API has no list operation for creatives, only create and get-by-id.
+- [x] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high). Added as `billing_groups`.
+- [x] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high). Added `uploads`. `/uploads/{upl_id}/report` skipped: Lob gates it behind a per-account feature flag, and its rows echo the raw audience CSV.
 - [ ] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium)
 - [ ] `GET /booklets` — a first-class mailpiece type missing from the current set (medium)
 - [ ] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium)
