@@ -7,6 +7,8 @@ export interface CoverageSummary {
     coverage: AutoresearchPredictionCoverageApi
     coveragePct: number
     measuredAt: string
+    /** Prediction date of the measured run, as YYYY-MM-DD. The measure reads scores from before midnight UTC of this date, so it excludes the run's own scores. */
+    cutoffDate: string
     /** Days between rescores of the same person, from the oldest score age. Null until everyone has a score. */
     measuredRescoreDays: number | null
     targetRescoreDays: number
@@ -30,6 +32,11 @@ function measuredRuns(runs: AutoresearchRunApi[]): MeasuredRun[] {
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
 
+function cutoffDate(run: AutoresearchRunApi): string {
+    const predictionDate = run.metrics?.prediction_date
+    return typeof predictionDate === 'string' ? predictionDate : run.created_at.slice(0, 10)
+}
+
 function coveragePct(coverage: AutoresearchPredictionCoverageApi): number {
     return coverage.population > 0 ? (100 * coverage.with_score) / coverage.population : 0
 }
@@ -49,6 +56,7 @@ export function coverageSummary(runs: AutoresearchRunApi[], targetRescoreDays: n
         coverage,
         coveragePct: coveragePct(coverage),
         measuredAt: latest.created_at,
+        cutoffDate: cutoffDate(latest),
         measuredRescoreDays,
         targetRescoreDays,
         failedRunsSince: runs.filter(

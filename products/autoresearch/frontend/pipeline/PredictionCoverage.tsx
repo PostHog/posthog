@@ -39,22 +39,23 @@ export function CoverageSummaryBanner(): JSX.Element | null {
     if (!coverageSummary) {
         return <EstimatedCoverageBanner />
     }
-    const { coverage, coveragePct, measuredAt, measuredRescoreDays, targetRescoreDays, failedRunsSince } =
+    const { coverage, coveragePct, measuredAt, cutoffDate, measuredRescoreDays, targetRescoreDays, failedRunsSince } =
         coverageSummary
     const slowerThanTarget = measuredRescoreDays != null && measuredRescoreDays > targetRescoreDays
     return (
         <LemonBanner type={failedRunsSince > 0 || slowerThanTarget ? 'warning' : 'info'}>
             <div className="space-y-1" data-attr="autoresearch-coverage-summary">
                 <p className="mb-0">
+                    Before the scoring run for {dayjs.utc(cutoffDate).format('MMM D')},{' '}
                     {humanFriendlyNumber(coverage.with_score)} of {humanFriendlyNumber(coverage.population)} people (
-                    {Math.round(coveragePct)}%) have a score from the last {formatDays(coverage.lookback_days)}.{' '}
+                    {Math.round(coveragePct)}%) had a score from the previous {formatDays(coverage.lookback_days)}.{' '}
                     {coverage.never_scored > 0
-                        ? `${humanFriendlyNumber(coverage.never_scored)} people have no score in that time.`
-                        : 'Everyone has a score.'}
+                        ? `${humanFriendlyNumber(coverage.never_scored)} people had no score in that time.`
+                        : 'Everyone had a score.'}
                 </p>
                 {coverage.age_days_p50 != null && coverage.age_days_p90 != null && (
                     <p className="mb-0">
-                        Half of the scores are less than {formatDays(coverage.age_days_p50)} old. 90% are less than{' '}
+                        Half of those scores were less than {formatDays(coverage.age_days_p50)} old. 90% were less than{' '}
                         {formatDays(coverage.age_days_p90)} old.
                     </p>
                 )}

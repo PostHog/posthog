@@ -71,6 +71,13 @@ describe('predictionCoverage', () => {
         expect(summary?.measuredAt).toEqual('2026-03-01T03:00:00Z')
     })
 
+    test.each([
+        ['the prediction date when the run recorded one', { prediction_date: '2026-02-28' }, '2026-02-28'],
+        ['the run day when the run has no prediction date', {}, '2026-03-01'],
+    ])('coverageSummary cutoff is %s', (_name, metrics, expected) => {
+        expect(coverageSummary([run({ metrics })], 4)?.cutoffDate).toEqual(expected)
+    })
+
     test('coverageHistory keeps the newest measured run per day and leaves a gap for a day without one', () => {
         const history = coverageHistory([
             run({ created_at: '2026-03-02T15:00:00Z', coverage: coverage({ with_score: 800, age_days_p50: 1 }) }),
