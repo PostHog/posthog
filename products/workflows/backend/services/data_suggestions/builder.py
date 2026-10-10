@@ -4,8 +4,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.services.data_suggestions.brand import BrandKit
-from products.workflows.backend.services.data_suggestions.branded_email import EmailCopy, render_branded_email
+from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     Channel,
@@ -35,7 +34,6 @@ class BuildContext:
     email_templates: dict[str, dict]
     sender: EmailSender | None
     slack_integration_id: int | None
-    brand: BrandKit | None
 
 
 @frozen
@@ -196,7 +194,6 @@ def _wait_step(step_id: str, next_id: str) -> PlannedStep:
         email_subject=None,
         email_heading=None,
         email_paragraphs=None,
-        email_button_label=None,
         slack_message=None,
     )
 
@@ -292,14 +289,12 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
     else:
         if not (step.email_subject and step.email_heading and step.email_paragraphs):
             return None
-        rendered = render_branded_email(
+        rendered = render_email(
             EmailCopy(
                 subject=clean_copy(step.email_subject),
                 heading=clean_copy(step.email_heading),
                 paragraphs=tuple(clean_copy(paragraph) for paragraph in step.email_paragraphs[:3]),
-                button_label=clean_copy(step.email_button_label or "Take a look"),
-            ),
-            context.brand,
+            )
         )
         body = {"subject": rendered.subject, "html": rendered.html, "text": rendered.text, "design": rendered.design}
         name = rendered.subject

@@ -4,14 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import urllib3
 from parameterized import parameterized
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
-from products.workflows.backend.services.data_suggestions.brand import BrandKit, fetch_brand_kit, parse_brand_kit
-from products.workflows.backend.services.data_suggestions.branded_email import EmailCopy, render_branded_email
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
@@ -52,7 +50,6 @@ def step(step_id: str = "email_1", **overrides: Any) -> PlannedStep:
         "email_subject": "Your trial started",
         "email_heading": "Welcome to your trial",
         "email_paragraphs": ["Here is how to get started."],
-        "email_button_label": "Open the app",
         "slack_message": None,
     }
     values.update(overrides)
@@ -75,7 +72,6 @@ def context(**overrides: Any) -> BuildContext:
         "email_templates": {},
         "sender": None,
         "slack_integration_id": None,
-        "brand": None,
     }
     values.update(overrides)
     return BuildContext(**values)
@@ -86,81 +82,11 @@ def edges(built: Any) -> list[tuple]:
 
 
 class TestDataSuggestions(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "meta tags",
-                '<meta property="og:site_name" content="Acme"><meta name="theme-color" content="#1D4AFF">'
-                '<link rel="apple-touch-icon" href="/touch.png"><link rel="icon" href="/favicon.ico">',
-                BrandKit(
-                    domain="example.com",
-                    site_name="Acme",
-                    primary_color="#1d4aff",
-                    logo_url="https://example.com/touch.png",
-                ),
-            ),
-            (
-                "title fallback, bad color, insecure logo",
-                '<title>Acme | Ship faster</title><meta name="theme-color" content="red">'
-                '<link rel="icon" href="http://cdn.example.com/icon.png">',
-                BrandKit(domain="example.com", site_name="Acme", primary_color=None, logo_url=None),
-            ),
-            (
-                "nothing",
-                "<p>hi</p>",
-                BrandKit(domain="example.com", site_name="example.com", primary_color=None, logo_url=None),
-            ),
-        ]
-    )
-    def test_parse_brand_kit(self, _name: str, html: str, expected: BrandKit) -> None:
-        assert parse_brand_kit(domain="example.com", html=html, base_url="https://example.com/") == expected
-
-    @parameterized.expand(
-        [
-            (
-                "utf-8 page without a charset header",
-                '<meta charset="utf-8"><title>Café Zürich</title>'.encode(),
-                "Café Zürich",
-            ),
-            ("body times out", urllib3.exceptions.ReadTimeoutError(None, "/", "read timed out"), None),
-            ("connection drops mid-body", urllib3.exceptions.ProtocolError("connection reset"), None),
-        ]
-    )
-    @patch("products.workflows.backend.services.data_suggestions.brand.pinned_session")
-    def test_fetch_brand_kit_reads_the_homepage_body(
-        self, _name: str, body: bytes | Exception, site_name: str | None, pinned_session: MagicMock
-    ) -> None:
-        response = pinned_session.return_value.__enter__.return_value.get.return_value
-        response.is_redirect = False
-        response.status_code = 200
-        response.headers = {"Content-Type": "text/html"}
-        response.encoding = "ISO-8859-1"
-        if isinstance(body, Exception):
-            response.raw.read.side_effect = body
-        else:
-            response.raw.read.return_value = body
-
-        brand = fetch_brand_kit("example.com")
-
-        assert (brand.site_name if brand else None) == site_name
-
-    def test_branded_email_escapes_copy_and_keeps_light_brand_colors_readable(self) -> None:
-        email = render_branded_email(
-            EmailCopy(subject="Hi", heading="<script>x</script>", paragraphs=("a & b",), button_label="Go"),
-            BrandKit(domain="example.com", site_name="Acme", primary_color="#ffffff", logo_url=None),
-        )
+    def test_email_escapes_copy_and_carries_an_editor_design(self) -> None:
+        email = render_email(EmailCopy(subject="Hi", heading="<script>x</script>", paragraphs=("a & b",)))
         assert "<script>" not in email.html
         assert "a &amp; b" in email.html
-        assert "background:#1d1f27" in email.html
-        assert 'href="https://example.com"' in email.html
         assert email.design["body"]["rows"]
-
-    def test_branded_email_without_a_brand_has_no_button(self) -> None:
-        email = render_branded_email(
-            EmailCopy(subject="Hi", heading="Hello", paragraphs=("Body",), button_label="Go"), None
-        )
-        assert ">Go</a>" not in email.html
-        assert "Go:" not in email.text
 
     @parameterized.expand(
         [

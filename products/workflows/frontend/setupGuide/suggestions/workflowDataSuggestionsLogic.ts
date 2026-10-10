@@ -155,7 +155,6 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     trigger_event: card.triggerEvent,
                     stage: card.stage,
                     uses_saved_template: built.uses_saved_template,
-                    branded: !!built.brand_site_name,
                 })
                 router.actions.push(urls.workflow(workflow.id, 'workflow'))
             } catch (error: any) {

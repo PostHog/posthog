@@ -50,7 +50,6 @@ def _step(step_id: str, step_type: str, **overrides: object) -> PlannedStep:
         "email_subject": None,
         "email_heading": None,
         "email_paragraphs": None,
-        "email_button_label": None,
         "slack_message": None,
     }
     values.update(overrides)
@@ -64,7 +63,6 @@ def _email_step(step_id: str, subject: str, **overrides: object) -> PlannedStep:
         email_subject=subject,
         email_heading=subject,
         email_paragraphs=["Thanks for trying the product."],
-        email_button_label="Open the app",
         **overrides,
     )
 

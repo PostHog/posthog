@@ -26,7 +26,6 @@ from products.workflows.backend.facade.contracts import DataSuggestionBuildFaile
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
-from products.workflows.backend.services.data_suggestions.brand import fetch_brand_kit, resolve_brand_domain
 from products.workflows.backend.services.data_suggestions.builder import (
     BuildContext,
     BuiltWorkflow,
@@ -98,7 +97,6 @@ class DataSuggestionsResult:
 class BuiltSuggestion:
     workflow: dict[str, Any]
     uses_saved_template: bool
-    brand_site_name: str | None
 
 
 def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> DataSuggestionsResult:
@@ -169,9 +167,6 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
     )
     if plan is None:
         raise DataSuggestionBuildFailed()
-    needs_brand = any(step.type == "email" and not step.email_template_id for step in plan.steps)
-    brand_domain = resolve_brand_domain(team) if needs_brand else None
-    brand = fetch_brand_kit(brand_domain) if brand_domain else None
 
     built = build_workflow(
         idea,
@@ -183,7 +178,6 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
             email_templates=email_templates,
             sender=_email_sender(team),
             slack_integration_id=slack_integration_id,
-            brand=brand,
         ),
     )
     if built is None or not _is_valid(team, built):
@@ -191,7 +185,6 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
     return BuiltSuggestion(
         workflow=built.workflow,
         uses_saved_template=built.uses_saved_template,
-        brand_site_name=brand.site_name if brand else None,
     )
 
 

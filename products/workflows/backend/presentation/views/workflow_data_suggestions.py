@@ -90,9 +90,6 @@ class DataSuggestionBuildResponseSerializer(serializers.Serializer):
         "exit_condition), ready to send to the workflow create endpoint. Nothing is saved by this call."
     )
     uses_saved_template = serializers.BooleanField(help_text="Whether an email step reuses a saved email template.")
-    brand_site_name = serializers.CharField(
-        allow_null=True, help_text="The site name the generated emails were branded with, if any."
-    )
 
 
 class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

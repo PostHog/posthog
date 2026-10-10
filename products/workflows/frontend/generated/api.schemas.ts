@@ -2045,11 +2045,6 @@ export interface DataSuggestionBuildResponseApi {
     workflow: unknown
     /** Whether an email step reuses a saved email template. */
     uses_saved_template: boolean
-    /**
-     * The site name the generated emails were branded with, if any.
-     * @nullable
-     */
-    brand_site_name: string | null
 }
 
 /**

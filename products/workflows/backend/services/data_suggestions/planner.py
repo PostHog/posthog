@@ -106,7 +106,6 @@ class PlannedStep(BaseModel):
     email_paragraphs: list[str] | None = Field(
         description="For an email step without a saved template: 1 to 3 short paragraphs of body copy."
     )
-    email_button_label: str | None = Field(description="For an email step without a saved template: the button text.")
     slack_message: str | None = Field(description="For a slack step: the message to post, else null.")
 
 
@@ -223,9 +222,9 @@ def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkf
     email_rule = (
         "For each email step, set email_template_id only when a saved template's name and subject clearly match "
         "the purpose of that step. Generic or placeholder templates never match. Otherwise leave it null and "
-        "write the subject, heading, paragraphs and button label."
+        "write the subject, heading and paragraphs."
         if context.email_templates
-        else "For each email step, write the subject, heading, paragraphs and button label, and leave email_template_id null."
+        else "For each email step, write the subject, heading and paragraphs, and leave email_template_id null."
     )
     slack_rule = (
         "Slack steps post to a channel the team picks later."
