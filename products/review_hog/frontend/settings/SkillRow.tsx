@@ -13,7 +13,7 @@ export interface SkillKept {
 
 function KeptCount({ kept }: { kept: SkillKept | null }): JSX.Element {
     if (kept === null || kept.raised === 0) {
-        return <span className="text-xs text-secondary">Not run in your last 10</span>
+        return <span className="text-xs text-secondary">No findings in your last 10</span>
     }
     return (
         <span className="flex items-center gap-2 text-xs text-secondary">
@@ -21,10 +21,7 @@ function KeptCount({ kept }: { kept: SkillKept | null }): JSX.Element {
                 <span className="h-full bg-success" style={{ width: `${(kept.kept / kept.raised) * 100}%` }} />
             </span>
             <span className="tabular-nums">
-                <span className="font-semibold text-default">
-                    {kept.kept} of {kept.raised}
-                </span>{' '}
-                findings kept
+                <span className="font-semibold text-default">{`${kept.kept} of ${kept.raised}`}</span> findings kept
             </span>
         </span>
     )
