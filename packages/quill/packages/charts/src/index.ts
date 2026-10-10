@@ -117,6 +117,41 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
 
+// Sankey
+export { SankeyChart } from './charts/SankeyChart/SankeyChart'
+export type {
+    SankeyChartConfig,
+    SankeyChartProps,
+    SankeyTooltipContext,
+    SankeyTooltipHit,
+} from './charts/SankeyChart/types'
+export type {
+    SankeyChartLayout,
+    SankeyLinkDatum,
+    SankeyLinkInput,
+    SankeyNodeAlign,
+    SankeyNodeDatum,
+    SankeyNodeInput,
+} from './charts/SankeyChart/sankey-data'
+export { useSankeyLayout } from './charts/SankeyChart/sankey-context'
+export type { SankeyLayoutContextValue } from './charts/SankeyChart/sankey-context'
+// The layout engine on its own, for hosts that draw their own SVG (user paths).
+export {
+    sankeyCenter,
+    sankeyJustify,
+    sankeyLayout,
+    sankeyLeft,
+    sankeyLinkHorizontal,
+    sankeyRight,
+} from './charts/SankeyChart/sankey-layout'
+export type {
+    SankeyGraph,
+    SankeyInputGraph,
+    SankeyLayout,
+    SankeyLink,
+    SankeyNode,
+} from './charts/SankeyChart/sankey-layout'
+
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
 export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
@@ -210,8 +245,4 @@ export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
 export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
-export type {
-    ChartLegendRenderProps,
-    ChartLegendState,
-    LegendItemControls,
-} from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState, LegendItemControls } from './components/Legend/useChartLegend'
