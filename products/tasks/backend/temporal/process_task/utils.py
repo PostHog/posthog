@@ -894,6 +894,9 @@ def _installation_repository_names(github_integration: GitHubIntegrationBase, re
     # GitHub scopes a mint by bare repo name, so a repo another account owns would get the installation's
     # repo of the same name. A placeholder account name cannot be checked, so it skips the owner match.
     owner = None if github_integration.account_name_needs_heal() else github_integration.organization().lower()
+    if owner is not None and any(repository.lower().rpartition("/")[0] != owner for repository in repositories):
+        github_integration.ensure_account_name(force_refresh=True)
+        owner = github_integration.organization().lower()
     names: set[str] = set()
     for repository in repositories:
         repository_owner, _, name = repository.lower().rpartition("/")

@@ -836,6 +836,7 @@ class TestGetGithubToken(TestCase):
 
     @parameterized.expand(
         [
+            ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),
             ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
             ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
             ("public_bootstrap_only_keeps_shared_token", "Acme", ["PostHog/.github"], None, "ghs_shared"),
@@ -864,9 +865,24 @@ class TestGetGithubToken(TestCase):
             sensitive_config={"access_token": "ghs_shared"},
         )
 
-        with patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint:
+        with (
+            patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint,
+            patch.object(
+                GitHubIntegration,
+                "client_request",
+                return_value=MagicMock(
+                    status_code=200, json=lambda: {"account": {"login": "Acme", "type": "Organization"}}
+                ),
+            ) as lookup,
+        ):
             tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
 
+        if account_name == "OldAcme" or (
+            account_name == "Acme" and any(r.startswith("evilorg/") for r in repositories)
+        ):
+            lookup.assert_called_once_with("installations/INSTALL")
+        else:
+            lookup.assert_not_called()
         assert tokens == [expected_token, expected_token]
         if expected_mint_repositories is None:
             mint.assert_not_called()

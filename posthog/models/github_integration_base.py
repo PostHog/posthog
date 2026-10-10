@@ -671,15 +671,17 @@ class GitHubIntegrationBase:
         name = account.get("name") if isinstance(account, dict) else None
         return not name or str(name) == str(installation_id)
 
-    def ensure_account_name(self) -> bool:
-        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+    def ensure_account_name(self, *, force_refresh: bool = False) -> bool:
+        """Refresh a placeholder (or suspected stale) login, at most once per cooldown.
 
         Skips installations already marked unavailable, since the lookup would fail the same way.
         Returns True when the name was healed. Persists the attempt timestamp either way so a broken
         installation costs one GitHub call per cooldown window, not one per list request.
         """
         installation_id = self.github_installation_id
-        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+        if not installation_id or self.installation_unavailable():
+            return False
+        if not force_refresh and not self.account_name_needs_heal():
             return False
         now = int(time.time())
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
