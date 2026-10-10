@@ -217,10 +217,6 @@ class TestFetchAndFormatActivity:
     async def test_trace_not_found_returns_skipped(self, mock_team):
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
-            patch(
-                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
-                return_value=TraceSize(event_count=0, payload_chars=0),
-            ),
         ):
             mock_fetch.return_value = None
 
@@ -268,10 +264,6 @@ class TestFetchAndFormatActivity:
 
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
-            patch(
-                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
-                return_value=TraceSize(event_count=0, payload_chars=0),
-            ),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format"
             ) as mock_to_format,
@@ -357,10 +349,6 @@ class TestFetchAndFormatActivity:
 
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
-            patch(
-                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
-                return_value=TraceSize(event_count=0, payload_chars=0),
-            ),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format"
             ) as mock_to_format,
