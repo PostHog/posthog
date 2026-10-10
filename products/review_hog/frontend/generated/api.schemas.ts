@@ -1062,11 +1062,65 @@ export interface ReviewTriggerRequestApi {
     run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
+/**
+ * * `full` - Deep
+ * * `flash` - Standard
+ */
+export type ReviewTriggerReviewModeEnumApi =
+    (typeof ReviewTriggerReviewModeEnumApi)[keyof typeof ReviewTriggerReviewModeEnumApi]
+
+export const ReviewTriggerReviewModeEnumApi = {
+    Full: 'full',
+    Flash: 'flash',
+} as const
+
+/**
+ * * `run_mode_excludes_resolve` - The run mode never resolves comments
+ * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+ * * `already_reviewed` - No run starts, because the head already has a review in this mode
+ */
+export type ResolveSkipReasonEnumApi = (typeof ResolveSkipReasonEnumApi)[keyof typeof ResolveSkipReasonEnumApi]
+
+export const ResolveSkipReasonEnumApi = {
+    RunModeExcludesResolve: 'run_mode_excludes_resolve',
+    OwnerNotOptedIn: 'owner_not_opted_in',
+    AlreadyReviewed: 'already_reviewed',
+} as const
+
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Deep review waits for an active Standard review. */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already running and the request was queued on that pull request's run, to start after the running turn. A requested Deep review waits for an active Standard review. */
     status: string
+    /** The pull request's repository as 'owner/repo'. */
+    repository: string
+    /** The pull request number. */
+    pr_number: number
+    /**
+     * The pull request's head commit when the request was accepted.
+     * @nullable
+     */
+    head_sha: string | null
+    /** The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', which runs no review.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
+    /**
+     * Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull request's first run, which creates the review later.
+     * @nullable
+     */
+    report_id: string | null
+    /** Server time when the request was accepted. */
+    requested_at: string
+    /** Whether this request runs the resolution stage, which can push fix commits to the pull request. */
+    resolve_will_run: boolean
+    /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
+     *
+     * * `run_mode_excludes_resolve` - The run mode never resolves comments
+     * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `already_reviewed` - No run starts, because the head already has a review in this mode */
+    resolve_skip_reason: ResolveSkipReasonEnumApi | null
 }
 
 /**
