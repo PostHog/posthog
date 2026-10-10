@@ -18,6 +18,7 @@ import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -366,7 +367,12 @@ export function ReportsTab(): JSX.Element {
                     <InboxScopeFilter />
                 </div>
             </div>
-            <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
+            <InboxBulkSelectionBar
+                reports={rows.map(({ report }) => report)}
+                openReportIds={rows
+                    .filter(({ sectionKey }) => sectionKey === INBOX_PRIMARY_REPORT_SECTION_KEY)
+                    .map(({ report }) => report.id)}
+            />
 
             {inboxIsEmpty ? (
                 <ReportsEmptyState />

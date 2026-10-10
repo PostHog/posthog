@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { type SignalReport, SignalReportStatus } from '../../types'
-import { InboxBulkSelectionBar } from './InboxBulkSelectionBar'
+import { BULK_CLEANUP_PROMPT_MIN_REPORTS, InboxBulkSelectionBar } from './InboxBulkSelectionBar'
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
     return {
@@ -68,5 +68,16 @@ describe('InboxBulkSelectionBar', () => {
         fireEvent.click(screen.getByText('Dismiss'))
 
         expect(await screen.findByText(/The pull request opened for this report is closed/)).toBeInTheDocument()
+    })
+
+    // Dismissed rows share the flat list, so "Select all" must pick only the open queue it counts.
+    it('selects only the open reports from the bulk cleanup prompt', () => {
+        const openIds = Array.from({ length: BULK_CLEANUP_PROMPT_MIN_REPORTS }, (_, i) => `open-${i}`)
+        const reports = [...openIds, 'dismissed-1'].map((id) => makeReport(id))
+        render(<InboxBulkSelectionBar reports={reports} openReportIds={openIds} />)
+
+        fireEvent.click(screen.getByText(`Select all ${openIds.length}`))
+
+        expect(logic.values.selectedReportIds).toEqual(openIds)
     })
 })

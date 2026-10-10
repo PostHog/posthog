@@ -131,7 +131,7 @@ function DismissReportDialogBody({
             : `Dismiss report "${title}"?`}
         </DialogTitle>
         <DialogDescription>
-          {`This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
+          {`This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved, and your note goes to the agent on its next run.`}
         </DialogDescription>
       </DialogHeader>
 
