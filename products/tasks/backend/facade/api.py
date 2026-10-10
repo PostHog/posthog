@@ -2751,6 +2751,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
+        # Historical loop runs use this server stamp to keep owner credential revocation fail-closed.
+        "loop_id",
         # Stamped at creation by workflow tasks: a PATCHable value would widen the run's connector allowlist.
         "config_snapshot",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
