@@ -87,7 +87,9 @@ async def fake_fetch_filters(inputs: FetchAllClusteringFiltersInput) -> dict[int
     return {}
 
 
-async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
+async def _run_coordinator(
+    inputs: BatchTraceSummarizationCoordinatorInputs, execution_timeout: timedelta = timedelta(minutes=55)
+) -> CoordinatorResult:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -102,7 +104,7 @@ async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> 
                 inputs,
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
-                execution_timeout=timedelta(minutes=55),
+                execution_timeout=execution_timeout,
             )
 
 
@@ -226,6 +228,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
             "failed_team_ids": [],
             "total_items": 0,
             "total_summaries": 0,
+            "teams_skipped": 0,
         }
 
     def test_empty_results_returns_independent_instances(self):
@@ -327,3 +330,26 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert isinstance(exc_info.value.cause, ApplicationError)
         assert "max_concurrent_teams" in str(exc_info.value.cause)
         assert child_runs == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "execution_timeout,expected_succeeded,expected_skipped",
+        [
+            # Dispatch stops at 2.5 minutes, after the fourth team starts. The slow team finishes before the finish time.
+            pytest.param(timedelta(minutes=12.5), 4, 1, id="teams_not_started"),
+            # Dispatch stops at 1.5 minutes, after the third team starts. The slow team still runs at the finish time.
+            pytest.param(timedelta(minutes=11.5), 2, 3, id="teams_not_started_and_unfinished"),
+        ],
+    )
+    async def test_completes_and_reports_skipped_teams_before_execution_timeout(
+        self, execution_timeout, expected_succeeded, expected_skipped
+    ):
+        child_runs.clear()
+        result = await _run_coordinator(
+            BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2), execution_timeout=execution_timeout
+        )
+
+        assert result.teams_processed == expected_succeeded
+        assert result.teams_failed == 0
+        assert result.teams_skipped == expected_skipped
+        assert result.teams_processed + result.teams_skipped == len(DISCOVERED_TEAM_IDS)

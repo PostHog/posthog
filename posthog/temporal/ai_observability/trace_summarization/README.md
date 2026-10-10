@@ -68,10 +68,13 @@ Continue-as-new carries the remaining teams and the window into the next run, so
 Before it continues as new, the coordinator waits for the running teams to finish, and the free slots stay idle during that wait.
 So it continues as new only at its own history limits (the `continue_as_new_history_length` and `continue_as_new_history_size_bytes` inputs), not at the lower Temporal suggestion.
 A run that is skipped, or that reaches its timeout before it reaches a team, still loses that hour for the teams it did not reach.
+The execution timeout covers the whole run, continuations included, and a timed-out run logs nothing.
+So the coordinator stops starting teams `DISPATCH_STOP_BEFORE_TIMEOUT` before the timeout, and stops waiting for running teams `FINISH_BEFORE_TIMEOUT` before it.
+Then it completes, logs `teams_skipped`, and increments `llma_coordinator_teams_skipped`.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
-**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_items`, `total_summaries`
+**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_items`, `total_summaries`, `teams_skipped`
 
 ### Per-Team: `llma-trace-summarization`
 

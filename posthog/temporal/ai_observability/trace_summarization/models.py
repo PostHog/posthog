@@ -177,3 +177,5 @@ class CoordinatorResult:
     failed_team_ids: list[int]
     total_items: int  # traces or generations depending on analysis_level
     total_summaries: int
+    # Teams the run did not finish before its execution timeout: not started, or still running at the deadline.
+    teams_skipped: int = 0

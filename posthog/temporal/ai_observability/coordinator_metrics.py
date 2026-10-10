@@ -38,6 +38,14 @@ def increment_team_failed(pipeline: str, analysis_level: str) -> None:
     ).add(1)
 
 
+def record_teams_skipped(count: int, pipeline: str, analysis_level: str) -> None:
+    meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
+    meter.create_counter(
+        "llma_coordinator_teams_skipped",
+        "Teams a coordinator run did not finish before its execution timeout",
+    ).add(count)
+
+
 def record_jobs_dispatched(count: int, pipeline: str, analysis_level: str) -> None:
     meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
     meter.create_counter(
