@@ -1,0 +1,412 @@
+{
+    "method": "customerAnalytics.accountsMeetingsList",
+    "toolName": "accounts-meetings-list",
+    "operationId": "accounts_meetings_list",
+    "title": "List account meetings",
+    "category": "Customer analytics",
+    "description": "List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsMeetingsListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsMeetingsListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsMeetingsListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-meetings-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-meetings-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/meetings/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/meetings/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/meetings/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListInput",
+            "field": "search",
+            "effectiveDescription": "Filter meetings by title or attendee email/name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter meetings by title or attendee email/name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/meetings/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "effectiveDescription": "A calendar meeting synced from a connected employee calendar (read-only).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A calendar meeting synced from a connected employee calendar (read-only).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the meeting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the meeting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Meeting title; may be empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Meeting title; may be empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "is_recurring",
+            "effectiveDescription": "Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_recurring"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "gong_url",
+            "effectiveDescription": "Gong call URL matched through the calendar event id; null when no Gong call is available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Gong call URL matched through the calendar event id; null when no Gong call is available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/gong_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "start_time",
+            "effectiveDescription": "When the meeting starts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the meeting starts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/start_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "end_time",
+            "effectiveDescription": "When the meeting ends.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the meeting ends.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/end_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "organizer_email",
+            "effectiveDescription": "Email address of the meeting organizer; may be empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the meeting organizer; may be empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/organizer_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Meeting status: 'confirmed', 'tentative', or 'cancelled'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Meeting status: 'confirmed', 'tentative', or 'cancelled'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape2",
+            "field": "participants",
+            "effectiveDescription": "Attendees of the meeting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attendees of the meeting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/participants"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "effectiveDescription": "One attendee of a synced calendar meeting (read-only).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One attendee of a synced calendar meeting (read-only).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "field": "email",
+            "effectiveDescription": "Email address of the attendee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the attendee.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "field": "display_name",
+            "effectiveDescription": "Display name from the calendar event; may be empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name from the calendar event; may be empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "field": "response_status",
+            "effectiveDescription": "The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/response_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "field": "is_organizer",
+            "effectiveDescription": "Whether this attendee organized the meeting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this attendee organized the meeting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/is_organizer"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListResponseShape3",
+            "field": "person_id",
+            "effectiveDescription": "UUID of the PostHog person resolved for this attendee, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the PostHog person resolved for this attendee, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/person_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsMeetingsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

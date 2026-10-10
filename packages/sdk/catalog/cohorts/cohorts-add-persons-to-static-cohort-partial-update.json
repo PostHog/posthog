@@ -1,0 +1,102 @@
+{
+    "method": "cohorts.cohortsAddPersonsToStaticCohortPartialUpdate",
+    "toolName": "cohorts-add-persons-to-static-cohort-partial-update",
+    "operationId": "cohorts_add_persons_to_static_cohort_partial_update",
+    "title": "Add persons to static cohort",
+    "category": "Cohorts",
+    "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
+    "requiredScopes": ["cohort:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/cohorts/client.ts",
+    "input": {
+        "name": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateInput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.ts",
+        "declaration": "dist/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateOutput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.ts",
+        "declaration": "dist/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.ts",
+            "declaration": "dist/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.d.ts"
+        },
+        {
+            "name": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateData",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.ts",
+            "declaration": "dist/generated/cohorts/cohorts-add-persons-to-static-cohort-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cohorts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this cohort.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/cohorts/{id}/add_persons_to_static_cohort/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateInput",
+            "field": "person_ids",
+            "effectiveDescription": "List of person UUIDs to add to the cohort",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of person UUIDs to add to the cohort",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/cohorts/{id}/add_persons_to_static_cohort/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsCohortsAddPersonsToStaticCohortPartialUpdateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cohorts.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

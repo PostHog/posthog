@@ -1,0 +1,313 @@
+{
+    "method": "conversations.conversationsTicketsRetrieve",
+    "toolName": "conversations-tickets-retrieve",
+    "operationId": "conversations_tickets_retrieve",
+    "title": "Get support ticket",
+    "category": "Conversations",
+    "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+    "requiredScopes": ["ticket:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsRetrieveInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsRetrieveOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape7",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsRetrieveData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get single ticket and mark as read by team.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "The ticket's UUID or its numeric ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ticket's UUID or its numeric ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveResponseShape2",
+            "effectiveDescription": "Serializer for ticket assignment (user or role).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer for ticket assignment (user or role).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveResponseShape5",
+            "effectiveDescription": "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveResponseShape5",
+            "field": "current_url",
+            "effectiveDescription": "Page the reporter was on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page the reporter was on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape5/properties/current_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveResponseShape5",
+            "field": "replay_url",
+            "effectiveDescription": "Replay of the session the ticket came from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replay of the session the ticket came from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape5/properties/replay_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveResponseShape6",
+            "effectiveDescription": "Minimal person serializer for embedding in ticket responses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimal person serializer for embedding in ticket responses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "status",
+            "effectiveDescription": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "priority",
+            "effectiveDescription": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "sla_due_at",
+            "effectiveDescription": "SLA deadline set via workflows. Null means no SLA.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SLA deadline set via workflows. Null means no SLA.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/sla_due_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "anonymous_traits",
+            "effectiveDescription": "Customer-provided traits such as name and email",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer-provided traits such as name and email",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/anonymous_traits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "session_context",
+            "effectiveDescription": "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/session_context"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsRetrieveData",
+            "field": "_agentNote",
+            "effectiveDescription": "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

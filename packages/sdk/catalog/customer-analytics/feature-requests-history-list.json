@@ -1,0 +1,296 @@
+{
+    "method": "customerAnalytics.featureRequestsHistoryList",
+    "toolName": "feature-requests-history-list",
+    "operationId": "feature_requests_history_list",
+    "title": "List feature request history",
+    "category": "Customer analytics",
+    "description": "List the complete change history for a Customer analytics feature request, newest first. Entries group the status, priority, account, evidence, and product area changes from one successful save. Account snapshots the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry metadata and changed field names, but not before and after values.",
+    "requiredScopes": ["customer_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-feature-requests"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsFeatureRequestsHistoryListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+        "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsFeatureRequestsHistoryListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+        "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape7",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape9",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape10",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape11",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape13",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape12",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsHistoryListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-history-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-history-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the complete change history for a Customer analytics feature request, newest first. Entries group the status, priority, account, evidence, and product area changes from one successful save. Account snapshots the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry metadata and changed field names, but not before and after values.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable request history entry ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable request history entry ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "changes",
+            "effectiveDescription": "Tracked fields changed together in one successful save.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tracked fields changed together in one successful save.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/changes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "is_initial",
+            "effectiveDescription": "Whether this entry records the request's initial values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this entry records the request's initial values.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_initial"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "change_source",
+            "effectiveDescription": "System that recorded the request change.\n\n* `manual` - Manual\n* `github` - GitHub",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "System that recorded the request change.\n\n* `manual` - Manual\n* `github` - GitHub",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/change_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "actor_id",
+            "effectiveDescription": "ID of the user who changed the request, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who changed the request, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/actor_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "actor_name",
+            "effectiveDescription": "Display name of the user who changed the request, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the user who changed the request, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/actor_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape2",
+            "field": "changed_at",
+            "effectiveDescription": "When the request changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the request changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/changed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape3",
+            "field": "field",
+            "effectiveDescription": "Request field represented by this change.\n\n* `status` - Status\n* `priority` - Priority\n* `account` - Account\n* `accounts` - Accounts\n* `evidence` - Evidence\n* `product_areas` - Product areas\n* `github_link` - GitHub link\n* `github_sync` - GitHub sync",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request field represented by this change.\n\n* `status` - Status\n* `priority` - Priority\n* `account` - Account\n* `accounts` - Accounts\n* `evidence` - Evidence\n* `product_areas` - Product areas\n* `github_link` - GitHub link\n* `github_sync` - GitHub sync",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/field"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape3",
+            "field": "before",
+            "effectiveDescription": "Value before the update, including relation snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value before the update, including relation snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/before"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListResponseShape3",
+            "field": "after",
+            "effectiveDescription": "Value after the update, including relation snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value after the update, including relation snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/after"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsHistoryListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

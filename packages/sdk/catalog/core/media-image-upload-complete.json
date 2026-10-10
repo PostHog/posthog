@@ -1,0 +1,106 @@
+{
+    "method": "core.mediaImageUploadComplete",
+    "toolName": "media-image-upload-complete",
+    "operationId": "uploaded_media_complete_upload_create",
+    "title": "Complete image upload",
+    "category": "Core",
+    "description": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it appears in media-images-list and is publicly servable. Returns the permanent url; for emails, put it in the image block's values.src.url.",
+    "requiredScopes": ["uploaded_media:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreMediaImageUploadCompleteInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/media-image-upload-complete.ts",
+        "declaration": "dist/generated/core/media-image-upload-complete.d.ts"
+    },
+    "output": {
+        "name": "CoreMediaImageUploadCompleteOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/media-image-upload-complete.ts",
+        "declaration": "dist/generated/core/media-image-upload-complete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreMediaImageUploadCompleteData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-image-upload-complete.ts",
+            "declaration": "dist/generated/core/media-image-upload-complete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1uploaded_media~1{id}~1complete_upload~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it appears in media-images-list and is publicly servable. Returns the permanent url; for emails, put it in the image block's values.src.url.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreMediaImageUploadCompleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this uploaded media.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this uploaded media.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/uploaded_media/{id}/complete_upload/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImageUploadCompleteData",
+            "field": "name",
+            "effectiveDescription": "The file's original name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The file's original name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImageUploadCompleteData",
+            "field": "url",
+            "effectiveDescription": "Permanent, public URL of the image. For emails, put this in an image block's values.src.url.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Permanent, public URL of the image. For emails, put this in an image block's values.src.url.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/url"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

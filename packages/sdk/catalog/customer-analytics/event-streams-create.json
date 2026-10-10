@@ -1,0 +1,369 @@
+{
+    "method": "customerAnalytics.eventStreamsCreate",
+    "toolName": "event-streams-create",
+    "operationId": "event_streams_create",
+    "title": "Create my event stream",
+    "category": "Customer analytics",
+    "description": "Create the caller's personal Customer Analytics event stream — a live feed of selected accounts' events posted to a Slack channel of their choice. Each user has at most one stream per project (409 if one already exists; use event-streams-list first). Provide `event_names` to watch, and optionally `slack_integration` + `slack_channel_id` for delivery — the stream only delivers once events, a Slack channel, and at least one member account are all configured and `enabled` is true.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsEventStreamsCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-create.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsEventStreamsCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-create.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateRequestSchema6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateRequestSchema8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-create.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The caller's event stream: a live feed of selected accounts' events posted to a\nSlack channel of their choice. Per-user — each team member owns at most one stream, and\nevery endpoint is scoped to the caller's own. Delivery runs through a managed CDP\ndestination that is re-provisioned inside the same transaction as every write, so\nconfig and delivery can't drift apart.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1event_streams~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create the caller's personal Customer Analytics event stream — a live feed of selected accounts' events posted to a Slack channel of their choice. Each user has at most one stream per project (409 if one already exists; use event-streams-list first). Provide `event_names` to watch, and optionally `slack_integration` + `slack_channel_id` for delivery — the stream only delivers once events, a Slack channel, and at least one member account are all configured and `enabled` is true.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateRequest_Schema0",
+            "effectiveDescription": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateRequest_Schema2",
+            "effectiveDescription": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateRequest_Schema4",
+            "effectiveDescription": "ID of the team's Slack workspace integration to deliver through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the team's Slack workspace integration to deliver through.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateRequest_Schema6",
+            "effectiveDescription": "Slack channel ID to post to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateRequest_Schema8",
+            "effectiveDescription": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "effectiveDescription": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "field": "enabled",
+            "effectiveDescription": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "field": "event_names",
+            "effectiveDescription": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "field": "slack_integration",
+            "effectiveDescription": "ID of the team's Slack workspace integration to deliver through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the team's Slack workspace integration to deliver through.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID to post to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateInput",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "effectiveDescription": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "event_names",
+            "effectiveDescription": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/event_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "slack_integration",
+            "effectiveDescription": "ID of the team's Slack workspace integration to deliver through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the team's Slack workspace integration to deliver through.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_integration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID to post to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_channel_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsCreateData",
+            "field": "account_ids",
+            "effectiveDescription": "UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

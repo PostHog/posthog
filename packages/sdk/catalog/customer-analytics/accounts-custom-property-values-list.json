@@ -1,0 +1,206 @@
+{
+    "method": "customerAnalytics.accountsCustomPropertyValuesList",
+    "toolName": "accounts-custom-property-values-list",
+    "operationId": "accounts_custom_property_values_list",
+    "title": "List account custom property values",
+    "category": "Customer analytics",
+    "description": "List the current custom property values for a single Customer Analytics account. Each result pairs a custom property definition (via `definition_id`) with the account's `value` for it — typed per the definition's display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with `custom-property-definitions-list` or `custom-property-definitions-retrieve`.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsCustomPropertyValuesListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-custom-property-values-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-custom-property-values-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsCustomPropertyValuesListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-custom-property-values-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-custom-property-values-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-custom-property-values-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-custom-property-values-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsCustomPropertyValuesListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-custom-property-values-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-custom-property-values-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the current custom property values for a single Customer Analytics account. Each result pairs a custom property definition (via `definition_id`) with the account's `value` for it — typed per the definition's display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with `custom-property-definitions-list` or `custom-property-definitions-retrieve`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListInput",
+            "field": "account_id",
+            "effectiveDescription": "UUID of the parent account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the parent account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{account_id}/custom_property_values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "effectiveDescription": "An account's current value for a custom property (read shape).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "An account's current value for a custom property (read shape).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Unique id of this value record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique id of this value record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "account_id",
+            "effectiveDescription": "Account the value belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Account the value belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/account_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "definition_id",
+            "effectiveDescription": "Custom property definition the value is for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Custom property definition the value is for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/definition_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "value",
+            "effectiveDescription": "The stored value, typed per the property's data type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored value, typed per the property's data type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When this value was set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this value was set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListResponseShape2",
+            "field": "created_by_id",
+            "effectiveDescription": "Id of the user who set this value, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the user who set this value, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_by_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsCustomPropertyValuesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "custom-property-definitions-list",
+            "method": "customerAnalytics.customPropertyDefinitionsList"
+        },
+        {
+            "toolName": "custom-property-definitions-retrieve",
+            "method": "customerAnalytics.customPropertyDefinitionsRetrieve"
+        }
+    ]
+}

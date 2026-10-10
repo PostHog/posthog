@@ -1,0 +1,95 @@
+{
+    "method": "contextLayer.contextWikiChannelResolve",
+    "toolName": "context-wiki-channel-resolve",
+    "title": "Resolve a channel context page",
+    "category": "Context wiki",
+    "description": "Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: context-layer"],
+    "methodSource": "src/generated/context-layer/client.ts",
+    "input": {
+        "name": "ContextLayerContextWikiChannelResolveInput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/context-wiki-channel-resolve.ts",
+        "declaration": "dist/generated/context-layer/context-wiki-channel-resolve.d.ts"
+    },
+    "output": {
+        "name": "ContextLayerContextWikiChannelResolveOutput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/context-wiki-channel-resolve.ts",
+        "declaration": "dist/generated/context-layer/context-wiki-channel-resolve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ContextLayerContextWikiChannelResolveData",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/context-wiki-channel-resolve.ts",
+            "declaration": "dist/generated/context-layer/context-wiki-channel-resolve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/context_layer/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ContextLayerContextWikiChannelResolveData",
+            "effectiveDescription": "Response shape for a channel's page identity in the wiki.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a channel's page identity in the wiki.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiChannelResolveData",
+            "field": "path",
+            "effectiveDescription": "Repo-relative path of the wiki page whose frontmatter names the channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative path of the wiki page whose frontmatter names the channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiChannelResolveData",
+            "field": "exists",
+            "effectiveDescription": "Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/exists"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

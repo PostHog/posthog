@@ -1,0 +1,125 @@
+{
+    "method": "core.projectCreate",
+    "toolName": "project-create",
+    "operationId": "organizations_projects_create",
+    "title": "Create project",
+    "category": "Core",
+    "description": "Create a project in the caller's active organization. A project is a separate data container with its own API token, so use it to keep unrelated data apart, for example staging and production. Creating a project adds to the organization's plan usage, so always confirm the name with the user before calling this. The new project does not become active: call `switch-project` with the returned ID to work in it. The response carries the project API token, which is safe to put in client-side code.",
+    "requiredScopes": ["project:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreProjectCreateInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/project-create.ts",
+        "declaration": "dist/generated/core/project-create.d.ts"
+    },
+    "output": {
+        "name": "CoreProjectCreateOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/project-create.ts",
+        "declaration": "dist/generated/core/project-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreProjectCreateRequestSchema0",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/project-create.ts",
+            "declaration": "dist/generated/core/project-create.d.ts"
+        },
+        {
+            "name": "CoreProjectCreateData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/project-create.ts",
+            "declaration": "dist/generated/core/project-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Projects for the current organization.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1projects~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a project in the caller's active organization. A project is a separate data container with its own API token, so use it to keep unrelated data apart, for example staging and production. Creating a project adds to the organization's plan usage, so always confirm the name with the user before calling this. The new project does not become active: call `switch-project` with the returned ID to work in it. The response carries the project API token, which is safe to put in client-side code.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreProjectCreateInput",
+            "field": "name",
+            "effectiveDescription": "Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog generates a default name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/projects/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog generates a default name.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "services/mcp/definitions/core.yaml",
+                        "pointer": "/tools/project-create/param_overrides/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreProjectCreateData",
+            "effectiveDescription": "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/\nonto /api/projects/ never loses a field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/\nonto /api/projects/ never loses a field.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreProjectCreateData",
+            "field": "name",
+            "effectiveDescription": "Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "switch-project",
+            "method": "workspace.switchProject"
+        }
+    ]
+}

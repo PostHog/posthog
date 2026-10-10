@@ -1,0 +1,144 @@
+{
+    "method": "customerAnalytics.accountRelationshipDefinitionsRetrieve",
+    "toolName": "account-relationship-definitions-retrieve",
+    "operationId": "account_relationship_definitions_retrieve",
+    "title": "Get account relationship definition",
+    "category": "Customer analytics",
+    "description": "Fetch a single Customer Analytics account relationship definition by id. Returns its `name`, optional `description`, and `is_single_holder` flag. A definition is a team-defined relationship type between a PostHog user and an account; the users holding it on a specific account are managed via the account relationship tools.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-retrieve.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-retrieve.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-retrieve.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch a single Customer Analytics account relationship definition by id. Returns its `name`, optional `description`, and `is_single_holder` flag. A definition is a team-defined relationship type between a PostHog user and an account; the users holding it on a specific account are managed via the account relationship tools.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "effectiveDescription": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "field": "id",
+            "effectiveDescription": "Relationship definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relationship definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_single_holder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsRetrieveData",
+            "field": "is_controlled",
+            "effectiveDescription": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_controlled"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

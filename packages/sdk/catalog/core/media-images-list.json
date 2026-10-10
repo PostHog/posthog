@@ -1,0 +1,186 @@
+{
+    "method": "core.mediaImagesList",
+    "toolName": "media-images-list",
+    "operationId": "uploaded_media_list",
+    "title": "List media library images",
+    "category": "Core",
+    "description": "List images in a media library by purpose (e.g. \"email\"). Check this before uploading to reuse an existing image instead of uploading a duplicate.",
+    "requiredScopes": ["uploaded_media:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreMediaImagesListInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/media-images-list.ts",
+        "declaration": "dist/generated/core/media-images-list.d.ts"
+    },
+    "output": {
+        "name": "CoreMediaImagesListOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/media-images-list.ts",
+        "declaration": "dist/generated/core/media-images-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreMediaImagesListRequestSchema0",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-images-list.ts",
+            "declaration": "dist/generated/core/media-images-list.d.ts"
+        },
+        {
+            "name": "CoreMediaImagesListRequestSchema1",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-images-list.ts",
+            "declaration": "dist/generated/core/media-images-list.d.ts"
+        },
+        {
+            "name": "CoreMediaImagesListInputPurpose",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-images-list.ts",
+            "declaration": "dist/generated/core/media-images-list.d.ts"
+        },
+        {
+            "name": "CoreMediaImagesListResponseShape2",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-images-list.ts",
+            "declaration": "dist/generated/core/media-images-list.d.ts"
+        },
+        {
+            "name": "CoreMediaImagesListData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/media-images-list.ts",
+            "declaration": "dist/generated/core/media-images-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List images in the media library. Requires a `purpose` filter — the library is scoped per consumer (e.g. `email`), so browsing without one would mix in unrelated uploads (dashboard images, toolbar screenshots, ...).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1uploaded_media~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List images in a media library by purpose (e.g. \"email\"). Check this before uploading to reuse an existing image instead of uploading a duplicate.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreMediaImagesListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/uploaded_media/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImagesListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/uploaded_media/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImagesListInput",
+            "field": "purpose",
+            "effectiveDescription": "The library to list, e.g. \"email\". Required.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The library to list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/uploaded_media/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "The library to list, e.g. \"email\". Required.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "services/mcp/definitions/core.yaml",
+                        "pointer": "/tools/media-images-list/param_overrides/purpose"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImagesListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "The file's original name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The file's original name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImagesListResponseShape2",
+            "field": "url",
+            "effectiveDescription": "Permanent, public URL of the image. For emails, put this in an image block's values.src.url.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Permanent, public URL of the image. For emails, put this in an image block's values.src.url.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape2/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreMediaImagesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,81 @@
+{
+    "method": "customerAnalytics.usageMetricsDestroy",
+    "toolName": "usage-metrics-destroy",
+    "operationId": "groups_types_metrics_destroy",
+    "title": "Delete usage metric",
+    "category": "Customer analytics",
+    "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+    "requiredScopes": ["usage_metric:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsUsageMetricsDestroyInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/usage-metrics-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/usage-metrics-destroy.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsUsageMetricsDestroyOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/usage-metrics-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/usage-metrics-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsUsageMetricsDestroyData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-destroy.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsDestroyInput",
+            "field": "group_type_index",
+            "effectiveDescription": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsDestroyInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this group usage metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this group usage metric.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

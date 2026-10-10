@@ -1,0 +1,125 @@
+{
+    "method": "customerAnalytics.accountsNotebooksRetrieve",
+    "toolName": "accounts-notebooks-retrieve",
+    "operationId": "accounts_notebooks_retrieve",
+    "title": "Get account notebook",
+    "category": "Customer analytics",
+    "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsNotebooksRetrieveInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-notebooks-retrieve.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-notebooks-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsNotebooksRetrieveOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-notebooks-retrieve.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-notebooks-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsNotebooksRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-notebooks-retrieve.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-notebooks-retrieve.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsNotebooksRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-notebooks-retrieve.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-notebooks-retrieve.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsNotebooksRetrieveData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-notebooks-retrieve.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-notebooks-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsNotebooksRetrieveInput",
+            "field": "account_id",
+            "effectiveDescription": "UUID of the parent account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the parent account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsNotebooksRetrieveData",
+            "field": "title",
+            "effectiveDescription": "Human-readable title of the account notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable title of the account notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsNotebooksRetrieveData",
+            "field": "content",
+            "effectiveDescription": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsNotebooksRetrieveData",
+            "field": "text_content",
+            "effectiveDescription": "Plain text representation of the notebook content for search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain text representation of the notebook content for search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/text_content"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

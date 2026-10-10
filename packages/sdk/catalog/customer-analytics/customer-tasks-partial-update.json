@@ -1,0 +1,544 @@
+{
+    "method": "customerAnalytics.customerTasksPartialUpdate",
+    "toolName": "customer-tasks-partial-update",
+    "operationId": "customer_tasks_partial_update",
+    "title": "Update customer task",
+    "category": "Customer analytics",
+    "description": "Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account, assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a completed or canceled task before moving it to another status. Restore archived tasks before editing.",
+    "requiredScopes": ["customer_task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-customer-tasks"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomerTasksPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account, assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a completed or canceled task before moving it to another status. Restore archived tasks before editing.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateRequest_Schema5",
+            "effectiveDescription": "* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "account_id",
+            "effectiveDescription": "UUID of a visible account, or null to remove the account link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of a visible account, or null to remove the account link.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Replacement task name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement task name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "description",
+            "effectiveDescription": "Replacement description, or null to clear it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement description, or null to clear it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "assigned_to_id",
+            "effectiveDescription": "Replacement assignee ID, or null to unassign.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement assignee ID, or null to unassign.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "due_at",
+            "effectiveDescription": "Replacement ISO 8601 deadline, or null to clear it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement ISO 8601 deadline, or null to clear it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateInput",
+            "field": "status",
+            "effectiveDescription": "Replacement task status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement task status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Name of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape3",
+            "field": "id",
+            "effectiveDescription": "PostHog user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape3",
+            "field": "email",
+            "effectiveDescription": "Email address of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape3",
+            "field": "first_name",
+            "effectiveDescription": "First name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/first_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateResponseShape3",
+            "field": "last_name",
+            "effectiveDescription": "Last name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/last_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "id",
+            "effectiveDescription": "UUID of the task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "account",
+            "effectiveDescription": "Linked account, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linked account, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "name",
+            "effectiveDescription": "Task name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "description",
+            "effectiveDescription": "Task description, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task description, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "status",
+            "effectiveDescription": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "assigned_to",
+            "effectiveDescription": "Assigned project member, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assigned project member, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/assigned_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "due_at",
+            "effectiveDescription": "Task deadline, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task deadline, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/due_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "completed_at",
+            "effectiveDescription": "When the task was completed, if applicable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was completed, if applicable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "completed_by",
+            "effectiveDescription": "User credited with completion, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User credited with completion, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/completed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the task, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the task, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "archived_at",
+            "effectiveDescription": "When the task was archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/archived_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "created_at",
+            "effectiveDescription": "When the task was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the task was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "can_edit",
+            "effectiveDescription": "Whether the current user can edit this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can edit this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/can_edit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksPartialUpdateData",
+            "field": "can_restore",
+            "effectiveDescription": "Whether the current user can restore this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can restore this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/can_restore"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

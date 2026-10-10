@@ -1,0 +1,1112 @@
+{
+    "method": "cdpFunctions.cdpFunctionsPublish",
+    "toolName": "cdp-functions-publish",
+    "operationId": "hog_functions_publish_create",
+    "title": "Publish staged changes",
+    "category": "Functions",
+    "description": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on an enabled function: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes, and any further edit to either the staged config or the live config invalidates it (409) — so you always publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
+    "requiredScopes": ["hog_function:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/cdp-functions/client.ts",
+    "input": {
+        "name": "CdpFunctionsCdpFunctionsPublishInput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+    },
+    "output": {
+        "name": "CdpFunctionsCdpFunctionsPublishOutput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishRequestSchema0",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishRequestSchema1",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape4",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape3",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape6",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape5",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape8",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape7",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape10",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape11",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape12",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape13",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape9",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape14",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape16",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape15",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape19",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsPublishData",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-publish.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-publish.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on an enabled function: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes, and any further edit to either the staged config or the live config invalidates it (409) — so you always publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cdp/mcp/cdp_functions.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/publish/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishInput",
+            "field": "confirm",
+            "effectiveDescription": "False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/publish/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishInput",
+            "field": "confirm_token",
+            "effectiveDescription": "From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/publish/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "type",
+            "effectiveDescription": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Display name for the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of what this function does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of what this function does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "enabled",
+            "effectiveDescription": "Whether the function is active and processing events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the function is active and processing events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag. Set to true to archive the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set to true to archive the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "hog",
+            "effectiveDescription": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/hog"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining the configurable input parameters for this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining the configurable input parameters for this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "inputs",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "filters",
+            "effectiveDescription": "Event filters that control which events trigger this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters that control which events trigger this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "masking",
+            "effectiveDescription": "PII masking configuration with TTL, threshold, and hash expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PII masking configuration with TTL, threshold, and hash expression.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "mappings",
+            "effectiveDescription": "Event-to-destination field mappings. Only for destination and site_destination types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event-to-destination field mappings. Only for destination and site_destination types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/mappings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the function's icon displayed in the UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the function's icon displayed in the UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "template_id",
+            "effectiveDescription": "ID of the template to create this function from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the template to create this function from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/template_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "execution_order",
+            "effectiveDescription": "Execution priority for transformations. Lower values run first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution priority for transformations. Lower values run first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/execution_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "version",
+            "effectiveDescription": "Incremented every time the live config changes. See the revisions endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Incremented every time the live config changes. See the revisions endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "draft",
+            "effectiveDescription": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/draft"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "draft_updated_at",
+            "effectiveDescription": "When config was last staged for review, or null when nothing is staged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When config was last staged for review, or null when nothing is staged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/draft_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape2",
+            "field": "base_updated_at",
+            "effectiveDescription": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/base_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape5",
+            "field": "default",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape5/properties/default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape7",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape8",
+            "field": "value",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape8/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape8",
+            "field": "bytecode[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape8/properties/bytecode/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape8",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape8/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape9",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape9/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape9",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape9/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape14",
+            "field": "ttl",
+            "effectiveDescription": "Time-to-live in seconds for the masking cache (60–86400).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-to-live in seconds for the masking cache (60–86400).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape14/properties/ttl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape14",
+            "field": "threshold",
+            "effectiveDescription": "Optional threshold count before masking applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional threshold count before masking applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape14/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape14",
+            "field": "hash",
+            "effectiveDescription": "Hog expression used to compute the masking hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog expression used to compute the masking hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape14/properties/hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape14",
+            "field": "bytecode",
+            "effectiveDescription": "Compiled bytecode for the hash expression. Auto-generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compiled bytecode for the hash expression. Auto-generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape14/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "id",
+            "effectiveDescription": "Unique template identifier (e.g. 'template-slack').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique template identifier (e.g. 'template-slack').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "name",
+            "effectiveDescription": "Display name of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "description",
+            "effectiveDescription": "What this template does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this template does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "code",
+            "effectiveDescription": "Source code of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "code_language",
+            "effectiveDescription": "Programming language: 'hog' or 'javascript'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Programming language: 'hog' or 'javascript'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/code_language"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining configurable inputs for functions created from this template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining configurable inputs for functions created from this template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "type",
+            "effectiveDescription": "Function type this template creates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type this template creates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "category",
+            "effectiveDescription": "Category tags for organizing templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category tags for organizing templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "free",
+            "effectiveDescription": "Whether available on free plans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether available on free plans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/free"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the template's icon.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the template's icon.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "filters",
+            "effectiveDescription": "Default event filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default event filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "masking",
+            "effectiveDescription": "Default PII masking configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default PII masking configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape17",
+            "field": "mapping_templates",
+            "effectiveDescription": "Pre-defined mapping configurations for destination templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-defined mapping configurations for destination templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape17/properties/mapping_templates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "name",
+            "effectiveDescription": "Name of this mapping template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of this mapping template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "include_by_default",
+            "effectiveDescription": "Whether this mapping is enabled by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping is enabled by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/include_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "use_all_events_by_default",
+            "effectiveDescription": "Whether this mapping should match all events by default, hiding the event filter UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping should match all events by default, hiding the event filter UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/use_all_events_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "filters",
+            "effectiveDescription": "Event filters specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "inputs",
+            "effectiveDescription": "Input values specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input values specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishResponseShape18",
+            "field": "inputs_schema",
+            "effectiveDescription": "Additional input schema fields specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Additional input schema fields specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape18/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishData",
+            "field": "published",
+            "effectiveDescription": "Whether the draft was applied to the live function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the draft was applied to the live function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape1/properties/published"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishData",
+            "field": "draft_updated_at",
+            "effectiveDescription": "The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape1/properties/draft_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishData",
+            "field": "confirm_token",
+            "effectiveDescription": "Echo this back with confirm=true to publish the previewed draft. Only set on previews.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Echo this back with confirm=true to publish the previewed draft. Only set on previews.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape1/properties/confirm_token"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishData",
+            "field": "changed_fields",
+            "effectiveDescription": "Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape1/properties/changed_fields"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsPublishData",
+            "field": "function",
+            "effectiveDescription": "The function after publishing (only set when published=true).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The function after publishing (only set when published=true).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape1/properties/function"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

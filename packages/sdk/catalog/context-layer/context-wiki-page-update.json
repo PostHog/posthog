@@ -1,0 +1,157 @@
+{
+    "method": "contextLayer.contextWikiPageUpdate",
+    "toolName": "context-wiki-page-update",
+    "title": "Update a context wiki page",
+    "category": "Context wiki",
+    "description": "Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as base_head. A concurrent wiki change returns a conflict instead of being overwritten.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: context-layer"],
+    "methodSource": "src/generated/context-layer/client.ts",
+    "input": {
+        "name": "ContextLayerContextWikiPageUpdateInput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/context-wiki-page-update.ts",
+        "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+    },
+    "output": {
+        "name": "ContextLayerContextWikiPageUpdateOutput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/context-wiki-page-update.ts",
+        "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ContextLayerContextWikiPageUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/context-wiki-page-update.ts",
+            "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+        },
+        {
+            "name": "ContextLayerContextWikiPageUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/context-wiki-page-update.ts",
+            "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+        },
+        {
+            "name": "ContextLayerContextWikiPageUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/context-wiki-page-update.ts",
+            "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+        },
+        {
+            "name": "ContextLayerContextWikiPageUpdateData",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/context-wiki-page-update.ts",
+            "declaration": "dist/generated/context-layer/context-wiki-page-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as base_head. A concurrent wiki change returns a conflict instead of being overwritten.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/context_layer/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateRequest_Schema0",
+            "effectiveDescription": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateRequest_Schema1",
+            "effectiveDescription": "The complete Markdown content for the page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete Markdown content for the page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateRequest_Schema2",
+            "effectiveDescription": "Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateInput",
+            "effectiveDescription": "Request body for creating or replacing one wiki page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request body for creating or replacing one wiki page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateData",
+            "effectiveDescription": "Response shape for the wiki's current state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for the wiki's current state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerContextWikiPageUpdateData",
+            "field": "head_sha",
+            "effectiveDescription": "Commit sha of the wiki's current head.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Commit sha of the wiki's current head.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/head_sha"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

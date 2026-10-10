@@ -1,0 +1,845 @@
+{
+    "method": "canvas.canvasSourceRetrieve",
+    "toolName": "canvas-source-retrieve",
+    "operationId": "canvases_source_retrieve",
+    "title": "Read canvas source project",
+    "category": "Canvas",
+    "description": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas, then save the change with canvas-edit-create (send only the edits), passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
+    "requiredScopes": ["canvas:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasSourceRetrieveInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-source-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasSourceRetrieveOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-source-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasSourceRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape7",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape9",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape10",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape8",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape12",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape13",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape14",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape11",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasSourceRetrieveData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-source-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-source-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read the canvas's source project and its `current_version_id`.\n\nAlways call this before editing: edit the returned files, then publish\nthe complete project passing the returned version id as\n`expected_current_version_id` so concurrent edits are not overwritten.\n`?version_id=` reads a historical version instead of the head.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1source~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas, then save the change with canvas-edit-create (send only the edits), passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasSourceRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "ID of the canvas whose source to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/source/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "ID of the canvas whose source to read.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/canvas/mcp/tools.yaml",
+                        "pointer": "/tools/canvas-source-retrieve/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveInput",
+            "field": "version_id",
+            "effectiveDescription": "Read this historical source version instead of the head (for version browsing).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read this historical source version instead of the head (for version browsing).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/source/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "effectiveDescription": "Identity and version pointers for one canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identity and version pointers for one canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The canvas's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The canvas's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Display name of the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "The canvas's kind (freeform, component, or grid).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The canvas's kind (freeform, component, or grid).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "channel_id",
+            "effectiveDescription": "Id of the channel the canvas belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the channel the canvas belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "current_version_id",
+            "effectiveDescription": "Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "published_build_id",
+            "effectiveDescription": "Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/published_build_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the canvas was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the canvas was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape2",
+            "field": "url",
+            "effectiveDescription": "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "effectiveDescription": "A canvas's multi-file source project — the canonical write format for canvas source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A canvas's multi-file source project — the canonical write format for canvas source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "schemaVersion",
+            "effectiveDescription": "Source-project schema version. Currently always 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-project schema version. Currently always 1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/schemaVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "files",
+            "effectiveDescription": "Project files keyed by relative path (forward slashes, no '..').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project files keyed by relative path (forward slashes, no '..').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/files"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "assets",
+            "effectiveDescription": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/assets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "entryHtml",
+            "effectiveDescription": "The project's entry HTML file. Currently always \"index.html\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The project's entry HTML file. Currently always \"index.html\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/entryHtml"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "dependencies",
+            "effectiveDescription": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "canvasSdkVersion",
+            "effectiveDescription": "Version of the host-injected `ph` canvas SDK the project targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the host-injected `ph` canvas SDK the project targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/canvasSdkVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "component",
+            "effectiveDescription": "Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/component"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape3",
+            "field": "capabilities",
+            "effectiveDescription": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/capabilities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape4",
+            "effectiveDescription": "Project files keyed by relative path (forward slashes, no '..').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project files keyed by relative path (forward slashes, no '..').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape5",
+            "effectiveDescription": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape7",
+            "effectiveDescription": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape8",
+            "effectiveDescription": "A component's placement contract: how grid canvases may place and configure it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A component's placement contract: how grid canvases may place and configure it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape8",
+            "field": "size",
+            "effectiveDescription": "Grid-size contract for placements of this component.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grid-size contract for placements of this component.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape8",
+            "field": "configSchema",
+            "effectiveDescription": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/configSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "effectiveDescription": "A component's grid-size contract, in grid units.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A component's grid-size contract, in grid units.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "defaultW",
+            "effectiveDescription": "Width a new placement starts at, in grid columns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Width a new placement starts at, in grid columns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/defaultW"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "defaultH",
+            "effectiveDescription": "Height a new placement starts at, in grid rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height a new placement starts at, in grid rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/defaultH"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "minW",
+            "effectiveDescription": "Narrowest width the component renders usefully at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrowest width the component renders usefully at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/minW"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "minH",
+            "effectiveDescription": "Shortest height the component renders usefully at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shortest height the component renders usefully at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/minH"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "maxW",
+            "effectiveDescription": "Widest allowed width; omit for no cap below the grid's width.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Widest allowed width; omit for no cap below the grid's width.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/maxW"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape9",
+            "field": "maxH",
+            "effectiveDescription": "Tallest allowed height; omit for no cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tallest allowed height; omit for no cap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/maxH"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape10",
+            "effectiveDescription": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape11",
+            "field": "connectors",
+            "effectiveDescription": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape11/properties/connectors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape12",
+            "field": "state",
+            "effectiveDescription": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape12/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape12",
+            "field": "actions",
+            "effectiveDescription": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape12/properties/actions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape14",
+            "effectiveDescription": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape14",
+            "field": "provider",
+            "effectiveDescription": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape14/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveResponseShape14",
+            "field": "tools",
+            "effectiveDescription": "Tool names the canvas may call on this provider. Read-only tools only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool names the canvas may call on this provider. Read-only tools only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape14/properties/tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveData",
+            "effectiveDescription": "A canvas's source project plus the version pointer edits must be based on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A canvas's source project plus the version pointer edits must be based on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveData",
+            "field": "canvas",
+            "effectiveDescription": "Identity and version pointers for the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identity and version pointers for the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/canvas"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveData",
+            "field": "project",
+            "effectiveDescription": "The canvas's source project. Pre-relational single-file canvases are presented as a synthetic project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The canvas's source project. Pre-relational single-file canvases are presented as a synthetic project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/project"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasSourceRetrieveData",
+            "field": "current_version_id",
+            "effectiveDescription": "The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,111 @@
+{
+    "method": "customerAnalytics.customPropertySourcesBackfill",
+    "toolName": "custom-property-sources-backfill",
+    "operationId": "custom_property_sources_backfill",
+    "title": "Backfill a warehouse person- or group-property source",
+    "category": "Customer analytics",
+    "description": "Person- and group-property sources only: start a backfill that reads the whole warehouse table or view and populates person or group properties for its historical rows. Backfill is per table or view — one call refreshes every enabled property mapped from it — and it coalesces if one is already running for that table or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property source. Backfilling a group-target source additionally requires the `group:write` scope.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: warehouse-person-properties"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomPropertySourcesBackfillInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-backfill.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-backfill.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomPropertySourcesBackfillOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-backfill.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-backfill.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesBackfillDataStatus",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-backfill.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-backfill.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesBackfillData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-backfill.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-backfill.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Person and group sources only: start a backfill that reads the whole warehouse table and\npopulates person or group properties for historical rows. If one is already running for the\ntable, queue a follow-up that observes the latest mapping.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1custom_property_sources~1{id}~1backfill~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Person- and group-property sources only: start a backfill that reads the whole warehouse table or view and populates person or group properties for its historical rows. Backfill is per table or view — one call refreshes every enabled property mapped from it — and it coalesces if one is already running for that table or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property source. Backfilling a group-target source additionally requires the `group:write` scope.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesBackfillData",
+            "effectiveDescription": "Response of the person/group-property sync/backfill trigger actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response of the person/group-property sync/backfill trigger actions.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesBackfillData",
+            "field": "status",
+            "effectiveDescription": "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).\n\n* `triggered` - triggered\n* `started` - started\n* `already_running` - already_running",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).\n\n* `triggered` - triggered\n* `started` - started\n* `already_running` - already_running",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesBackfillData",
+            "field": "already_running",
+            "effectiveDescription": "Backfill only: true when a run was already in flight and this call queued its follow-up.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Backfill only: true when a run was already in flight and this call queued its follow-up.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse/properties/already_running"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

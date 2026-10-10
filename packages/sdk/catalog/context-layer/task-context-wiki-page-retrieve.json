@@ -1,0 +1,251 @@
+{
+    "method": "contextLayer.taskContextWikiPageRetrieve",
+    "toolName": "task-context-wiki-page-retrieve",
+    "title": "Read this task's context wiki page",
+    "category": "Context wiki",
+    "description": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
+    "requiredScopes": ["task:read", "internal_run:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: context-layer"],
+    "methodSource": "src/generated/context-layer/client.ts",
+    "input": {
+        "name": "ContextLayerTaskContextWikiPageRetrieveInput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/task-context-wiki-page-retrieve.ts",
+        "declaration": "dist/generated/context-layer/task-context-wiki-page-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ContextLayerTaskContextWikiPageRetrieveOutput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/task-context-wiki-page-retrieve.ts",
+        "declaration": "dist/generated/context-layer/task-context-wiki-page-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ContextLayerTaskContextWikiPageRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-retrieve.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-retrieve.d.ts"
+        },
+        {
+            "name": "ContextLayerTaskContextWikiPageRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-retrieve.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-retrieve.d.ts"
+        },
+        {
+            "name": "ContextLayerTaskContextWikiPageRetrieveData",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-retrieve.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/context_layer/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveInput",
+            "field": "head_sha",
+            "effectiveDescription": "Head from the first chunk. Required for continuation. A changed head returns 409.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Head from the first chunk. Required for continuation. A changed head returns 409.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/properties/head_sha"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "Character offset from next_offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character offset from next_offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveInput",
+            "field": "path",
+            "effectiveDescription": "Repo-relative Markdown path of the page to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative Markdown path of the page to read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "effectiveDescription": "Response shape for one wiki page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for one wiki page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "path",
+            "effectiveDescription": "Repo-relative path of the page, for example `areas/analytics.md`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative path of the page, for example `areas/analytics.md`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "content",
+            "effectiveDescription": "The page's Markdown content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The page's Markdown content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "head_sha",
+            "effectiveDescription": "Commit sha the content was read at; pass back as `base_head` on writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Commit sha the content was read at; pass back as `base_head` on writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/head_sha"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "updated_at",
+            "effectiveDescription": "When this page was last changed in the wiki history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this page was last changed in the wiki history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "offset",
+            "effectiveDescription": "Character offset of this chunk.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character offset of this chunk.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "total_length",
+            "effectiveDescription": "Character length of the complete page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character length of the complete page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/total_length"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "next_offset",
+            "effectiveDescription": "Next character offset, or null when complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Next character offset, or null when complete.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/next_offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveData",
+            "field": "complete",
+            "effectiveDescription": "True when no further chunks remain. Do not write a page until all chunks are read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when no further chunks remain. Do not write a page until all chunks are read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/complete"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

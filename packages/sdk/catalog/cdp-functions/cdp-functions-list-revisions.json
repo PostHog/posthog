@@ -1,0 +1,158 @@
+{
+    "method": "cdpFunctions.cdpFunctionsListRevisions",
+    "toolName": "cdp-functions-list-revisions",
+    "operationId": "hog_functions_revisions_list",
+    "title": "List function revisions",
+    "category": "Functions",
+    "description": "List a function's config versions, newest first — one per change to its live config, with who made it and when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the project.",
+    "requiredScopes": ["hog_function:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cdp-functions/client.ts",
+    "input": {
+        "name": "CdpFunctionsCdpFunctionsListRevisionsInput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+    },
+    "output": {
+        "name": "CdpFunctionsCdpFunctionsListRevisionsOutput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsRequestSchema0",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsRequestSchema1",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsResponseShape4",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsResponseShape3",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsResponseShape2",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRevisionsData",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list-revisions.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list-revisions.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List a function's config versions, newest first — one per change to its live config, with who made it and when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the project.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cdp/mcp/cdp_functions.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListRevisionsInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/revisions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListRevisionsInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/revisions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListRevisionsInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/revisions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListRevisionsResponseShape2",
+            "field": "version",
+            "effectiveDescription": "Function version this snapshot was published as.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function version this snapshot was published as.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListRevisionsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

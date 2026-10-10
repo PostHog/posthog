@@ -1,0 +1,210 @@
+{
+    "method": "customerAnalytics.accountRelationshipDefinitionsPartialUpdate",
+    "toolName": "account-relationship-definitions-partial-update",
+    "operationId": "account_relationship_definitions_partial_update",
+    "title": "Update account relationship definition",
+    "category": "Customer analytics",
+    "description": "Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing assignments; it only affects future assigns.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing assignments; it only affects future assigns.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateInput",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateInput",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "effectiveDescription": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "field": "id",
+            "effectiveDescription": "Relationship definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relationship definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_single_holder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsPartialUpdateData",
+            "field": "is_controlled",
+            "effectiveDescription": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_controlled"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,102 @@
+{
+    "method": "cohorts.cohortsRmPersonFromStaticCohortPartialUpdate",
+    "toolName": "cohorts-rm-person-from-static-cohort-partial-update",
+    "operationId": "cohorts_remove_person_from_static_cohort_partial_update",
+    "title": "Remove person from static cohort",
+    "category": "Cohorts",
+    "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort succeeds silently.",
+    "requiredScopes": ["cohort:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cohorts/client.ts",
+    "input": {
+        "name": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateInput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.ts",
+        "declaration": "dist/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateOutput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.ts",
+        "declaration": "dist/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.ts",
+            "declaration": "dist/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.d.ts"
+        },
+        {
+            "name": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateData",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.ts",
+            "declaration": "dist/generated/cohorts/cohorts-rm-person-from-static-cohort-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort succeeds silently.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cohorts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this cohort.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/cohorts/{id}/remove_person_from_static_cohort/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateInput",
+            "field": "person_id",
+            "effectiveDescription": "Person UUID to remove from the cohort",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person UUID to remove from the cohort",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/cohorts/{id}/remove_person_from_static_cohort/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsCohortsRmPersonFromStaticCohortPartialUpdateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cohorts.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

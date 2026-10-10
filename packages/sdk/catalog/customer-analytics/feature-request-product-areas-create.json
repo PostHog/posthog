@@ -1,0 +1,205 @@
+{
+    "method": "customerAnalytics.featureRequestProductAreasCreate",
+    "toolName": "feature-request-product-areas-create",
+    "operationId": "feature_request_product_areas_create",
+    "title": "Create feature request product area",
+    "category": "Customer analytics",
+    "description": "Create a product area for categorizing Customer analytics feature requests. Manager access to Customer analytics is required. Provide a unique `name` and optional `display_order`. Lower display orders appear first. New areas are active by default.",
+    "requiredScopes": ["customer_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: customer-analytics-feature-requests"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsFeatureRequestProductAreasCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-request-product-areas-create.ts",
+        "declaration": "dist/generated/customer-analytics/feature-request-product-areas-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsFeatureRequestProductAreasCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-request-product-areas-create.ts",
+        "declaration": "dist/generated/customer-analytics/feature-request-product-areas-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasCreateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasCreateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a product area for categorizing Customer analytics feature requests. Manager access to Customer analytics is required. Provide a unique `name` and optional `display_order`. Lower display orders appear first. New areas are active by default.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateInput",
+            "field": "name",
+            "effectiveDescription": "Team-maintained product area name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team-maintained product area name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_request_product_areas/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateInput",
+            "field": "display_order",
+            "effectiveDescription": "Position in product area selectors. Lower values appear first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position in product area selectors. Lower values appear first.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_request_product_areas/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateInput",
+            "field": "is_active",
+            "effectiveDescription": "Whether editors can select this product area for new requests.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether editors can select this product area for new requests.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_request_product_areas/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "id",
+            "effectiveDescription": "Stable product area ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable product area ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "name",
+            "effectiveDescription": "Team-maintained product area name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team-maintained product area name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "display_order",
+            "effectiveDescription": "Position in product area selectors. Lower values appear first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position in product area selectors. Lower values appear first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/display_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "is_active",
+            "effectiveDescription": "Whether editors can select this product area for new requests.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether editors can select this product area for new requests.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When the product area was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasCreateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the product area was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

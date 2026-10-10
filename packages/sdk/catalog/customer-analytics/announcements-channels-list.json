@@ -1,0 +1,133 @@
+{
+    "method": "customerAnalytics.announcementsChannelsList",
+    "toolName": "announcements-channels-list",
+    "operationId": "announcements_channels_list",
+    "title": "List announcement channels",
+    "category": "Customer analytics",
+    "description": "List the Slack channels a Customer Analytics announcement can be sent to — the channels the SupportHog bot is a member of. Each result has the channel `id` (pass these to `announcements-create-prepare`), `name`, and `customer_name` — the name of the account whose `slack_channel_id` property points at the channel, or null when no account is mapped to it. Channels mapped to an account sort first. Returns an empty list when the SupportHog Slack bot is not connected, or when Slack channels cannot be fetched right now.",
+    "requiredScopes": ["customer_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAnnouncementsChannelsListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/announcements-channels-list.ts",
+        "declaration": "dist/generated/customer-analytics/announcements-channels-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAnnouncementsChannelsListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/announcements-channels-list.ts",
+        "declaration": "dist/generated/customer-analytics/announcements-channels-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAnnouncementsChannelsListResponseShape1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/announcements-channels-list.ts",
+            "declaration": "dist/generated/customer-analytics/announcements-channels-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAnnouncementsChannelsListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/announcements-channels-list.ts",
+            "declaration": "dist/generated/customer-analytics/announcements-channels-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Slack channels the SupportHog bot can post to, labeled by customer account name.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1announcements~1channels~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the Slack channels a Customer Analytics announcement can be sent to — the channels the SupportHog bot is a member of. Each result has the channel `id` (pass these to `announcements-create-prepare`), `name`, and `customer_name` — the name of the account whose `slack_channel_id` property points at the channel, or null when no account is mapped to it. Channels mapped to an account sort first. Returns an empty list when the SupportHog Slack bot is not connected, or when Slack channels cannot be fetched right now.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAnnouncementsChannelsListResponseShape1",
+            "field": "id",
+            "effectiveDescription": "Slack channel ID (e.g. C0123ABCD).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID (e.g. C0123ABCD).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAnnouncementsChannelsListResponseShape1",
+            "field": "name",
+            "effectiveDescription": "Slack channel display name (without the leading #).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel display name (without the leading #).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAnnouncementsChannelsListResponseShape1",
+            "field": "is_member",
+            "effectiveDescription": "Whether the SupportHog bot is a member of this channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the SupportHog bot is a member of this channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_member"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAnnouncementsChannelsListResponseShape1",
+            "field": "customer_name",
+            "effectiveDescription": "Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/customer_name"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "announcements-create-prepare",
+            "method": "customerAnalytics.announcementsCreatePrepare"
+        }
+    ]
+}

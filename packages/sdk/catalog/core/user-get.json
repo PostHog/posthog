@@ -1,0 +1,295 @@
+{
+    "method": "core.userGet",
+    "toolName": "user-get",
+    "operationId": "users_retrieve",
+    "title": "Get user",
+    "category": "Core",
+    "description": "Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name), security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT return organization or project configuration: the nested `organization`, `team`, and `organizations` objects are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use `project-get` for full project details, and the organization-scoped tools for organization details.",
+    "requiredScopes": ["user:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreUserGetInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/user-get.ts",
+        "declaration": "dist/generated/core/user-get.d.ts"
+    },
+    "output": {
+        "name": "CoreUserGetOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/user-get.ts",
+        "declaration": "dist/generated/core/user-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreUserGetRequestSchema0",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetResponseShape2",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetResponseShape12",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetResponseShape13",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetDataOrganization",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetDataTeam",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetDataOrganizationsItem",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        },
+        {
+            "name": "CoreUserGetData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/user-get.ts",
+            "declaration": "dist/generated/core/user-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1users~1{uuid}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name), security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT return organization or project configuration: the nested `organization`, `team`, and `organizations` objects are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use `project-get` for full project details, and the organization-scoped tools for organization details.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreUserGetInput",
+            "field": "uuid",
+            "effectiveDescription": "User UUID, or `@me` to target the authenticated user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User UUID, or `@me` to target the authenticated user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetResponseShape2",
+            "effectiveDescription": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetResponseShape13",
+            "effectiveDescription": "Shape of each item in UserSerializer.pending_invites.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shape of each item in UserSerializer.pending_invites.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "is_staff",
+            "effectiveDescription": "Designates whether the user can log into this admin site.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Designates whether the user can log into this admin site.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/is_staff"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "passkeys_enabled_for_2fa",
+            "effectiveDescription": "Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/passkeys_enabled_for_2fa"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "notification_settings",
+            "effectiveDescription": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/notification_settings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "anonymize_data",
+            "effectiveDescription": "Whether PostHog should anonymize events captured for this user when identified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether PostHog should anonymize events captured for this user when identified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/anonymize_data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "events_column_config",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/events_column_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "hedgehog_config",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/hedgehog_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "hide_mcp_hints",
+            "effectiveDescription": "When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/hide_mcp_hints"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "team",
+            "effectiveDescription": "Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreUserGetData",
+            "field": "organizations[]",
+            "effectiveDescription": "Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "project-get",
+            "method": "core.projectGet"
+        }
+    ]
+}

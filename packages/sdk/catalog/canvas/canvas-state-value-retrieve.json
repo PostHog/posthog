@@ -1,0 +1,408 @@
+{
+    "method": "canvas.canvasStateValueRetrieve",
+    "toolName": "canvas-state-value-retrieve",
+    "operationId": "canvases_state_value_retrieve",
+    "title": "Read a canvas state value",
+    "category": "Canvas",
+    "description": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. On a 404, read the error detail: \"No readable value for this scope and key\" means the entry is absent and broader permissions would not help, while any other 404 means the canvas is not available to this caller.",
+    "requiredScopes": ["canvas:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasStateValueRetrieveInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasStateValueRetrieveOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveRequestSchema8",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasStateValueRetrieveData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-state-value-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-state-value-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Canvases: agent-built sandboxed browser apps, filed into channels.\n\nSource is versioned per publish and built server-side; the canvas app\nrenders the published build's artifact from the isolated artifact origin.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1state~1value~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. On a 404, read the error detail: \"No readable value for this scope and key\" means the entry is absent and broader permissions would not help, while any other 404 means the canvas is not available to this caller.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema0",
+            "effectiveDescription": "A UUID string identifying this canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema1",
+            "effectiveDescription": "Exact key to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact key to read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema2",
+            "effectiveDescription": "Maximum JSON characters in this response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum JSON characters in this response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema4",
+            "effectiveDescription": "Character offset from next_offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character offset from next_offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema6",
+            "effectiveDescription": "Revision from the first chunk. Required when offset is greater than zero.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Revision from the first chunk. Required when offset is greater than zero.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveRequest_Schema8",
+            "effectiveDescription": "Scope of the value to read.\n\n* `user` - user\n* `shared` - shared",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope of the value to read.\n\n* `user` - user\n* `shared` - shared",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "key",
+            "effectiveDescription": "Exact key to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact key to read.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum JSON characters in this response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum JSON characters in this response.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "Character offset from next_offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character offset from next_offset.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "revision",
+            "effectiveDescription": "Revision from the first chunk. Required when offset is greater than zero.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Revision from the first chunk. Required when offset is greater than zero.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveInput",
+            "field": "scope",
+            "effectiveDescription": "Scope of the value to read.\n\n* `user` - user\n* `shared` - shared",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope of the value to read.\n\n* `user` - user\n* `shared` - shared",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/state/value/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "scope",
+            "effectiveDescription": "Scope of this value.\n\n* `user` - user\n* `shared` - shared",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope of this value.\n\n* `user` - user\n* `shared` - shared",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "key",
+            "effectiveDescription": "Key of this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "value_json",
+            "effectiveDescription": "A chunk of JSON text. Join all chunks in order, then parse the complete JSON.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A chunk of JSON text. Join all chunks in order, then parse the complete JSON.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/value_json"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "revision",
+            "effectiveDescription": "Content revision. Pass it on subsequent reads; a changed value returns 409.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Content revision. Pass it on subsequent reads; a changed value returns 409.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/revision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "offset",
+            "effectiveDescription": "Character offset of this chunk.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character offset of this chunk.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "total_length",
+            "effectiveDescription": "Character length of the complete JSON text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Character length of the complete JSON text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/total_length"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "next_offset",
+            "effectiveDescription": "Next character offset, or null when complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Next character offset, or null when complete.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/next_offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasStateValueRetrieveData",
+            "field": "complete",
+            "effectiveDescription": "True when no further chunks remain. Earlier chunks are still needed when offset is nonzero.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when no further chunks remain. Earlier chunks are still needed when offset is nonzero.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/complete"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

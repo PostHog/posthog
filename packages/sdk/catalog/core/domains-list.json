@@ -1,0 +1,130 @@
+{
+    "method": "core.domainsList",
+    "toolName": "domains-list",
+    "operationId": "domains_list",
+    "title": "List organization authentication domains",
+    "category": "Core",
+    "description": "List authentication domains in the active organization with their IDs and verification status. Use a domain ID from this result in `organization_domain_ids` to link it to an identity provider configuration. Only verified domains are used for authentication routing.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreDomainsListInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/domains-list.ts",
+        "declaration": "dist/generated/core/domains-list.d.ts"
+    },
+    "output": {
+        "name": "CoreDomainsListOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/domains-list.ts",
+        "declaration": "dist/generated/core/domains-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreDomainsListRequestSchema0",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/domains-list.ts",
+            "declaration": "dist/generated/core/domains-list.d.ts"
+        },
+        {
+            "name": "CoreDomainsListRequestSchema1",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/domains-list.ts",
+            "declaration": "dist/generated/core/domains-list.d.ts"
+        },
+        {
+            "name": "CoreDomainsListDataResultsItem",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/domains-list.ts",
+            "declaration": "dist/generated/core/domains-list.d.ts"
+        },
+        {
+            "name": "CoreDomainsListData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/domains-list.ts",
+            "declaration": "dist/generated/core/domains-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List authentication domains in the active organization with their IDs and verification status. Use a domain ID from this result in `organization_domain_ids` to link it to an identity provider configuration. Only verified domains are used for authentication routing.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreDomainsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/domains/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreDomainsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/domains/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreDomainsListData",
+            "field": "results[].is_verified",
+            "effectiveDescription": "Determines whether a domain is verified or not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Determines whether a domain is verified or not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape2/properties/is_verified"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreDomainsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

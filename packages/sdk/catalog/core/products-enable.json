@@ -1,0 +1,123 @@
+{
+    "method": "core.productsEnable",
+    "toolName": "products-enable",
+    "operationId": "product_enablement_create",
+    "title": "Enable PostHog products",
+    "category": "Core",
+    "description": "Turn PostHog products on for the current project so they start collecting data. Pass one or more of `session_replay`, `error_tracking`, or `conversations`. The server owns each product's setup, applying the primary toggle plus conservative defaults, so this can never weaken privacy settings or change anything else about the project. Safe to call more than once: each product comes back as either `enabled` or `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and spending quota, so always confirm with the user before calling this.",
+    "requiredScopes": ["product_enablement:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/core/client.ts",
+    "input": {
+        "name": "CoreProductsEnableInput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/products-enable.ts",
+        "declaration": "dist/generated/core/products-enable.d.ts"
+    },
+    "output": {
+        "name": "CoreProductsEnableOutput",
+        "importPath": "@posthog/sdk/core",
+        "source": "src/generated/core/products-enable.ts",
+        "declaration": "dist/generated/core/products-enable.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CoreProductsEnableRequestSchema0",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/products-enable.ts",
+            "declaration": "dist/generated/core/products-enable.d.ts"
+        },
+        {
+            "name": "CoreProductsEnableResponseShape2",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/products-enable.ts",
+            "declaration": "dist/generated/core/products-enable.d.ts"
+        },
+        {
+            "name": "CoreProductsEnableData",
+            "importPath": "@posthog/sdk/core",
+            "source": "src/generated/core/products-enable.ts",
+            "declaration": "dist/generated/core/products-enable.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Turn PostHog products on for the current project so they start collecting data. Pass one or more of `session_replay`, `error_tracking`, or `conversations`. The server owns each product's setup, applying the primary toggle plus conservative defaults, so this can never weaken privacy settings or change anything else about the project. Safe to call more than once: each product comes back as either `enabled` or `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and spending quota, so always confirm with the user before calling this.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/core.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CoreProductsEnableRequest_Schema0",
+            "effectiveDescription": "* `conversations` - conversations\n* `error_tracking` - error_tracking\n* `session_replay` - session_replay",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `conversations` - conversations\n* `error_tracking` - error_tracking\n* `session_replay` - session_replay",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreProductsEnableInput",
+            "field": "products",
+            "effectiveDescription": "Products to turn on for this project, each enabled with server-owned conservative defaults.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Products to turn on for this project, each enabled with server-owned conservative defaults.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/product_enablement/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreProductsEnableResponseShape2",
+            "effectiveDescription": "Per requested product: \"enabled\" (just turned on) or \"already_enabled\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per requested product: \"enabled\" (just turned on) or \"already_enabled\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CoreProductsEnableData",
+            "field": "results",
+            "effectiveDescription": "Per requested product: \"enabled\" (just turned on) or \"already_enabled\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per requested product: \"enabled\" (just turned on) or \"already_enabled\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/core.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,275 @@
+{
+    "method": "customerAnalytics.accountRelationshipDefinitionsCreate",
+    "toolName": "account-relationship-definitions-create",
+    "operationId": "account_relationship_definitions_create",
+    "title": "Create account relationship definition",
+    "category": "Customer analytics",
+    "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-create.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequest_Schema0",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequest_Schema1",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateRequest_Schema3",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateInput",
+            "effectiveDescription": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateInput",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateInput",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/account_relationship_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "effectiveDescription": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "field": "id",
+            "effectiveDescription": "Relationship definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relationship definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_single_holder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountRelationshipDefinitionsCreateData",
+            "field": "is_controlled",
+            "effectiveDescription": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_controlled"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "accounts-relationships-create",
+            "method": "customerAnalytics.accountsRelationshipsCreate"
+        }
+    ]
+}

@@ -1,0 +1,48 @@
+{
+    "method": "customerAnalytics.customPropertyDefinitionsDestroy",
+    "toolName": "custom-property-definitions-destroy",
+    "operationId": "custom_property_definitions_destroy",
+    "title": "Delete custom property definition",
+    "category": "Customer analytics",
+    "description": "Permanently delete a Customer Analytics custom property definition by id. For account targets, because values reference the definition, deleting it also removes the value every account holds for that property; for person/group targets it removes the source binding and stops future syncs (already-written person/group properties stay). The definition is team-scoped, so this affects all accounts. Deleting a group-target definition additionally requires the `group:write` scope.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomPropertyDefinitionsDestroyInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-definitions-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-definitions-destroy.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomPropertyDefinitionsDestroyOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-definitions-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-definitions-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomPropertyDefinitionsDestroyData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-definitions-destroy.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-definitions-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Permanently delete a Customer Analytics custom property definition by id. For account targets, because values reference the definition, deleting it also removes the value every account holds for that property; for person/group targets it removes the source binding and stops future syncs (already-written person/group properties stay). The definition is team-scoped, so this affects all accounts. Deleting a group-target definition additionally requires the `group:write` scope.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

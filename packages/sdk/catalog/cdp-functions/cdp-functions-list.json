@@ -1,0 +1,192 @@
+{
+    "method": "cdpFunctions.cdpFunctionsList",
+    "toolName": "cdp-functions-list",
+    "operationId": "hog_functions_list",
+    "title": "List functions",
+    "category": "Functions",
+    "description": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, template info, and filters (the event/property filter expression that gates the function). Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning for an existing function by alert id, and follow the next link if more pages exist.",
+    "requiredScopes": ["hog_function:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cdp-functions/client.ts",
+    "input": {
+        "name": "CdpFunctionsCdpFunctionsListInput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+    },
+    "output": {
+        "name": "CdpFunctionsCdpFunctionsListOutput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CdpFunctionsCdpFunctionsListRequestSchema0",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRequestSchema1",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListRequestSchema2",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListResponseShape7",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListResponseShape4",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListResponseShape3",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListDataResultsItemTemplate",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListDataResultsItem",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsListData",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-list.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, template info, and filters (the event/property filter expression that gates the function). Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning for an existing function by alert id, and follow the next link if more pages exist.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cdp/mcp/cdp_functions.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListInput",
+            "field": "type",
+            "effectiveDescription": "Multiple values may be separated by commas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Multiple values may be separated by commas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListData",
+            "field": "results[].template.id",
+            "effectiveDescription": "Unique template identifier (e.g. 'template-slack').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique template identifier (e.g. 'template-slack').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListData",
+            "field": "results[].filters",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#/Shape2/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

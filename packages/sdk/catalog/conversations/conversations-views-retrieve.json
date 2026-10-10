@@ -1,0 +1,461 @@
+{
+    "method": "conversations.conversationsViewsRetrieve",
+    "toolName": "conversations-views-retrieve",
+    "operationId": "conversations_views_retrieve",
+    "title": "Get saved ticket view",
+    "category": "Conversations",
+    "description": "Get a saved ticket view by its short_id, including the full `filters` object that conversations-views-list omits. Read the view here first when editing it, because conversations-views-update replaces `filters` wholesale rather than merging into it.",
+    "requiredScopes": ["ticket:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsViewsRetrieveInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-views-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsViewsRetrieveOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-views-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsViewsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsRetrieveData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-views-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get a saved ticket view by its short_id, including the full `filters` object that conversations-views-list omits. Read the view here first when editing it, because conversations-views-update replaces `filters` wholesale rather than merging into it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveInput",
+            "field": "short_id",
+            "effectiveDescription": "Short identifier of the view, as returned by conversations-views-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short identifier of the view, as returned by conversations-views-list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "effectiveDescription": "Canonical shape of a saved ticket view's filters. Every field is optional; an omitted\nfield (or an 'all' sentinel) leaves that dimension unfiltered.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical shape of a saved ticket view's filters. Every field is optional; an omitted\nfield (or an 'all' sentinel) leaves that dimension unfiltered.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Ticket statuses to include. Empty or omitted means all statuses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket statuses to include. Empty or omitted means all statuses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "priority",
+            "effectiveDescription": "Ticket priorities to include. Empty or omitted means all priorities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket priorities to include. Empty or omitted means all priorities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "channel",
+            "effectiveDescription": "Channel the ticket originated from. 'all' disables the filter.\n\n* `widget` - widget\n* `email` - email\n* `slack` - slack\n* `teams` - teams\n* `github` - github\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel the ticket originated from. 'all' disables the filter.\n\n* `widget` - widget\n* `email` - email\n* `slack` - slack\n* `teams` - teams\n* `github` - github\n* `all` - all",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/channel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "sla",
+            "effectiveDescription": "SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.\n\n* `breached` - breached\n* `at-risk` - at-risk\n* `on-track` - on-track\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.\n\n* `breached` - breached\n* `at-risk` - at-risk\n* `on-track` - on-track\n* `all` - all",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/sla"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "aiTriageResult",
+            "effectiveDescription": "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/aiTriageResult"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "assignee",
+            "effectiveDescription": "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "tags",
+            "effectiveDescription": "Tag names to match, combined according to tagsMatch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names to match, combined according to tagsMatch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "tagsMatch",
+            "effectiveDescription": "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n* `any` - any\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n* `any` - any\n* `all` - all",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/tagsMatch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "tagsExclude",
+            "effectiveDescription": "Tickets carrying any of these tags are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tickets carrying any of these tags are excluded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/tagsExclude"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "dateFrom",
+            "effectiveDescription": "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/dateFrom"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "dateTo",
+            "effectiveDescription": "Only include tickets updated on or before this date. Same format as dateFrom.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include tickets updated on or before this date. Same format as dateFrom.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/dateTo"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "sorting",
+            "effectiveDescription": "Sort order for the ticket list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort order for the ticket list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/sorting"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape2",
+            "field": "search",
+            "effectiveDescription": "Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/search"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape4",
+            "field": "columnKey",
+            "effectiveDescription": "Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape4/properties/columnKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveResponseShape4",
+            "field": "order",
+            "effectiveDescription": "1 for ascending, -1 for descending.\n\n* `1` - 1\n* `-1` - -1",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1 for ascending, -1 for descending.\n\n* `1` - 1\n* `-1` - -1",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape4/properties/order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "short_id",
+            "effectiveDescription": "Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "name",
+            "effectiveDescription": "Display name of the view, as it appears in the ticket views list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the view, as it appears in the ticket views list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "filters",
+            "effectiveDescription": "Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "is_favorited",
+            "effectiveDescription": "Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/is_favorited"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "created_at",
+            "effectiveDescription": "When the view was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the view was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "created_by",
+            "effectiveDescription": "The user who created this view.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The user who created this view.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

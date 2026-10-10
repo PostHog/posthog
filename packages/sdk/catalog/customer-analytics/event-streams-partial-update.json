@@ -1,0 +1,295 @@
+{
+    "method": "customerAnalytics.eventStreamsPartialUpdate",
+    "toolName": "event-streams-partial-update",
+    "operationId": "event_streams_partial_update",
+    "title": "Update my event stream",
+    "category": "Customer analytics",
+    "description": "Update the caller's event stream configuration — `enabled`, watched `event_names`, or the Slack delivery target (`slack_integration`, `slack_channel_id`, `slack_channel_name`). Omitted fields are left unchanged. Manage member accounts via the add/remove account tools, not here.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsEventStreamsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The caller's event stream: a live feed of selected accounts' events posted to a\nSlack channel of their choice. Per-user — each team member owns at most one stream, and\nevery endpoint is scoped to the caller's own. Delivery runs through a managed CDP\ndestination that is re-provisioned inside the same transaction as every write, so\nconfig and delivery can't drift apart.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1event_streams~1{id}~1/patch"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update the caller's event stream configuration — `enabled`, watched `event_names`, or the Slack delivery target (`slack_integration`, `slack_channel_id`, `slack_channel_name`). Omitted fields are left unchanged. Manage member accounts via the add/remove account tools, not here.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this event stream.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this event stream.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "enabled",
+            "effectiveDescription": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "event_names",
+            "effectiveDescription": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "slack_integration",
+            "effectiveDescription": "ID of the team's Slack workspace integration to deliver through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the team's Slack workspace integration to deliver through.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID to post to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateInput",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "effectiveDescription": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "event_names",
+            "effectiveDescription": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/event_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "slack_integration",
+            "effectiveDescription": "ID of the team's Slack workspace integration to deliver through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the team's Slack workspace integration to deliver through.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_integration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID to post to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the Slack channel (e.g. #customer-events). Informational only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_channel_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsPartialUpdateData",
+            "field": "account_ids",
+            "effectiveDescription": "UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,755 @@
+{
+    "method": "customerAnalytics.customPropertySourcesPartialUpdate",
+    "toolName": "custom-property-sources-partial-update",
+    "operationId": "custom_property_sources_partial_update",
+    "title": "Update custom property source",
+    "category": "Customer analytics",
+    "description": "Update the editable fields of a custom property source (`key_column`, `is_enabled`). Re-enabling a disabled source resets its failure count. The definition binding, warehouse schema, and column map are create-only and cannot be changed here. Updating a group-target source additionally requires the `group:write` scope.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update the editable fields of a custom property source (`key_column`, `is_enabled`). Re-enabling a disabled source resets its failure count. The definition binding, warehouse schema, and column map are create-only and cannot be changed here. Updating a group-target source additionally requires the `group:write` scope.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+            "field": "source_column",
+            "effectiveDescription": "Column in the view whose value is written to the property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column in the view whose value is written to the property.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+            "field": "key_column",
+            "effectiveDescription": "Column in the view whose value matches an account's external_id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column in the view whose value matches an account's external_id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+            "field": "column_property_map",
+            "effectiveDescription": "Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+            "field": "column_descriptions",
+            "effectiveDescription": "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateInput",
+            "field": "is_enabled",
+            "effectiveDescription": "Whether the source syncs; re-enabling it resets the failure count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the source syncs; re-enabling it resets the failure count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "effectiveDescription": "One warehouse-backed custom property sync run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One warehouse-backed custom property sync run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "job_id",
+            "effectiveDescription": "Warehouse import or materialization job associated with the run, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse import or materialization job associated with the run, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/job_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "account_segment",
+            "effectiveDescription": "Account segment processed by this run. Person and group property runs return null.\n\n* `tracked` - tracked\n* `ignored` - ignored",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Account segment processed by this run. Person and group property runs return null.\n\n* `tracked` - tracked\n* `ignored` - ignored",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/account_segment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "sync_phase",
+            "effectiveDescription": "Current account sync phase. Person and group property runs return null.\n\n* `staging` - staging\n* `dispatching` - dispatching\n* `syncing` - syncing\n* `completed` - completed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current account sync phase. Person and group property runs return null.\n\n* `staging` - staging\n* `dispatching` - dispatching\n* `syncing` - syncing\n* `completed` - completed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/sync_phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "attempt",
+            "effectiveDescription": "Latest Temporal activity attempt for the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest Temporal activity attempt for the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/attempt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "workflow_id",
+            "effectiveDescription": "Temporal workflow identifier associated with the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal workflow identifier associated with the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/workflow_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "workflow_run_id",
+            "effectiveDescription": "Temporal run identifier associated with the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal run identifier associated with the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/workflow_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "temporal_url",
+            "effectiveDescription": "Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/temporal_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "trigger",
+            "effectiveDescription": "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/trigger"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Run status: 'running', 'completed', or 'failed'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run status: 'running', 'completed', or 'failed'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "started_at",
+            "effectiveDescription": "When the run began.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run began.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "finished_at",
+            "effectiveDescription": "When the run ended, or null while running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run ended, or null while running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "rows_read",
+            "effectiveDescription": "Warehouse rows scanned this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse rows scanned this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "changed",
+            "effectiveDescription": "Rows whose mapped values changed since the last run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows whose mapped values changed since the last run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/changed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "existing",
+            "effectiveDescription": "Changed rows that matched an existing account, person, or group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Changed rows that matched an existing account, person, or group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/existing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "produced",
+            "effectiveDescription": "Property updates written or produced to the ingestion pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property updates written or produced to the ingestion pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/produced"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "skipped_missing_person",
+            "effectiveDescription": "Changed rows skipped because no existing account, person, or group matched the key column value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Changed rows skipped because no existing account, person, or group matched the key column value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/skipped_missing_person"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "error",
+            "effectiveDescription": "Error summary if the run failed, else null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error summary if the run failed, else null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the run row was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run row was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "effectiveDescription": "Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "definition",
+            "effectiveDescription": "UUID of the custom property definition this source feeds. One source per definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the custom property definition this source feeds. One source per definition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/definition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "saved_query",
+            "effectiveDescription": "UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/saved_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "external_data_schema",
+            "effectiveDescription": "Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/external_data_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "source_column",
+            "effectiveDescription": "Account sources only: column in the view whose value is written to the property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Account sources only: column in the view whose value is written to the property.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/source_column"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "column_property_map",
+            "effectiveDescription": "Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/column_property_map"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "column_descriptions",
+            "effectiveDescription": "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/column_descriptions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "key_column",
+            "effectiveDescription": "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/key_column"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "is_enabled",
+            "effectiveDescription": "Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "consecutive_failures",
+            "effectiveDescription": "Consecutive failed sync runs; the source auto-disables at the cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Consecutive failed sync runs; the source auto-disables at the cap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/consecutive_failures"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "last_synced_at",
+            "effectiveDescription": "When the most recent sync run finished.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the most recent sync run finished.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/last_synced_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "last_sync_error",
+            "effectiveDescription": "Error summary from the last run, or null if it succeeded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error summary from the last run, or null if it succeeded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/last_sync_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "sync_frequency_interval_seconds",
+            "effectiveDescription": "Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/sync_frequency_interval_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "next_sync_at",
+            "effectiveDescription": "Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/next_sync_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "latest_run",
+            "effectiveDescription": "Person and group sources only: the most recent sync/backfill run, or null if none yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: the most recent sync/backfill run, or null if none yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/latest_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "external_data_source",
+            "effectiveDescription": "Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/external_data_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "table_name",
+            "effectiveDescription": "Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesPartialUpdateData",
+            "field": "saved_query_name",
+            "effectiveDescription": "View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/saved_query_name"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

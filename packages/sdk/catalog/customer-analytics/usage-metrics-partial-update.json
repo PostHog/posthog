@@ -1,0 +1,593 @@
+{
+    "method": "customerAnalytics.usageMetricsPartialUpdate",
+    "toolName": "usage-metrics-partial-update",
+    "operationId": "groups_types_metrics_partial_update",
+    "title": "Update usage metric",
+    "category": "Customer analytics",
+    "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. `filters` accepts the events shape (default) or the data warehouse shape (`source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`). When switching to DW, call `external-data-schemas-list` to discover synced tables. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. For DW SUM metrics, `math_property` is the column name to sum. DW metrics currently render only on group profiles. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+    "requiredScopes": ["usage_metric:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsUsageMetricsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema11",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema12",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema13",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema14",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema15",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateRequestSchema16",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/usage-metrics-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/usage-metrics-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. `filters` accepts the events shape (default) or the data warehouse shape (`source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`). When switching to DW, call `external-data-schemas-list` to discover synced tables. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. For DW SUM metrics, `math_property` is the column name to sum. DW metrics currently render only on group profiles. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema1",
+            "effectiveDescription": "* `numeric` - numeric\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `numeric` - numeric\n* `currency` - currency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema3",
+            "effectiveDescription": "* `number` - number\n* `sparkline` - sparkline",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `number` - number\n* `sparkline` - sparkline",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema4",
+            "effectiveDescription": "Data-warehouse-source filter shape.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Data-warehouse-source filter shape.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema6",
+            "effectiveDescription": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema7",
+            "effectiveDescription": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema8",
+            "effectiveDescription": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema9",
+            "effectiveDescription": "Events-source filter shape (default).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events-source filter shape (default).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema10",
+            "effectiveDescription": "Events to count or sum over.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events to count or sum over.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema11",
+            "field": "id",
+            "effectiveDescription": "Event name (e.g. \"$pageview\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name (e.g. \"$pageview\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema11/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateRequest_Schema15",
+            "effectiveDescription": "* `count` - count\n* `sum` - sum",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `count` - count\n* `sum` - sum",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "group_type_index",
+            "effectiveDescription": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this group usage metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this group usage metric.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Name of the usage metric. Must be unique per group type within the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the usage metric. Must be unique per group type within the project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "format",
+            "effectiveDescription": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "interval",
+            "effectiveDescription": "Rolling time window in days used to compute the metric. Defaults to 7.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rolling time window in days used to compute the metric. Defaults to 7.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "display",
+            "effectiveDescription": "Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "filters",
+            "effectiveDescription": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/customer_analytics/mcp/tools.yaml",
+                        "pointer": "/tools/usage-metrics-partial-update/param_overrides/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "math",
+            "effectiveDescription": "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateInput",
+            "field": "math_property",
+            "effectiveDescription": "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateResponseShape2",
+            "effectiveDescription": "Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "name",
+            "effectiveDescription": "Name of the usage metric. Must be unique per group type within the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the usage metric. Must be unique per group type within the project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "format",
+            "effectiveDescription": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "interval",
+            "effectiveDescription": "Rolling time window in days used to compute the metric. Defaults to 7.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rolling time window in days used to compute the metric. Defaults to 7.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "display",
+            "effectiveDescription": "Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "filters",
+            "effectiveDescription": "Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "math",
+            "effectiveDescription": "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsUsageMetricsPartialUpdateData",
+            "field": "math_property",
+            "effectiveDescription": "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/math_property"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "external-data-schemas-list",
+            "method": "warehouseSources.externalDataSchemasList"
+        }
+    ]
+}

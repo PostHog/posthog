@@ -1,0 +1,105 @@
+{
+    "method": "dashboards.dashboardDeleteTile",
+    "toolName": "dashboard-delete-tile",
+    "operationId": "dashboards_delete_tile",
+    "title": "Delete dashboard tile",
+    "category": "Dashboards",
+    "description": "Soft-delete a single tile (text, insight, widget, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, ButtonTile, or widget row is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
+    "requiredScopes": ["dashboard:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/dashboards/client.ts",
+    "input": {
+        "name": "DashboardsDashboardDeleteTileInput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-delete-tile.ts",
+        "declaration": "dist/generated/dashboards/dashboard-delete-tile.d.ts"
+    },
+    "output": {
+        "name": "DashboardsDashboardDeleteTileOutput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-delete-tile.ts",
+        "declaration": "dist/generated/dashboards/dashboard-delete-tile.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DashboardsDashboardDeleteTileData",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-delete-tile.ts",
+            "declaration": "dist/generated/dashboards/dashboard-delete-tile.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Soft-delete a single tile from a dashboard.\n\nWorks for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile\nobject is preserved — only the dashboard tile is hidden. To delete the entire dashboard,\nuse the dashboard delete endpoint instead.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1{id}~1delete_tile~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Soft-delete a single tile (text, insight, widget, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, ButtonTile, or widget row is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DashboardsDashboardDeleteTileInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dashboards/{id}/delete_tile/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardDeleteTileInput",
+            "field": "tile_id",
+            "effectiveDescription": "ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dashboards/{id}/delete_tile/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardDeleteTileData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

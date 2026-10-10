@@ -1,0 +1,309 @@
+{
+    "method": "conversations.conversationsTicketsReplyCreate",
+    "toolName": "conversations-tickets-reply-create",
+    "operationId": "conversations_tickets_reply_create",
+    "title": "Reply to support ticket",
+    "category": "Conversations",
+    "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
+    "requiredScopes": ["ticket:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsReplyCreateInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-reply-create.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-reply-create.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsReplyCreateOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-reply-create.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-reply-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsReplyCreateRequestSchema0",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-reply-create.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-reply-create.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsReplyCreateRequestSchema1",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-reply-create.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-reply-create.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsReplyCreateData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-reply-create.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-reply-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Post a reply or internal note to a ticket.\n\nWith is_private=false, the reply is delivered to the customer via the\nticket's channel (email, Slack, Teams, GitHub). With is_private=true,\nthe message is stored as an internal note only visible to team members.\n\nRetrying an identical message from the same author within a short window returns the\noriginal message with a 200 rather than posting it twice, and a 409 while a concurrent\nrequest is still creating it.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1{id}~1reply~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateInput",
+            "field": "id",
+            "effectiveDescription": "The ticket's UUID or its numeric ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ticket's UUID or its numeric ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/reply/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateInput",
+            "field": "message",
+            "effectiveDescription": "Reply content in markdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reply content in markdown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/reply/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateInput",
+            "field": "is_private",
+            "effectiveDescription": "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/reply/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateInput",
+            "field": "rich_content",
+            "effectiveDescription": "Optional TipTap rich content JSON for formatted messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional TipTap rich content JSON for formatted messages.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/reply/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "effectiveDescription": "A single message in a ticket thread (output-only).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single message in a ticket thread (output-only).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "id",
+            "effectiveDescription": "Message (comment) UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message (comment) UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "message_type",
+            "effectiveDescription": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/message_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "content",
+            "effectiveDescription": "Plain-text message body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain-text message body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "rich_content",
+            "effectiveDescription": "TipTap rich content JSON, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "TipTap rich content JSON, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/rich_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "author_type",
+            "effectiveDescription": "One of: customer, support, AI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One of: customer, support, AI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "author_name",
+            "effectiveDescription": "Display name of the author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "author_email",
+            "effectiveDescription": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "is_private",
+            "effectiveDescription": "True for internal notes not visible to the customer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True for internal notes not visible to the customer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/is_private"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "has_full_email_content",
+            "effectiveDescription": "True when the complete inbound email body can be retrieved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the complete inbound email body can be retrieved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/has_full_email_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsReplyCreateData",
+            "field": "version",
+            "effectiveDescription": "Edit count. 0 means never edited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Edit count. 0 means never edited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,212 @@
+{
+    "method": "cdpFunctions.cdpFunctionsLogsRetrieve",
+    "toolName": "cdp-functions-logs-retrieve",
+    "operationId": "hog_functions_logs_retrieve",
+    "title": "Get function logs",
+    "category": "Functions",
+    "description": "Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or transformation is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
+    "requiredScopes": ["hog_function:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cdp-functions/client.ts",
+    "input": {
+        "name": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CdpFunctionsCdpFunctionsLogsRetrieveOutput",
+        "importPath": "@posthog/sdk/cdp-functions",
+        "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+        "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema3",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema4",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema5",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        },
+        {
+            "name": "CdpFunctionsCdpFunctionsLogsRetrieveData",
+            "importPath": "@posthog/sdk/cdp-functions",
+            "source": "src/generated/cdp-functions/cdp-functions-logs-retrieve.ts",
+            "declaration": "dist/generated/cdp-functions/cdp-functions-logs-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or transformation is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cdp/mcp/cdp_functions.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "after",
+            "effectiveDescription": "Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "before",
+            "effectiveDescription": "Only return entries before this ISO 8601 timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return entries before this ISO 8601 timestamp.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "instance_id",
+            "effectiveDescription": "Filter logs to a specific execution instance.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter logs to a specific execution instance.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "level",
+            "effectiveDescription": "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of log entries to return (1-500, default 50).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of log entries to return (1-500, default 50).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring search across log messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring search across log messages.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CdpFunctionsCdpFunctionsLogsRetrieveData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cdp_functions.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
