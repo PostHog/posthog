@@ -882,11 +882,11 @@ def _bare_repository_names(repositories: Sequence[str]) -> list[str]:
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
+    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
     pinned = (state or {}).get("repositories")
-    repositories = [r for r in pinned if isinstance(r, str)] if isinstance(pinned, list) else []
-    if repository and repository not in repositories:
-        repositories.append(repository)
-    return repositories
+    if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
+        return pinned
+    return [repository] if repository else []
 
 
 def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:

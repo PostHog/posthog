@@ -1013,8 +1013,9 @@ class TestGetSandboxGitHubToken(TestCase):
     @parameterized.expand(
         [
             ("repo_less", {}, None, []),
-            ("pinned_repository", {}, "acme/api", ["acme/api"]),
-            ("pinned_repositories", {"repositories": ["acme/api", "acme/web"]}, "acme/api", ["acme/api", "acme/web"]),
+            ("task_repository", {}, "acme/api", ["acme/api"]),
+            ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
+            ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
