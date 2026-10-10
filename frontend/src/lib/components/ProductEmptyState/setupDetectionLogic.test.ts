@@ -50,10 +50,17 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
-    it('fails open to unknown when detection fails before any answer', async () => {
-        const logic = buildLogic(jest.fn().mockRejectedValue(new Error('network down')))
+    // An outage answers null instead of failing, so a backend blip does not file an error
+    // tracking issue per product. Other failures still reach the failure path.
+    it.each([
+        ['a 500', new ApiError('A server error occurred.', 500), 'detectStatusSuccess'],
+        ['a dropped connection', new TypeError('Failed to fetch'), 'detectStatusSuccess'],
+        ['a 400', new ApiError('Bad request', 400), 'detectStatusFailure'],
+        ['an application bug', new Error('x is not a function'), 'detectStatusFailure'],
+    ] as const)('fails open to unknown when detection hits %s before any answer', async (_, error, outcome) => {
+        const logic = buildLogic(jest.fn().mockRejectedValue(error))
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions([outcome]).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('unknown')
     })
 
