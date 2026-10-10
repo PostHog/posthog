@@ -33,7 +33,7 @@ DEFAULT_PROBE_PATH = "/api/accounts"
 STATS_START_DATE = "2020-01-01"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailtrapResumeConfig:
     # Opaque cursor for the next page: `next_page_cursor` for email_logs, `pagination.next_token`
     # for contacts and email_campaigns, the last suppression's UUID for suppressions. A crashed

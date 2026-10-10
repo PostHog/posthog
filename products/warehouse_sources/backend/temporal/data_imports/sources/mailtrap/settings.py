@@ -4,7 +4,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailtrapEndpointConfig:
     name: str
     path: str
