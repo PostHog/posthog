@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.http import HttpRequest
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from products.dashboards.backend.admin.dashboard_admin import DashboardAdmin, DashboardTileInline
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -74,7 +74,7 @@ class TestDashboardAdminRestore(BaseTest):
         assert "restore_selected" in actions
 
 
-class TestDashboardTileInline(BaseTest):
+class TestDashboardTileInline(SimpleTestCase):
     def test_an_unmarked_tile_can_be_saved_without_a_badge(self):
         inline = DashboardTileInline(DashboardTile, AdminSite())
 
