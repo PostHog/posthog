@@ -530,6 +530,7 @@ tools:
             exclude:
                 - health
     experiment-get:
+        sdk: { namespace: experiments, method: get }
         operation: experiments_retrieve
         enabled: true
         scopes:
@@ -741,6 +742,7 @@ tools:
                 - conclusion
                 - conclusion_comment
     experiment-list:
+        sdk: { namespace: experiments, method: list }
         operation: experiments_list
         enabled: true
         scopes:
