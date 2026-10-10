@@ -63,8 +63,8 @@ tools:
             set to true. Never describe an internal_note or an ai_draft as sent to the customer.
     conversations-tickets-notes-create:
         operation: conversations_tickets_notes_create
-        enabled: false
-        disabled_reason: Enable in a follow-up after the notes route deploys, so clients never call a missing route
+        enabled: true
+        feature_flag: scouts-tool-access
         scopes:
             - ticket:write
         annotations:
