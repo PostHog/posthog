@@ -57,11 +57,9 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["notebook"], 1)
 
     def test_search_finds_flag_by_exact_hyphenated_key(self):
-        flag = FeatureFlag.objects.create(
-            key="enterprise-agent-builder-ux-refresh", team=self.team, created_by=self.user
-        )
+        flag = FeatureFlag.objects.create(key="billing-page-redesign-beta", team=self.team, created_by=self.user)
 
-        response = self.client.get("/api/projects/@current/search?q=enterprise-agent-builder-ux-refresh")
+        response = self.client.get("/api/projects/@current/search?q=billing-page-redesign-beta")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual([r["result_id"] for r in response.json()["results"]], [str(flag.id)])

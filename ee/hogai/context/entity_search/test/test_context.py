@@ -547,8 +547,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         [
             (
                 "exact_key_first",
-                "enterprise-agent-builder-ux-refresh",
-                ["enterprise-agent-builder-ux-refresh", "enterprise-agent-builder-ux-refresh-v2"],
+                "billing-page-redesign-beta",
+                ["billing-page-redesign-beta", "billing-page-redesign-beta-v2"],
             ),
             ("key_substring_case_insensitive", "CHECKOUT", ["checkout-v2"]),
             ("name_with_whitespace", "  New checkout  ", ["checkout-v2"]),
@@ -557,11 +557,9 @@ class TestEntitySearchContext(NonAtomicBaseTest):
     )
     async def test_list_feature_flags_search_by_key_or_name(self, _name, search, expected_keys):
         await FeatureFlag.objects.acreate(
-            team=self.team, key="enterprise-agent-builder-ux-refresh", name="Agent builder UX", created_by=self.user
+            team=self.team, key="billing-page-redesign-beta", name="Billing page redesign", created_by=self.user
         )
-        await FeatureFlag.objects.acreate(
-            team=self.team, key="enterprise-agent-builder-ux-refresh-v2", created_by=self.user
-        )
+        await FeatureFlag.objects.acreate(team=self.team, key="billing-page-redesign-beta-v2", created_by=self.user)
         await FeatureFlag.objects.acreate(team=self.team, key="checkout-v2", name="New checkout", created_by=self.user)
 
         entities, total = await self.context.list_feature_flags(limit=10, offset=0, search=search)

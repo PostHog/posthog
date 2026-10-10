@@ -76,7 +76,7 @@ Full-text search is a more powerful way to find entities than natural language s
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
 If you want to search for all entities, you should use kind="all".
 All words in the query must match, so extra words can hide the entity you want.
-To find a feature flag by its key, pass the key exactly as written (for example, `enterprise-agent-builder-ux-refresh`), without other words.
+To find a feature flag by its key, pass the key exactly as written (for example, `billing-page-redesign-beta`), without other words.
 If you do not find the flag and the `list_feature_flags` tool is available, call it with `search` set to the key or name before you say that the flag does not exist.
 """.strip()
 

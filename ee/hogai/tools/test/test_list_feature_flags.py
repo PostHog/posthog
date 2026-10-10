@@ -33,7 +33,7 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ("enabled", "true", None),
             ("disabled", "false", None),
             (None, None, None),
-            (None, None, "enterprise-agent-builder-ux-refresh"),
+            (None, None, "billing-page-redesign-beta"),
         ]
     )
     async def test_args_map_to_context_filters(self, status, expected_active_filter, search):

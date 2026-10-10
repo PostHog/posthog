@@ -30,7 +30,7 @@ flag's status, so you never need to inspect flags individually to find stale one
 - "Show me all stale feature flags" → status="stale"
 - "Which flags are disabled?" → status="disabled"
 - "List my feature flags" → no status
-- "Is enterprise-agent-builder-ux-refresh enabled?" → search="enterprise-agent-builder-ux-refresh"
+- "Is billing-page-redesign-beta enabled?" → search="billing-page-redesign-beta"
 - "Show the checkout flags" → search="checkout"
 """.strip()
 
