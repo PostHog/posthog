@@ -1,4 +1,3 @@
-import { mapOtelAttributes } from '~/ingestion/pipelines/ai/otel/attribute-mapping'
 import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
 
@@ -11,26 +10,12 @@ jest.mock('~/ingestion/pipelines/ai/metrics', () => ({
     aiOtelUnknownPartTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))
 
-jest.mock('~/ingestion/pipelines/ai/otel/attribute-mapping', () => ({
-    mapOtelAttributes: jest.fn(),
-}))
-
-const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
-
 describe('pydantic-ai middleware', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
     describe('$ai_trace (root span)', () => {
-        beforeEach(() => {
-            mockedMapOtelAttributes.mockImplementation((e) => {
-                if (e.event === '$ai_span' && !e.properties?.['$ai_parent_id']) {
-                    e.event = '$ai_trace'
-                }
-            })
-        })
-
         it('extracts input from pydantic_ai.all_messages and output from final_result', () => {
             const messages = [
                 { role: 'system', parts: [{ type: 'text', content: 'You are helpful' }] },
@@ -386,9 +371,6 @@ describe('pydantic-ai middleware', () => {
         })
 
         it('maps standard tool data after the real generic OTel mapping', () => {
-            mockedMapOtelAttributes.mockImplementationOnce(
-                jest.requireActual('~/ingestion/pipelines/ai/otel/attribute-mapping').mapOtelAttributes
-            )
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 $otel_span_name: 'execute_tool get_weather',
@@ -440,7 +422,7 @@ describe('pydantic-ai middleware', () => {
             })
             convertOtelEvent(event)
 
-            expect(mockedMapOtelAttributes).toHaveBeenCalledWith(event)
+            expect(event.properties!['$ai_provider']).toBe('openai')
             expect(event.properties!['logfire.json_schema']).toBeUndefined()
             expect(event.properties!['operation.cost']).toBeUndefined()
             expect(event.properties!['model_request_parameters']).toBeUndefined()
