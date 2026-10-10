@@ -45,6 +45,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { customProductsLogic } from '../customProductsLogic'
+import { getSidebarProduct } from '../defaultTree'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'
@@ -80,7 +81,7 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
+    const { enabledProductPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
     const { dockOpen, terminalEnabled } = useValues(terminalDockLogic)
     const { openInTerminal } = useActions(terminalDockLogic)
     const { location } = useValues(router)
@@ -102,7 +103,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { setToolEnabled } = useActions(customProductsLogic)
+    const { setProductEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -117,11 +118,11 @@ export function MenuItems({
     const showSelectMenuItems =
         root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree && showSelectMenuOption
 
-    // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
+    // Show product menu items if the item is a product, or a starred link to one
     const showProductMenuItems =
         root === 'products://' ||
         root === 'custom-products://' ||
-        (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+        (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
     // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
     const productMenu =
@@ -334,7 +335,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, false)
+                        setProductEnabled(item.record!.path as string, false)
                     }}
                 >
                     <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
@@ -346,7 +347,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, true)
+                        setProductEnabled(item.record!.path as string, true)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>

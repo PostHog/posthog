@@ -1,4 +1,4 @@
-import { KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -25,6 +25,28 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
+    'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
+    'fetchSpans',
+    'fetchSparkline',
+    'loadOfflineExperiments', // Offline views provide inline retry states.
+    'loadOfflineScorerOptions',
+    'loadOfflineSuggestedScorers',
+    'loadOfflineOverviewTrend',
+    'loadOfflineExperiment',
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'completeOfflineExperiment',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
+    'loadOfflineHistoryDefinition',
+    'loadOfflineHistoryVersions',
+    'loadOfflineHistoryVersion',
+    'loadOfflineHistoryPrimaryPage',
+    'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -50,7 +72,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'exportDataset', // Dataset scenes render their own retry state
     'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
-    'loadToolDataEvents',
+    'loadProductDataEvents',
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
@@ -68,13 +90,30 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
-    'loadReplayComments', // The replay Comments tab renders its own retry state
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
+    'refreshFeatureFlag', // featureFlagLogic's refreshFeatureFlagFailure listener shows a notice with a reload
+    'loadTableDetails', // The model detail summary renders its own error state with a retry
+    'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
+    'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
 ]
+
+/*
+Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use. Only the logic
+whose path is given here handles its own failures, so the same action elsewhere still toasts.
+*/
+const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
+}
+
+// A keyed logic's path ends with its key, so match the owner path as a prefix.
+function isErrorSelfHandledByLogic(actionKey: string, logicPath: string): boolean {
+    const ownerPath = ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH[actionKey]
+    return !!ownerPath && (logicPath === ownerPath || logicPath.startsWith(`${ownerPath}.`))
+}
 
 /*
 Write actions that show their own friendly message for access-denied 403s
@@ -99,6 +138,15 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Write actions whose own UI renders a validation 400 on these attrs under the field, so the
+generic toast would be a second one. Every other failure on these actions still toasts.
+Owned by inviteLogic's inviteFieldError reducer.
+*/
+const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
+    inviteTeamMembers: new Set(['message', 'first_name']),
+}
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
@@ -168,7 +216,17 @@ export function initKea({
         }),
         formsPlugin,
         loadersPlugin({
-            onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+            onFailure({
+                error,
+                reducerKey,
+                actionKey,
+                logic,
+            }: {
+                error: any
+                reducerKey: string
+                actionKey: string
+                logic: BuiltLogic
+            }) {
                 // A request aborted by us (superseded query, unmount, manual cancel) is not a
                 // failure — don't toast, log, or report it.
                 if (error?.name === 'AbortError') {
@@ -180,11 +238,13 @@ export function initKea({
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
                 // most write flows have no failure handling of their own. Read-only impersonation
-                // uses the distinct `impersonation_read_only` code and still toasts.
+                // uses the distinct `impersonation_read_only` code, which apiStatusLogic toasts only
+                // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
+                    !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
@@ -198,12 +258,15 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isReadOnlyImpersonationError = error.code === 'impersonation_read_only'
                     const isFeatureFlagDuplicateKey =
                         error.code === 'unique' &&
                         error.attr === 'key' &&
                         DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
                     const isHasDependentsError =
                         error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
+                    const isSelfHandledFieldError =
+                        error.status === 400 && !!FIELD_ERROR_SELF_HANDLED[String(actionKey)]?.has(error.attr)
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -220,8 +283,10 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
+                        isReadOnlyImpersonationError ||
                         isFeatureFlagDuplicateKey ||
-                        isHasDependentsError
+                        isHasDependentsError ||
+                        isSelfHandledFieldError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null

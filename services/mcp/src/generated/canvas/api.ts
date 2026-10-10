@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -30,6 +30,12 @@ export const CanvasesListQueryParams = () => zod.object({
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-updated_at'])
+        .optional()
+        .describe(
+            'Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.'
+        ),
     search: zod
         .string()
         .optional()
@@ -137,6 +143,88 @@ export const CanvasesBuildsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Include the retained ready build for this historical source version.'),
+})
+
+/**
+ * The comment threads on this canvas, newest first. Open threads only unless include_resolved is set.
+ */
+export const CanvasesCommentsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesCommentsListQueryCursorMax = 256
+
+export const canvasesCommentsListQueryIncludeResolvedDefault = false
+export const canvasesCommentsListQueryLimitDefault = 50
+export const canvasesCommentsListQueryLimitMax = 100
+
+export const CanvasesCommentsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesCommentsListQueryCursorMax)
+        .optional()
+        .describe('Opaque cursor returned by the previous page.'),
+    include_resolved: zod
+        .boolean()
+        .default(canvasesCommentsListQueryIncludeResolvedDefault)
+        .describe('Whether to include resolved comment threads.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesCommentsListQueryLimitMax)
+        .default(canvasesCommentsListQueryLimitDefault)
+        .describe('Maximum number of root comments to return.'),
+})
+
+/**
+ * One comment thread on this canvas: the root comment and its replies, oldest first.
+ */
+export const CanvasesCommentsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    root_comment_id: zod.string(),
+})
+
+export const canvasesCommentsRetrieveQueryContentOffsetDefault = 0
+export const canvasesCommentsRetrieveQueryContentOffsetMin = 0
+
+export const canvasesCommentsRetrieveQueryCursorMax = 256
+
+export const canvasesCommentsRetrieveQueryLimitDefault = 50
+export const canvasesCommentsRetrieveQueryLimitMax = 100
+
+export const CanvasesCommentsRetrieveQueryParams = () => zod.object({
+    comment_id: zod
+        .string()
+        .optional()
+        .describe('Comment id whose truncated body should continue. Use with content_offset.'),
+    content_offset: zod
+        .number()
+        .min(canvasesCommentsRetrieveQueryContentOffsetMin)
+        .default(canvasesCommentsRetrieveQueryContentOffsetDefault)
+        .describe('Byte offset returned as content_next_offset for the selected comment.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesCommentsRetrieveQueryCursorMax)
+        .optional()
+        .describe('Opaque cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesCommentsRetrieveQueryLimitMax)
+        .default(canvasesCommentsRetrieveQueryLimitDefault)
+        .describe('Maximum number of comments in the thread to return.'),
 })
 
 /**
@@ -412,11 +500,6 @@ export const CanvasesDraftsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**

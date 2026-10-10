@@ -1,11 +1,15 @@
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils.functional import Promise
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.review_hog.backend.preferences import ReviewPreferences, ReviewProjectDefaults, UrgencyThreshold
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    DroppedFindingArtefact,
     FindingOutcomeArtefact,
     ResolutionRunArtefact,
     ReviewArtefactContent,
@@ -14,6 +18,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewWorkingStateContent,
     TaskRunArtefact,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -105,7 +110,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
+    # Which trigger created this report ("label" / "inbox" / "manual" / "ui" / "comment"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)
     # and sticky for the report's life. Adapter/model/effort/permission-mode persist as one bundle
@@ -176,6 +181,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
+        # A single-agent finding the turn did not keep, with the reason. Only analysis reads it.
+        DROPPED_FINDING = "dropped_finding"
         VALIDATION_VERDICT = "validation_verdict"
         # The classified fate of a published finding, written by the outcome-telemetry batch after
         # the PR merged (one per finding); its presence marks the finding already classified.
@@ -195,6 +202,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
         PR_SNAPSHOT = "pr_snapshot"
+        # One per executed turn: the ReviewHog version and input fingerprint the turn ran with.
+        TURN_MARKER = "turn_marker"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -276,6 +285,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def append_dropped_finding(
+        cls, *, team_id: int, report_id: str, content: DroppedFindingArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `dropped_finding` (one per finding a single-agent turn did not keep)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def append_verdict(
         cls, *, team_id: int, report_id: str, content: ValidationVerdict, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -305,6 +321,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ResolutionRunArtefact, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `resolution_run` (one per run, at prepare; the newest row is the latest run)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def add_turn_marker(
+        cls, *, team_id: int, report_id: str, content: TurnMarkerArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `turn_marker` (one per executed turn; the newest row of a retried turn wins)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
@@ -366,31 +389,71 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
         ]
 
 
-class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
-    """Per-(team, user) ReviewHog settings: what gets reviewed and how strict publishing is.
+class AutomaticFlashFor(models.TextChoices):
+    """Who gets automatic Flash reviews under a project rule or a repository exception."""
 
-    One row per user per project, created with defaults on first read. `review_labeled_prs` is the
-    label trigger's opt-out — the workflow gates on the PR author's row (no row = the defaults).
-    `urgency_threshold` is the minimum priority a validated finding needs to be published; it snaps
-    to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
-    `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
-    cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
-    `stamphog_review_inbox_prs` is the same opt-in for hosted Stamphog (approve-first review with a
-    real GitHub approval) on those same inbox PRs. It is a cross-product preference kept here so both
-    toggles live on one row, and it only takes effect for teams with a synced, enabled
-    StamphogRepoConfig covering the PR's repository.
-    `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
-    when on, every published review of the user's PRs chains into the resolution stage.
-    `review_authored_prs` opts into automatic Flash reviews of the user's own PRs independently of
-    the inbox and label triggers. `flash_reasoning_effort` also applies to manually requested Flash
-    reviews, so disabling the automatic trigger preserves that preference.
+    EVERYONE = "everyone", "Automatic Flash for everyone"
+    LISTED = "listed", "Automatic Flash for these people"
+    OFF = "off", "Automatic Flash opt-in only"
+
+
+class ReviewProjectSettings(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """A project's ReviewHog rule: who gets automatic Flash, bot pull requests, and Full defaults.
+
+    One row per root project, created on the first save. Without a row the defaults apply: automatic
+    Flash only for people who opt in, no reviews of bot pull requests, and the code defaults for the
+    Full review preferences. The rule's people lists are `ReviewRepositoryPerson` rows without a
+    repository.
     """
 
-    class UrgencyThreshold(models.TextChoices):
-        # Values mirror `IssuePriority` so the threshold compares directly against finding priorities.
-        CONSIDER = "consider"  # "All issues"
-        SHOULD_FIX = "should_fix"
-        MUST_FIX = "must_fix"
+    class BotPullRequests(models.TextChoices):
+        SKIP = "skip", "Not reviewed"
+        RUN = "run", "Automatic Flash"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    flash_for = models.CharField(
+        max_length=20,
+        choices=AutomaticFlashFor.choices,
+        default=AutomaticFlashFor.OFF,
+        db_default=AutomaticFlashFor.OFF.value,
+    )
+    bot_prs = models.CharField(
+        max_length=10,
+        choices=BotPullRequests.choices,
+        default=BotPullRequests.SKIP,
+        db_default=BotPullRequests.SKIP.value,
+    )
+    # Project defaults for the Full review preferences (see `preferences.PROJECT_DEFAULT_FIELDS`).
+    preferences = models.JSONField(default=dict, db_default={}, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team"], name="uniq_review_project_settings_per_team"),
+        ]
+
+    @classmethod
+    def load(cls, team_id: int) -> "ReviewProjectSettings":
+        """The project's row, or an unsaved instance carrying the defaults when none exists."""
+        row = cls.objects.for_team(team_id).first()
+        return row if row is not None else cls(team_id=team_id)
+
+    @property
+    def defaults(self) -> ReviewProjectDefaults:
+        return ReviewProjectDefaults.resolve(self.preferences)
+
+
+class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
+    """Per-(team, user) ReviewHog preferences.
+
+    One row per user per project, created on the first save. `preferences` holds only the keys the
+    user changed; `preferences.ReviewPreferences` fills in the project and code defaults. Use
+    `load_preferences` to read them. The boolean and choice columns are unused: their values moved
+    into `preferences`, and the columns stay only so that no migration has to drop them.
+    """
+
+    UrgencyThreshold = UrgencyThreshold
 
     class FlashReasoningEffort(models.TextChoices):
         MEDIUM = "medium", "Medium"
@@ -400,17 +463,27 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     # table takes no lock on the parents (app-level enforcement only).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    preferences = models.JSONField(default=dict, db_default={}, blank=True)
+    # Unused: values live in preferences.
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    # Unused: values live in preferences.
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    # Unused: a label always runs.
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    # Unused: values live in preferences.
     resolve_comments = models.BooleanField(default=True, db_default=True)
+    # Unused: values live in preferences.
+    celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
+    # Unused: values live in preferences (`default_review_mode`).
     review_authored_prs = models.BooleanField(default=False, db_default=False)
+    # Unused: Flash reviews use the default reasoning effort.
     flash_reasoning_effort = models.CharField(
         max_length=10,
         choices=FlashReasoningEffort.choices,
         default=FlashReasoningEffort.MEDIUM,
         db_default=FlashReasoningEffort.MEDIUM.value,
     )
+    # Unused: values live in preferences.
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
@@ -436,3 +509,159 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         """`load` for several users in one query; users with no row get the same defaults."""
         rows = {row.user_id: row for row in cls.objects.for_team(team_id).filter(user_id__in=user_ids)}
         return {user_id: rows.get(user_id) or cls(team_id=team_id, user_id=user_id) for user_id in user_ids}
+
+    @classmethod
+    def load_preferences(cls, team_id: int, user_id: int) -> ReviewPreferences:
+        """The user's effective preferences: their own values over the project and code defaults."""
+        return cls.load_preferences_many(team_id, [user_id])[user_id]
+
+    @classmethod
+    def load_preferences_many(cls, team_id: int, user_ids: list[int]) -> dict[int, ReviewPreferences]:
+        project = ReviewProjectSettings.load(team_id).defaults
+        rows = cls.load_many(team_id, user_ids)
+        return {user_id: ReviewPreferences.resolve(row.preferences, project) for user_id, row in rows.items()}
+
+
+class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """Which repositories of a GitHub installation this project reviews, like GitHub's install picker.
+
+    `all` takes every repository of the installation that no other project selected. At most one
+    project can take all repositories of an installation. `selected` takes only the repositories
+    this project selected (`ReviewRepository.selected`). Read `ownership.py` for the resolution.
+    """
+
+    activity_logging_on_delete = True
+
+    class Scope(models.TextChoices):
+        ALL = "all", "All repositories"
+        SELECTED = "selected", "Only selected repositories"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The GitHub App installation id, as `Integration.integration_id` stores it.
+    installation_id = models.CharField(max_length=64)
+    scope = models.CharField(max_length=10, choices=Scope.choices)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "installation_id"], name="uniq_review_installation_claim"),
+            models.UniqueConstraint(
+                fields=["installation_id"],
+                condition=models.Q(scope="all"),
+                name="uniq_review_installation_claim_all",
+            ),
+        ]
+
+
+class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """A GitHub repository that one project has settings for.
+
+    `selected` includes the repository into this project, also when another project takes all
+    repositories of the installation. `flash_for` is the repository exception: null follows the
+    project rule (`ReviewProjectSettings.flash_for`). A row that is neither selected nor an exception
+    has no meaning and is deleted. A repository has at most one row across all projects, so it
+    belongs to one project only.
+    """
+
+    activity_logging_on_delete = True
+
+    # db_constraint=False keeps the migration lock-free on hot posthog_team / posthog_user.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The installation that last reported the repository. Not part of the identity: a reinstall of
+    # the GitHub App gets a new installation id for the same repositories.
+    installation_id = models.CharField(max_length=64)
+    # Null until a webhook or the repository list shows the id. Renames keep the id, so lookups
+    # match the id first and then the name.
+    github_repo_id = models.BigIntegerField(null=True, blank=True)
+    # `owner/name` as GitHub spells it. GitHub treats the name case-insensitively, so every lookup
+    # and the unique constraint compare it lowercased.
+    full_name = models.CharField(max_length=200)
+    selected = models.BooleanField(default=False, db_default=False)
+    flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(Lower("full_name"), name="uniq_review_repository_name"),
+            models.UniqueConstraint(
+                fields=["github_repo_id"],
+                condition=models.Q(github_repo_id__isnull=False),
+                name="uniq_review_repository_github_id",
+            ),
+        ]
+
+
+class ReviewRepositoryPerson(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """A person on one of the two lists of the project rule, or of a repository exception.
+
+    `repository` is null for the lists of the project rule. The lists are separate, so a change of
+    `flash_for` does not turn listed people into excepted people. Only the list that matches
+    `flash_for` has an effect.
+    """
+
+    activity_logging_on_delete = True
+
+    class Kind(models.TextChoices):
+        LISTED = "listed", "Listed"
+        EXCEPTED = "excepted", "Excepted"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    repository = models.ForeignKey(ReviewRepository, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repository", "user", "kind"],
+                condition=models.Q(repository__isnull=False),
+                name="uniq_review_repository_person",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "user", "kind"],
+                condition=models.Q(repository__isnull=True),
+                name="uniq_review_project_person",
+            ),
+        ]
+
+
+class ReviewUserRepositoryChoice(UUIDModel, TeamScopedRootMixin):
+    """A user's own automatic review choice for their PRs in one repository.
+
+    Keyed by the repository itself, not by a `ReviewRepository` row, so a choice works in every
+    repository the project reviews. A choice in a repository that another project reviews stays
+    stored but has no effect. No row means the user's default applies, so there is no "follow" value.
+    """
+
+    class Mode(models.TextChoices):
+        FLASH = "flash", "Flash"
+        OFF = "off", "Off"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The installation that last reported the repository. Not part of the identity, as on `ReviewRepository`.
+    installation_id = models.CharField(max_length=64)
+    github_repo_id = models.BigIntegerField(null=True, blank=True)
+    full_name = models.CharField(max_length=200)
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint("team", "user", Lower("full_name"), name="uniq_review_user_repository_choice"),
+            models.UniqueConstraint(
+                fields=["team", "user", "github_repo_id"],
+                condition=models.Q(github_repo_id__isnull=False),
+                name="uniq_review_user_repository_choice_id",
+            ),
+        ]

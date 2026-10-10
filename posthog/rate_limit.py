@@ -389,20 +389,6 @@ class LeakedKeyReportThrottle(IPThrottle):
     rate = "10/minute"
 
 
-class VapiWebhookIPThrottle(IPThrottle):
-    """Per-IP cap on the public Vapi webhook endpoint, run by the ingress throttle lane.
-
-    Vapi calls us a small handful of times per interview (status-update + end-of-call-report),
-    but its egress is shared across all of our tenants, so the bucket has to be generous enough
-    that a noisy concurrent interview hour doesn't bleed onto a normal one. 1200/min is well
-    above legitimate aggregate volume while still stopping a persistent attacker from driving
-    HMAC-verification CPU or structured-log volume from a single IP.
-    """
-
-    scope = "user_interviews_vapi_webhook_ip"
-    rate = "1200/minute"
-
-
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -463,6 +449,12 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
 class CodexConnectUserThrottle(UserRateThrottle):
     scope = "codex_connect_user"
     rate = "10/hour"
+
+
+# Each internal feedback post lands in a shared Slack channel, so cap it per user.
+class InternalFeedbackUserThrottle(UserRateThrottle):
+    scope = "internal_feedback_user"
+    rate = "60/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -801,6 +793,21 @@ class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+# Creating an export renders it, and an API-created export holds a web worker while the render
+# runs. The default Burst/Sustained throttles bucket per personal API key and skip session traffic,
+# so a script with several keys, or a burst from the UI, is not capped per project. A person
+# exports one asset per click, so these rates leave room for normal use and scripts while capping
+# a bulk script that starts hundreds of exports at once.
+class ExportCreateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_burst"
+    rate = "60/minute"
+
+
+class ExportCreateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_sustained"
+    rate = "600/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -1102,6 +1109,15 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
+class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+    # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
+    # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
+    # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
+    # feature_flag_remote_config throttle.
+    scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "event_values_burst"
     rate = "60/minute"
@@ -1153,20 +1169,39 @@ class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
     """
-    Rate limiting for TOTP/backup code verification during 2FA login.
+    Rate limiting for TOTP and passkey verification during 2FA login.
     Uses the pending 2FA user ID from session to throttle per-user.
+    Backup codes count against TwoFactorBackupCodeThrottle instead, so a user who runs out of
+    authenticator attempts can still recover with a backup code.
     """
 
     scope = "two_factor"
     rate = "6/20minutes"
 
+    def applies_to(self, request) -> bool:
+        from posthog.helpers.two_factor_session import is_backup_code_attempt
+
+        token = request.data.get("token") if isinstance(request.data, dict) else None
+        return not is_backup_code_attempt(token)
+
     def get_cache_key(self, request, view):
+        if not self.applies_to(request):
+            return None
+
         user_id = request.session.get("user_authenticated_but_no_2fa")
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
+
+
+class TwoFactorBackupCodeThrottle(TwoFactorThrottle):
+    scope = "two_factor_backup_code"
+    rate = "6/20minutes"
+
+    def applies_to(self, request) -> bool:
+        return not super().applies_to(request)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
@@ -1762,28 +1797,6 @@ class AlertLLMSimulationSustainedThrottle(_AlertLLMSimulationThrottle):
 class AlertLLMSimulationDailyThrottle(_AlertLLMSimulationThrottle):
     scope = "alert_llm_simulation_daily"
     rate = "200/day"
-
-
-class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Cap how often a team can fire the user-interview send_invites action.
-    #
-    # The content (subject + intro) and the recipient list are both
-    # user-controlled, so without a limit a member could use the action as a
-    # PostHog-branded spam relay by rotating the topic's interviewee_emails and
-    # re-sending. Idempotency only stops re-sending to the *same*
-    # SharingConfiguration, not sending to fresh addresses.
-    #
-    # Keyed per team (not per personal API key, not per topic) so neither
-    # rotating topics nor minting extra API keys bypasses the limit. Extends
-    # PersonalApiKeyOrUserRateThrottle so every authenticated caller is covered
-    # (PATs, OAuth bearer tokens, and session-cookie UI users alike).
-    scope = "user_interview_invite"
-    rate = "10/minute"
-
-    def get_cache_key(self, request, view):
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
 class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):

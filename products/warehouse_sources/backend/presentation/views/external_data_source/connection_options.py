@@ -7,11 +7,12 @@ from typing import Any, cast
 from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from opentelemetry import trace
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import direct_capable_source_types, direct_capable_source_types_for_team
 
 from posthog.api.utils import action
 from posthog.models.user import User
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base, helpers
+
+tracer = trace.get_tracer(__name__)
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -236,14 +239,16 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
     def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Source types the user can add as a direct connection, driven by the direct-SQL capability
         surface so the picker never drifts from the engines we actually support."""
-        direct_types = direct_capable_source_types()
+        with tracer.start_as_current_span("warehouse_sources.direct_connection_options.catalog"):
+            direct_types = direct_capable_source_types_for_team(self.team)
+            configs = build_source_configs(include_tables=False)
         options = [
             {
                 "source_type": source_type,
                 "label": config.get("label") or source_type,
                 "icon_path": config.get("iconPath"),
             }
-            for source_type, config in build_source_configs(include_tables=False).items()
+            for source_type, config in configs.items()
             if source_type in direct_types
         ]
         options.sort(key=lambda option: str(option["label"]).lower())
@@ -304,6 +309,7 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
             team_id=self.team_id,
             source_id=source.id,
             destination_ids=serializer.validated_data["destination_ids"],
+            authorize_resume=self._assert_can_write_schemas,
         )
         return Response(
             status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data

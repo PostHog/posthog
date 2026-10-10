@@ -53,7 +53,10 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_can_put_config(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration, model
+):
     destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
         "integration": aws_s3_integration.id,
@@ -68,6 +71,7 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "model": model,
         "start_at": "2023-07-19T00:00:00+00:00",
         "end_at": "2023-07-20T00:00:00+00:00",
     }
@@ -110,6 +114,7 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
 
     # get the batch export and validate e.g. that interval has been updated to day
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["model"] == model
     assert batch_export["interval"] == "day"
     assert batch_export["timezone"] == "UTC"
     assert batch_export["offset_day"] is None
@@ -651,8 +656,18 @@ def test_put_rejects_destination_type_change(
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
+@pytest.mark.parametrize(
+    "grandfathered_batch_export", [True, False], indirect=True, ids=["grandfathered", "other-team"]
+)
 def test_can_patch_hogql_query(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
+    grandfathered_batch_export,
 ):
     """Test we can patch a schema with a HogQL query."""
     client.force_login(user)
@@ -670,6 +685,12 @@ def test_can_patch_hogql_query(
     }
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    if grandfathered_batch_export.team_id != team.pk:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hogql_query"
+        assert get_batch_export_ok(client, team.pk, batch_export["id"])["schema"] is None
+        return
+
     assert response.status_code == status.HTTP_200_OK, response.json()
 
     response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
@@ -724,6 +745,7 @@ def test_can_patch_hogql_query(
         },
         "hogql_query": None,
         "user_id": None,
+        "hogql_modifiers": None,
     }
 
     for patch_data, expected_schema in [
@@ -739,6 +761,7 @@ def test_can_patch_hogql_query(
         assert args["batch_export_model"]["schema"] == expected_schema
 
 
+@pytest.mark.usefixtures("grandfathered_batch_export")
 def test_patch_returns_error_on_unsupported_hogql_query(
     client: HttpClient, temporal, organization, team, user, aws_s3_integration
 ):
@@ -773,8 +796,9 @@ def test_patch_returns_error_on_unsupported_hogql_query(
         # toInt32 is not a supported HogQL function
         "hogql_query": "select toInt32(1+1) as n from events",
     }
-    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported function call 'toInt32(...)'" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("hogql_enabled", [True, False], ids=["enabled", "disabled"])
@@ -800,14 +824,6 @@ def test_patch_hogql_model_batch_export(
     response = patch_batch_export(
         client, team.pk, batch_export["id"], {"name": "renamed", "last_modified_by": user.pk, "user_id": user.pk}
     )
-    if not hogql_enabled:
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        unchanged = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert unchanged["name"] == batch_export["name"]
-        assert unchanged["hogql_query"] == hogql_batch_export_data["hogql_query"]
-        assert BatchExport.objects.get(id=batch_export["id"]).last_modified_by_id == user.pk
-        return
-
     assert response.status_code == status.HTTP_200_OK, response.json()
     renamed = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert renamed["name"] == "renamed"
@@ -842,7 +858,24 @@ def test_patch_hogql_model_batch_export(
         "schema": None,
         "hogql_query": new_hogql_query,
         "user_id": editor.pk,
+        "hogql_modifiers": None,
     }
+
+    # Modifiers can change without the query, and null removes them.
+    for hogql_modifiers in ({"convertToProjectTimezone": False}, {}, None):
+        response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": hogql_modifiers})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        updated = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert updated["hogql_query"] == new_hogql_query
+        assert updated["hogql_modifiers"] == hogql_modifiers
+        assert BatchExport.objects.get(id=batch_export["id"]).source_id == source_id
+
+        schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["batch_export_model"]["hogql_query"] == new_hogql_query
+        assert args["batch_export_model"]["hogql_modifiers"] == hogql_modifiers
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
@@ -930,9 +963,12 @@ def test_patch_hogql_model_batch_export_validates_new_query(
     )
 
 
-@pytest.mark.parametrize("from_model,to_model", [("events", "hogql"), ("hogql", "events")])
+@pytest.mark.parametrize(
+    "from_model,to_model",
+    [("events", "hogql"), ("hogql", "events"), ("events", "persons"), ("persons", "sessions"), ("sessions", "events")],
+)
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
-def test_patch_rejects_model_change_to_or_from_hogql(
+def test_patch_rejects_model_change(
     client: HttpClient,
     temporal,
     organization,
@@ -945,6 +981,7 @@ def test_patch_rejects_model_change_to_or_from_hogql(
 ):
     client.force_login(user)
     create_data = hogql_batch_export_data if from_model == "hogql" else s3_batch_export_data
+    create_data = {**create_data, "model": from_model}
     batch_export = create_batch_export_ok(client, team.pk, create_data)
 
     response = patch_batch_export(client, team.pk, batch_export["id"], {"model": to_model})

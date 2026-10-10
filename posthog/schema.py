@@ -49,18 +49,27 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
     AssistantTool as AssistantTool,
+    AssistantTrendsDisplayType as AssistantTrendsDisplayType,
     AttributionMode as AttributionMode,
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
+    BIAggregation as BIAggregation,
+    BIDateBucket as BIDateBucket,
+    BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
+    BIQueryLimit as BIQueryLimit,
+    BISortDirection as BISortDirection,
+    BITableCalculationType as BITableCalculationType,
     BounceRatePageViewMode as BounceRatePageViewMode,
+    Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
     CalendarHeatmapMathType as CalendarHeatmapMathType,
@@ -68,6 +77,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
@@ -91,7 +101,6 @@ from posthog.schema_enums import (
     DetailedResultsAggregationType as DetailedResultsAggregationType,
     DetectorType as DetectorType,
     Display as Display,
-    Display1 as Display1,
     DisplayType as DisplayType,
     DistanceFunc as DistanceFunc,
     DomainConnectProviderName as DomainConnectProviderName,
@@ -110,6 +119,12 @@ from posthog.schema_enums import (
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
+    EventMatchScope as EventMatchScope,
+    ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
+    ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
+    ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -133,6 +148,7 @@ from posthog.schema_enums import (
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
     GroupMathType as GroupMathType,
+    GroupTypeIndex as GroupTypeIndex,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -156,6 +172,7 @@ from posthog.schema_enums import (
     Kind as Kind,
     Kind1 as Kind1,
     Kind2 as Kind2,
+    Kind3 as Kind3,
     LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
@@ -198,9 +215,12 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsQueryLanguage as MetricsQueryLanguage,
+    MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
+    MissingDates as MissingDates,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
@@ -210,6 +230,8 @@ from posthog.schema_enums import (
     NodeKind as NodeKind,
     OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
+    Operator1 as Operator1,
+    Operator2 as Operator2,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
     OrderDirection1 as OrderDirection1,
@@ -223,6 +245,7 @@ from posthog.schema_enums import (
     PersonsOnEventsMode as PersonsOnEventsMode,
     PinterestAdsDefaultSources as PinterestAdsDefaultSources,
     PlanningStepStatus as PlanningStepStatus,
+    Platform as Platform,
     Position as Position,
     PrecomputationMode as PrecomputationMode,
     PredicateFixAction as PredicateFixAction,
@@ -251,6 +274,7 @@ from posthog.schema_enums import (
     RetentionPeriod as RetentionPeriod,
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
+    RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
@@ -264,6 +288,7 @@ from posthog.schema_enums import (
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
     SnapshotSource as SnapshotSource,
+    SourceType as SourceType,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
@@ -293,6 +318,7 @@ from posthog.schema_enums import (
     TraceOrderColumn as TraceOrderColumn,
     TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
     TraceSpanBreakdownType as TraceSpanBreakdownType,
+    TwitterAdsDefaultSources as TwitterAdsDefaultSources,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -580,6 +606,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
@@ -919,10 +953,6 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
-
-
 class AssistantUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -930,6 +960,60 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class BICategoryGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    values: list[str]
+
+
+class BIConditionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: list[str]
+    groups: list[BIConditionGroup]
+    operator: Operator1
+
+
+class BIDataSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connectionId: str | None = None
+    table: str
+
+
+class BILocalFieldDefinition1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    groups: list[BICategoryGroup]
+    kind: Literal["groups"] = "groups"
+    other: str
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    kind: Literal["bins"] = "bins"
+    origin: float
+    width: float
+
+
+class BITotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: bool | None = None
+    rows: bool | None = None
+    subtotals: bool | None = None
 
 
 class BaseAssistantMessage(BaseModel):
@@ -1093,6 +1177,14 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class CustomerAnalyticsPinnedProperty(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    kind: Kind
 
 
 class DangerousOperationResponse(BaseModel):
@@ -1428,6 +1520,15 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: GroupTypeIndex = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
+
+
 class ExperimentExposureEstimateConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1624,6 +1725,16 @@ class FileSystemEntry(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class FileSystemSearchTab(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    flag: str | None = None
+    href: str
+    name: str
+    searchKeywords: list[str] | None = None
+
+
 class FileSystemViewLogEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1716,6 +1827,20 @@ class HogCompileResponse(BaseModel):
     )
     bytecode: list
     locals: list
+
+
+class HogQLMetadataColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Output column name, in the same order as the SELECT list.")
+    type: str = Field(
+        ...,
+        description=(
+            "Inferred runtime type, including nullability. Unknown means inference"
+            " could not determine the type; execution remains authoritative."
+        ),
+    )
 
 
 class HogQLVariable(BaseModel):
@@ -1960,6 +2085,88 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     excludesConversionGoals: bool | None = None
 
 
+class MarketingAnalyticsSearchConversion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversions: float | None = None
+    costPerConversion: float | None = None
+    id: str
+    name: str
+    previousConversions: float | None = None
+    previousCostPerConversion: float | None = None
+
+
+class MarketingAnalyticsSearchConversionGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str
+
+
+class MarketingAnalyticsSearchMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
+    clicks: float
+    conversions: float | None = None
+    cost: float | None = None
+    cpa: float | None = None
+    cpc: float | None = None
+    ctr: float | None = None
+    impressions: float
+    position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
+
+
+class MarketingAnalyticsSearchRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
+    clicks: float
+    conversions: float | None = None
+    cost: float | None = None
+    cpa: float | None = None
+    cpc: float | None = None
+    ctr: float | None = None
+    currency: str | None = None
+    impressions: float
+    keyword: str | None = None
+    matchType: str | None = None
+    page: str | None = None
+    platform: Platform
+    position: float | None = None
+    posthogConversions: list[MarketingAnalyticsSearchConversion] | None = None
+    previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
+
+
+class MarketingAnalyticsSearchSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    keywordTable: str | None = None
+    placementTable: str | None = None
+    queryPageTable: bool | None = None
+    sourceType: SourceType
+    statsTable: str
+
+
 class MarketingIntegrationConfig1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2149,6 +2356,34 @@ class MarketingIntegrationConfig11(BaseModel):
     statsTableName: Literal["sp_campaign_reports"] = "sp_campaign_reports"
 
 
+class MarketingIntegrationConfig12(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["rokt"] = "rokt"
+    sourceType: Literal["RoktAds"] = "RoktAds"
+    statsTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
+
+
+class MarketingIntegrationConfig13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["line_item_stats"] = "line_item_stats"
+    adsetTableName: Literal["line_items"] = "line_items"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["twitter"] = "twitter"
+    sourceType: Literal["TwitterAds"] = "TwitterAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2162,6 +2397,8 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
+        | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     ]
 ):
     root: (
@@ -2176,6 +2413,8 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
+        | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     )
 
 
@@ -2669,10 +2908,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,
@@ -2734,7 +2973,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2892,6 +3131,21 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: str | None = None
     static: CurrencyCode | None = None
+
+
+class SQLEditorConfiguration(BaseModel):
+    vim_mode_enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference."
+        ),
+    )
+    vimrc: constr(max_length=10000) | None = Field(
+        default=None,
+        description=(
+            "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`."
+        ),
+    )
 
 
 class SampleRatioMismatch(BaseModel):
@@ -3610,6 +3864,15 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -4641,14 +4904,20 @@ class AssistantTrendsFilter(BaseModel):
             " values will have a decimal point."
         ),
     )
-    display: Display | None = Field(
-        default=Display.ACTIONS_LINE_GRAPH,
+    display: AssistantTrendsDisplayType | None = Field(
+        default=AssistantTrendsDisplayType.ACTIONS_LINE_GRAPH,
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
-            " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
-            " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
-            " chart; good for cumulative metrics. `Metric` - single large number with a"
+            " `ActionsBar` - time-series bar chart with one bar per interval and"
+            " breakdown values stacked in each bar. Do not use it to compare breakdown"
+            " values or series as totals. Use `ActionsBarValue` for that."
+            " `ActionsUnstackedBar` - time-series bar chart with series side by side in"
+            " each interval. `ActionsAreaGraph` - time-series area chart."
+            " `ActionsLineGraphCumulative` - cumulative time-series line chart; good"
+            " for cumulative metrics. `SlopeGraph` - net change from the first to the"
+            " last interval, one line per series. `BoxPlot` - quartiles of a numeric"
+            " `math_property` for each interval. `Metric` - single large number with a"
             " change pill and a sparkline. Use for a period summary or an explicit"
             ' current-versus-previous-period comparison ("how many X in the last 30'
             ' days", "what\'s our conversion rate this month", "how does this month'
@@ -4661,12 +4930,18 @@ class AssistantTrendsFilter(BaseModel):
             " single large number with no change or sparkline. Use instead of `Metric`"
             " only when a trend is meaningless, such as an all-time total or a fixed"
             " ratio. You CANNOT use this with breakdown or if the insight has more than"
-            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart;"
-            " good for categorical data. `ActionsPie` - total value pie chart; good for"
-            " visualizing proportions. `ActionsTable` - total value table; good when"
-            " using breakdown to list users or other entities. `WorldMap` - total value"
-            " world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart"
+            " with one bar per breakdown value or series; good for categorical data"
+            ' such as "top pages" or "failures by reason". `ActionsPie` - total value'
+            " pie chart; good for visualizing proportions. `ActionsDonut` - total value"
+            " donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total"
+            " value chart that shows the parts of one whole as a single flat bar, with"
+            " one segment per breakdown value or series. Use it to show the share of"
+            " each part in a total. It cannot compare to a previous period, so do not"
+            " set `compareFilter.compare` with it. `ActionsTable` - total value table;"
+            " good when using breakdown to list users or other entities. `WorldMap` -"
+            " total value world map; use when breaking down by country using property"
+            " `$geoip_country_code`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -4828,6 +5103,94 @@ class AutocompleteCompletionItem(BaseModel):
             " fits the comparison being written."
         ),
     )
+
+
+class BIField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateBucket: BIDateBucket | None = None
+    expression: str
+    id: str
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
+    name: str
+    source: BIDataSource
+    type: DatabaseSerializedFieldType
+
+
+class BIFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customExpression: str | None = None
+    enabled: bool | None = None
+    field: BIField
+    operator: BIFilterOperator
+    value: str
+    valueTo: str | None = None
+    values: list[str] | None = None
+
+
+class BIResultFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: bool | None = None
+    id: str
+    measureIndex: conint(ge=0)
+    operator: Operator2
+    value: str
+    valueTo: str | None = None
+
+
+class BISort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    direction: BISortDirection
+    key: str
+
+
+class BITableCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computeUsing: str | None = Field(
+        default=None,
+        description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    requireFullWindow: bool | None = Field(
+        default=None,
+        description=("Require a complete window of non-null values before displaying a moving average."),
+    )
+    type: BITableCalculationType
+    window: conint(ge=1) | None = Field(
+        default=None,
+        description=("Number of points, including the current point, in a trailing moving average."),
+    )
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: conint(ge=1)
+    fieldId: str
+    includeOther: bool
+    measureIndex: conint(ge=0)
+
+
+class BIValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: BIAggregation
+    customExpression: str | None = None
+    display: ChartSettingsDisplay | None = None
+    field: BIField
+    formatting: ChartSettingsFormatting | None = None
+    label: str | None = None
+    tableCalculation: BITableCalculation | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -5280,7 +5643,7 @@ class ExperimentApiEventSource(BaseModel):
         description="Event name, e.g. '$pageview'. Required for EventsNode.",
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
-    kind: Kind
+    kind: Kind1
     math: ExperimentMetricMathType | None = Field(
         default=None,
         description=(
@@ -5313,6 +5676,16 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
+class ExperimentApiPropertyBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiPropertyBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
+    )
+
+
 class ExperimentApiRetentionStart(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5322,7 +5695,7 @@ class ExperimentApiRetentionStart(BaseModel):
         description="Event name, e.g. '$pageview'. Required for EventsNode.",
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
-    kind: Kind2 = Field(
+    kind: Kind3 = Field(
         ...,
         description=(
             "Pass 'ExperimentExposureNode' to start retention from the experiment's own"
@@ -5361,12 +5734,60 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthFinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: list[ExperimentExposureHealthFindingActionKind] = Field(
+        ..., description="The actions that fix the problem, in order of preference."
+    )
+    code: ExperimentExposureHealthFindingCode = Field(
+        ...,
+        description=(
+            "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+        ),
+    )
+    detail: str = Field(
+        ...,
+        description="What is wrong, what it does to the experiment, and how to fix it.",
+    )
+    diagnostic_ref: str | None = Field(
+        ...,
+        description=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health"
+            " skill, for example 'A2'. Null when the skill has none."
+        ),
+    )
+    evidence: dict[str, str | float | None] = Field(
+        ...,
+        description=(
+            "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
+        ),
+    )
+    severity: ExperimentExposureHealthFindingSeverity = Field(
+        ...,
+        description=("How much the problem affects the results: critical, warning, or info."),
+    )
+    subcode: str | None = Field(
+        ...,
+        description=("The case within the code, when a code covers several. Null when the code has one case."),
+    )
+    title: str = Field(..., description="One-line summary of the problem.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -5543,6 +5964,16 @@ class FileSystemImport(BaseModel):
         description="Match this with the a base scene key or a specific one",
     )
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
+    searchKeywords: list[str] | None = Field(
+        default=None,
+        description=(
+            "Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead"
+        ),
+    )
+    searchTabs: list[FileSystemSearchTab] | None = Field(
+        default=None,
+        description=("Tabs with their own URL that search lists as separate rows, below products and people"),
+    )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: str | None = Field(
@@ -5700,6 +6131,12 @@ class HogQLNotice(BaseModel):
     fix: str | None = None
     message: str
     start: int | None = None
+    url: str | None = Field(
+        default=None,
+        description=(
+            "An https page with more detail about the notice. The editor links to it from the notice's hover."
+        ),
+    )
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -5760,6 +6197,15 @@ class HogQLQueryModifiers(BaseModel):
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )
+    personIdPushdown: bool | None = Field(
+        default=None,
+        description=(
+            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate"
+            " into the joined persons subquery, so the latest-version lookup only reads"
+            " persons that the outer query's left-table filters can reach. Applies only"
+            " to a persons join from the query's own FROM table."
+        ),
+    )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
@@ -5796,6 +6242,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsSchema: bool | None = Field(
+        default=None,
+        description=(
+            "Read events from the native JSON events table (`true`) or the legacy"
+            " events table (`false`). When unset, the project's stored value applies,"
+            " then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This"
+            " is an internal rollout switch. PostHog staff set the project value in"
+            " Django admin and the project settings API ignores it."
+        ),
+    )
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
@@ -5988,6 +6444,18 @@ class MCPModelBreakdownItem(BaseModel):
         extra="forbid",
     )
     model: str
+    total_calls: int
+
+
+class MCPProtocolVersionBreakdownItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    is_current: bool = Field(
+        ...,
+        description=("On the stateless 2026-07-28 revision or later, or the rolling draft."),
+    )
+    protocol_version: str
     total_calls: int
 
 
@@ -6457,7 +6925,10 @@ class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: MetricsAggregation
+    aggregation: MetricsAggregation | None = Field(
+        default=None,
+        description=("Omit to get one line per series (at most 100), without combining them"),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -6476,6 +6947,10 @@ class MetricsQueryClause(BaseModel):
     quantile: float | None = Field(
         default=None,
         description=("In (0, 1); required for `quantile` / `histogram_quantile` aggregations"),
+    )
+    rangeFunction: MetricsRangeFunction | None = Field(
+        default=None,
+        description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
 
 
@@ -6863,6 +7338,13 @@ class QueryResponseAlternative21(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -6882,7 +7364,7 @@ class QueryResponseAlternative31(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7000,7 +7482,10 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error, when known: the DRF exception"
+            " code, or the ClickHouse error name."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
@@ -7050,6 +7535,14 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
     variant: str | None = Field(
         default=None,
         description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
+    )
+    variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Narrow to persons exposed to any of these variants. Defaults to all of the"
+            " experiment's variants. Do not combine with `variant`, the single-variant"
+            " form that predates this field."
+        ),
     )
 
 
@@ -7601,7 +8094,9 @@ class SidebarItemsConfiguration(BaseModel):
     starred: UIVisibilityConfig | None = Field(
         default=None, description='"Starred" panel trigger in the Project section.'
     )
-    tools: UIVisibilityConfig | None = Field(default=None, description='"Tools" panel trigger in the Project section.')
+    tools: UIVisibilityConfig | None = Field(
+        default=None, description='"Products" panel trigger in the Project section.'
+    )
 
 
 class SidebarSectionsConfiguration(BaseModel):
@@ -7610,12 +8105,12 @@ class SidebarSectionsConfiguration(BaseModel):
     )
     my_tools: UIVisibilityConfig | None = Field(
         default=None,
-        description='The "My tools" section, listing the user\'s selected tools.',
+        description='The "My products" section, listing the user\'s selected products.',
     )
     project: UIVisibilityConfig | None = Field(
         default=None,
         description=(
-            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            'The "Project" section (Home and the Data/Files/Products/Starred panel'
             " triggers). Activity stays visible even when this section is hidden."
         ),
     )
@@ -7845,7 +8340,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: list[str] | None = None
     description: str | None = None
     descriptionContentType: SurveyQuestionDescriptionContentType | None = None
-    display: Display1 | None = None
+    display: Display | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
     isNpsQuestion: bool | None = None
@@ -9651,13 +10146,16 @@ class AssistantDataVisualizationNode(BaseModel):
         description=(
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
-            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
-            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
+            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
+            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
+            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
+            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
+            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10190,6 +10688,10 @@ class AssistantRetentionFilter(BaseModel):
             " retention means that a user coming back in period 5 makes them count"
             " towards all the previous periods."
         ),
+    )
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
     )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
@@ -10824,6 +11326,45 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
         max_length=2,
         min_length=2,
     )
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartType: ChartDisplayType
+    columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
+    filters: list[BIFilter]
+    limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
+    values: list[BIValue]
 
 
 class BehavioralPropertyFilter(BaseModel):
@@ -11958,6 +12499,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -12481,6 +13029,68 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MCPModelBreakdownItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedMCPProtocolVersionBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPProtocolVersionBreakdownItem]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -13757,6 +14367,72 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
             " less than the date range the filter bar shows, so the table has to"
             " say so."
         ),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    placementUnavailable: bool | None = None
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MarketingAnalyticsSearchRow]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -16125,7 +16801,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
@@ -17837,9 +18514,39 @@ class EventsQueryResponse(BaseModel):
     )
 
 
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown] | None = Field(
+        default=None,
+        description="Properties to break the metric results down by.",
+        max_length=3,
+    )
+
+
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: ExperimentApiBreakdownAttributionType | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics with breakdowns: which step the breakdown value is read"
+            " from. 'all_events' is not supported for experiment funnels."
+        ),
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is 'step', the 0-indexed step to attribute from."),
+    )
+    breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
+        default=None,
+        description=("Break the metric results down by up to 3 event, person, session or group properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
@@ -18594,6 +19301,53 @@ class MCPModelBreakdownQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MCPModelBreakdownItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class MCPProtocolVersionBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPProtocolVersionBreakdownItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -19604,6 +20358,57 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
     )
 
 
+class MarketingAnalyticsSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    placementUnavailable: bool | None = None
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MarketingAnalyticsSearchRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class MarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20304,6 +21109,13 @@ class QueryResponseAlternative9(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -21460,6 +22272,57 @@ class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    placementUnavailable: bool | None = None
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MarketingAnalyticsSearchRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative39(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -21509,7 +22372,7 @@ class QueryResponseAlternative38(BaseModel):
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21562,7 +22425,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21615,7 +22478,7 @@ class QueryResponseAlternative40(BaseModel):
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21673,7 +22536,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21741,7 +22604,7 @@ class QueryResponseAlternative43(BaseModel):
     )
 
 
-class QueryResponseAlternative44(BaseModel):
+class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21794,7 +22657,7 @@ class QueryResponseAlternative44(BaseModel):
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21846,7 +22709,7 @@ class QueryResponseAlternative45(BaseModel):
     )
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21907,7 +22770,7 @@ class QueryResponseAlternative46(BaseModel):
     )
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21962,7 +22825,7 @@ class QueryResponseAlternative47(BaseModel):
     )
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22014,7 +22877,7 @@ class QueryResponseAlternative48(BaseModel):
     )
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22066,7 +22929,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22131,7 +22994,7 @@ class QueryResponseAlternative50(BaseModel):
     )
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22191,7 +23054,7 @@ class QueryResponseAlternative51(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22242,7 +23105,7 @@ class QueryResponseAlternative52(BaseModel):
     )
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22293,7 +23156,7 @@ class QueryResponseAlternative56(BaseModel):
     )
 
 
-class QueryResponseAlternative58(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22345,7 +23208,7 @@ class QueryResponseAlternative58(BaseModel):
     )
 
 
-class QueryResponseAlternative59(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22402,7 +23265,7 @@ class QueryResponseAlternative59(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22457,7 +23320,7 @@ class QueryResponseAlternative60(BaseModel):
     )
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22506,7 +23369,7 @@ class QueryResponseAlternative61(BaseModel):
     )
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22560,7 +23423,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22607,7 +23470,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22654,7 +23517,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22701,7 +23564,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22748,7 +23611,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22800,7 +23663,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22852,7 +23715,7 @@ class QueryResponseAlternative70(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22904,7 +23767,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22952,7 +23815,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22999,7 +23862,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23046,7 +23909,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23099,7 +23962,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23150,7 +24013,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23201,7 +24064,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23252,7 +24115,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23303,7 +24166,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23353,7 +24216,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23403,7 +24266,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23450,7 +24313,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23501,7 +24364,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23548,7 +24411,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23595,7 +24458,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23652,7 +24515,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23707,7 +24570,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23754,7 +24617,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23806,7 +24669,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23853,7 +24716,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23900,7 +24763,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23947,7 +24810,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23994,7 +24857,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24045,53 +24908,6 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[MCPToolTopUserItem]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
-        ),
-    )
-
-
 class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -24115,7 +24931,7 @@ class QueryResponseAlternative100(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[MCPToolFailureItem]
+    results: list[MCPProtocolVersionBreakdownItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -24162,7 +24978,7 @@ class QueryResponseAlternative101(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[MCPToolFailureOccurrenceItem]
+    results: list[MCPToolTopUserItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -24187,6 +25003,100 @@ class QueryResponseAlternative101(BaseModel):
 
 
 class QueryResponseAlternative102(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPToolFailureItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative103(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPToolFailureOccurrenceItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24236,7 +25146,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24283,7 +25193,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24345,7 +25255,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24392,7 +25302,7 @@ class QueryResponseAlternative105(BaseModel):
     )
 
 
-class QueryResponseAlternative106(BaseModel):
+class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24439,7 +25349,7 @@ class QueryResponseAlternative106(BaseModel):
     )
 
 
-class QueryResponseAlternative107(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24486,7 +25396,7 @@ class QueryResponseAlternative107(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24533,7 +25443,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative109(BaseModel):
+class QueryResponseAlternative111(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24580,7 +25490,7 @@ class QueryResponseAlternative109(BaseModel):
     )
 
 
-class QueryResponseAlternative110(BaseModel):
+class QueryResponseAlternative112(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24627,7 +25537,7 @@ class QueryResponseAlternative110(BaseModel):
     )
 
 
-class QueryResponseAlternative111(BaseModel):
+class QueryResponseAlternative113(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24674,7 +25584,7 @@ class QueryResponseAlternative111(BaseModel):
     )
 
 
-class QueryResponseAlternative112(BaseModel):
+class QueryResponseAlternative114(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24722,7 +25632,7 @@ class QueryResponseAlternative112(BaseModel):
     )
 
 
-class QueryResponseAlternative113(BaseModel):
+class QueryResponseAlternative115(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24934,6 +25844,13 @@ class SidebarConfiguration(BaseModel):
     density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
     items: SidebarItemsConfiguration | None = None
     sections: SidebarSectionsConfiguration | None = None
+    starred_products_setup_completed: bool | None = Field(
+        default=None,
+        description=(
+            "True once the user saved or dismissed the setup that moves their custom"
+            " products to starred products in the simple sidebar."
+        ),
+    )
 
 
 class SurveyCreationSchema(BaseModel):
@@ -25064,6 +25981,7 @@ class UsageMetricsQuery(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     sidebar: SidebarConfiguration | None = None
+    sql_editor: SQLEditorConfiguration | None = None
     version: int = Field(
         ...,
         description=("Schema version of this configuration blob, for future format migrations."),
@@ -25615,6 +26533,18 @@ class AccountsTableQuery(BaseModel):
     ] = Field(
         ...,
         description=("Columns to load for each account. Account identity fields are always returned."),
+    )
+    filterGroups: (
+        list[
+            list[AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter]
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Nonempty property-filter groups are ORed together; filters within each"
+            " group use AND. Global filters still apply."
+        ),
     )
     filters: (
         list[
@@ -26632,6 +27562,10 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
+    metricFilters: list[MetricsQueryFilter] | None = Field(
+        default=None,
+        description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -27091,7 +28025,7 @@ class ExperimentApiExposureConfig(BaseModel):
         description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
     )
     id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
-    kind: Kind1 | None = Field(
+    kind: Kind2 | None = Field(
         default=None,
         description=(
             "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
@@ -27358,6 +28292,10 @@ class HogQLFilters(BaseModel):
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
     )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
+    )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
@@ -27381,6 +28319,13 @@ class HogQLMetadataResponse(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -27558,6 +28503,20 @@ class MCPModelBreakdownQuery(BaseModel):
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPModelBreakdownQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MCPProtocolVersionBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
+    kind: Literal["MCPProtocolVersionBreakdownQuery"] = "MCPProtocolVersionBreakdownQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
+    response: MCPProtocolVersionBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -28144,6 +29103,26 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class MarketingAnalyticsSearchQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Breakdown1 | None = None
+    compareFilter: CompareFilter | None = None
+    dateRange: DateRange | None = None
+    includePostHogConversions: bool | None = None
+    keyword: str | None = None
+    kind: Literal["MarketingAnalyticsSearchQuery"] = "MarketingAnalyticsSearchQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    normalizePageUrls: bool | None = None
+    page: str | None = None
+    response: MarketingAnalyticsSearchQueryResponse | None = None
+    search: str | None = None
+    sources: list[MarketingAnalyticsSearchSource]
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -28280,6 +29259,14 @@ class MetricsHistogramQuery(BaseModel):
     interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
+    metricType: MetricsOtelType | None = Field(
+        default=None,
+        description=(
+            "Pins the OTel type, as on a MetricsQuery clause: one name can exist as"
+            " more than one type, and the heatmap must grid only the distribution"
+            " series."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsHistogramQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -28294,7 +29281,7 @@ class MetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clauses: list[MetricsQueryClause]
+    clauses: list[MetricsQueryClause] = Field(..., description="Empty when `language` is `promql` or `sql`.")
     dateRange: DateRange | None = Field(
         default=None,
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
@@ -28310,13 +29297,30 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted"
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
+    language: MetricsQueryLanguage | None = Field(
+        default=None, description="How the query is written; the builder when unset."
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    promql: str | None = Field(
+        default=None,
+        description=("PromQL expression, run as a range query. Used when `language` is `promql`."),
+    )
     response: MetricsQueryResponse | None = None
+    sql: str | None = Field(
+        default=None,
+        description=(
+            "HogQL SELECT over the posthog.metric* tables. Used when `language` is"
+            " `sql`. It must return a `time` and a `value` column; every other column"
+            " is a series label. `{date_from}`, `{date_to}`, `{interval}` and"
+            " `{interval_seconds}` are filled in from the date range and interval."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -28551,7 +29555,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28604,7 +29608,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28672,6 +29676,18 @@ class RecordingsQuery(BaseModel):
     date_from: str | None = "-3d"
     date_to: str | None = None
     distinct_ids: list[str] | None = None
+    event_match_scope: EventMatchScope | None = Field(
+        default=EventMatchScope.SESSION,
+        description=(
+            "Where a filter that is evaluated against events must match. 'session'"
+            " (default) matches an event anywhere in the session, including before the"
+            " recording started or after it ended. 'recording' only matches events from"
+            " one minute before the recording starts until one minute after it ends."
+            " This applies to every filter the events table answers: events, actions,"
+            " event properties, and, when the project resolves them on events, person,"
+            " group, and cohort properties."
+        ),
+    )
     events: list[dict[str, Any]] | None = None
     experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
         default=None,
@@ -29391,6 +30407,7 @@ class CustomerAnalyticsConfig(BaseModel):
     )
     account_group_type_index: int | None = None
     activity_event: EventsNode | ActionsNode
+    default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -29831,7 +30848,7 @@ class TraceSpansQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
+    dateRange: DateRange | None = None
     excludeAttributes: bool | None = Field(
         default=None,
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
@@ -29906,6 +30923,19 @@ class TraceSpansTreeQuery(BaseModel):
         ),
     )
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class BIVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: ChartSettings | None = None
+    config: BIConfig
+    display: ChartDisplayType | None = None
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: HogQLQuery
+    tableSettings: TableSettings | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -30539,6 +31569,10 @@ class SessionsQuery(BaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
+class VisualizationNode(RootModel[DataVisualizationNode | BIVisualizationNode]):
+    root: DataVisualizationNode | BIVisualizationNode
+
+
 class CalendarHeatmapQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30769,7 +31803,7 @@ class PathsV2ActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31249,7 +32283,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31269,7 +32303,7 @@ class QueryResponseAlternative54(BaseModel):
     )
 
 
-class QueryResponseAlternative55(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31329,8 +32363,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative35
         | QueryResponseAlternative36
         | QueryResponseAlternative37
-        | Any
         | QueryResponseAlternative38
+        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
@@ -31349,7 +32383,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative54
         | QueryResponseAlternative55
         | QueryResponseAlternative56
-        | QueryResponseAlternative58
+        | QueryResponseAlternative57
         | QueryResponseAlternative59
         | QueryResponseAlternative60
         | QueryResponseAlternative61
@@ -31358,7 +32392,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative64
         | QueryResponseAlternative65
         | QueryResponseAlternative66
-        | QueryResponseAlternative68
+        | QueryResponseAlternative67
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
@@ -31375,7 +32409,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative82
         | QueryResponseAlternative83
         | QueryResponseAlternative84
-        | QueryResponseAlternative87
+        | QueryResponseAlternative85
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
@@ -31402,6 +32436,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative111
         | QueryResponseAlternative112
         | QueryResponseAlternative113
+        | QueryResponseAlternative114
+        | QueryResponseAlternative115
     ]
 ):
     root: (
@@ -31442,8 +32478,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative35
         | QueryResponseAlternative36
         | QueryResponseAlternative37
-        | Any
         | QueryResponseAlternative38
+        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
@@ -31462,7 +32498,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative54
         | QueryResponseAlternative55
         | QueryResponseAlternative56
-        | QueryResponseAlternative58
+        | QueryResponseAlternative57
         | QueryResponseAlternative59
         | QueryResponseAlternative60
         | QueryResponseAlternative61
@@ -31471,7 +32507,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative64
         | QueryResponseAlternative65
         | QueryResponseAlternative66
-        | QueryResponseAlternative68
+        | QueryResponseAlternative67
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
@@ -31488,7 +32524,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative82
         | QueryResponseAlternative83
         | QueryResponseAlternative84
-        | QueryResponseAlternative87
+        | QueryResponseAlternative85
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
@@ -31515,6 +32551,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative111
         | QueryResponseAlternative112
         | QueryResponseAlternative113
+        | QueryResponseAlternative114
+        | QueryResponseAlternative115
     )
 
 
@@ -32589,6 +33627,7 @@ class HogQLAutocomplete(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
@@ -32635,6 +33674,7 @@ class HogQLAutocomplete(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -32683,6 +33723,13 @@ class HogQLMetadata(BaseModel):
         ),
     )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
+    includeOutputTypes: bool | None = Field(
+        default=None,
+        description=(
+            "Infer output column names and types without executing the query. Adds a"
+            " type-resolution pass, so callers must opt in."
+        ),
+    )
     indexUsage: bool | None = Field(
         default=None,
         description=(
@@ -32716,6 +33763,7 @@ class HogQLMetadata(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
@@ -32762,6 +33810,7 @@ class HogQLMetadata(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -32867,7 +33916,9 @@ class MaxInsightContext(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -32909,6 +33960,7 @@ class MaxInsightContext(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33010,7 +34062,9 @@ class QueryRequest(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33052,6 +34106,7 @@ class QueryRequest(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33145,7 +34200,9 @@ class QuerySchemaRoot(
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33187,6 +34244,7 @@ class QuerySchemaRoot(
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33250,7 +34308,9 @@ class QuerySchemaRoot(
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33292,6 +34352,7 @@ class QuerySchemaRoot(
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33360,7 +34421,9 @@ class QueryUpgradeRequest(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33402,6 +34465,7 @@ class QueryUpgradeRequest(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33470,7 +34534,9 @@ class QueryUpgradeResponse(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33512,6 +34578,7 @@ class QueryUpgradeResponse(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33625,7 +34692,9 @@ class VisualizationArtifactContent(BaseModel):
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
         | MarketingAnalyticsRetentionQuery
+        | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33667,6 +34736,7 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolCallsAndErrorsQuery
         | MCPHarnessBreakdownQuery
         | MCPModelBreakdownQuery
+        | MCPProtocolVersionBreakdownQuery
         | MCPToolTopUsersQuery
         | MCPToolFailuresQuery
         | MCPToolFailureOccurrencesQuery
@@ -33685,6 +34755,7 @@ class VisualizationArtifactContent(BaseModel):
     )
 
 
+BIConditionGroup.model_rebuild()
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()

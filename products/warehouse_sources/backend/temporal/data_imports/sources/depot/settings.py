@@ -6,7 +6,7 @@ ENDPOINTS = (JOB_ATTEMPTS,)
 
 PRIMARY_KEY = "attempt_id"
 
-# A run's creation time never changes, so it is a stable partition key and a monotonic cursor.
+# Creation time is stable for partitioning. The source replays runs to pick up late retries.
 RUN_CREATED_AT = "run_created_at"
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {

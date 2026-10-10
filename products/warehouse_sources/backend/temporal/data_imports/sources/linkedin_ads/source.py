@@ -47,6 +47,16 @@ from .linkedin_ads import (
     linkedin_ads_source,
 )
 
+_MISSING_INTEGRATION_ERROR = (
+    "The LinkedIn Ads connection for this source no longer exists. Reconnect your LinkedIn Ads account, then try again."
+)
+# The catch-all this backs also covers a transient database failure, which a reconnect never fixes,
+# so lead with the retry and keep reconnecting as the fallback.
+_CONNECTION_CHECK_ERROR = (
+    "PostHog couldn't check your LinkedIn Ads connection. Try again in a few minutes, "
+    "and reconnect your LinkedIn Ads account if it keeps failing."
+)
+
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
 LINKEDIN_ADS_VERSION_202607 = "202607"
@@ -114,6 +124,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
             # access. Retrying can't recover it, so stop syncing instead of looping the 404.
             "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a plain 404 with this generic error code (no "RESOURCE_" prefix) for
+            # the same underlying condition — a deleted account, a wrong Account ID, or lost access
+            # to it. Match the quoted JSON key/value so this never also matches "RESOURCE_NOT_FOUND"
+            # above, which carries a more specific message.
+            '"code":"NOT_FOUND"': "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
             # LinkedIn returns a 401 with this stable error code when the member who authorized the
             # integration has been restricted on LinkedIn's side (suspended / flagged account). The
             # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —
@@ -260,10 +275,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             return True, None
         except Integration.DoesNotExist:
-            return False, "LinkedIn Ads integration not found. Please re-authenticate."
+            return False, _MISSING_INTEGRATION_ERROR
         except Exception as e:
             capture_exception(e)
-            return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
+            return False, _CONNECTION_CHECK_ERROR
 
     def get_schemas(
         self,

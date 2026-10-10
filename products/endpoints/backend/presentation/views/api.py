@@ -57,6 +57,7 @@ from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.api import HasDependentsError
 from products.data_modeling.backend.facade.models import DataModelingJob
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
@@ -91,6 +92,13 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
 )
+
+
+class EndpointDependentsValidationError(serializers.ValidationError):
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code="has_dependents")
+        if node_id:
+            self.extra = {"node_id": node_id}
 
 
 class MaterializationPreviewRequestSerializer(serializers.Serializer):
@@ -334,7 +342,7 @@ class EndpointViewSet(
     def _with_materialization_job_prefetches(queryset):
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
-        return queryset.select_related("saved_query").prefetch_related(
+        return queryset.select_related("saved_query", "team").prefetch_related(
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",
@@ -559,7 +567,15 @@ class EndpointViewSet(
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = self._get_endpoint_with_object_access(name)
-        EndpointCrudService(self.team, request).destroy(endpoint)
+        try:
+            EndpointCrudService(self.team, request).destroy(endpoint)
+        except HasDependentsError as error:
+            can_read_lineage = self.user_access_control.check_access_level_for_resource(
+                "warehouse_view", required_level="viewer"
+            )
+            raise EndpointDependentsValidationError(
+                str(error), node_id=error.fallback_node_id if can_read_lineage else None
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ------------------------------------------------------------------

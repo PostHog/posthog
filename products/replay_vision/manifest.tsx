@@ -48,11 +48,9 @@ export const manifest: ProductManifest = {
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
         '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
-        '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {
-        '/replay-vision/templates': '/replay-vision/new/template',
         // People guess the product sits under replay. Without this, `/replay/vision` matches
         // `/replay/:id` and shows "Recording not found".
         '/replay/vision': '/replay-vision',
@@ -61,6 +59,7 @@ export const manifest: ProductManifest = {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
         replayVisionTemplates: (): string => '/replay-vision/new/template',
         replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
         replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
@@ -68,7 +67,6 @@ export const manifest: ProductManifest = {
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
         replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
-        replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     },
     fileSystemTypes: {},
@@ -76,7 +74,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Replay vision',
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             intents: [ProductKey.REPLAY_VISION],
             type: 'replay_vision',
             iconType: 'replay_vision' as FileSystemIconType,
@@ -85,6 +83,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
+            searchKeywords: ['scanners', 'observations'],
+            searchTabs: [
+                { name: 'Search', href: urls.replayVisionTab('search') },
+                { name: 'Usage', href: urls.replayVisionTab('usage') },
+            ],
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

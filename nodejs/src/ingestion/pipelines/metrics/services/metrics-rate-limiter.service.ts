@@ -34,9 +34,9 @@ export type MetricsRateLimit = {
     isRateLimited: boolean
 }
 
-export type FilteredMessages = {
-    allowed: MetricsIngestionMessage[]
-    dropped: MetricsIngestionMessage[]
+export type FilteredMessages<T extends MetricsIngestionMessage = MetricsIngestionMessage> = {
+    allowed: T[]
+    dropped: T[]
 }
 
 export class MetricsRateLimiterService {
@@ -173,7 +173,8 @@ export class MetricsRateLimiterService {
         return this.enabledTeamIds.has(teamId)
     }
 
-    public async filterMessages(messages: MetricsIngestionMessage[]): Promise<FilteredMessages> {
+    /** `allowed` and `dropped` hold the input objects, so callers can match the results by reference. */
+    public async filterMessages<T extends MetricsIngestionMessage>(messages: T[]): Promise<FilteredMessages<T>> {
         const teamCosts = new Map<number, number>()
         const teamOldestTimestamps = new Map<number, number>()
         const teamNewestTimestamps = new Map<number, number>()
@@ -220,8 +221,8 @@ export class MetricsRateLimiterService {
             teamLimits.set(parseInt(teamIdStr, 10), result)
         }
 
-        const allowed: MetricsIngestionMessage[] = []
-        const dropped: MetricsIngestionMessage[] = []
+        const allowed: T[] = []
+        const dropped: T[] = []
         const teamKbUsed = new Map<number, number>()
 
         for (const message of messages) {

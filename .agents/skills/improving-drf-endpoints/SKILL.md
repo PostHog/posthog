@@ -53,7 +53,7 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Define choices as a `models.TextChoices` class** — the OpenAPI component is named after the class (`EarlyAccessFeature.Stage` -> `EarlyAccessFeatureStageEnum`, via `ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), so a class-backed enum never collides on field names like `format`, `type`, `status`, `kind`. Inline `choices=[...]` lists have no class to read, collide with existing choices, and fail CI under `--fail-on-warn`; an explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py` is the fallback for choice sets no class can carry, and a product enum's entry must point at a re-export in the product's `backend/facade/enums.py`, never at an internal module (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+6. **Define choices as a class** — `models.TextChoices` in a product's internal modules, `LabeledStrEnum` or `LabeledIntEnum` from `posthog/enums.py` in facade contract files (`backend/facade/contracts.py`, `backend/facade/enums.py`), which must not import Django. The OpenAPI component is named after the class either way (`EarlyAccessFeature.Stage` -> `EarlyAccessFeatureStageEnum`, via `ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), so a class-backed enum never collides on field names like `format`, `type`, `status`, `kind`. Pass `X.choices` to `choices=`, and to name a labeled enum on a `SerializerMethodField` use `@extend_schema_field(ChoiceField(choices=X.choices))`, not a return type hint. Inline `choices=[...]` lists have no class to read, collide with existing choices, and fail CI under `--fail-on-warn`; an explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py` is the fallback for choice sets no class can carry (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
@@ -127,6 +127,8 @@ this — just register under `routers.projects` and the middleware handles the a
 For products using the facade pattern (e.g., `visual_review`) with `DataclassSerializer` wrapping frozen dataclasses from `contracts.py`:
 
 - Field types are auto-derived from the dataclass — fewer typing issues by design
+- Type enum fields as `LabeledStrEnum`/`LabeledIntEnum` (or a Django `Choices` class), not a plain `StrEnum`.
+  A schema extension in `posthog/api/documentation/autoschema.py` documents those fields with their class labels, so their OpenAPI enum is named after the class. A plain `StrEnum` falls back to a field-derived name.
 - Focus on **`help_text`** (dataclass fields don't carry it; add it on the serializer field overrides)
 - **`@validated_request`** is already the standard pattern — verify response serializers are declared
 - `@extend_schema` tags and descriptions still need to be set on viewset methods

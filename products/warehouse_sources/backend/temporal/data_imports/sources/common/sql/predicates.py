@@ -15,10 +15,13 @@ Three rails make SQL injection impossible by construction:
 from __future__ import annotations
 
 import enum
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
@@ -59,6 +62,19 @@ class ValidatedRowFilter:
     operator: str
     value: Any
     category: ColumnTypeCategory
+
+
+@frozen
+class RowFilterColumn:
+    """A column a row filter may use, for a source that can filter on a fixed set only.
+
+    A SQL source filters on any column of the table, so it declares none of these. An API source
+    declares the fields its API accepts as a filter, with the comparisons that API supports.
+    """
+
+    name: str
+    data_type: str
+    operators: tuple[str, ...]
 
 
 # The only operators that may reach SQL; input aliases normalize to these.
@@ -416,12 +432,16 @@ def _column_types(schema_metadata: dict[str, Any] | None) -> dict[str, str]:
 def validate_and_coerce_row_filters(
     row_filters: Any,
     schema_metadata: dict[str, Any] | None,
+    filterable_columns: Sequence[RowFilterColumn] | None = None,
 ) -> list[ValidatedRowFilter]:
     """Validate raw row filters against a schema's columns and coerce their values.
 
     Returns an empty list for `None`/empty input. Raises `RowFilterValidationError`
     on a malformed structure, unknown column, disallowed operator, unclassifiable
     type, or a value that doesn't match the column's type.
+
+    `filterable_columns` replaces `schema_metadata` as the set of columns, for a source that
+    declares the columns and comparisons its API can filter on.
     """
     if row_filters is None:
         return []
@@ -430,8 +450,14 @@ def validate_and_coerce_row_filters(
     if len(row_filters) > MAX_ROW_FILTERS:
         raise RowFilterValidationError(f"Too many row filters (max {MAX_ROW_FILTERS})")
 
-    available_columns = extract_available_column_names(schema_metadata)
-    column_types = _column_types(schema_metadata)
+    allowed_operators: dict[str, tuple[str, ...]] | None = None
+    if filterable_columns is None:
+        available_columns = extract_available_column_names(schema_metadata)
+        column_types = _column_types(schema_metadata)
+    else:
+        available_columns = {column.name for column in filterable_columns}
+        column_types = {column.name: column.data_type for column in filterable_columns}
+        allowed_operators = {column.name: column.operators for column in filterable_columns}
 
     validated: list[ValidatedRowFilter] = []
     for index, row_filter in enumerate(row_filters):
@@ -441,10 +467,20 @@ def validate_and_coerce_row_filters(
         column = row_filter.get("column")
         if not isinstance(column, str) or not column:
             raise RowFilterValidationError(f"Row filter at index {index} is missing a column")
+        if allowed_operators is not None and column not in allowed_operators:
+            allowed = ", ".join(sorted(allowed_operators)) or "none"
+            raise RowFilterValidationError(
+                f"Cannot filter on column {column!r}: this table can be filtered on these columns only: {allowed}"
+            )
         if available_columns and column not in available_columns:
             raise RowFilterValidationError(f"Unknown column {column!r} for this schema")
 
         operator = normalize_operator(row_filter.get("operator"))
+        if allowed_operators is not None and operator not in allowed_operators[column]:
+            raise RowFilterValidationError(
+                f"Unsupported operator {operator!r} for column {column!r}. "
+                f"Allowed operators: {', '.join(allowed_operators[column])}"
+            )
 
         data_type = column_types.get(column)
         category = classify_column_type(data_type)

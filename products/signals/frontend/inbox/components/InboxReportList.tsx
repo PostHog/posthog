@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
+import { ComponentType, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -10,6 +10,7 @@ import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLo
 import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
 import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
+import { InboxMcpBanner } from './InboxMcpBanner'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 
@@ -30,6 +31,34 @@ interface InboxReportListProps {
         | { content: JSX.Element }
         | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
+
+/**
+ * One row, memoized. The list re-renders on every badge count, page and poll that lands, and
+ * repainting every row each time is what made the inbox stop answering clicks. The row builds its
+ * own dismiss and restore closures from the list's stable actions, so its props stay comparable.
+ */
+const LegacyReportRow = memo(function LegacyReportRow({
+    report,
+    sectionKey,
+    Card,
+    dismissReport,
+    restoreReport,
+}: {
+    report: SignalReport
+    sectionKey: InboxReportSectionKey
+    Card: ComponentType<InboxReportCardProps>
+    dismissReport: (reportId: string, dismissal: DismissalFeedback) => void
+    restoreReport: (reportId: string, surface: 'list_row') => void
+}): JSX.Element {
+    return (
+        <Card
+            report={report}
+            sectionKey={sectionKey}
+            onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+            onRestore={() => restoreReport(report.id, 'list_row')}
+        />
+    )
+})
 
 /**
  * Shared body for the flat report-list tabs shown with the redesign flag off (Pull requests /
@@ -150,6 +179,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             totalCount,
             hasActiveFilters: loadedContext.hasActiveFilters,
             scope: loadedContext.scope,
+            sortField: loadedContext.sortField,
+            sortDirection: loadedContext.sortDirection,
+            createdWindow: loadedContext.createdWindow,
         })
     }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
@@ -200,6 +232,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
             <InboxBulkSelectionBar reports={reports} />
+            <InboxMcpBanner />
 
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
@@ -233,12 +266,13 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                     {/* Each report is its own freestanding card, separated by a small gap. */}
                     <div className="flex flex-col gap-1.5">
                         {reports.map((report) => (
-                            <Card
+                            <LegacyReportRow
                                 key={report.id}
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
-                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
-                                onRestore={() => restoreReport(report.id, 'list_row')}
+                                Card={Card}
+                                dismissReport={dismissReport}
+                                restoreReport={restoreReport}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

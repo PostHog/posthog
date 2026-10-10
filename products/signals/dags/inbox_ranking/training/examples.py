@@ -27,7 +27,9 @@ with no label event gets LABEL_DEFAULTS, so never-engaged reports are negatives 
 A set may ask for the scoring-moment grain instead (one row per report per snapshot, whose label is
 a hazard conditional on the report still being live) or the report grain (the first snapshot of the
 window where the report is a usable moment), and cap the rows one head keeps. Both knobs live on
-the `FeatureSet`, because the examples object is per set.
+the `FeatureSet`, because the examples object is per set. The cap limits history, not rows inside a
+day: it keeps whole report-creation days, newest first, so the kept label rate is the population
+rate of those days and the scores stay calibrated.
 """
 
 import datetime
@@ -55,10 +57,6 @@ PROVENANCE_LABEL_COLUMNS = ("latest_status_event", "status_event_team_id")
 # A forward run stamps features_observed_at a few hours after the snapshot end. Anything read later
 # than this is a backfill that carries current Postgres state, not the state as of the snapshot.
 STATE_LAG_LIMIT = datetime.timedelta(days=2)
-
-# Fixed, so a re-run of a partition keeps the same rows under a row budget and two candidates of the
-# same day are fit on one example set.
-EXAMPLE_SAMPLE_SEED = 0
 
 
 def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
@@ -137,6 +135,43 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
     return Snapshot(date=date, state=state, labels=aligned)
 
 
+@frozen
+class ConsentExclusion:
+    """What `drop_without_training_consent` removed, as counts only."""
+
+    reports: int
+    teams: int
+
+
+def drop_without_training_consent(
+    snapshots: Mapping[datetime.date, Snapshot], team_ids: frozenset[int]
+) -> tuple[dict[datetime.date, Snapshot], ConsentExclusion]:
+    """`snapshots` without the reports of teams outside `team_ids`, read at training time.
+
+    The dataset dag stops collecting those reports, but the window reaches back over partitions
+    written before an organization opted out. Filtering here makes an opt-out reach the next
+    training run. A state row with no readable team fails closed. Label-only rows have no state and
+    are kept: `example_moments` never makes one a moment, and a report deleted before a later
+    snapshot needs its label row there.
+    """
+    kept: dict[datetime.date, Snapshot] = {}
+    reports: set[object] = set()
+    teams: set[int] = set()
+    for date, snapshot in snapshots.items():
+        state = snapshot.state
+        team = state["report_team_id"] if "report_team_id" in state else pd.Series(float("nan"), index=state.index)
+        excluded = state["signal_count"].notna() & ~team.isin(team_ids)
+        dropped = state.index[excluded.to_numpy()]
+        reports.update(dropped)
+        teams.update(int(team_id) for team_id in team[excluded].dropna())
+        kept[date] = Snapshot(
+            date=date,
+            state=state.drop(dropped),
+            labels=snapshot.labels.drop(snapshot.labels.index.intersection(dropped)),
+        )
+    return kept, ConsentExclusion(reports=len(reports), teams=len(teams))
+
+
 def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
     """True for rows of the reports created on snapshot day `date`.
 
@@ -178,9 +213,60 @@ def build_examples(
     The moments are chosen first and the features built second, so a set under a row budget builds
     1536 columns for the rows it keeps rather than for every row it then throws away.
     """
+    return build_head_examples(snapshots, head, feature_set, extras).examples
+
+
+@frozen
+class HeadExamples:
+    """One head's examples and the report-creation window they cover."""
+
+    examples: pd.DataFrame
+    # The earliest report-creation day kept, or None when the head has no example.
+    window_start: datetime.date | None
+    # True when the row budget dropped at least one older day.
+    cap_bound: bool
+    # Snapshot pairs dropped because one side lacks a label column the head reads. A high count
+    # with few positives means the labels partitions predate the current schema.
+    pairs_skipped_missing_label_columns: int
+
+    def window(self) -> dict[str, object]:
+        return {
+            "example_window_start": self.window_start.isoformat() if self.window_start else None,
+            "example_cap_bound": self.cap_bound,
+        }
+
+
+def build_head_examples(
+    snapshots: Mapping[datetime.date, Snapshot],
+    head: Head,
+    feature_set: FeatureSet,
+    extras: Extras = NO_EXTRAS,
+) -> HeadExamples:
+    """`build_examples` with the window the row budget left, which the candidate records per head."""
     moments = example_moments(snapshots, head, feature_set, extras)
     kept = cap_examples(moments, feature_set.max_examples_per_head)
-    return _with_features(kept, snapshots, feature_set, extras)
+    days = _creation_days(kept).dropna()
+    return HeadExamples(
+        examples=_with_features(kept, snapshots, feature_set, extras),
+        window_start=days.min().date() if len(days) else None,
+        cap_bound=len(kept) < len(moments),
+        pairs_skipped_missing_label_columns=pairs_missing_label_columns(snapshots, head),
+    )
+
+
+def _label_columns_readable(now: Snapshot, later: Snapshot, head: Head) -> bool:
+    return all(column in now.labels and column in later.labels for column in head.label_columns)
+
+
+def pairs_missing_label_columns(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> int:
+    """The (snapshot, `horizon_days`-later snapshot) pairs `example_moments` skips for a missing
+    label column."""
+    return sum(
+        1
+        for date, now in snapshots.items()
+        if (later := snapshots.get(date + datetime.timedelta(days=head.horizon_days))) is not None
+        and not _label_columns_readable(now, later, head)
+    )
 
 
 def example_moments(
@@ -204,7 +290,7 @@ def example_moments(
         # only in the later snapshot (a column that entered the schema mid-window) would pass the
         # "not yet observed at now" guard below and mint an outcome from before `now` as a future
         # positive. Skip the pair when the head's label cannot be read from both snapshots.
-        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+        if not _label_columns_readable(now, later, head):
             continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:
@@ -281,22 +367,27 @@ def reports_missing_birth_snapshot(snapshots: Mapping[datetime.date, Snapshot], 
     return sum(int(birth_day_mask(reports, date).sum()) for date in set(dates).difference(snapshots))
 
 
+def _creation_days(moments: pd.DataFrame) -> pd.Series:
+    return pd.to_datetime(moments["report_created_at"], utc=True).dt.floor("D")
+
+
 def cap_examples(moments: pd.DataFrame, limit: int | None) -> pd.DataFrame:
-    """`moments` within `limit` rows, keeping every positive and a seeded sample of the negatives.
+    """`moments` cut to the newest whole report-creation days that fit within `limit` rows.
 
     A row budget is how a wide set stays inside one partition's object and the training job's
-    runtime. Positives are the scarce side of every head here and AUC is rank-based, so spending
-    the budget on them costs the base rate the scores are calibrated to rather than the ranking read
-    the family exists for. Positives are kept whole even past the budget: a head with that many
-    positives is not the case the budget is for.
+    runtime. The budget limits history: it keeps whole days, newest first, and never samples rows
+    inside a day. A sample that keeps every positive raises the base rate the booster fits, so its
+    scores overstate every probability. Whole days keep the population rate, keep the holdout a clean
+    time split, and keep the population the sweep scores. The newest day is kept even when it alone
+    exceeds `limit`, so a head never trains on nothing.
     """
     if limit is None or len(moments) <= limit:
         return moments
-    positives = moments[moments["label"] == 1]
-    negatives = moments[moments["label"] != 1]
-    room = max(limit - len(positives), 0)
-    sampled = negatives.sample(n=min(room, len(negatives)), random_state=EXAMPLE_SAMPLE_SEED)
-    return pd.concat([positives, sampled]).sort_index().reset_index(drop=True)
+    days = _creation_days(moments)
+    per_day = days.value_counts().sort_index(ascending=False)
+    within = per_day.index[per_day.cumsum().to_numpy() <= limit]
+    cutoff = within.min() if len(within) else per_day.index[0]
+    return moments[days >= cutoff].reset_index(drop=True)
 
 
 def _with_features(
