@@ -173,11 +173,26 @@ class TestOnboarding:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
-        ok = onboarding.approve_ai_data_processing(self.integration, "U1")
+        result = onboarding.approve_ai_data_processing(self.integration, "U1")
 
-        assert ok is True
+        assert result == onboarding.AIApprovalResult.APPROVED
         self.organization.refresh_from_db()
         assert self.organization.is_ai_data_processing_approved is True
+
+    @patch("products.slack_app.backend.onboarding.has_signed_baa", return_value=True)
+    @patch("products.slack_app.backend.onboarding._is_org_admin", return_value=True)
+    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_approve_ai_data_processing_refused_with_signed_baa(self, mock_webclient_class, _resolve, _admin, _baa):
+        self._client(mock_webclient_class)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        result = onboarding.approve_ai_data_processing(self.integration, "U1")
+
+        assert result == onboarding.AIApprovalResult.BAA_SIGNED
+        self.organization.refresh_from_db()
+        assert self.organization.is_ai_data_processing_approved is False
 
     @patch("products.slack_app.backend.onboarding._is_org_admin", return_value=False)
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
@@ -187,9 +202,9 @@ class TestOnboarding:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
-        ok = onboarding.approve_ai_data_processing(self.integration, "U1")
+        result = onboarding.approve_ai_data_processing(self.integration, "U1")
 
-        assert ok is False
+        assert result == onboarding.AIApprovalResult.NOT_ADMIN
         self.organization.refresh_from_db()
         assert self.organization.is_ai_data_processing_approved is False
 

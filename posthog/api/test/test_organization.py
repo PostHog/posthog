@@ -257,6 +257,29 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.is_ai_training_opted_in, False)
 
+    @parameterized.expand(
+        [
+            ("enabling_is_refused", False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("disabling_is_allowed", True, False, status.HTTP_200_OK, False),
+        ]
+    )
+    def test_ai_data_processing_with_a_signed_baa(self, _name, initial, requested, expected_status, expected_value):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_data_processing_approved = initial
+        self.organization.save()
+
+        with patch("posthog.api.organization.has_signed_baa", return_value=True):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": requested}
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, expected_value)
+
     def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
         Organization.objects.bootstrap(self.user)
         Organization.objects.bootstrap(self.user)

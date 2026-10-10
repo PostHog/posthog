@@ -11,8 +11,17 @@ import { aiConsentLogic } from './aiConsentLogic'
  * the same working affordance wherever the gate appears.
  */
 export function AIAccessRequest({ size = 'xsmall' }: { size?: 'xsmall' | 'small' }): JSX.Element {
-    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
+    const { requestingAiAccess, aiAccessRequested, currentOrganization } = useValues(aiConsentLogic)
     const { requestAiAccess } = useActions(aiConsentLogic)
+
+    if (currentOrganization?.has_signed_baa) {
+        return (
+            <p className="m-0 text-xs text-muted">
+                Your organization has a signed BAA, so PostHog AI stays turned off. Contact PostHog support if this
+                needs to change.
+            </p>
+        )
+    }
 
     // An inline confirmation rather than a spent button, so a repeat visit reads as "already asked".
     if (aiAccessRequested) {
