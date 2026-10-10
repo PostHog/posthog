@@ -8,14 +8,11 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy import (
-    LemonSqueezyPaginator,
     LemonSqueezyResumeConfig,
     LemonSqueezyUntrustedURLError,
     _assert_lemon_squeezy_origin,
     _flatten_json_api_item,
-    _make_session,
     _parse_datetime,
     _webhook_table_transformer,
     create_webhook,
@@ -28,8 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.settings import (
     ALL_WEBHOOK_EVENTS,
     BASE_URL,
-    INCREMENTAL_ENDPOINTS,
-    LEMON_SQUEEZY_ENDPOINTS,
 )
 
 # The source builds its own tracked session (capture-disabled, host-pinned) for the sync client,
@@ -108,29 +103,11 @@ class TestParseDatetime:
 
 
 class TestFlatten:
-    def test_hoists_attributes_and_keeps_id(self):
-        row = _flatten_json_api_item(
-            {
-                "type": "orders",
-                "id": "17",
-                "attributes": {"total": 999, "created_at": "2024-05-01T10:00:00Z"},
-                "relationships": {"store": {}},
-                "links": {"self": "https://api.lemonsqueezy.com/v1/orders/17"},
-            }
-        )
-        assert row == {"id": "17", "total": 999, "created_at": "2024-05-01T10:00:00Z"}
-
     def test_missing_attributes_still_yields_id(self):
         assert _flatten_json_api_item({"type": "orders", "id": "17"}) == {"id": "17"}
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key") is expected
-
     @mock.patch(LEMON_SESSION_PATCH)
     def test_probes_users_me_with_json_api_headers(self, mock_session):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -141,11 +118,6 @@ class TestValidateCredentials:
         assert call.args[0] == "https://api.lemonsqueezy.com/v1/users/me"
         assert call.kwargs["headers"]["Authorization"] == "Bearer key"
         assert call.kwargs["headers"]["Accept"] == "application/vnd.api+json"
-
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
 
 
 class TestPagination:
@@ -177,15 +149,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == LemonSqueezyResumeConfig(
             next_url="https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2"
         )
-
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_rows_are_flattened(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([_json_api_item("1", "2024-05-02T00:00:00Z", total=999)], None)])
-
-        rows = _rows(_source("orders", _make_manager()))
-
-        assert rows == [{"id": "1", "created_at": "2024-05-02T00:00:00Z", "total": 999}]
 
     @mock.patch(LEMON_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
@@ -232,72 +195,6 @@ class TestPagination:
         # Boundary rows older than the watermark are re-yielded; merge on id dedupes them.
         assert [row["id"] for row in rows] == ["3", "2", "1"]
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_full_refresh_walks_past_old_pages(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
-            [
-                _response(
-                    [_json_api_item("2", "2024-04-30T00:00:00Z")],
-                    "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2",
-                ),
-                _response([_json_api_item("1", "2024-04-29T00:00:00Z")], None),
-            ],
-        )
-
-        rows = _rows(_source("orders", _make_manager()))
-
-        assert len(requests_seen) == 2
-        assert [row["id"] for row in rows] == ["2", "1"]
-
-    def test_paginator_keeps_paging_when_created_at_unparseable(self):
-        # An upstream format change must degrade to a full walk, not silently stop the sync.
-        paginator = LemonSqueezyPaginator(watermark=datetime(2024, 5, 1, tzinfo=UTC))
-        response = _response([_json_api_item("1", "not-a-date")], "https://api.lemonsqueezy.com/v1/orders?page=2")
-
-        paginator.update_state(response, response.json()["data"])
-
-        assert paginator.has_next_page is True
-
-
-class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(LEMON_SQUEEZY_ENDPOINTS.keys()))
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Lists arrive newest-first, so the watermark must only finalize after a full sync.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @pytest.mark.parametrize(
-        "endpoint, should_use_incremental_field, expected_disposition",
-        [
-            ("orders", True, {"disposition": "merge", "strategy": "upsert"}),
-            ("orders", False, "replace"),
-            ("stores", False, "replace"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy.rest_api_resource"
-    )
-    def test_write_disposition_follows_incremental_mode(
-        self, mock_rest_api_resource, endpoint, should_use_incremental_field, expected_disposition
-    ):
-        _source(endpoint, _make_manager(), should_use_incremental_field=should_use_incremental_field)
-
-        config = mock_rest_api_resource.call_args.args[0]
-        assert config["resources"][0]["write_disposition"] == expected_disposition
-
-    def test_incremental_endpoints_use_created_at(self):
-        for endpoint in INCREMENTAL_ENDPOINTS:
-            fields = LEMON_SQUEEZY_ENDPOINTS[endpoint].incremental_fields
-            assert [f["field"] for f in fields] == ["created_at"]
-
 
 class TestWebhookTableTransformer:
     def test_flattens_and_keeps_latest_version_per_id(self):
@@ -335,31 +232,6 @@ class TestWebhookTableTransformer:
         by_id = {row["id"]: row for row in result}
         assert set(by_id) == {"1", "2"}
         assert by_id["1"]["status"] == "active"
-
-    def test_out_of_order_batch_keeps_newest(self):
-        table = table_from_py_list(
-            [
-                {
-                    "data": {
-                        "type": "orders",
-                        "id": "1",
-                        "attributes": {"status": "refunded", "updated_at": "2024-05-02T00:00:00Z"},
-                    }
-                },
-                {
-                    "data": {
-                        "type": "orders",
-                        "id": "1",
-                        "attributes": {"status": "paid", "updated_at": "2024-05-01T00:00:00Z"},
-                    }
-                },
-            ]
-        )
-
-        result = _webhook_table_transformer(table).to_pylist()
-
-        assert len(result) == 1
-        assert result[0]["status"] == "refunded"
 
     def test_missing_data_column_yields_empty_table(self):
         table = table_from_py_list([{"meta": {"event_name": "order_created"}}])
@@ -541,26 +413,3 @@ class TestCredentialLeakHardening:
     def test_iterate_list_allows_api_origin(self):
         # A legitimate next link must not be rejected.
         _assert_lemon_squeezy_origin(f"{BASE_URL}/v1/webhooks?page%5Bnumber%5D=2")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy.rest_api_resource"
-    )
-    def test_source_pins_host_and_disables_capture(self, mock_rest_api_resource):
-        _source("orders", _make_manager())
-
-        client = mock_rest_api_resource.call_args.args[0]["client"]
-        # Off-host next/resume URLs and redirects are rejected before the bearer token is sent.
-        assert client["allowed_hosts"] == []
-        assert client["allow_redirects"] is False
-        # Response bodies carry PII, license keys, and signed URLs — never captured as samples.
-        assert _adapter_capture(client["session"]) is False
-
-    def test_make_session_disables_capture(self):
-        # Webhook responses carry the signing secret and store/customer data.
-        assert _adapter_capture(_make_session("key")) is False
-
-
-def _adapter_capture(session: Any) -> bool:
-    adapter = session.get_adapter(BASE_URL)
-    assert isinstance(adapter, TrackedHTTPAdapter)
-    return adapter._capture

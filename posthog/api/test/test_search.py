@@ -5,18 +5,20 @@ from unittest.mock import Mock
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
+from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.facade.models import Endpoint
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestSearch(APIBaseTest):
@@ -100,6 +102,61 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["dashboard"], 1)
         self.assertEqual(response.json()["counts"]["insight"], 1)
         self.assertEqual(response.json()["counts"]["notebook"], 1)
+
+    def test_search_returns_views_and_endpoints_without_internal_views(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_view",
+            team=self.team,
+            created_by=self.user,
+            origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+            is_materialized=True,
+            deleted=None,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+
+        for name, origin in (
+            ("searchable_endpoint_backing_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("searchable_managed_view", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ):
+            internal_view = DataWarehouseSavedQuery.objects.create(name=name, team=self.team, origin=origin)
+            Node.objects.create(team=self.team, dag=dag, saved_query=internal_view, type=NodeType.VIEW)
+
+        endpoint = Endpoint.objects.create(
+            name="searchable_endpoint", team=self.team, created_by=self.user, deleted=None
+        )
+
+        deleted_view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_deleted_view", team=self.team, deleted=True
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=deleted_view, type=NodeType.VIEW)
+        Endpoint.objects.create(name="searchable_deleted_endpoint", team=self.team, deleted=True)
+
+        response = self.client.get(
+            "/api/projects/@current/search?q=searchable&entities=data_warehouse_view&entities=endpoint"
+        )
+        sorted_results = sorted(response.json()["results"], key=lambda result: result["type"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted_results,
+            [
+                {
+                    "rank": sorted_results[0]["rank"],
+                    "type": "data_warehouse_view",
+                    "result_id": str(view.id),
+                    "extra_fields": {"name": "searchable_view", "node_id": str(node.id)},
+                    "user_access_level": "manager",
+                },
+                {
+                    "rank": sorted_results[1]["rank"],
+                    "type": "endpoint",
+                    "result_id": str(endpoint.id),
+                    "extra_fields": {"name": "searchable_endpoint"},
+                    "user_access_level": "manager",
+                },
+            ],
+        )
 
     def test_response_format_and_ids(self):
         response = self.client.get(
@@ -191,9 +248,9 @@ class TestSearch(APIBaseTest):
         self.assertEqual(results[0]["extra_fields"]["name"], "second feature")
 
     def test_hog_flows(self):
-        HogFlow.objects.create(name="first workflow", team=self.team)
-        HogFlow.objects.create(name="second workflow", team=self.team)
-        HogFlow.objects.create(name="third workflow", team=self.team)
+        create_workflow_for_test(team_id=self.team.id, name="first workflow")
+        create_workflow_for_test(team_id=self.team.id, name="second workflow")
+        create_workflow_for_test(team_id=self.team.id, name="third workflow")
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=hog_flow")
 
@@ -276,7 +333,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_with:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -286,7 +343,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_without:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -295,7 +352,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        assert len(ctx_without) == 1
+        # One query for the unioned entities, one for the workflows merged in through the facade.
+        assert len(ctx_without) == 2
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

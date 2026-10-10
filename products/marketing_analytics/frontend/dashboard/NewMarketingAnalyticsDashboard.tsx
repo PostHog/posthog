@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
+import { MarketingAnalyticsSourceStatusBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
     SetupSection,
@@ -37,6 +38,7 @@ import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { MarketingQueryError } from './MarketingQueryError'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
 import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
@@ -146,7 +148,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
     }
     const overviewLogic = dataNodeLogic({ query, key: 'marketing-acquisition-overview' })
-    const { response, responseLoading, responseError } = useValues(overviewLogic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
     const customerOverviewLogic = dataNodeLogic({
@@ -158,6 +160,8 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         response: customerResponse,
         responseLoading: customersLoading,
         responseError: customersError,
+        responseErrorObject: customersErrorObject,
+        queryId: customersQueryId,
     } = useValues(customerOverviewLogic)
     const { loadData: loadCustomers } = useActions(customerOverviewLogic)
     const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
@@ -189,6 +193,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     </>
                 )}
             </div>
+            <MarketingAnalyticsSourceStatusBanner />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-2 empty:hidden">
                 {sourceSuggestions.length > 0 && (
                     <div className="border rounded relative">
@@ -284,12 +289,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             <div id="marketing-dashboard-section" className="flex flex-col gap-4">
                 {isTraffic &&
                     (responseError ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Retry', onClick: () => loadData('force_async') }}
-                        >
-                            Could not load traffic metrics. Try again.
-                        </LemonBanner>
+                        <MarketingQueryError
+                            message="Could not load traffic metrics. Try again."
+                            queryId={responseErrorObject?.queryId ?? queryId}
+                            onRetry={() => loadData('force_async')}
+                            loading={responseLoading}
+                        />
                     ) : (
                         [
                             { key: 'acquisition', title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
@@ -327,6 +332,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 configured={!!customerConversionGoal}
                                                 loading={customersLoading || responseLoading}
                                                 error={!!customersError}
+                                                queryId={customersErrorObject?.queryId ?? customersQueryId}
                                                 customerResults={customerOverview?.results}
                                                 trafficResults={overview?.results}
                                                 samplingRate={customerOverview?.samplingRate}

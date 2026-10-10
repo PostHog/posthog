@@ -86,17 +86,20 @@ SLACK_MEMBERS_MAX_REQUESTS = 10
 class SlackIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: model.Integration, *, source: str = "integration") -> None:
         if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
+        # The egress `source` label. A flow that posts on its own names itself here, so its Slack
+        # calls and 429s can be told apart from every other caller of the same integration.
+        self.source = source
 
     @property
     def client(self) -> WebClient:
         return WebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
         )
@@ -108,7 +111,7 @@ class SlackIntegration:
 
         return SlackAsyncWebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
             session=session,
@@ -218,7 +221,7 @@ class SlackIntegration:
         # fields they use.
         #
         # Every SHARED_CHANNEL_FLAGS entry has to survive. A dropped flag reads as absent, which
-        # reads as not shared, and team_notifications uses that to decide whether a channel matched
+        # reads as not shared, and posthog.slack.channels uses that to decide whether a channel matched
         # by name may receive an internal message.
         return {
             "id": channel["id"],

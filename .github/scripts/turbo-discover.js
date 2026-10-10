@@ -41,6 +41,8 @@
 //         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
 //         kill switch.
 //         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+//         .github/new-events-schema-targets.txt — the test paths of the events_json leg,
+//         which runs them against the native-JSON events table.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
 //         Diagnostics on stderr
 
@@ -169,6 +171,8 @@ const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
     Core: 295,
     CorePOE: 280,
     Temporal: 182,
+    // The events_json leg is a Core job over its own path list, so it takes Core's overhead.
+    JsonTargets: 295,
 }
 const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
@@ -1046,8 +1050,46 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
     return total
 }
 
+// --- events_json leg ---
+// The listed paths run a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true, as
+// Core-style rows of the Django matrix. The file's header says what belongs in it.
+const JSON_TARGETS_FILE = '.github/new-events-schema-targets.txt'
+
+// The listed paths without comments, blank lines, or trailing slashes. A checkout that has
+// no list yields no paths, and the leg then runs nothing.
+function loadJsonTargets(file = JSON_TARGETS_FILE) {
+    let text
+    try {
+        text = fs.readFileSync(file, 'utf-8')
+    } catch {
+        console.error(`::warning::${file} is missing, so the events_json leg runs no tests`)
+        return []
+    }
+    return text
+        .split('\n')
+        .map((line) => line.replace(/#.*/, '').trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+}
+
+function isUnderPath(file, target) {
+    return file === target || file.startsWith(`${target}/`)
+}
+
+// Recorded seconds of every node id under the given files and directories.
+function pathsDuration(paths, durations) {
+    if (!durations) {return 0}
+    let total = 0
+    for (const [test, dur] of Object.entries(durations)) {
+        const file = test.split('::')[0]
+        if (paths.some((target) => isUnderPath(file, target))) {
+            total += dur
+        }
+    }
+    return total
+}
+
 // Fallback shard counts used when .test_durations is missing.
-const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
+const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7, JsonTargets: 5 }
 
 // A shard's wall is overhead + work/shards. Sizing solves that for the shared
 // TARGET_WALL_SECONDS: each shard carries (target - overhead) of work, so
@@ -1230,6 +1272,104 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
     }
 }
 
+function isUnderProduct(target, products) {
+    return products.some((product) => target.startsWith(productPrefix(product)))
+}
+
+// The events_json paths a full run takes: the whole list, less the paths of products that
+// SKIP_PRODUCT_TESTS or the quarantine file dropped from the product matrix.
+function fullRunJsonTargets(targets, skippedProducts) {
+    return targets.filter((target) => !isUnderProduct(target, skippedProducts))
+}
+
+// The runLegacyReason values of a diff that edited products only. A schema or lib change
+// reaches core directly, so the events_json leg keeps the whole list for those.
+const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
+
+// Which events_json paths this run executes. The leg follows the legacy tests. Null means
+// the whole list at the full-run shard count. An array is the list to run, and an empty
+// one means the leg does not run.
+//   mode             the Django selection mode: 'selected', 'full', 'skip', or '' when this
+//                    run does not select
+//   runLegacy        whether the Django suite runs. When it does not, the leg still runs the
+//                    paths of the products in the product matrix, because their own jobs
+//                    read the legacy table only.
+//   selectedTests    every test file the selector picked, product tests included
+//   products         the product matrix after narrowing
+//   skippedProducts  products that SKIP_PRODUCT_TESTS or the quarantine file dropped
+//   draft            the PR is a draft. Only read in selected mode, the one mode that the
+//                    merge queue's draft trunk-merge/** PR never reaches.
+//   doubled          retain only paths the schema copies do not cover
+//   skipReason       why the selection fell back, from decideSelection
+//   runLegacyReason  why the Django suite runs
+//   diffProducts     the products the diff reached before a cascade widened the matrix to
+//                    all products, or null when that set is unknown
+function decideJsonTargets({
+    targets,
+    mode,
+    runLegacy,
+    selectedTests,
+    products,
+    skippedProducts = [],
+    draft = false,
+    doubled = false,
+    skipReason = '',
+    runLegacyReason = '',
+    diffProducts = null,
+}) {
+    if (doubled) {
+        // The label asks for the widest events_json coverage, so a product cascade does not narrow it.
+        const paths = decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts, draft })
+        // Dagster tests are excluded from the doubled Django suites and have no product job.
+        return (paths ?? targets).filter(
+            (target) =>
+                !isUnderProduct(target, products) &&
+                !Object.values(DJANGO_SEGMENTS).some(
+                    (segment) =>
+                        segment.include.some((path) => isUnderPath(target, path.replace(/\/$/, ''))) &&
+                        !segment.exclude.some((path) => isUnderPath(target, path.replace(/\/$/, '')))
+                )
+        )
+    }
+    if (mode === 'skip') {
+        return []
+    }
+    const productPaths = targets.filter((target) => isUnderProduct(target, products))
+    if (!runLegacy) {
+        return productPaths
+    }
+    if (mode !== 'selected') {
+        const kept = fullRunJsonTargets(targets, skippedProducts)
+        if (mode === 'full' && skipReason === 'untrusted' && diffProducts !== null && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
+            // A product-only diff runs the whole Django suite because core can import the
+            // product's internals, and no selector can see that edge. The events_json leg
+            // then keeps the paths of the products the diff reached and leaves the legacy
+            // paths to the merge queue, which runs the whole list before anything lands.
+            return kept.filter((target) => isUnderProduct(target, diffProducts))
+        }
+        return kept.length === targets.length ? null : kept
+    }
+    // Product test files come in through productPaths instead, so that the leg tests the
+    // same products as the product matrix. A draft runs no product tests, so it takes none.
+    const legacyPaths = selectedTests.filter(
+        (file) => !file.startsWith(PRODUCTS_DIR) && targets.some((target) => isUnderPath(file, target))
+    )
+    return [...new Set([...legacyPaths, ...(draft ? [] : productPaths)])].sort()
+}
+
+// Shards for a narrowed events_json leg: the full-run budget over the chosen paths' recorded
+// seconds, floored at one like a selected Django segment.
+function narrowedJsonTargetsShards(paths, durations) {
+    if (paths.length === 0) {
+        return 0
+    }
+    // Without durations the work reads as zero, which would size the list to one shard.
+    if (!durations) {
+        return DJANGO_FALLBACK_SHARDS.JsonTargets
+    }
+    return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
+}
+
 // The run identity the selection telemetry event carries, from the runner's own env.
 function runContext() {
     let prNumber = null
@@ -1247,20 +1387,25 @@ function runContext() {
     }
 }
 
-function buildDjangoShards(durations, ranNodeIds = {}) {
+function sizeDjangoSegment(segment, duration, durations, source) {
+    const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
+    const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
+    const wall = overhead + duration / shards
+    console.error(
+        `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${durations ? source : 'fallback'}), ~${(wall / 60).toFixed(1)} min est. wall`
+    )
+    return { duration_seconds: duration, shards, estimated_wall_seconds: wall }
+}
+
+function buildDjangoShards(durations, ranNodeIds = {}, jsonTargets = []) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
-        const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
         const ran = ranNodeIds[segment] || null
         const duration = getSegmentDuration(segment, durations, ran)
-        const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
-        const wall = overhead + duration / shards
-        result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
-        const source = durations ? (ran ? 'auto, junit-scoped' : 'auto, union') : 'fallback'
-        console.error(
-            `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${source}), ~${(wall / 60).toFixed(1)} min est. wall`
-        )
+        result[segment] = sizeDjangoSegment(segment, duration, durations, ran ? 'auto, junit-scoped' : 'auto, union')
     }
+    // No per-segment file records what the events_json leg ran, so it sizes from the union.
+    result.JsonTargets = sizeDjangoSegment('JsonTargets', pathsDuration(jsonTargets, durations), durations, 'auto, union')
     return result
 }
 
@@ -1312,11 +1457,13 @@ function buildMatrix(products, durations, productsScaled = false) {
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
+            // File granularity keeps that balance but skips the other shards' test files
+            // before pytest imports them, so a shard collects only its own share.
             const shardCost = work / shards + maxTest
             for (let i = 1; i <= shards; i++) {
                 const leg = {
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks --split-granularity file`,
                 }
                 // work/shards + maxTest bounds every shard, whichever one
                 // optimal_chunks leaves lightest, so one shard can be offered to the
@@ -1362,6 +1509,8 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    decideJsonTargets,
+    loadJsonTargets,
     selectedShards,
     calculateShards,
     pruneDeadDurations,
@@ -1376,6 +1525,8 @@ module.exports = {
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_FALLBACK_SHARDS,
+    narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
     collectTestFiles,
@@ -1440,6 +1591,9 @@ let runLegacyReason = ''
 // selection, the matrix narrows to these products plus the ones the selector reached
 // through the import graph. Null when that narrowing is not safe.
 let mustRunProducts = null
+// The products a product-only diff reached, kept apart from a matrix that a cascade widened
+// to all products. Null when a change reaches core directly or the reach is unknown.
+let diffProducts = null
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1466,6 +1620,9 @@ if (legacyChanged) {
         products = allProducts
         runLegacy = true
         runLegacyReason = 'non_isolated_product'
+        // Products that import the changed product's internals keep their events_json paths too.
+        const dependents = tachDependentProducts(nonIsolatedAffectedProducts, allProductSet)
+        diffProducts = dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort()
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -1490,6 +1647,7 @@ if (legacyChanged) {
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
+                diffProducts = products
             }
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
@@ -1519,6 +1677,7 @@ if (legacyChanged) {
                 console.error(`${libModule} is imported by core (${coreImporters.join(', ')}) — Django will run`)
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             }
         }
         if (directConsumers.size === 0) {
@@ -1532,12 +1691,16 @@ if (legacyChanged) {
                 products = allProducts
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             } else {
                 if (cascaded.length > 0) {
                     console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
                 }
                 const reached = [...new Set([...directConsumers, ...cascaded])].sort()
                 products = [...new Set([...products, ...reached])].sort()
+                if (diffProducts !== null) {
+                    diffProducts = [...new Set([...diffProducts, ...reached])].sort()
+                }
                 const nonIsolatedReached = reached.filter((p) => !isolatedProducts.has(p))
                 if (nonIsolatedReached.length > 0) {
                     console.error(
@@ -1633,8 +1796,27 @@ if (productsScaled) {
 const durations = pruneDeadDurations(rawDurations)
 const ranNodeIds = loadRanNodeIds()
 
+const jsonTargets = loadJsonTargets()
+const skippedProducts = [...new Set([...skipProducts, ...quarantinedProducts])]
+const jsonTargetFiles = decideJsonTargets({
+    targets: jsonTargets,
+    mode: selectionDecision.mode,
+    runLegacy,
+    selectedTests: selection?.combined?.tests ?? [],
+    products,
+    skippedProducts,
+    draft: process.env.PR_DRAFT === 'true',
+    doubled: process.env.RUN_NEW_EVENTS_SCHEMA === 'true',
+    skipReason: selectionDecision.skip_reason,
+    runLegacyReason,
+    diffProducts,
+})
+
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations, ranNodeIds)
+const djangoShards = buildDjangoShards(durations, ranNodeIds, fullRunJsonTargets(jsonTargets, skippedProducts))
+if (jsonTargetFiles !== null) {
+    console.error(`events_json leg runs ${jsonTargetFiles.length} of ${jsonTargets.length} paths: ${JSON.stringify(jsonTargetFiles)}`)
+}
 
 const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
     selectionDecision
@@ -1654,6 +1836,10 @@ const result = {
         run_poe,
         run_temporal,
         segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
+        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets,
+        // and build_django_matrix lowers that to json_targets_shards when this list is shorter.
+        json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
+        json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
     },
     // The posthog-ci-test-selection event, ready for the capture-test-selection job.
     telemetry: {

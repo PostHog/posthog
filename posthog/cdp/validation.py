@@ -16,7 +16,15 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import TEMPLATE_CALLABLES, TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    DATA_WAREHOUSE_SOURCES,
+    FILTER_FUNCTIONS,
+    RUNTIME_CONTRACT,
+    TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -210,6 +218,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
@@ -284,6 +293,9 @@ class TemplateGlobalsValidator(TraversingVisitor):
     """
 
     invalid_globals: set[str]
+    # Calls the Node runtime would refuse, as messages: a name it does not have, or the wrong
+    # argument count for one it does.
+    invalid_calls: list[str]
 
     def __init__(
         self,
@@ -295,6 +307,7 @@ class TemplateGlobalsValidator(TraversingVisitor):
     ):
         super().__init__()
         self.invalid_globals = set()
+        self.invalid_calls = []
         self._python_stl = python_stl
         self._declared: set[str] = set()
         self._available_globals = (
@@ -326,6 +339,26 @@ class TemplateGlobalsValidator(TraversingVisitor):
         ):
             return
         self.invalid_globals.add(root)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if self._python_stl or node.name in self._declared:
+            return
+        arity = FILTER_FUNCTIONS.get(node.name)
+        if arity is None:
+            # The globals check never sees this name, because a call is not a field. Without this the
+            # template compiles, and the VM refuses the call on every event that reaches it.
+            # print is left out of the runtime table, but the Node VM has it. The async functions
+            # (fetch, postHogCapture, product ones) are not exempt: inputs run without them.
+            if node.name != "print":
+                self.invalid_calls.append(f"{node.name} is not a function inputs can use")
+            return
+        minimum, maximum = arity
+        count = len(node.args)
+        if count < minimum:
+            self.invalid_calls.append(f"{node.name} needs at least {minimum} argument(s), got {count}")
+        elif maximum is not None and count > maximum:
+            self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
 
 
 class DeclaredNamesCollector(TraversingVisitor):
@@ -514,6 +547,10 @@ def generate_template_bytecode(
                     f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
                     f"also variables."
                 )
+            if template_validator.invalid_calls:
+                raise Exception(
+                    "This template would fail on every event: " + "; ".join(template_validator.invalid_calls)
+                )
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -612,6 +649,59 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+DUPLICATE_INPUT_KEYS_ERROR = "Each input key must be unique. Remove duplicate keys."
+
+
+def duplicate_input_keys(schemas: Any) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for schema in schemas or []:
+        if not isinstance(schema, dict) or "key" not in schema:
+            continue
+        key = str(schema["key"]).strip()
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    return duplicates
+
+
+def added_duplicate_input_keys(schemas: Any, stored_schemas: Any) -> set[str]:
+    """Keys the schema repeats more often than the stored schema already did."""
+
+    def counts(items: Any) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for schema in items or []:
+            if isinstance(schema, dict) and "key" in schema:
+                key = str(schema["key"]).strip()
+                result[key] = result.get(key, 0) + 1
+        return result
+
+    stored = counts(stored_schemas)
+    return {key for key, count in counts(schemas).items() if count > 1 and count > stored.get(key, 0)}
+
+
+class InputsSchemaSerializer(serializers.ListField):
+    """A function's input schema.
+
+    Turn `unique_keys` off wherever the caller does not always send the schema. The hog function
+    serializer injects the stored schema into every update, so a row saved before this rule would
+    fail a request that only disables or deletes it. That serializer checks uniqueness itself and
+    compares against the stored schema.
+    """
+
+    child = InputsSchemaItemSerializer()
+
+    def __init__(self, *args: Any, unique_keys: bool = True, **kwargs: Any) -> None:
+        self.unique_keys = unique_keys
+        super().__init__(*args, **kwargs)
+
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        schemas = super().to_internal_value(data)
+        if self.unique_keys and duplicate_input_keys(schemas):
+            raise serializers.ValidationError(DUPLICATE_INPUT_KEYS_ERROR)
+        return schemas
+
+
 @extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
@@ -630,6 +720,7 @@ class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
+    bytecode_contract = serializers.CharField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
 
@@ -813,6 +904,7 @@ class InputsItemSerializer(serializers.Serializer):
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
+                            attrs.pop("bytecode_contract", None)
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
@@ -823,6 +915,7 @@ class InputsItemSerializer(serializers.Serializer):
                                 validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
+                            attrs["bytecode_contract"] = RUNTIME_CONTRACT
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
@@ -862,6 +955,9 @@ class InputsSerializer(serializers.DictField):
             inputs_schema = parent_serializer.initial_data["inputs_schema"]
         except:
             raise serializers.ValidationError("Missing inputs_schema.")
+
+        assert isinstance(parent_serializer, serializers.Serializer)
+        inputs_schema = parent_serializer.fields["inputs_schema"].run_validation(inputs_schema)
 
         # Validate each input against the schema
         for schema in inputs_schema:
@@ -952,11 +1048,6 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
-# Filter sources whose rows come from the warehouse rather than from events: one invocation per
-# row, with the row under `event.properties` and no person attached.
-DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
-
-
 def _contains_behavioral_property(filters: dict) -> bool:
     """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
@@ -986,6 +1077,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    bytecode_contract = serializers.CharField(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -998,6 +1090,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        # The compiler writes the stamp below, so a value a client echoes back is never kept.
+        data.pop("bytecode_contract", None)
 
         if _contains_behavioral_property(data):
             raise serializers.ValidationError(
@@ -1060,6 +1155,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]
@@ -1082,15 +1184,36 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
 
-class MappingsSerializer(serializers.Serializer):
-    name = serializers.CharField(required=False)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+class FunctionInputsSerializer(serializers.Serializer):
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
-    filters = HogFunctionFiltersSerializer(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
         self.initial_data = data
+        return super().to_internal_value(data)
+
+
+class MappingsSerializer(FunctionInputsSerializer):
+    name = serializers.CharField(required=False)
+    filters = HogFunctionFiltersSerializer(required=False)
+    # The hog function serializer compares repeated keys against the stored mappings, because the UI
+    # resends every mapping on each save and some stored mappings already repeat a key.
+    inputs_schema = InputsSchemaSerializer(required=False, unique_keys=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "inputs_schema" in data:
+            try:
+                inputs_schema = self.fields["inputs_schema"].run_validation(data["inputs_schema"])
+            except ValidationError as error:
+                raise serializers.ValidationError({"inputs_schema": error.detail}) from error
+            if any(schema.get("secret") for schema in inputs_schema):
+                raise serializers.ValidationError(
+                    {
+                        "inputs_schema": "Mappings do not support secret inputs. Set secrets in the destination inputs instead."
+                    }
+                )
+            data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
 
 

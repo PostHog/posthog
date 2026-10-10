@@ -1,6 +1,7 @@
 import uuid
 import typing
 import asyncio
+import datetime as dt
 import dataclasses
 
 from django.conf import settings
@@ -13,22 +14,26 @@ import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -36,6 +41,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -52,23 +58,20 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
-    IncrementalConfig,
     IncrementalFilterError,
+    WritePlan,
     clear_incremental_state,
-    definition_fingerprint,
-    get_incremental_config,
-    get_incremental_state,
     inject_incremental_filter,
     record_incremental_history,
+    resolve_write_plan,
     set_incremental_state,
-    window_start,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -122,8 +125,35 @@ class _DescribedColumn:
     ch_type: str
 
 
+def _plan_prompt_jev(
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    context: HogQLContext,
+    resolver_factory: ResolverFactory,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Run the model's jev calls up front, so the query that materializes reads their results
+    from external tables registered on ``context``. The printer refuses a jev call it meets.
+
+    Planning types the query before any model call, so it resolves the view tree too and needs
+    the same cycle, depth and deadline bounds the printing pass gets."""
+    planned, tables = HogQLQueryExecutor(
+        query=query_node,
+        team=team,
+        context=context,
+        modifiers=context.modifiers,
+        limit_context=LimitContext.SAVED_QUERY,
+        resolver_factory=resolver_factory,
+    ).plan_prompt_jev()
+    for table in tables:
+        table.register(context)
+    return planned
+
+
 async def _describe_columns(
-    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
+    printed: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str] | None,
+    external_tables: list[ClickHouseExternalTable],
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
@@ -133,6 +163,7 @@ async def _describe_columns(
             query_parameters=query_parameters,
             query_id=str(uuid.uuid4()),
             settings=query_settings,
+            external_tables=external_tables,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
     columns: list[_DescribedColumn] = []
@@ -164,9 +195,10 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
-# The only gate. Incremental is also the only path that writes through deltalite, so turning this
-# off falls back to full refresh on delta-rs and takes the engine with it.
-INCREMENTAL_FLAG = "data-modeling-incremental-views"
+# An upstream Delta table's log can be mid-rewrite, so the default backoff exhausts every attempt
+# before the rewrite lands.
+DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
+DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -212,72 +244,6 @@ class DuplicateOutputColumnError(NonReportableError):
             "Give each output column a unique name, for example with an alias."
         )
         self.duplicates = duplicates
-
-
-def _incremental_enabled(team_id: int) -> bool:
-    """Fails closed: a flag-service outage produces a full refresh, which costs money but is
-    never wrong."""
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            INCREMENTAL_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team_id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate incremental flag; falling back to full refresh", team_id=team_id)
-        return False
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class WritePlan:
-    """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
-    job so an unexpectedly expensive run explains itself."""
-
-    incremental: bool
-    reason: str
-    since: typing.Any = None
-    fingerprint: str | None = None
-    config: IncrementalConfig | None = None
-
-
-@database_sync_to_async_pool
-def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> WritePlan:
-    config = get_incremental_config(saved_query)
-    if config is None:
-        return WritePlan(incremental=False, reason="not configured for incremental materialization")
-
-    if not _incremental_enabled(team_id):
-        return WritePlan(incremental=False, reason="incremental materialization is not enabled")
-
-    fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
-    state = get_incremental_state(saved_query)
-
-    if state.watermark is None:
-        return WritePlan(incremental=False, reason="first run", fingerprint=fingerprint, config=config)
-
-    if fingerprint is None or fingerprint != state.definition_fingerprint:
-        # The query or its config changed, so existing rows were computed by a definition that no
-        # longer applies. Rebuilding is the only way the table still matches the SQL the user sees.
-        return WritePlan(incremental=False, reason="definition changed", fingerprint=fingerprint, config=config)
-
-    since = window_start(state, config)
-    if since is None:
-        return WritePlan(incremental=False, reason="no usable watermark", fingerprint=fingerprint, config=config)
-
-    return WritePlan(
-        incremental=True,
-        reason="incremental",
-        since=since,
-        fingerprint=fingerprint,
-        config=config,
-    )
 
 
 def _is_s3_permission_denied(error: BaseException) -> bool:
@@ -417,6 +383,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -664,6 +631,13 @@ async def hogql_table(
         allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
     )
 
+    if PromptJevFinder.contains(query_node):
+        # A factory of its own: the deadline is wall clock, and the jev calls between the two
+        # passes would otherwise spend the printing pass's budget.
+        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(
+            query_node, team, context, bounded_resolver_factory_for_view(view_name)
+        )
+
     factory = bounded_resolver_factory_for_view(view_name)
     prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
@@ -703,7 +677,9 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+        described_columns = await _describe_columns(
+            printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
+        )
     except ClickHouseError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
@@ -711,7 +687,9 @@ async def hogql_table(
             "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
         )
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
-        described_columns = await _describe_columns(untouched, context.values, None)
+        described_columns = await _describe_columns(
+            untouched, context.values, None, list(context.external_tables.values())
+        )
 
     _reject_duplicate_output_columns(described_columns)
 
@@ -780,20 +758,24 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        async for batch in client.astream_query_as_arrow(
-            arrow_printed,
-            query_parameters=context.values,
-            on_schema=capture_arrow_schema,
-        ):
-            batches_size = batches_size + batch.nbytes
-            batches.append(batch)
+        with tags_context(**context.read_tags()):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-            if batches_size >= MB_100_IN_BYTES:
-                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (_combine_batches(batches), ch_typings_pairs)
-                yielded_results = True
-                batches_size = 0
-                batches = []
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -873,7 +855,8 @@ async def _build_person_property_sink(
         return sink if await sink.should_run() else None
     except Exception as e:
         await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return None
 
 
@@ -890,7 +873,8 @@ async def _account_property_sync_enabled(
         return await sink.should_run()
     except Exception as error:
         await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
-        capture_exception(error)
+        if not is_transient_db_error(error):
+            capture_exception(error)
         return False
 
 
@@ -1082,7 +1066,7 @@ async def _materialize_incrementally(
     publish to copy incrementally would break that, so the two decisions are linked.
     """
     config = plan.config
-    assert config is not None  # _resolve_write_plan only sets incremental with a config
+    assert config is not None  # resolve_write_plan only sets incremental with a config
 
     delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
     # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
@@ -1222,13 +1206,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
-    plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
+    plan = await database_sync_to_async_pool(resolve_write_plan)(inputs.team_id, objects.saved_query.id)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
@@ -1343,6 +1328,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         )
         published = True
         return result
+    except ClickHouseError as error:
+        if not published:
+            await cdp_sink.discard()
+        if DELTA_KERNEL_ERROR_MARKER in str(error):
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        raise
     except (Exception, asyncio.CancelledError):
         if not published:
             await cdp_sink.discard()

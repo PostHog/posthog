@@ -7,10 +7,12 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
     _format_fillout_datetime,
-    _incremental_window_factory,
     _validated_api_base_url,
     fillout_source,
     get_resource,
@@ -32,21 +34,6 @@ class _FakeDltResource:
 
 
 class TestFilloutTransport:
-    def test_submissions_paginator_init_sets_offset_limit_sort(self) -> None:
-        paginator = FilloutSubmissionsPaginator(limit=150)
-        request = Mock()
-        request.params = {"afterDate": "2026-01-01T00:00:00.000Z"}
-
-        paginator.init_request(request)
-
-        assert request.params["offset"] == 0
-        assert request.params["limit"] == 150
-        assert request.params["sort"] == "asc"
-        # `finished` is Fillout's default, so the request carries no `status` of its own.
-        assert "status" not in request.params
-        # The incremental window filter is left untouched.
-        assert request.params["afterDate"] == "2026-01-01T00:00:00.000Z"
-
     @parameterized.expand(
         [
             # A full page that has not yet reached the total — keep paging.
@@ -71,19 +58,6 @@ class TestFilloutTransport:
 
         assert paginator.has_next_page is expected_has_next
 
-    def test_submissions_paginator_advances_offset(self) -> None:
-        paginator = FilloutSubmissionsPaginator(limit=150)
-        request = Mock()
-        request.params = {}
-        paginator.init_request(request)
-
-        response = Mock()
-        response.json.return_value = {"totalResponses": 1000}
-        paginator.update_state(response, data=[{"submissionId": str(i)} for i in range(150)])
-        paginator.update_request(request)
-
-        assert request.params["offset"] == 150
-
     @parameterized.expand(
         [
             ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45), "2026-03-01T12:30:45.000Z"),
@@ -95,20 +69,6 @@ class TestFilloutTransport:
     )
     def test_format_fillout_datetime(self, _name, value, expected) -> None:
         assert _format_fillout_datetime(value) == expected
-
-    def test_incremental_window_omitted_without_a_watermark(self) -> None:
-        # Fillout 400s the submissions request when `afterDate` carries a sentinel date, so a
-        # sync with no watermark yet must send no `afterDate` at all.
-        assert _incremental_window_factory(None)("submissionTime") is None
-
-    def test_incremental_window_binds_afterDate_to_the_watermark(self) -> None:
-        config = _incremental_window_factory(datetime(2026, 3, 1, tzinfo=UTC))("submissionTime")
-
-        assert config is not None
-        assert config["start_param"] == "afterDate"
-        assert config["cursor_path"] == "submissionTime"
-        # No fallback date: the watermark is the only value `afterDate` is ever given.
-        assert "initial_value" not in config
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -123,23 +83,32 @@ class TestFilloutTransport:
         result = validate_credentials(api_key="key")
         assert result == (False, "/forms request failed: boom")
 
+    @parameterized.expand(
+        [
+            ("next_form_readable", [400, 200]),
+            ("not_found_then_readable", [404, 200]),
+            ("no_form_readable", [400, 400]),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_checks_forms_and_submissions(self, mock_session) -> None:
+    def test_validate_credentials_skips_a_form_fillout_cannot_serve(self, _name, probe_statuses, mock_session) -> None:
         forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1", "name": "Survey"}]
-        submissions_response = Mock(status_code=200, text="ok")
-        submissions_response.json.return_value = {"responses": [], "totalResponses": 0, "pageCount": 0}
-        mock_session.return_value.get.side_effect = [forms_response, submissions_response]
+        forms_response.json.return_value = [{"formId": "form_1"}, {"formId": "form_2"}]
+        probe_responses = []
+        for status in probe_statuses:
+            probe_response = Mock(status_code=status, text="form unavailable")
+            probe_response.json.return_value = {"message": "form unavailable"}
+            probe_responses.append(probe_response)
+        mock_session.return_value.get.side_effect = [forms_response, *probe_responses]
 
         result = validate_credentials(api_key="key")
 
         assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 2
-        assert mock_session.return_value.get.call_args_list[0].args[0] == "https://api.fillout.com/v1/api/forms"
-        assert (
-            mock_session.return_value.get.call_args_list[1].args[0]
-            == "https://api.fillout.com/v1/api/forms/form_1/submissions"
-        )
+        assert mock_session.return_value.get.call_count == 3
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]] == [
+            "https://api.fillout.com/v1/api/forms/form_1/submissions",
+            "https://api.fillout.com/v1/api/forms/form_2/submissions",
+        ]
 
     @parameterized.expand(
         [
@@ -158,51 +127,39 @@ class TestFilloutTransport:
         assert result == (False, expected_message)
         assert mock_session.return_value.get.call_count == 1
 
+    @parameterized.expand(
+        [
+            (
+                "submissions",
+                "https://api.fillout.com/v1/api/forms/form_1/submissions",
+                "Fillout API key is missing permission to read submissions",
+            ),
+            (
+                "form_metadata",
+                "https://api.fillout.com/v1/api/forms/form_1",
+                "Fillout API key is missing permission to read form metadata",
+            ),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_returns_success_when_no_forms_exist(self, mock_session) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = []
-        mock_session.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(api_key="key")
-
-        assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_for_forms_schema_skips_submissions_probe(self, mock_session) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1"}]
-        mock_session.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(api_key="key", schema_name="forms")
-
-        assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_reports_submissions_permission_error(self, mock_session) -> None:
+    def test_validate_credentials_reports_per_form_permission_error(
+        self, schema_name, expected_probe_url, expected_message, mock_session
+    ) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = [{"formId": "form_1"}]
-        submissions_response = Mock(status_code=403, text="forbidden")
-        submissions_response.json.return_value = {"message": "forbidden"}
-        mock_session.return_value.get.side_effect = [forms_response, submissions_response]
+        probe_response = Mock(status_code=403, text="forbidden")
+        probe_response.json.return_value = {"message": "forbidden"}
+        mock_session.return_value.get.side_effect = [forms_response, probe_response]
 
-        result = validate_credentials(api_key="key", schema_name="submissions")
+        result = validate_credentials(api_key="key", schema_name=schema_name)
 
-        assert result == (False, "Fillout API key is missing permission to read submissions")
+        assert result == (False, expected_message)
+        assert mock_session.return_value.get.call_args_list[1].args[0] == expected_probe_url
 
-    def test_get_resource_forms_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="forms"))
-        assert resource["name"] == "forms"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/forms"
-        assert resource["endpoint"]["data_selector"] == "$"
-        assert resource["table_format"] == "delta"
-
-    def test_get_resource_rejects_submissions_fanout(self) -> None:
+    @parameterized.expand([("submissions",), ("form_metadata",)])
+    def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
-            get_resource(endpoint="submissions")
+            get_resource(endpoint=endpoint)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.rest_api_resource")
     def test_fillout_source_forms_response(self, mock_rest_api_resource) -> None:
@@ -221,49 +178,91 @@ class TestFilloutTransport:
         assert response.partition_mode is None
         assert response.sort_mode == "asc"
 
+    @parameterized.expand(
+        [
+            (
+                "submissions",
+                {"submissionId": "sub_1", "_forms_formId": "form_1"},
+                {"submissionId": "sub_1", "form_id": "form_1"},
+                # submissionId is only unique within a form, so the parent form id is part of the key.
+                ["form_id", "submissionId"],
+                "datetime",
+                ["submissionTime"],
+            ),
+            (
+                "form_metadata",
+                {"id": "form_1", "name": "Survey", "questions": [], "_forms_formId": "form_1"},
+                {"id": "form_1", "name": "Survey", "questions": [], "form_id": "form_1"},
+                # One row per form, keyed on the parent id that `submissions` also carries.
+                ["form_id"],
+                # The metadata object carries no timestamp, so there is nothing to partition on.
+                None,
+                None,
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )
-    def test_fillout_source_submissions_fanout_row_format(self, mock_rest_api_resources) -> None:
+    def test_fillout_source_fanout_row_format(
+        self,
+        endpoint,
+        child_row,
+        expected_row,
+        expected_primary_keys,
+        expected_partition_mode,
+        expected_partition_keys,
+        mock_rest_api_resources,
+    ) -> None:
         mock_rest_api_resources.return_value = [
             _FakeDltResource("forms", [{"formId": "form_1"}]),
-            _FakeDltResource("submissions", [{"submissionId": "sub_1", "_forms_formId": "form_1"}]),
+            _FakeDltResource(endpoint, [child_row]),
         ]
 
         response = fillout_source(
             api_key="key",
             api_base_url="https://api.fillout.com/v1/api",
-            endpoint="submissions",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
         )
 
         rows = list(cast(Any, response.items()))
-        assert rows == [{"submissionId": "sub_1", "form_id": "form_1"}]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["submissionTime"]
-        # submissionId is only unique within a form, so the parent form id is part of the key.
-        assert response.primary_keys == ["form_id", "submissionId"]
+        assert rows == [expected_row]
+        assert response.primary_keys == expected_primary_keys
+        assert response.partition_mode == expected_partition_mode
+        assert response.partition_keys == expected_partition_keys
         assert response.sort_mode == "asc"
 
+    @parameterized.expand(
+        [
+            # `/forms/{formId}/submissions` is the only limit/offset endpoint, and its rows sit
+            # under `responses`.
+            ("submissions", "limit", FilloutSubmissionsPaginator, "responses"),
+            # `/forms/{formId}` returns the form's whole metadata object in one response, so
+            # there is nothing to page through and no page-size param either endpoint accepts.
+            ("form_metadata", None, SinglePagePaginator, "$"),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.build_dependent_resource")
-    def test_fillout_source_submissions_wires_paginator_and_selectors(self, mock_build_dependent_resource) -> None:
+    def test_fillout_source_wires_paginator_and_selectors(
+        self, endpoint, expected_page_size_param, expected_paginator, expected_selector, mock_build_dependent_resource
+    ) -> None:
         mock_build_dependent_resource.return_value = iter([])
 
         fillout_source(
             api_key="key",
             api_base_url="https://api.fillout.com/v1/api",
-            endpoint="submissions",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
         )
 
         kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "limit"
+        assert kwargs["page_size_param"] == expected_page_size_param
         assert kwargs["parent_endpoint_extra"]["data_selector"] == "$"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "responses"
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], FilloutSubmissionsPaginator)
-        assert kwargs["incremental_config_factory"] is not None
+        assert kwargs["child_endpoint_extra"]["data_selector"] == expected_selector
+        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], expected_paginator)
 
     @parameterized.expand(
         [

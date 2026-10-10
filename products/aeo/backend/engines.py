@@ -23,7 +23,11 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
-from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
+from posthog.security.llm_prompt_sanitization import (
+    GENERIC_VALUE_MAX_LEN,
+    sanitize_user_text,
+    strip_llm_framing_markers,
+)
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
@@ -33,7 +37,7 @@ EXA_ANSWER_URL = "https://api.exa.ai/answer"
 # blocks through unchanged on the native /messages path.
 ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
 MAX_WEB_SEARCHES_PER_PROMPT = 3
-MAX_ANSWER_TOKENS = 2048
+MAX_ANSWER_TOKENS = 4096
 # Reasoning models spend output budget on reasoning before emitting the annotated
 # answer; too small a cap yields incomplete, citation-less responses that would
 # otherwise read as "not cited".
@@ -43,6 +47,7 @@ OPENAI_MAX_OUTPUT_TOKENS = 12000
 MAX_URLS_PER_CHECK = 40
 MAX_QUERIES_PER_CHECK = 10
 MAX_ERROR_LENGTH = 500
+MAX_ANSWER_TEXT_LENGTH = 8000
 # Longest prompt seeding will keep and a check event will record. Above the
 # signup free-text limit, so no real user-reported prompt is dropped, and far
 # below anything that would inflate an engine call. Seeding imports this, so the
@@ -62,6 +67,7 @@ class CitationCheck:
     retrieved_urls: list[str] = field(default_factory=list)
     # Search queries the model issued.
     search_queries: list[str] = field(default_factory=list)
+    answer_text: str = ""
     # Engine-reported cost (Exa). Gateway engines report cost on their
     # $ai_generation event instead — join via trace_id.
     cost_usd: float | None = None
@@ -310,6 +316,7 @@ def build_check_fields(
         "cited_urls": _safe_values(check.cited_urls),
         "retrieved_urls": _safe_values(check.retrieved_urls),
         "search_queries": _safe_values(check.search_queries, limit=MAX_QUERIES_PER_CHECK),
+        "answer_text": strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH) or None,
         "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
         "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
@@ -370,6 +377,7 @@ class ClaudeWebSearchEngine:
             cited_urls=parsed.cited_urls,
             retrieved_urls=parsed.retrieved_urls,
             search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
         )
 
 
@@ -410,6 +418,7 @@ class OpenAIWebSearchEngine:
             trace_id=trace_id,
             cited_urls=parsed.cited_urls,
             search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
         )
 
 
@@ -441,7 +450,13 @@ class ExaAnswerEngine:
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, error=_request_error(e))
         parsed = parse_exa_citations(body)
-        return CitationCheck(engine=self.name, model=self.model, cited_urls=parsed.cited_urls, cost_usd=parsed.cost_usd)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            cited_urls=parsed.cited_urls,
+            answer_text=parsed.answer_text,
+            cost_usd=parsed.cost_usd,
+        )
 
 
 def available_engines() -> list[CitationEngine]:

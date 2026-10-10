@@ -1,1 +1,1 @@
-0153_signalreport_latest_actionability
+0168_signalscoutconfig_mcp_tool_grants

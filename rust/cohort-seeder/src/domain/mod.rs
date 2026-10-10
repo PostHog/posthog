@@ -11,6 +11,7 @@
 pub mod aggregate;
 pub mod backoff;
 pub mod chunk;
+pub mod columns;
 pub mod compare;
 pub mod completion;
 pub mod condition;
@@ -24,6 +25,7 @@ pub mod person_relevance;
 pub mod pinned;
 pub mod plan;
 pub mod projection;
+pub mod row_filter;
 pub mod window;
 
 pub use aggregate::{
@@ -39,6 +41,7 @@ pub use cohort_core::seed::{
     BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
     ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
+pub use columns::{ColumnName, MaterializedColumns};
 pub use compare::{diff_tiles, Divergence, DivergenceClass, TileDiff, MAX_EXEMPLARS_PER_CLASS};
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
@@ -68,8 +71,14 @@ pub use person::{
 pub use person_analysis::{AlwaysEvaluateReason, PersonAnalysisCensus};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
-    PinnedRunSnapshot, PinnedWarning, TriggerKind, UnknownTriggerKind, ValidatedPinnedRun,
+    PinnedRunSnapshot, PinnedWarning, TriggerKind, UncoveredCohort, UncoveredParticipations,
+    UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
-pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};
-pub use window::{Boundary, DomainError, PlanCaps, SeedDomain};
+pub use projection::{
+    BlobSource, ChunkProjection, ColumnBackedKeys, ColumnExactKeys, ColumnPlan, ColumnUpgrade,
+    ProjectedKeys, PropertiesOutcome, PropertiesSource, PropertiesSourcing, RebuildReason,
+    ScalarColumn, SourcedProjection, Unbacked,
+};
+pub use row_filter::{ConditionConjuncts, ScanRowFilter};
+pub use window::{Boundary, DaySchedule, DomainError, PlanCaps, PlannedDay, SeedDomain};

@@ -226,14 +226,14 @@ def reconcile_trino_model_aliases(
     if not enabled:
         return ModelAliasReconciliation(active=False)
     models = _load_models(team_id, saved_query_ids)
-    with connect_managed_warehouse_trino(str(organization_id)) as connection:
+    with connect_managed_warehouse_trino(
+        str(organization_id), principal=f"posthog:trino-model-aliases:team:{team_id}"
+    ) as connection:
         cursor = connection.cursor()
         if control:
             control.attach(cursor)
         try:
             checkpoint()
-            cursor.execute("SET SESSION query_max_run_time = '30s'")
-            cursor.fetchall()
             publisher = ModelAliasPublisher(cursor, connection.catalog, team_id, checkpoint)
             result = publisher.reconcile(models, saved_query_ids)
             if saved_query_ids is None and not models:

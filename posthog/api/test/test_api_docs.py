@@ -1,6 +1,57 @@
+import os
 import re
 
 from posthog.test.base import APIBaseTest
+from unittest import mock
+
+from django.urls import URLPattern, path
+
+from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.documentation import extend_schema
+
+
+class _XInternalMarkerSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(help_text="Always true.")
+
+
+class _XInternalMarkerViewSet(viewsets.ViewSet):
+    scope_object = "project"
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+
+@extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
+class _XInternalClassMarkerViewSet(viewsets.ViewSet):
+    scope_object = "project"
+
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(description="Marker action with its own schema annotation.")
+    @action(detail=False, methods=["GET"])
+    def summary(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+
+class _RequestDependentScopesViewSet(viewsets.ViewSet):
+    scope_object = "project"
+    request_dependent_scope_actions = frozenset({"retrieve"})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer})
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-product": "core"})
+    def retrieve(self, request: Request, id: str) -> Response:
+        return Response({"ok": True})
 
 
 class TestAPIDocsSchema(APIBaseTest):
@@ -18,6 +69,46 @@ class TestAPIDocsSchema(APIBaseTest):
         assert not [p for p in paths if re.match(r"^/api/projects/[^/]+/environments/", p)]
         # The same action survives under the live project route
         assert any(p.endswith("/tracing_config/") for p in paths)
+
+    @parameterized.expand(
+        [
+            (
+                "method_annotation",
+                [path("api/x_internal_marker/", _XInternalMarkerViewSet.as_view({"get": "list"}))],
+            ),
+            (
+                "class_annotation_reaches_annotated_action",
+                [
+                    path("api/x_internal_class_marker/", _XInternalClassMarkerViewSet.as_view({"get": "list"})),
+                    path(
+                        "api/x_internal_class_marker/summary/",
+                        _XInternalClassMarkerViewSet.as_view({"get": "summary"}),
+                    ),
+                ],
+            ),
+        ]
+    )
+    def test_x_internal_operations_are_only_in_the_codegen_schema(self, _name: str, patterns: list[URLPattern]) -> None:
+        expected_paths = sorted(f"/{pattern.pattern}" for pattern in patterns)
+
+        served_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+        assert sorted(served_schema["paths"]) == []
+
+        codegen_env = {"OPENAPI_INCLUDE_INTERNAL": "1", "OPENAPI_MOCK_INTERNAL_API_SECRET": "1"}
+        with mock.patch.dict(os.environ, codegen_env):
+            codegen_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+        assert sorted(codegen_schema["paths"]) == expected_paths
+
+    def test_request_dependent_scope_marker_covers_only_listed_actions(self) -> None:
+        patterns = [
+            path("api/request_dependent/", _RequestDependentScopesViewSet.as_view({"get": "list"})),
+            path("api/request_dependent/<str:id>/", _RequestDependentScopesViewSet.as_view({"get": "retrieve"})),
+        ]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        assert "x-request-dependent-scopes" not in schema["paths"]["/api/request_dependent/"]["get"]
+        assert schema["paths"]["/api/request_dependent/{id}/"]["get"]["x-request-dependent-scopes"] is True
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()

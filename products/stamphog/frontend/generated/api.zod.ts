@@ -23,10 +23,10 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()
@@ -51,10 +51,10 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()
@@ -79,10 +79,10 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()
@@ -92,6 +92,19 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
     )
+
+/**
+ * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on stamphog.
+ */
+export const StamphogRepoConfigsAddRepositoryCreateBody = /* @__PURE__ */ zod
+    .object({
+        repository: zod
+            .string()
+            .describe(
+                "Repository full name, e.g. 'PostHog\/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on."
+            ),
+    })
+    .describe('Request body for turning reviews on for a repository from a connected installation.')
 
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.

@@ -15,12 +15,12 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
     _is_channel_member,
-    channel_id_from_target,
     ensure_inbox_channel,
     has_inbox_scopes,
     invite_user_to_inbox,
@@ -170,12 +170,25 @@ def send_onboarding_dm(integration: Integration, slack_user_id: str) -> bool:
         steps_total=len(status),
         is_admin=user_id is not None and _is_org_admin(user_id, integration.team_id),
     )
+    # A step done before the DM gets no click, so without this the step funnel never sees it.
+    for step, done in status.items():
+        if done:
+            capture_slack_event(
+                integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(step), completed_before_dm=True
+            )
+    _capture_completed_if_done(integration, slack_user_id, status)
     return True
 
 
 def _maybe_complete(integration: Integration, slack_user_id: str, user_id: int | None = None) -> None:
     """Fire 'completed' once every required step is done. Pass ``user_id`` when already resolved."""
     _, status = _onboarding_status(integration, SlackIntegration(integration), slack_user_id, user_id)
+    _capture_completed_if_done(integration, slack_user_id, status)
+
+
+def _capture_completed_if_done(
+    integration: Integration, slack_user_id: str, status: dict[OnboardingStep, bool]
+) -> None:
     if all(status[step] for step in _REQUIRED_STEPS):
         capture_slack_event(integration, EVENT_COMPLETED, slack_user_id=slack_user_id)
 
@@ -220,8 +233,13 @@ def apply_sources_selection(integration: Integration, slack_user_id: str, select
     if user_id is None:
         # Can't tie the clicker to an org member — don't mutate team state.
         return
+    had_sources = _has_enabled_source(integration.team_id)
     set_sources(integration.team_id, user_id, selected_keys)
     capture_slack_event(integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys))
+    if selected_keys and not had_sources:
+        capture_slack_event(
+            integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(OnboardingStep.SOURCES)
+        )
     _maybe_complete(integration, slack_user_id, user_id)
 
 
@@ -250,13 +268,17 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
     return True
 
 
+def installer_slack_user_id(integration: Integration) -> str | None:
+    return ((integration.config or {}).get("authed_user") or {}).get("id")
+
+
 def run_install_onboarding(integration: Integration) -> None:
     """On a fresh install: create the inbox channel, invite the installer, and DM them the onboarding.
     Gated on the install having ``channels:manage``; best-effort."""
     if not has_inbox_scopes(integration):
         return
     channel = ensure_inbox_channel(integration)
-    installer = ((integration.config or {}).get("authed_user") or {}).get("id")
+    installer = installer_slack_user_id(integration)
     if not installer:
         return
     if channel is not None:

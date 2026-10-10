@@ -1,7 +1,8 @@
 import math
 import hashlib
 from collections import Counter
-from typing import Any, cast
+from typing import Any, Literal, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -94,6 +95,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     dispatch_cell_run,
     kernel_sandbox_is_live,
 )
+from products.notebooks.backend.facade.widget_snapshots import WidgetSnapshots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -136,9 +138,16 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
 )
+from products.notebooks.backend.presentation.widget_snapshot_serializers import (
+    WidgetSnapshotPublishSerializer,
+    WidgetSnapshotRequestSerializer,
+    WidgetSnapshotSerializer,
+)
 from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
+    WidgetSnapshotPublishThrottle,
+    WidgetSnapshotThrottle,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -148,6 +157,7 @@ from products.notebooks.backend.sql_v2 import (
     SQLV2PageError,
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
+    introspect_in_kernel,
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
@@ -156,7 +166,11 @@ from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, fini
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
     NotebookComputeOptionsResponseSerializer,
+    NotebookKernelCompleteRequestSerializer,
+    NotebookKernelCompleteResponseSerializer,
     NotebookKernelConfigResponseSerializer,
+    NotebookKernelInspectRequestSerializer,
+    NotebookKernelInspectResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookRunInterruptResponseSerializer,
     NotebookRunStartRequestSerializer,
@@ -789,6 +803,115 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _authorize_widget_run(self, run: NotebookNodeRun) -> None:
         self._require_run_connection_access(run, self._current_user())
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_create",
+        request=WidgetSnapshotRequestSerializer,
+        responses={201: WidgetSnapshotSerializer, 400: WidgetErrorSerializer, 409: WidgetErrorSerializer},
+    )
+    @action(
+        methods=["POST"],
+        url_path="widget_snapshots",
+        detail=True,
+        required_scopes=["notebook:write", "query:read"],
+        throttle_classes=[WidgetSnapshotThrottle],
+    )
+    def widget_snapshot_create(self, request: Request, **kwargs) -> Response:
+        self._require_query_access()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        serializer = WidgetSnapshotRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.capture(**serializer.validated_data)
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_publish",
+        request=WidgetSnapshotPublishSerializer,
+        responses={201: WidgetSnapshotSerializer, 400: WidgetErrorSerializer, 409: WidgetErrorSerializer},
+    )
+    @action(
+        methods=["POST"],
+        url_path="widget_snapshots/publish",
+        detail=True,
+        required_scopes=["notebook:write", "query:read", "dashboard:write"],
+        throttle_classes=[WidgetSnapshotPublishThrottle],
+    )
+    def widget_snapshot_publish(self, request: Request, **kwargs) -> Response:
+        self._require_query_access()
+        user = self._current_user()
+        if user is None or not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetSnapshotPublishSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.publish(user=user, **serializer.validated_data)
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_retrieve",
+        responses={200: WidgetSnapshotSerializer},
+        parameters=[OpenApiParameter("snapshot_id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widget_snapshots/(?P<snapshot_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def widget_snapshot_retrieve(self, request: Request, snapshot_id: str, **kwargs) -> Response:
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        self._require_query_access()
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.get(UUID(snapshot_id))
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data)
+        except ValueError:
+            raise Http404()
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_frame",
+        responses={200: WidgetFrameSerializer},
+        parameters=[
+            WidgetFrameQuerySerializer,
+            OpenApiParameter("snapshot_id", OpenApiTypes.UUID, OpenApiParameter.PATH),
+            OpenApiParameter("frame_name", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widget_snapshots/(?P<snapshot_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+        throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
+    )
+    def widget_snapshot_frame(self, request: Request, snapshot_id: str, frame_name: str, **kwargs) -> Response:
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        self._require_query_access()
+        query = WidgetFrameQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.get(UUID(snapshot_id))
+            frame = service.read_frame(
+                snapshot, frame_name, query.validated_data["offset"], query.validated_data["limit"]
+            )
+            return Response(WidgetFrameSerializer(frame).data)
+        except ValueError:
+            raise Http404()
+        except WidgetError as error:
+            return self._widget_error_response(error)
 
     @extend_schema(
         operation_id="notebooks_widget_generate",
@@ -1714,6 +1837,58 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         }
         return Response(NotebookComputeOptionsResponseSerializer(options_payload).data)
 
+    @extend_schema(
+        request=NotebookKernelCompleteRequestSerializer,
+        responses={200: NotebookKernelCompleteResponseSerializer},
+        description=(
+            "Completions for the cursor position in a Python cell, from the notebook's running kernel. "
+            "Returns no matches when no kernel is running or the kernel is busy, and never starts one."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/complete", detail=True, required_scopes=["notebook:write", "query:read"])
+    def kernel_complete(self, request: Request, **kwargs):
+        serializer = NotebookKernelCompleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cursor_pos = serializer.validated_data["cursor_pos"]
+        result = self._introspect_kernel("complete", serializer.validated_data) or {}
+        return Response(
+            NotebookKernelCompleteResponseSerializer(
+                {
+                    "matches": result.get("matches") or [],
+                    "cursor_start": result.get("cursor_start", cursor_pos),
+                    "cursor_end": result.get("cursor_end", cursor_pos),
+                }
+            ).data
+        )
+
+    @extend_schema(
+        request=NotebookKernelInspectRequestSerializer,
+        responses={200: NotebookKernelInspectResponseSerializer},
+        description=(
+            "The signature and docstring of the name at the cursor in a Python cell, from the notebook's "
+            "running kernel. Returns found=false when no kernel is running or the kernel is busy."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/inspect", detail=True, required_scopes=["notebook:write", "query:read"])
+    def kernel_inspect(self, request: Request, **kwargs):
+        serializer = NotebookKernelInspectRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = self._introspect_kernel("inspect", serializer.validated_data) or {}
+        return Response(
+            NotebookKernelInspectResponseSerializer(
+                {"found": bool(result.get("found")), "text": result.get("text") or ""}
+            ).data
+        )
+
+    def _introspect_kernel(self, route: Literal["complete", "inspect"], payload: dict) -> dict | None:
+        # Completion evaluates attribute access in the user's kernel, so it takes the access a run takes.
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+        return introspect_in_kernel(notebook, user, route, payload)
+
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):
         serializer = NotebookKernelExecuteSerializer(data=request.data)
@@ -1904,6 +2079,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        include_prepared_insights = serializer.validated_data["include_prepared_insights"]
+        if include_prepared_insights and not is_notebook_widget_enabled(user):
+            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -1928,8 +2106,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     user_id=user.id if isinstance(user, User) else None,
                     # A session cookie is the editor; anything else is a programmatic client.
                     trigger=classify_request_source(request)[0],
+                    include_prepared_insights=include_prepared_insights,
                 )
-        except NotebookRunNothingToRun as e:
+        except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
             # 409, not 429: a conflict with the notebook's state rather than a rate — the same
@@ -2093,7 +2272,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
-        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        # query, no held connection — resilient to reloads/remounts.
         user = self._current_user()
         if run_id is None:
             raise Http404()
@@ -2147,7 +2326,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         required_scopes=["notebook:read", "query:read"],
     )
     def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
-        # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
+        # A page fetch is not a run: a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
         if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:

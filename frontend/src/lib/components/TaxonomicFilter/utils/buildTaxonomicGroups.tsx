@@ -76,6 +76,8 @@ import {
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
 import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
@@ -229,7 +231,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             excludedProperties: [
                 ...new Set([
                     ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                    ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                    ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                 ]),
             ],
             ...withKeywordShortcuts<Record<string, any>>(
@@ -333,9 +335,11 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Autocapture elements',
             searchPlaceholder: 'autocapture elements',
             type: TaxonomicFilterGroupType.Elements,
-            options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                name: option,
-            })) as SimpleOption[],
+            options: (['tag_name', 'text', 'href', 'selector'] as const)
+                .filter((option) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(option))
+                .map((option) => ({
+                    name: option,
+                })) as SimpleOption[],
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => 'Autocapture Element',
@@ -923,9 +927,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Persons',
             searchPlaceholder: 'persons',
             type: TaxonomicFilterGroupType.Persons,
-            endpoint: `api/projects/${teamId}/persons/`,
+            endpoint: `api/projects/${teamId}/persons/?include_matched_fields=true`,
             getName: (person: PersonType) => person.name || 'Anon user?',
             getValue: (person: PersonType) => person.distinct_ids?.[0],
+            getTag: (person: PersonListRecordApi) => <PersonSearchMatchTags matchedFields={person.matched_fields} />,
             getPopoverHeader: () => `Person`,
         },
         {
@@ -1152,10 +1157,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     group: TaxonomicFilterGroupType.EventProperties,
                 })),
                 ...(eventNames.includes('$autocapture')
-                    ? (['text', 'selector'] as const).map((name) => ({
-                          name,
-                          group: TaxonomicFilterGroupType.Elements,
-                      }))
+                    ? (['text', 'selector'] as const)
+                          .filter((name) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name))
+                          .map((name) => ({
+                              name,
+                              group: TaxonomicFilterGroupType.Elements,
+                          }))
                     : []),
                 ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
                     ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({

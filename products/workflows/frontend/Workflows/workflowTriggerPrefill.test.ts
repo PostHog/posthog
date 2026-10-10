@@ -1,3 +1,4 @@
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import {
     TRIGGER_PREFILL_PARAM,
     type WorkflowTriggerConfig,
@@ -12,10 +13,13 @@ describe('workflowTriggerPrefill', () => {
             filters: { properties: [{ key: 'id', type: 'cohort', value: 7, operator: 'in' }] },
         }
 
-        const url = urlForNewWorkflowWithTrigger(config)
-        const raw = new URLSearchParams(url.split('?')[1]).get(TRIGGER_PREFILL_PARAM)
+        const url = urlForNewWorkflowWithTrigger(config, 'cohort')
+        const params = new URLSearchParams(url.split('?')[1])
+        const raw = params.get(TRIGGER_PREFILL_PARAM)
 
         expect(parseWorkflowTriggerPrefill(raw ?? undefined)).toEqual(config)
+        expect(parseWorkflowTriggerPrefill(JSON.parse(raw ?? ''))).toEqual(config)
+        expect(params.get(SOURCE_PREFILL_PARAM)).toBe('cohort')
     })
 
     it.each([
@@ -23,6 +27,10 @@ describe('workflowTriggerPrefill', () => {
         ['a non-JSON string', 'not-json'],
         ['an unknown trigger type', '{"type":"nonsense"}'],
         ['a batch trigger missing its filters', '{"type":"batch"}'],
+        [
+            'a batch audience with a filter the backend would drop',
+            '{"type":"batch","filters":{"properties":[{"key":"email","type":"person","operator":"exact"}]}}',
+        ],
     ])('returns null for %s', (_label, raw) => {
         expect(parseWorkflowTriggerPrefill(raw)).toBeNull()
     })

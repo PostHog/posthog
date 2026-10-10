@@ -4,10 +4,11 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError } from 'lib/api'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -15,8 +16,8 @@ import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/request
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
+import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -40,14 +41,19 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : 400
+    return new ApiError(undefined, status, undefined, {
         detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+        code,
         queryId: queryStatus.id,
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
@@ -66,6 +72,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,
@@ -109,6 +116,25 @@ export function dashboardToSaveableTemplate(
                 throw new Error('Unknown tile type')
             }),
         variables: [],
+    }
+}
+
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
     }
 }
 
@@ -171,7 +197,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -180,6 +206,9 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
@@ -206,6 +235,15 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
+
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
 }
 
 // Helper function for exponential backoff
@@ -267,6 +305,28 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * Records whether a tile rerun after an expired status poll recovers, because the 404 alone does not show it.
+ * The insights endpoint bypasses performQuery, so its query submission telemetry never sees this rerun.
+ */
+async function captureTileRerunAfterStatusExpired(
+    rerun: () => Promise<InsightModel | null>
+): Promise<InsightModel | null> {
+    try {
+        const result = await rerun()
+        posthog.capture('query rerun after status expired', {
+            source: 'dashboard_tile',
+            recovered: result?.result != null && !result.query_status?.error,
+        })
+        return result
+    } catch (e) {
+        if (!isAbortError(e)) {
+            posthog.capture('query rerun after status expired', { source: 'dashboard_tile', recovered: false })
+        }
+        throw e
+    }
+}
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
@@ -295,6 +355,17 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
+
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
 
     while (attempt < maxAttempts) {
         try {
@@ -307,30 +378,32 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'force_async',
-                            from_dashboard: dashboardId,
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                        })}`
-                        // The async call returns an insight with a query_status object
-                        const insightResponse = await api.get(asyncApiUrl, methodOptions)
-
-                        if (insightResponse?.query_status?.id) {
-                            const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
+                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                refresh: asyncRefresh,
+                                from_dashboard: dashboardId,
+                                client_query_id: queryId,
+                                session_id: currentSessionId(),
+                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+                            })}`
+                        const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
                                 const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
@@ -341,6 +414,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
                                     methodOptions
@@ -348,8 +422,61 @@ export async function getInsightWithRetry(
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                    return {
+                                        ...queryBasedInsight,
+                                        query_status: queryBasedInsight.query_status?.error
+                                            ? queryBasedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
+                            }
+                            return null
+                        }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
+
+                        if (insightResponse?.query_status?.id) {
+                            let finalStatus: QueryStatus
+                            try {
+                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            } catch (e) {
+                                // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
+                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // the rerun in executeQuery never sees this poll. Submit once more with async, which
+                                // reads the result that the finished run cached.
+                                if (!isExpiredQueryStatusError(e)) {
+                                    throw e
+                                }
+                                const rerun = await captureTileRerunAfterStatusExpired(async () => {
+                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
+                                        return getQueryBasedInsightModel(rerunResponse)
+                                    }
+                                    if (
+                                        rerunResponse?.result == null &&
+                                        rerunResponse?.query_status?.id &&
+                                        !rerunResponse.query_status.complete
+                                    ) {
+                                        return await readCachedInsight(
+                                            await pollForResults(rerunResponse.query_status.id, methodOptions)
+                                        )
+                                    }
+                                    if (rerunResponse?.result == null) {
+                                        throw new Error('The rerun returned no result')
+                                    }
+                                    return getQueryBasedInsightModel(rerunResponse)
+                                })
+                                if (!rerun) {
+                                    throw new Error('The rerun returned no result')
+                                }
+                                captureRecovery(rerun)
+                                return rerun
+                            }
+                            const cachedInsight = await readCachedInsight(finalStatus)
+                            if (cachedInsight) {
+                                captureRecovery(cachedInsight)
+                                return cachedInsight
                             }
                         }
 
@@ -380,6 +507,7 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {

@@ -2,7 +2,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconClock,
+    IconInfo,
+    IconPulse,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconWarning,
+} from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -50,7 +58,7 @@ import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/querySca
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
@@ -112,11 +120,14 @@ interface InsightMetaProps extends Pick<
     | 'placement'
     | 'surveyOpportunity'
     | 'showCreateAnomalyAlertButton'
+    | 'projectId'
+    | 'contextHeading'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
     insight: InsightModel
+    refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -138,6 +149,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshDisabledReason: capacityDisabledReason,
     refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
@@ -159,6 +171,8 @@ export function InsightMeta({
     onCreateAlert,
     onEditAlert,
     onCreateAnomalyAlert,
+    projectId,
+    contextHeading,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -372,9 +386,11 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
-    const refreshDisabledReason = nextRefreshFromNow
-        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : undefined
+    const refreshDisabledReason =
+        capacityDisabledReason ??
+        (nextRefreshFromNow
+            ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+            : undefined)
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
@@ -442,15 +458,16 @@ export function InsightMeta({
         : undefined
 
     // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
-    const insightViewUrl = urls.insightView(
-        short_id,
-        dashboardId,
-        variablesOverride,
-        filtersOverride,
-        tileFiltersOverride
+    // A card showing another project's insight must link into that project, not the current one.
+    const inInsightProject = (path: string): string => (projectId ? urls.project(projectId, path) : path)
+    const insightViewUrl = inInsightProject(
+        urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride, tileFiltersOverride)
     )
     const copyInsightLink = (): void => {
-        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+        void copyToClipboard(
+            urls.absolute(projectId ? insightViewUrl : urls.currentProject(insightViewUrl)),
+            'insight link'
+        )
     }
 
     return (
@@ -464,7 +481,16 @@ export function InsightMeta({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 onMouseDown={onDragHandleMouseDown}
-                topHeading={topHeadingEl}
+                topHeading={
+                    contextHeading ? (
+                        <span className="flex items-center gap-2 min-w-0">
+                            {contextHeading}
+                            {topHeadingEl}
+                        </span>
+                    ) : (
+                        topHeadingEl
+                    )
+                }
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
@@ -523,22 +549,25 @@ export function InsightMeta({
                         {canEditInsight && (
                             <>
                                 <LemonButton
-                                    to={
-                                        isDataVisualizationNode(insight.query)
+                                    to={inInsightProject(
+                                        isDataVisualizationNode(insight.query) &&
+                                            insight.query.kind !== NodeKind.BIVisualizationNode
                                             ? urls.sqlEditor({
                                                   insightShortId: short_id,
                                                   dashboard: dashboardId ?? undefined,
                                               })
                                             : urls.insightEdit(short_id, dashboardId)
-                                    }
+                                    )}
                                     fullWidth
                                     {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton onClick={rename} fullWidth>
-                                    Rename
-                                </LemonButton>
+                                {rename && (
+                                    <LemonButton onClick={rename} fullWidth>
+                                        Rename
+                                    </LemonButton>
+                                )}
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
                                         Set override
@@ -546,17 +575,19 @@ export function InsightMeta({
                                 )}
                             </>
                         )}
-                        <LemonButton
-                            onClick={duplicate}
-                            fullWidth
-                            data-attr={
-                                dashboardId
-                                    ? 'duplicate-insight-from-dashboard'
-                                    : 'duplicate-insight-from-card-list-view'
-                            }
-                        >
-                            Duplicate
-                        </LemonButton>
+                        {duplicate && (
+                            <LemonButton
+                                onClick={duplicate}
+                                fullWidth
+                                data-attr={
+                                    dashboardId
+                                        ? 'duplicate-insight-from-dashboard'
+                                        : 'duplicate-insight-from-card-list-view'
+                                }
+                            >
+                                Duplicate
+                            </LemonButton>
+                        )}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
                                 onClick={() => {
@@ -621,7 +652,9 @@ export function InsightMeta({
                                         fallbackPlacements={['left-start']}
                                         closeParentPopoverOnClickInside
                                     >
-                                        <LemonButton fullWidth>Set color</LemonButton>
+                                        <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                                            Set color
+                                        </LemonButton>
                                     </LemonMenu>
                                 )}
                                 {hasDashboardPlacementActions && (
@@ -671,6 +704,7 @@ export function InsightMeta({
                                 <LemonDivider />
                                 <ExportButton
                                     fullWidth
+                                    sideIcon={<IconChevronRight className="size-3" />}
                                     items={[
                                         {
                                             export_format: ExporterFormat.PNG,

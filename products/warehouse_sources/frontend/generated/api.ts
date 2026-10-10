@@ -9,10 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddSourcesRequestApi,
+    AddSourcesResponseApi,
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
     CreateWebhookResponseApi,
+    CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
     DirectConnectionSourceOptionApi,
@@ -227,6 +230,30 @@ export const externalDataDestinationsDestroy = async (
     })
 }
 
+export const getExternalDataDestinationsAddSourcesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/add_sources/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsAddSourcesCreate = async (
+    projectId: string,
+    id: string,
+    addSourcesRequestApi: AddSourcesRequestApi,
+    options?: RequestInit
+): Promise<AddSourcesResponseApi> => {
+    return apiMutator<AddSourcesResponseApi>(getExternalDataDestinationsAddSourcesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSourcesRequestApi),
+    })
+}
+
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -400,14 +427,11 @@ export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: stri
 export const externalDataSchemasIncrementalFieldsCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -1117,6 +1141,32 @@ export const externalDataSourcesConnectionsList = async (
     return apiMutator<ExternalDataSourceConnectionOptionApi[]>(getExternalDataSourcesConnectionsListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesCredentialAccountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/credential_accounts/`
+}
+
+/**
+ * List the accounts a source's typed-in credentials can reach, in the shared
+ * IntegrationAccount shape.
+ *
+ * The OAuth twin takes an integration id because the token already lives on the server. Here
+ * the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+ * private key out of the URL and out of anything that logs one. Nothing is cached for the same
+ * reason: the cache key would have to include the credentials.
+ */
+export const externalDataSourcesCredentialAccountsCreate = async (
+    projectId: string,
+    credentialAccountsRequestApi: CredentialAccountsRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(getExternalDataSourcesCredentialAccountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(credentialAccountsRequestApi),
     })
 }
 

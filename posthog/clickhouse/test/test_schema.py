@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -8,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 
-from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.models import DatabaseField, ExpressionField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
@@ -23,7 +23,6 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
-from posthog.models.event.person_property_mutation_sql import PERSON_PROPERTY_MUTATION_LOG_MV_SQL
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -32,16 +31,20 @@ from posthog.models.event.sql import (
 from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SELECT_SQL,
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
+    KAFKA_FLAG_EVALUATIONS_TABLE,
 )
+from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
 
     assert build_query(query) == snapshot
@@ -49,10 +52,18 @@ def test_create_table_query(query, snapshot, settings):
 
 @pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
     assert build_query(query) == snapshot
+
+
+def test_ingestion_warnings_v2_keeps_ttl_outside_tests() -> None:
+    with override_settings(TEST=False):
+        query = INGESTION_WARNINGS_V2_DATA_TABLE_SQL()
+
+    assert "\nTTL " in query
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
@@ -73,46 +84,14 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
-    assert "JSONCleanPostHogTemporaryProperties(" in mv_query
-    assert "accurateCastOrNull(if(isValidJSON(source.properties)" in mv_query
-    assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
-
-
-@pytest.mark.parametrize(
-    "properties,expected",
-    [
-        (
-            {
-                "$set": {"nested": {"values": [True, None, 42, "雪"]}},
-                "$set_once": {"first": False},
-                "$unset": ["old"],
-                "ordinary": "discard",
-            },
-            {"$set": {"nested": {"values": [True, None, 42, "雪"]}}, "$set_once": {"first": False}, "$unset": ["old"]},
-        ),
-        ({"$unset": ["old"]}, {"$unset": ["old"]}),
-        ({"$unset": {"old": True}}, {"$unset": {"old": True}}),
-        ({"$set_once": {"first": 0}}, {"$set_once": {"first": 0}}),
-        ({"ordinary": "discard"}, None),
-    ],
-)
-def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
-    select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
-    rows = sync_execute(
-        """
-        WITH kafka_person_property_mutation_log AS (
-            SELECT 42 AS team_id,
-                toUUID('0192a5c8-0000-0000-0000-000000000000') AS uuid,
-                %(properties)s AS properties,
-                now() AS _timestamp
-        )
-        SELECT """
-        + select,
-        {"properties": json.dumps(properties)},
-        team_id=42,
-        flush=False,
-    )
-    assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
+    assert mv_query.count("JSONCleanPostHogEvent(properties, person_properties) AS cleaned") == 1
+    assert "JSONCleanPostHogEventProperties(" not in mv_query
+    assert "accurateCastOrNull(cleaned.properties," in mv_query
+    assert "accurateCastOrNull(cleaned.temporary_properties," in mv_query
+    assert "accurateCastOrNull(cleaned.person_properties," in mv_query
+    assert "cleaned.properties_null_keys AS properties_null_keys" in mv_query
+    assert "cleaned.temporary_properties_null_keys AS temporary_properties_null_keys" in mv_query
+    assert "cleaned.person_properties_null_keys AS person_properties_null_keys" in mv_query
 
 
 @pytest.mark.parametrize(
@@ -130,6 +109,7 @@ def test_person_property_mutation_projection(properties: dict[str, object], expe
     ],
     ids=["aligned", "backdated", "future", "bucket_rounding", "subsecond", "floor", "mixed", "negative", "clamp"],
 )
+@pytest.mark.usefixtures("clickhouse_database")
 def test_logs_volume_bucket_retention_covers_raw_expiry(
     timestamp_offset: timedelta,
     observed_delay: timedelta,
@@ -219,6 +199,38 @@ def test_flag_evaluations_mv_projection_matches_column_template():
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns
 
 
+@pytest.mark.usefixtures("clickhouse_database")
+def test_flag_evaluations_mv_overrides_producer_values() -> None:
+    select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
+        f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
+    )
+    rows = sync_execute(
+        """
+        WITH mv_input AS (
+            SELECT
+                generateUUIDv4() AS uuid,
+                '$feature_flag_called' AS event,
+                '{}' AS properties,
+                toDateTime64('2020-01-01 00:00:00', 6, 'UTC') AS timestamp,
+                1 AS team_id,
+                'user' AS distinct_id,
+                timestamp AS created_at,
+                generateUUIDv4() AS person_id,
+                arrayJoin(['', '{"email": "a@example.com"}']) AS person_properties,
+                timestamp AS person_created_at,
+                timestamp AS inserted_at,
+                'full' AS person_mode,
+                toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
+                0 AS _offset,
+                0 AS _partition
+        )
+        SELECT inserted_at > timestamp, person_properties FROM ("""
+        + select
+        + ") ORDER BY person_properties"
+    )
+    assert rows == [(1, '{"email": "a@example.com"}'), (1, "{}")]
+
+
 def test_flag_evaluations_read_table_declares_every_stored_column():
     # The typed property columns carry their DEFAULT expression on
     # sharded_flag_evaluations, which computes them, and are repeated as plain
@@ -237,13 +249,23 @@ def _hogql_column_names(table: Table) -> set[str]:
     for field in table.fields.values():
         if isinstance(field, Table):
             names |= _hogql_column_names(field)
-        elif isinstance(field, DatabaseField):
+        elif isinstance(field, DatabaseField) and not isinstance(field, ExpressionField):
             names.add(field.name)
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
+# The person columns stay hidden until every stored row carries the values the producer writes.
+# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
+# test-account filters and keep lifecycle from counting anyone as new.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
+    "_timestamp",
+    "_offset",
+    "_partition",
+    "person_properties",
+    "person_created_at",
+    "person_mode",
+}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -12,7 +12,8 @@ import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
-import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
+import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { useReportCiStatus } from '../../logics/prCiStatusLogic'
 import {
     INBOX_SECTION_LEGACY_TAB,
     InboxReportSectionKey,
@@ -20,7 +21,7 @@ import {
     SignalReportStatus,
     SignalSourceProduct,
 } from '../../types'
-import { dismissalReasonLabel, DismissalFeedback, isResolveReason } from '../../utils/dismissalReasons'
+import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
@@ -41,6 +42,7 @@ import {
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -113,7 +115,7 @@ export function InboxCardSourceMeta({
  * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
  * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
  */
-export function ReportCard({
+function ReportCardRaw({
     report,
     sectionKey = 'needs-decision',
     attached = false,
@@ -122,6 +124,7 @@ export function ReportCard({
     backUrl,
     preview = false,
     selectable = false,
+    rankingSortField = null,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -136,6 +139,8 @@ export function ReportCard({
     preview?: boolean
     /** Offer multi-select on this row: press and hold and modifier clicks. */
     selectable?: boolean
+    /** The active model sort, if any. The meta row then shows the report's probability for that head. */
+    rankingSortField?: InboxRankingSortField | null
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -179,8 +184,7 @@ export function ReportCard({
     })
 
     // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
-    const { ciStatusByReportId } = useValues(prCiStatusLogic)
-    const ciStatus = preview ? null : ciStatusByReportId[report.id]
+    const ciStatus = useReportCiStatus(preview ? null : report.id)
     const prState = derivePrState(
         report.status,
         primaryReportPullRequest(report).merged === true,
@@ -195,11 +199,14 @@ export function ReportCard({
     // on dismissed rows, and a resolve reason on rows resolved by hand. A report that was dismissed,
     // restored, then resolved by a merged PR keeps its old dismissal artefact, so a resolved row only
     // shows a reason that describes a resolve (see `isResolveReason`). The dedicated billing badge
-    // already marks refunded reports, so skip the duplicate chip there.
+    // already marks refunded reports, so skip the duplicate chip there. A dismissed row that nobody
+    // dismissed was held back by a judge, so it shows that verdict, with its explanation as the tooltip.
     const outcomeLabel =
         !isRefunded && (isDismissed || (isResolved && isResolveReason(report.dismissal_reason)))
-            ? dismissalReasonLabel(report.dismissal_reason)
+            ? (dismissalReasonLabel(report.dismissal_reason) ??
+              (isDismissed ? heldBackLabel(report.suppression_source) : null))
             : null
+    const outcomeTooltip = report.dismissal_note || report.suppression_explanation || undefined
 
     const cardBodyClassName = clsx(
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
@@ -268,13 +275,16 @@ export function ReportCard({
                     {!hasPr &&
                         !redesign &&
                         !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                            <SignalReportStatusBadge status={report.status} />
+                            <SignalReportStatusBadge
+                                status={report.status}
+                                suppressionSource={report.suppression_source}
+                            />
                         )}
                     {!hasPr && !redesign && report.actionability && (
                         <SignalReportActionabilityBadge actionability={report.actionability} />
                     )}
                     {outcomeLabel && (
-                        <Tooltip title={report.dismissal_note || undefined}>
+                        <Tooltip title={outcomeTooltip}>
                             <LemonTag
                                 size="small"
                                 icon={
@@ -291,6 +301,7 @@ export function ReportCard({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
+                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
                         <TZLabel
                             time={report.updated_at ?? report.created_at}
@@ -421,3 +432,10 @@ export function ReportCard({
         </div>
     )
 }
+
+/**
+ * Memoized because the inbox list re-renders many times over a load — five state requests, their
+ * counts, the CI poll, and every filter click — and a few hundred unmemoized rows of this depth is
+ * what made the page stop answering the pointer. A row now repaints only when its own report does.
+ */
+export const ReportCard = memo(ReportCardRaw)

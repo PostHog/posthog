@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
 
@@ -6,6 +7,12 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
+from .purged_ticket_thread import PurgedTicketThread, ticket_thread_key
+from .team_conversations_ticket_config import TeamConversationsTicketConfig
+
+# Soft-deleted tickets stay this long so a mistaken delete can still be recovered
+# operationally, and so the hard purge finishes inside a one-month erasure window.
+TICKET_HARD_DELETE_AFTER = timedelta(days=14)
 
 # Two-arg lock namespace for ticket_number allocation. Keep this value stable:
 # every allocator (create_with_number and bulk import) must use the same pair.
@@ -16,6 +23,12 @@ if TYPE_CHECKING:
 
 
 class TicketManager(models.Manager):
+    """Every ticket, including soft-deleted rows.
+
+    ``objects`` hides those rows. This manager stays unfiltered so number allocation
+    and inbound thread-key checks can still see them.
+    """
+
     def lock_ticket_number_allocation(self, team_id: int) -> None:
         """Serialize ticket_number assignment for this team.
 
@@ -32,21 +45,63 @@ class TicketManager(models.Manager):
                 [_TICKET_NUMBER_LOCK_NAMESPACE, team_id],
             )
 
+    def highest_used_ticket_number(self, team_id: int) -> int:
+        """Highest number any ticket of this team holds or held. Call under the allocation lock.
+
+        Soft-deleted rows count, because their number is still in unique_ticket_number_per_team.
+        Purged rows count through the retired number, so an old link never opens a new ticket.
+        """
+        max_num = (
+            Ticket.all_objects.filter(team_id=team_id).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
+        )
+        retired = (
+            TeamConversationsTicketConfig.objects.filter(team_id=team_id)
+            .values_list("retired_ticket_number", flat=True)
+            .first()
+            or 0
+        )
+        return max(max_num, retired)
+
     def create_with_number(self, **kwargs):
         """Create a ticket with the next ticket_number for its team."""
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
-        with transaction.atomic(using=self.db):
-            self.lock_ticket_number_allocation(team.id)
-            max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
-            kwargs["ticket_number"] = max_num + 1
-            return self.create(**kwargs)
+        allocation = Ticket.all_objects
+        with transaction.atomic(using=allocation.db):
+            allocation.lock_ticket_number_allocation(team.id)
+            kwargs["ticket_number"] = allocation.highest_used_ticket_number(team.id) + 1
+            return allocation.create(**kwargs)
+
+
+class LiveTicketManager(TicketManager):
+    """Tickets a person can still open. Soft-deleted rows stay on ``all_objects``."""
+
+    def get_queryset(self) -> models.QuerySet:
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
+def deleted_ticket_holds_thread(*, team_id: int, **lookup: Any) -> bool:
+    """Whether a soft-deleted or purged ticket still owns this inbound thread key.
+
+    Callers that create a ticket when no live row matches must check this first.
+    The unique keys stay on the deleted row until the sweeper, so a new ticket
+    would either violate that constraint or open a second copy of a deleted thread.
+    After the purge, a PurgedTicketThread row keeps the thread closed.
+    """
+    if not lookup:
+        return False
+    if Ticket.all_objects.filter(team_id=team_id, deleted_at__isnull=False, **lookup).exists():
+        return True
+    return PurgedTicketThread.objects.for_team(team_id).filter(thread_key=ticket_thread_key(**lookup)).exists()
 
 
 class Ticket(Taggable, UUIDTModel):
-    objects = TicketManager()
+    # Live rows are the default so a forgotten query cannot return a deleted ticket.
+    # ``all_objects`` is the unfiltered manager historical migrations already import.
+    objects = LiveTicketManager()
+    all_objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
@@ -133,6 +188,17 @@ class Ticket(Taggable, UUIDTModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Set together when a manager deletes the ticket. The sweeper hard-deletes
+    # once deleted_at is older than TICKET_HARD_DELETE_AFTER.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        related_name="+",
+    )
 
     class Meta:
         db_table = "posthog_conversations_ticket"
@@ -210,6 +276,12 @@ class Ticket(Taggable, UUIDTModel):
                 name="posthog_con_compose_dedupe_idx",
                 condition=models.Q(channel_source="email"),
             ),
+            # Sweeper scans only soft-deleted rows, which are rare compared to the table.
+            models.Index(
+                fields=["deleted_at"],
+                name="posthog_con_ticket_deleted_idx",
+                condition=models.Q(deleted_at__isnull=False),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
@@ -227,3 +299,18 @@ class Ticket(Taggable, UUIDTModel):
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
+
+    def inbound_thread_keys(self) -> list[str]:
+        """Keys of the external threads that route inbound messages to this ticket."""
+        lookups: list[dict[str, Any]] = []
+        if self.slack_channel_id and self.slack_thread_ts:
+            lookups.append({"slack_channel_id": self.slack_channel_id, "slack_thread_ts": self.slack_thread_ts})
+        if self.teams_channel_id and self.teams_conversation_id:
+            lookups.append(
+                {"teams_channel_id": self.teams_channel_id, "teams_conversation_id": self.teams_conversation_id}
+            )
+        if self.github_repo and self.github_issue_number is not None:
+            lookups.append({"github_repo": self.github_repo, "github_issue_number": self.github_issue_number})
+        if self.zendesk_ticket_id is not None:
+            lookups.append({"zendesk_ticket_id": self.zendesk_ticket_id})
+        return [ticket_thread_key(**lookup) for lookup in lookups]

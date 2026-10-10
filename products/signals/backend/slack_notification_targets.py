@@ -23,9 +23,9 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 from products.signals.backend.models import SignalUserAutonomyConfig
-from products.signals.backend.slack_formatting import slack_channel_id_from_target
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ _UNRESOLVED_SELF_ERROR = (
 )
 _SLACK_UNAVAILABLE_ERROR = "Slack did not answer. Try saving this again in a moment."
 _SLACK_MISSING_SCOPE_ERROR = (
-    "Your Slack connection cannot list workspace members. Reconnect Slack, and then save this setting again."
+    "PostHog cannot look up members in this Slack workspace. Reconnect Slack to give it the users:read "
+    "permission, and then turn this on again."
 )
 _NO_WORKSPACE_ERROR = "Choose the Slack workspace to send these through."
 _MEMBER_LOOKUPS_PER_MINUTE = 30
@@ -46,7 +47,7 @@ _MEMBER_LOOKUPS_PER_MINUTE = 30
 
 def is_slack_member_target(target: str) -> bool:
     """Whether a target addresses one workspace member, which Slack delivers as a direct message."""
-    return bool(_MEMBER_ID_RE.fullmatch(slack_channel_id_from_target(target)))
+    return bool(_MEMBER_ID_RE.fullmatch(channel_id_from_target(target)))
 
 
 def saved_notification_integration(user: User) -> Integration | None:
@@ -155,7 +156,7 @@ def validate_slack_notification_target(user: User, target: str, integration: Int
     if integration is None:
         raise serializers.ValidationError({"slack_notification_channel": _NO_WORKSPACE_ERROR})
     resolved_target = resolve_own_direct_message_target(user, integration)
-    if slack_channel_id_from_target(resolved_target) != slack_channel_id_from_target(target):
+    if channel_id_from_target(resolved_target) != channel_id_from_target(target):
         raise serializers.ValidationError({"slack_notification_channel": _UNRESOLVED_MEMBER_ERROR})
 
 

@@ -44,12 +44,18 @@ import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
-import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import {
+    RETENTION_EXPIRED_STAGE_NAME,
+    canHoldExpiredRow,
+    makeRetentionExpiredStage,
+} from './retention/retention-expired-stage'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
-import { LogsSamplingService } from './sampling/logs-sampling.service'
+import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
@@ -156,6 +162,14 @@ export function describeBatchPosition(messages: Message[]): Record<string, strin
 export function parseSizeHeader(raw: string | undefined): number | null {
     const parsed = parseInt(raw ?? '0', 10)
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+export function parseMinTimestampHeader(raw: string | undefined): number | undefined {
+    if (raw === undefined || raw.trim() === '') {
+        return undefined
+    }
+    const parsed = Number(raw)
+    return Number.isSafeInteger(parsed) ? parsed : undefined
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -305,11 +319,9 @@ export const logsDropFractionHistogram = new Histogram({
  * decided per row (content bytes), so we scale the header down by the dropped content fraction
  * to bill only what survived.
  *
- * Weights are customer-content bytes per row (body + attributes + event_name) — NOT the per-row
- * `bytes_uncompressed` field, whose near-constant denormalization overhead (duplicated resource
- * attributes, server uuid) would skew the ratio toward record-count weighting. Content weights
- * track "share of what the customer sent"; residual error vs true wire share (protobuf framing,
- * per-batch resource blocks) is small and direction-neutral. The result is always ≤ the gross
+ * Weights come from `measureContentWeights`: every sender-controlled field of a row, with resource
+ * and scope bytes split across the rows that share them. The per-row `bytes_uncompressed` field is
+ * not used, because it counts shared resource attributes once per row. The result is always ≤ the gross
  * header (droppedFraction ≤ 1), so a message is never billed above today's gross. Returns 0 when
  * we can't measure (no header or no content bytes), i.e. no credit rather than a wrong one.
  */
@@ -332,13 +344,8 @@ function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
         kind: 'filter',
         name: 'transformations',
         run: async (records) => {
-            const before = records.length
             await transform(records)
-            const stats = EMPTY_DROP_STATS()
-            if (records.length < before) {
-                stats.droppedBy = 'transformations'
-            }
-            return { kept: records, stats }
+            return { kept: records, stats: EMPTY_STAGE_DROP_STATS() }
         },
     }
 }
@@ -353,10 +360,14 @@ export class LogsIngestionConsumer {
     // record source ('logs' | 'spans') instead, so map between the two explicitly
     // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
     protected metricRuleSource: MetricRuleSource = 'logs'
+    // Record source this consumer evaluates retention rules for. Same vocabulary as
+    // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
+    protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private readonly backfillEnabledTeamsRaw: string
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
@@ -410,6 +421,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
@@ -438,6 +450,14 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * The team's default retention period, applied to records no rule matches and sent as the
+     * batch `retention-days` Kafka header. Traces override this to read their own setting.
+     */
+    protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
+        return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -490,6 +510,7 @@ export class LogsIngestionConsumer {
     private async resolveLogMessageBufferWithOptionalSampling(
         message: LogsIngestionMessage,
         logsSettings: LogsSettings,
+        defaultRetentionDays: number,
         onRecordsDecoded?: (records: LogRecord[]) => void,
         batchBudget?: TransformationBatchBudget
     ): Promise<
@@ -498,6 +519,7 @@ export class LogsIngestionConsumer {
               processedValue: Buffer
               pii: PiiScrubStats
               recordsDropped: number
+              recordsDroppedByStage: Map<string, number>
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -505,9 +527,10 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
+              reason: string
               pii: PiiScrubStats
               recordsDropped: number
+              recordsDroppedByStage: Map<string, number>
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -531,7 +554,7 @@ export class LogsIngestionConsumer {
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
         if (retentionCache && retentionEvalEnabled) {
-            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
@@ -546,9 +569,21 @@ export class LogsIngestionConsumer {
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
         }
+        let shortestRetentionDays = defaultRetentionDays
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+            shortestRetentionDays = Math.min(
+                defaultRetentionDays,
+                ...retentionRuleSet.rules.map((rule) => rule.retentionDays)
+            )
+        }
+
+        // Checking rows for expiry needs a decode, which every message would otherwise pay to find rows
+        // that only backdated imports produce. The stage runs after the retention stage, so it reads the
+        // per-row retention that ClickHouse will use.
+        const nowMicros = Date.now() * 1000
+        if (canHoldExpiredRow(message.minTimestampMicros, shortestRetentionDays, nowMicros)) {
+            stages.push(makeRetentionExpiredStage(message.teamId, defaultRetentionDays, nowMicros))
         }
 
         // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
@@ -586,10 +621,9 @@ export class LogsIngestionConsumer {
             stages,
         })
 
-        // Only the sampling stage attributes per-rule drops; the transform stage reports none, so
-        // these increments are no-ops on the transform-only and passthrough paths.
-        if (drops.recordsDropped > 0) {
-            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, drops.recordsDropped)
+        const recordsDroppedBySampling = drops.recordsDroppedByStage.get(SAMPLING_STAGE_NAME) ?? 0
+        if (recordsDroppedBySampling > 0) {
+            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, recordsDroppedBySampling)
         }
         if (drops.bytesDropped > 0) {
             logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, drops.bytesDropped)
@@ -598,17 +632,13 @@ export class LogsIngestionConsumer {
         if (value === null) {
             // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
             // to zero records to begin with, so attribute it to an empty batch rather than sampling.
-            const reason =
-                drops.droppedBy === 'transformations'
-                    ? 'transformations_all_dropped'
-                    : drops.droppedBy === 'sampling'
-                      ? 'sampling_all_dropped'
-                      : 'empty_batch'
+            const reason = drops.droppedBy ? `${drops.droppedBy}_all_dropped` : 'empty_batch'
             return {
                 outcome: 'all_dropped',
                 reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
+                recordsDroppedByStage: drops.recordsDroppedByStage,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
                 contentBytesDropped: drops.contentBytesDropped,
@@ -620,6 +650,7 @@ export class LogsIngestionConsumer {
             processedValue: value,
             pii,
             recordsDropped: drops.recordsDropped,
+            recordsDroppedByStage: drops.recordsDroppedByStage,
             recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
             bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
             contentBytesDropped: drops.contentBytesDropped,
@@ -644,11 +675,14 @@ export class LogsIngestionConsumer {
 
         this.trackIncomingTraffic(messages)
 
-        const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(messages)
+        const { backfillAllowedMessages, backfillDroppedMessages } = this.filterBackfillNotEnabledMessages(messages)
+        const { quotaAllowedMessages, quotaDroppedMessages } =
+            await this.filterQuotaLimitedMessages(backfillAllowedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
             await this.filterRateLimitedMessages(quotaAllowedMessages)
 
         const usageStats = this.trackOutgoingTrafficAndBuildUsageStats(rateLimiterAllowedMessages, [
+            ...backfillDroppedMessages,
             ...quotaDroppedMessages,
             ...rateLimiterDroppedMessages,
         ])
@@ -748,6 +782,38 @@ export class LogsIngestionConsumer {
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)
+    }
+
+    // Clamping these rows to the ingest time would write the import onto today, so the whole message is dropped.
+    private filterBackfillNotEnabledMessages(messages: LogsIngestionMessage[]): {
+        backfillAllowedMessages: LogsIngestionMessage[]
+        backfillDroppedMessages: LogsIngestionMessage[]
+    } {
+        const backfillAllowedMessages: LogsIngestionMessage[] = []
+        const backfillDroppedMessages: LogsIngestionMessage[] = []
+        const droppedRecordsByTeam = new Map<number, { messages: number; records: number }>()
+        for (const message of messages) {
+            if (message.backfillRequested && !teamIdMatchesCsv(this.backfillEnabledTeamsRaw, message.teamId)) {
+                backfillDroppedMessages.push(message)
+                const dropped = droppedRecordsByTeam.get(message.teamId) ?? { messages: 0, records: 0 }
+                dropped.messages++
+                dropped.records += message.recordCount
+                droppedRecordsByTeam.set(message.teamId, dropped)
+            } else {
+                backfillAllowedMessages.push(message)
+            }
+        }
+
+        for (const [teamId, dropped] of droppedRecordsByTeam) {
+            logMessageDroppedCounter.inc(
+                { reason: 'backfill_not_enabled', team_id: teamId.toString() },
+                dropped.messages
+            )
+            recordLogMessageDropped('backfill_not_enabled', teamId.toString(), dropped.messages)
+            this.queueUsageMetric(teamId, 'records_dropped_backfill_not_enabled', dropped.records)
+        }
+
+        return { backfillAllowedMessages, backfillDroppedMessages }
     }
 
     private async filterQuotaLimitedMessages(
@@ -911,7 +977,9 @@ export class LogsIngestionConsumer {
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
                         // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
@@ -971,9 +1039,16 @@ export class LogsIngestionConsumer {
                                                 ? logsSettings.json_parse_logs_attribute_key
                                                 : undefined,
                                     },
+                                    retentionDays,
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )
+                        )
+
+                        this.queueUsageMetric(
+                            message.teamId,
+                            'records_dropped_retention_expired',
+                            resolved.recordsDroppedByStage.get(RETENTION_EXPIRED_STAGE_NAME) ?? 0
                         )
 
                         let bytesUncompressedHeaderOverride: number | undefined
@@ -1072,6 +1147,10 @@ export class LogsIngestionConsumer {
                                         team_id: message.teamId.toString(),
                                         'json-parse': jsonParse.toString(),
                                         'retention-days': retentionDays.toString(),
+                                        // The ingestion lag checkpoint needs the source partition, because
+                                        // both topics use random partitioning.
+                                        source_topic: message.message.topic,
+                                        source_partition: message.message.partition.toString(),
                                         ...(bytesUncompressedHeaderOverride !== undefined
                                             ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
                                             : {}),
@@ -1379,6 +1458,8 @@ export class LogsIngestionConsumer {
                         bytesUncompressedRecords,
                         bytesCompressed,
                         recordCount,
+                        minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
+                        backfillRequested: headers.backfill_days !== undefined,
                     })
                 } catch (e) {
                     // A message we cannot parse is message-scoped and will fail the same way on

@@ -2,12 +2,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
+    PINNED_REPOSITORY_REASON,
     _build_repo_selection_prompt,
     _routing_rules_block,
+    _salvage_repo_selection,
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
@@ -120,3 +123,140 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
     assert "1. Support app asks → `acme/b`" in prompt
     assert "1. `acme/a` (private)" in prompt
     assert "2. `acme/b` (visibility unknown)" in prompt
+
+
+@parameterized.expand(
+    [
+        ("names_one_candidate", "I checked both trees. The subject is Acme/B.", ["acme/a", "acme/b"], "acme/b"),
+        (
+            "names_one_candidate_in_broken_json",
+            '{"repository": "acme/b", "reason":',
+            ["acme/a", "acme/b"],
+            "acme/b",
+        ),
+        (
+            "names_a_candidate_that_extends_another",
+            "The subject is acme/api-client.",
+            ["acme/api", "acme/api-client"],
+            "acme/api-client",
+        ),
+        ("names_a_candidate_at_sentence_end", "The subject is acme/api.", ["acme/api", "acme/api-client"], "acme/api"),
+        (
+            "states_a_candidate_and_rejects_another",
+            '{"repository": "Acme/A", "reason": "acme/b does not own this',
+            ["acme/a", "acme/b"],
+            "acme/a",
+        ),
+    ]
+)
+def test_salvage_reads_a_lone_named_candidate(_name, text, candidates, expected) -> None:
+    assert _salvage_repo_selection(text, candidates).repository == expected
+
+
+@parameterized.expand(
+    [
+        ("names_two_candidates", "Both acme/a and acme/b match the request.", ["acme/a", "acme/b"]),
+        ("names_no_candidate", "None of the connected repositories own this.", ["acme/a", "acme/b"]),
+        ("names_a_non_candidate_that_extends_one", "The subject is acme/api-client.", ["acme/api", "acme/web"]),
+        (
+            "states_no_repository_and_cites_one",
+            '{"repository": null, "reason": "I checked acme/b and it does not own this',
+            ["acme/a", "acme/b"],
+        ),
+        (
+            "states_a_non_candidate_and_cites_one",
+            '{"repository": "acme/c", "reason": "acme/b is close, but',
+            ["acme/a", "acme/b"],
+        ),
+    ]
+)
+def test_salvage_raises_when_the_reply_is_ambiguous(_name, text, candidates) -> None:
+    # Answering "no repository" here would read as a decision the agent made, and guessing between
+    # two would open work against the wrong repository. Raising keeps the caller's own fallback.
+    with pytest.raises(ValueError):
+        _salvage_repo_selection(text, candidates)
+
+
+def test_select_repository_salvages_an_unreadable_end_turn() -> None:
+    # An end turn that does not validate used to fail the whole selection, and the Slack caller
+    # then dropped the user into a manual repository picker.
+    session = MagicMock()
+    session.end = AsyncMock()
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    async def start(**kwargs):
+        return session, kwargs["fallback_from_text"]("After checking the trees, acme/b owns this.")
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start", AsyncMock(side_effect=start)),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+        )
+
+    assert selected.repository == "acme/b"
+
+
+@pytest.mark.parametrize(
+    "pinned,expected_repository",
+    [("Acme/B", "acme/b"), (" acme/b ", "acme/b"), ("acme/gone", None)],
+)
+def test_pinned_repository_answers_without_running_the_agent(pinned: str, expected_repository: str | None) -> None:
+    start = AsyncMock()
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+            pinned_repository=pinned,
+        )
+
+    assert selected.repository == expected_repository
+    if expected_repository:
+        assert selected.reason == PINNED_REPOSITORY_REASON
+    else:
+        assert "acme/gone" in selected.reason
+    start.assert_not_awaited()
+
+
+def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a"}),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a"],
+            pinned_repository="acme/b",
+        )
+
+    assert selected.repository is None

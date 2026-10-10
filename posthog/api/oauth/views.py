@@ -5,7 +5,7 @@ import calendar
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
@@ -37,8 +37,7 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -69,6 +68,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -103,7 +103,7 @@ from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -352,7 +352,7 @@ def _gateway_blocklist_block(
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=request.user.email,
                 user_uuid=str(request.user.uuid),
@@ -363,8 +363,9 @@ def _gateway_blocklist_block(
             call_site="oauth_authorize",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
-    if not wizard_identity_blocked(
+        logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
+        refused = False
+    if not refused and not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,
         surface="oauth_authorize",
@@ -392,7 +393,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     code_challenge_method = serializers.CharField(required=False, allow_null=True, default=None)
     nonce = serializers.CharField(required=False, allow_null=True, default=None)
     claims = serializers.CharField(required=False, allow_null=True, default=None)
-    scope = serializers.CharField()
+    scope = serializers.CharField(allow_blank=True)
     allow = serializers.BooleanField()
     prompt = serializers.CharField(required=False, allow_null=True, default=None)
     approval_prompt = serializers.CharField(required=False, allow_null=True, default=None)
@@ -408,7 +409,28 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
         super().__init__(*args, **kwargs)
 
+    def validate(self, attrs: dict) -> dict:
+        # A denial needs no scope, so the field accepts a blank one. A grant still does.
+        if attrs.get("allow") and not attrs.get("scope", "").strip():
+            raise serializers.ValidationError({"scope": "This field may not be blank."})
+        return attrs
+
+    def _is_denial(self) -> bool:
+        """Whether the request refuses the grant rather than making one.
+
+        A denial mints nothing, so the scoping controls it carries are irrelevant. Without
+        this the consent screen can reach a state it cannot leave: pick "Organizations",
+        select none, and both Authorize and Cancel fail the same validator, so the person
+        cannot even refuse.
+        """
+        try:
+            return not self.fields["allow"].to_internal_value(self.initial_data.get("allow"))
+        except (serializers.ValidationError, TypeError):
+            return False
+
     def validate_scoped_organizations(self, scoped_organization_ids: list[str]) -> list[str]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -432,6 +454,8 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         return []
 
     def validate_scoped_teams(self, scoped_team_ids: list[int]) -> list[int]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -1221,19 +1245,18 @@ class OAuthValidator(OAuth2Validator):
         """Resolve the impersonator (staff user) that should be tagged on a newly-minted token.
 
         Priority:
-        1. `impersonated_by_id` attribute set on the oauthlib request — populated from the
-           `credentials` dict during `/oauth/authorize` POST and GET auto-approval paths.
+        1. An explicit attribute set from server-side credentials during `/oauth/authorize`.
         2. The previous refresh token (token rotation inherits the tag).
-        3. The authorization code grant referenced in the request body (code-exchange flow at
-           `/oauth/token`, where there is no impersonated session to read from).
+        3. The authorization code grant referenced during a code exchange at `/oauth/token`.
 
         Returns the staff user's id, or None if not impersonator-issued.
         """
-        impersonator_id = getattr(request, "impersonated_by_id", None)
-        if impersonator_id:
-            return impersonator_id
+        # oauthlib exposes body and query parameters as missing attributes. Only an
+        # attribute explicitly set by the authorization view can override stored tags.
+        if "impersonated_by_id" in request.__dict__:
+            return request.__dict__["impersonated_by_id"]
 
-        if refresh_token and refresh_token.impersonated_by_id:
+        if refresh_token is not None:
             return refresh_token.impersonated_by_id
 
         # Code-exchange path: look up the grant via the `code` body param (same pattern
@@ -1241,12 +1264,12 @@ class OAuthValidator(OAuth2Validator):
         # three calls per code exchange (`_get_token_expires_in`,
         # `_should_skip_refresh_token`, `_create_access_token`), so the grant lookup is
         # memoized on the oauthlib request.
-        cached = getattr(request, "_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
+        cached = request.__dict__.get("_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
         if cached is not _IMPERSONATOR_CACHE_UNSET:
             return cached
 
         resolved: int | None = None
-        if request.decoded_body:
+        if getattr(request, "grant_type", None) == "authorization_code" and request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
@@ -1268,9 +1291,11 @@ class OAuthValidator(OAuth2Validator):
         scoped_teams = None
         scoped_organizations = None
 
-        if hasattr(request, "scoped_teams") and hasattr(request, "scoped_organizations"):
-            scoped_teams = request.scoped_teams
-            scoped_organizations = request.scoped_organizations
+        # oauthlib resolves missing attributes from URL parameters, so only explicit
+        # attributes set by the authorization view can supply consent scoping.
+        if "scoped_teams" in request.__dict__ and "scoped_organizations" in request.__dict__:
+            scoped_teams = request.__dict__["scoped_teams"]
+            scoped_organizations = request.__dict__["scoped_organizations"]
         elif access_token:
             scoped_teams = access_token.scoped_teams
             scoped_organizations = access_token.scoped_organizations
@@ -1298,7 +1323,27 @@ class OAuthValidator(OAuth2Validator):
         if scoped_teams is None and scoped_organizations is None:
             raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
 
+        if scoped_teams is not None and (
+            not isinstance(scoped_teams, list) or any(type(team_id) is not int for team_id in scoped_teams)
+        ):
+            raise OAuthToolkitError("Invalid scoped_teams")
+        if scoped_organizations is not None and (
+            not isinstance(scoped_organizations, list)
+            or any(
+                not isinstance(org_id, str) or not self._is_valid_organization_uuid(org_id)
+                for org_id in scoped_organizations
+            )
+        ):
+            raise OAuthToolkitError("Invalid scoped_organizations")
+
         return scoped_teams, scoped_organizations
+
+    @staticmethod
+    def _is_valid_organization_uuid(value: str) -> bool:
+        try:
+            return str(uuid.UUID(value)) == value
+        except ValueError:
+            return False
 
 
 def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
@@ -1355,6 +1400,48 @@ def _login_required_with_pending_connection(view):
         return response
 
     return handler
+
+
+def cimd_creation_throttled(request, view, client_id: str) -> bool:
+    """Whether creating an application for an unseen CIMD client_id is over its rate limit.
+
+    Checked on the view, not in the OAuthValidator, because the validator only receives an
+    oauthlib Request, which lacks request.META for IP extraction."""
+    if not is_cimd_client_id(client_id) or OAuthApplication.objects.filter(client_id=client_id).exists():
+        return False
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
+        if not throttle.allow_request(request, view=view):
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return True
+    return False
+
+
+def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> OAuthApplication | None:
+    """The application the request's client credentials verify as, or None.
+
+    The identity is the application the validator bound during verification. Request fields
+    are not trusted for it: an `Authorization: Basic` header or a `client_id` param can name
+    any client without proving anything.
+
+    `resolve_cimd` covers a CIMD client presenting credentials before it ever authorized, so
+    it has no row yet. Its document is fetched first, so its assertion can be verified against
+    the keys the document publishes."""
+    core = view.get_oauthlib_core()
+    uri, http_method, body, headers = core._extract_params(request)
+    oauth_request = OauthlibRequest(uri, http_method, body, headers)
+    validator = core.server.request_validator
+    if resolve_cimd:
+        # RFC 7523 lets a private_key_jwt client omit client_id and name itself in the assertion.
+        resolved_assertion = OAuthValidator._resolve_request_assertion(oauth_request)
+        client_id = resolved_assertion.client_id if resolved_assertion else request.POST.get("client_id") or ""
+        if cimd_creation_throttled(request, view, client_id):
+            return None
+        if is_cimd_client_id(client_id) and not validator.validate_client_id(client_id, oauth_request):
+            return None
+    if not validator.authenticate_client(oauth_request):
+        return None
+    return oauth_request.client
 
 
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
@@ -1472,21 +1559,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
     @method_decorator(_login_required_with_pending_connection)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
-        # Must happen here (not in the OAuthValidator) because the validator
-        # only receives an oauthlib Request which lacks request.META for IP extraction.
-        client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(client_id=client_id).exists():
-            for throttle_cls in CIMD_THROTTLE_CLASSES:
-                throttle = throttle_cls()
-                if not throttle.allow_request(request, view=self):
-                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
-                    return Response(
-                        {
-                            "error": "invalid_client",
-                            "error_description": "Too many new client registrations. Try again later.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
+            return Response(
+                {
+                    "error": "invalid_client",
+                    "error_description": "Too many new client registrations. Try again later.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             scopes, credentials = self.validate_authorization_request(request)
@@ -1520,7 +1600,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         requested_scope_tokens = (request.query_params.get("scope") or "").split()
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
-        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated
+
+        # `validate_scopes` clamps a request whose every resource token is unknown down to
+        # nothing. That is a valid outcome for a token, but not for a consent screen: the
+        # screen shows no permissions, and its Authorize button posts a blank scope the
+        # POST rejects. Resolve such a request the way an omitted scope resolves instead.
+        # A client sends one by accident when it builds the URL from an unsubstituted
+        # scope placeholder, so every token arrives as junk.
+        requested_resource_tokens = set(requested_scope_tokens) - ALWAYS_ALLOWED_SCOPES
+        nothing_grantable = bool(requested_resource_tokens) and not (set(scopes) - ALWAYS_ALLOWED_SCOPES)
+        if nothing_grantable:
+            scopes = sorted(effective_ceiling(application.ceiling_scopes) | ALWAYS_ALLOWED_SCOPES)
+
+        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated or nothing_grantable
 
         # Track OAuth authorization attempts with the authenticated user
         registration_type = self._registration_type(application)
@@ -1532,6 +1624,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "requested_scope_count": len(requested_scope_tokens),
                 "has_resource": bool(request.query_params.get("resource")),
                 "scope_was_truncated": scope_was_truncated,
+                "nothing_grantable": nothing_grantable,
             },
         )
 
@@ -1597,7 +1690,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # `scope_str` already reflects the read-only downgrade applied above (when
                 # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
-                    if token.allow_scopes(scope_str.split()):
+                    if token.allow_scopes(scope_str.split()) and (
+                        token.scoped_teams is not None or token.scoped_organizations is not None
+                    ):
+                        credentials["scoped_teams"] = token.scoped_teams
+                        credentials["scoped_organizations"] = token.scoped_organizations
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -1998,14 +2095,32 @@ class OAuthTokenView(TokenView):
                 status=400,
             )
 
-        requested_scope = request.POST.get("scope")
-        request_client_id = request.POST.get("client_id")
+        # The ID-JAG draft binds the assertion to the client that presents it and supports the
+        # grant for confidential clients only, so a client presenting no credential is refused.
+        client = authenticated_oauth_client(self, request, resolve_cimd=True)
+        if client is None:
+            self._capture_token_rejected(
+                id_jag.JWT_BEARER_GRANT_TYPE,
+                request.POST.get("client_id") or "",
+                "invalid_client",
+                self._request_client_auth_method(request),
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_client",
+                    "error_description": (
+                        "Client authentication failed. The jwt-bearer grant needs a registered client that "
+                        "authenticates with a client secret or private_key_jwt."
+                    ),
+                },
+                status=401,
+            )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, requested_scope, request_client_id)
+            issued_access_token = id_jag.issue_access_token(assertion, request.POST.get("scope"), client.client_id)
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
-            self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, request_client_id or "", e.error_code)
+            self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
             return JsonResponse(
                 {"error": e.error_code, "error_description": e.description},
                 status=e.http_status,
@@ -2015,11 +2130,11 @@ class OAuthTokenView(TokenView):
         # the funnel. There is no resource owner to attribute it to, so it stays personless
         # and keyed on the client.
         posthoganalytics.capture(
-            distinct_id=request_client_id or "unknown",
+            distinct_id=client.client_id,
             event="oauth_token_issued",
             properties={
                 "grant_type": id_jag.JWT_BEARER_GRANT_TYPE,
-                "client_id": request_client_id or "",
+                "client_id": client.client_id,
                 "granted_scopes": " ".join(issued_access_token.granted_scopes),
                 "granted_scope_count": len(issued_access_token.granted_scopes),
                 "$process_person_profile": False,
@@ -2234,6 +2349,31 @@ class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
         return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
 
 
+def _active_access_token_response(
+    *,
+    scope: str,
+    expires_at: int,
+    is_impersonated: bool,
+    scoped_teams: list[int],
+    scoped_organizations: list[str],
+    application: OAuthApplication | None,
+) -> JsonResponse:
+    """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
+    data: dict[str, Any] = {
+        "active": True,
+        "token_type": "access_token",
+        "scope": scope,
+        "is_impersonated": is_impersonated,
+        "scoped_teams": scoped_teams,
+        "scoped_organizations": scoped_organizations,
+        "exp": expires_at,
+    }
+    if application:
+        data["client_id"] = application.client_id
+        data["client_name"] = application.name
+    return JsonResponse(data)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -2293,6 +2433,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            # An ID-JAG access token has no row to look up; get_token_response verifies it.
+            if IDJagAccessTokenAuthentication.is_id_jag_token(bearer_token):
+                return True, request
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
                 request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
@@ -2316,12 +2459,10 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         only trustworthy identity is the one the validator bound to the request during
         verification, so capture it here for get_token_response to read back.
         """
-        core = self.get_oauthlib_core()
-        uri, http_method, body, headers = core._extract_params(request)
-        oauth_request = OauthlibRequest(uri, http_method, body, headers)
-        if not core.server.request_validator.authenticate_client(oauth_request):
+        client = authenticated_oauth_client(self, request)
+        if client is None:
             return False
-        request.oauth_authenticated_client = oauth_request.client
+        request.oauth_authenticated_client = client
         return True
 
     def _client_credentials_client_id(self, request) -> str | None:
@@ -2338,6 +2479,30 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         client = getattr(request, "oauth_authenticated_client", None)
         return client.client_id if client is not None else None
+
+    def _id_jag_token_response(self, request, token_value: str, credential_client_id: str | None) -> JsonResponse:
+        """An ID-JAG access token is a signed JWT with no row, so it is read from its verified
+        claims. A caller sees it only when the caller is the token itself, or the client the
+        token was issued to."""
+        try:
+            verified = IDJagAccessTokenAuthentication.verify_access_token(token_value)
+        except AuthenticationFailed:
+            return JsonResponse({"active": False}, status=200)
+        if not self._is_self_introspection(request):
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            caller_client_id = credential_client_id or getattr(
+                getattr(caller_token, "application", None), "client_id", None
+            )
+            if caller_client_id != verified.client_id:
+                return JsonResponse({"active": False}, status=200)
+        return _active_access_token_response(
+            scope=" ".join(verified.scopes),
+            expires_at=verified.expires_at,
+            is_impersonated=False,
+            scoped_teams=[],
+            scoped_organizations=[verified.organization_id],
+            application=OAuthApplication.objects.filter(client_id=verified.client_id).first(),
+        )
 
     def get_token_response(self, request, token_value=None):
         """
@@ -2363,6 +2528,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token_value):
+            return self._id_jag_token_response(request, token_value, credential_client_id)
 
         # The bearer caller is identified by the application its own token belongs to. The
         # `introspection` scope says a caller may introspect, not whose tokens it may read,
@@ -2407,19 +2575,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # `user` is null for a client-credentials grant, which has no resource owner.
             if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
-            data = {
-                "active": True,
-                "token_type": "access_token",
-                "scope": access_token.scope,
-                "is_impersonated": access_token.impersonated_by_id is not None,
-                "scoped_teams": access_token.scoped_teams or [],
-                "scoped_organizations": access_token.scoped_organizations or [],
-                "exp": int(calendar.timegm(access_token.expires.timetuple())),
-            }
-            if access_token.application:
-                data["client_id"] = access_token.application.client_id
-                data["client_name"] = access_token.application.name
-            return JsonResponse(data)
+            return _active_access_token_response(
+                scope=access_token.scope,
+                expires_at=int(calendar.timegm(access_token.expires.timetuple())),
+                is_impersonated=access_token.impersonated_by_id is not None,
+                scoped_teams=access_token.scoped_teams or [],
+                scoped_organizations=access_token.scoped_organizations or [],
+                application=access_token.application,
+            )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
         # no token_checksum field; revoked tokens filtered via revoked__isnull=True)

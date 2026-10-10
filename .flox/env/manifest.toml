@@ -109,14 +109,13 @@ source "$FLOX_ENV_PROJECT/.flox/env/on-activate.sh"
 bash = '''
   if [ -f "$HOME/.bash_profile" ]; then
     source "$HOME/.bash_profile"
-    # ensure even with your shell prefs in place we know this is a Flox.dev env
-    export PS1="\033[47m(flox)\033[0m $PS1"
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
   export GOPATH="$FLOX_ENV_CACHE/go"
   export GOCACHE="$FLOX_ENV_CACHE/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
+  export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
@@ -139,14 +138,13 @@ bash = '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
     source "$HOME/.zshrc"
-    # ensure even with your shell prefs in place we know this is a Flox.dev env
-    export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
   export GOPATH="$FLOX_ENV_CACHE/go"
   export GOCACHE="$FLOX_ENV_CACHE/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
+  export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
@@ -173,6 +171,7 @@ fish = '''
   set -gx GOPATH "$FLOX_ENV_CACHE/go"
   set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
+  set -gx GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path -g "$FLOX_ENV/bin"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
@@ -192,6 +191,7 @@ tcsh = '''
   setenv GOPATH "$FLOX_ENV_CACHE/go"
   setenv GOCACHE "$FLOX_ENV_CACHE/go-build"
   setenv GOMODCACHE "$GOPATH/pkg/mod"
+  setenv GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)

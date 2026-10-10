@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     },
     urls: {
@@ -32,6 +33,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-cohorts-dark)',
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
+            listHref: () => urls.cohorts(),
             filterKey: 'cohort',
         },
     },
