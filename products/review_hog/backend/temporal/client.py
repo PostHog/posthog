@@ -27,6 +27,7 @@ targets a PR (`pr_url`), validated in `_build_resolution_inputs`.
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any, cast
 
@@ -65,14 +66,15 @@ class WorkflowProbe(StrEnum):
     UNKNOWN = "unknown"
 
 
-def probe_workflow(workflow_id: str) -> WorkflowProbe:
+def probe_workflow(workflow_id: str, rpc_timeout: timedelta | None = None) -> WorkflowProbe:
     """Whether `workflow_id` has a live execution, with probe errors kept apart as UNKNOWN.
 
-    A status reader must not report a PR as idle when Temporal did not answer.
+    A status reader must not report a PR as idle when Temporal did not answer. A missed
+    `rpc_timeout` deadline reads as UNKNOWN too.
     """
     try:
         client = sync_connect()
-        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)()
+        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)(rpc_timeout=rpc_timeout)
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             return WorkflowProbe.NOT_RUNNING

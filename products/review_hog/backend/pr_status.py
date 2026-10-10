@@ -6,7 +6,7 @@ skipped runs. Temporal is asked only to tell `queued` from `idle` when the datab
 running, and a failed probe reads as `unknown`, never `idle`.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import models
 
@@ -21,9 +21,11 @@ from products.review_hog.backend.reviewer.progress import (
     RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
     RESOLUTION_STOPPED,
+    RUN_OUTCOME_FAILED,
     RUN_STAGE_RESOLUTION,
     RUN_STAGE_REVIEW,
     ResolutionSummary,
+    RunOutcomeMarker,
     in_progress_report_ids,
     latest_resolution_summaries,
     resolution_states,
@@ -55,6 +57,8 @@ NO_MATCHING_RUN_REASON = "no_matching_run"
 STOPPED_REASON = "stopped"
 
 _RUNNING_STATES = (ReviewPRState.QUEUED, ReviewPRState.REVIEWING, ReviewPRState.RESOLVING)
+# Agents poll this endpoint, so a slow Temporal answer must not hold the request open.
+_PROBE_RPC_TIMEOUT = timedelta(seconds=2)
 
 
 @frozen
@@ -95,6 +99,17 @@ def _covers(turn_mode: str, requested_mode: str) -> bool:
     return turn_mode == requested_mode or turn_mode == REVIEW_MODE_FULL
 
 
+def _resolution_answers(resolution: ResolutionSummary, requested_at: datetime) -> bool:
+    """Whether this resolution run can be the one the request started or joined.
+
+    A `resolve_only` request joins a resolution that already runs, so a run that started earlier
+    answers it while it still runs, or when it completed at or after the request.
+    """
+    if resolution.started_at >= requested_at or resolution.status == RESOLUTION_RESOLVING:
+        return True
+    return resolution.completed_at is not None and resolution.completed_at >= requested_at
+
+
 class PRStatusLookup:
     """One pull request's status on the root team, read in one pass."""
 
@@ -114,12 +129,14 @@ class PRStatusLookup:
 
     def _probe(self) -> WorkflowProbe:
         review = probe_workflow(
-            review_pr_workflow_id(team_id=self.team_id, owner=self.owner, repo=self.repo, pr_number=self.pr_number)
+            review_pr_workflow_id(team_id=self.team_id, owner=self.owner, repo=self.repo, pr_number=self.pr_number),
+            rpc_timeout=_PROBE_RPC_TIMEOUT,
         )
         if review == WorkflowProbe.RUNNING:
             return review
         resolve = probe_workflow(
-            resolve_pr_workflow_id(team_id=self.team_id, owner=self.owner, repo=self.repo, pr_number=self.pr_number)
+            resolve_pr_workflow_id(team_id=self.team_id, owner=self.owner, repo=self.repo, pr_number=self.pr_number),
+            rpc_timeout=_PROBE_RPC_TIMEOUT,
         )
         if resolve == WorkflowProbe.RUNNING:
             return resolve
@@ -190,32 +207,55 @@ class PRStatusLookup:
                 return run_index
         return None
 
-    def _review_outcome(self, requested_at: datetime, requested_mode: str) -> RequestOutcome | None:
+    def _ended_outcome(self, marker: RunOutcomeMarker, state: ReviewPRState) -> RequestOutcome:
+        """A failed or skipped run ends the request only when nothing runs, because the queue can retry it."""
+        if state in _RUNNING_STATES:
+            return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+        if state == ReviewPRState.UNKNOWN:
+            return RequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
+        return RequestOutcome(
+            status=ReviewRequestOutcomeStatus(marker.outcome),
+            reason=marker.reason,
+            review_id=self.report_id,
+            run_index=marker.run_index,
+        )
+
+    def _review_outcome(
+        self, requested_at: datetime, requested_mode: str, state: ReviewPRState
+    ) -> RequestOutcome | None:
+        if self.report is None or self.report_id is None:
+            return None
+        review_markers = [
+            marker
+            for marker in run_outcome_markers(self.team_id, [self.report_id], since=requested_at)[self.report_id]
+            if marker.stage == RUN_STAGE_REVIEW
+        ]
         run_index = self._completed_turn(requested_at, requested_mode)
         if run_index is not None:
+            # Finalize counts the turn before it publishes, so a publish failure marks the same turn failed.
+            turn_failed = [
+                marker
+                for marker in review_markers
+                if marker.outcome == RUN_OUTCOME_FAILED and marker.run_index == run_index
+            ]
+            if turn_failed:
+                return self._ended_outcome(turn_failed[-1], state)
+            if run_index == self.report.run_count and state == ReviewPRState.REVIEWING:
+                return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
             return RequestOutcome(
                 status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id, run_index=run_index
             )
-        if self.report_id is None:
-            return None
-        ended = [
-            marker
-            for marker in run_outcome_markers(self.team_id, [self.report_id], since=requested_at)[self.report_id]
-            if marker.stage == RUN_STAGE_REVIEW and marker.review_mode == requested_mode
-        ]
+        ended = [marker for marker in review_markers if marker.review_mode == requested_mode]
         if not ended:
             return None
-        return RequestOutcome(
-            status=ReviewRequestOutcomeStatus(ended[-1].outcome),
-            reason=ended[-1].reason,
-            review_id=self.report_id,
-            run_index=ended[-1].run_index,
-        )
+        return self._ended_outcome(ended[-1], state)
 
-    def _resolve_outcome(self, requested_at: datetime, resolution: ResolutionSummary | None) -> RequestOutcome | None:
+    def _resolve_outcome(
+        self, requested_at: datetime, resolution: ResolutionSummary | None, state: ReviewPRState
+    ) -> RequestOutcome | None:
         if self.report_id is None:
             return None
-        if resolution is not None and resolution.started_at >= requested_at:
+        if resolution is not None and _resolution_answers(resolution, requested_at):
             if resolution.status == RESOLUTION_COMPLETED:
                 return RequestOutcome(status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id)
             if resolution.status == RESOLUTION_STOPPED:
@@ -230,9 +270,7 @@ class PRStatusLookup:
         ]
         if not skipped:
             return None
-        return RequestOutcome(
-            status=ReviewRequestOutcomeStatus(skipped[-1].outcome), reason=skipped[-1].reason, review_id=self.report_id
-        )
+        return self._ended_outcome(skipped[-1], state)
 
     def _unmatched_outcome(self, state: ReviewPRState) -> RequestOutcome:
         """No run answered the request yet: wait while anything runs, else the queue dropped or replaced it."""
@@ -254,10 +292,10 @@ class PRStatusLookup:
         request_outcome: RequestOutcome | None = None
         if requested_at is not None:
             if run_mode == RUN_MODE_RESOLVE_ONLY:
-                request_outcome = self._resolve_outcome(requested_at, resolution)
+                request_outcome = self._resolve_outcome(requested_at, resolution, state)
             else:
                 requested_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
-                request_outcome = self._review_outcome(requested_at, requested_mode)
+                request_outcome = self._review_outcome(requested_at, requested_mode, state)
             if request_outcome is None:
                 request_outcome = self._unmatched_outcome(state)
         return PRStatus(

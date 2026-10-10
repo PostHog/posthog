@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -124,6 +125,43 @@ class TestPRStatusAPI(APIBaseTest):
                 attribution=ArtefactAttribution.system(),
             )
 
+    def _deep_turn_publishing(self) -> None:
+        # Finalize already counted the turn, but the report stays ACTIVE until the publish lands.
+        report = self._report(last_run_at=AFTER + timedelta(minutes=1), status=ReviewReport.Status.ACTIVE)
+        self._turn(report, 1, REVIEW_MODE_FULL, at=AFTER)
+
+    def _deep_turn_publish_failed(self) -> None:
+        report = self._report(last_run_at=AFTER + timedelta(minutes=1))
+        self._turn(report, 1, REVIEW_MODE_FULL, at=AFTER)
+        with time_machine.travel(AFTER + timedelta(minutes=2), tick=False):
+            record_run_outcome(
+                self.team.id,
+                str(report.id),
+                stage="review",
+                outcome="failed",
+                reason="review_failed",
+                run_index=1,
+                review_mode=REVIEW_MODE_FULL,
+            )
+
+    def _joined_resolution_completed_after_request(self) -> None:
+        # A resolve_only trigger joins a resolution that started before the request.
+        report = self._report()
+        with time_machine.travel(BEFORE, tick=False):
+            ReviewReportArtefact.append_resolution_run(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ResolutionRunArtefact(total=1, thread_ids=["PRRT_1"]),
+                attribution=ArtefactAttribution.system(),
+            )
+        with time_machine.travel(AFTER, tick=False):
+            ReviewReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=NoteArtefact(note="Resolution run on PR #5: done", author=RESOLUTION_RUN_NOTE_AUTHOR),
+                attribution=ArtefactAttribution.system(),
+            )
+
     def _resolution_skipped_after_request(self) -> None:
         report = self._report()
         with time_machine.travel(AFTER, tick=False):
@@ -149,6 +187,16 @@ class TestPRStatusAPI(APIBaseTest):
                 ("skipped", "flash_after_full", 2),
             ),
             ("failed_turn", "_failed_first_turn", "review", WorkflowProbe.NOT_RUNNING, ("failed", "review_failed", 1)),
+            # The queue can retry a failed run, so a failure is final only once nothing runs.
+            ("failed_turn_retrying", "_failed_first_turn", "review", WorkflowProbe.RUNNING, ("pending", None, None)),
+            ("publishing", "_deep_turn_publishing", "review", WorkflowProbe.NOT_RUNNING, ("pending", None, None)),
+            (
+                "publish_failed",
+                "_deep_turn_publish_failed",
+                "review",
+                WorkflowProbe.NOT_RUNNING,
+                ("failed", "review_failed", 1),
+            ),
             (
                 "nothing_ran_or_queued",
                 "_deep_turn_before_request",
@@ -162,6 +210,13 @@ class TestPRStatusAPI(APIBaseTest):
             (
                 "resolve_only_completed",
                 "_completed_resolution_after_request",
+                "resolve_only",
+                WorkflowProbe.NOT_RUNNING,
+                ("completed", None, None),
+            ),
+            (
+                "resolve_only_joined_run_completed",
+                "_joined_resolution_completed_after_request",
                 "resolve_only",
                 WorkflowProbe.NOT_RUNNING,
                 ("completed", None, None),
@@ -215,6 +270,18 @@ class TestPRStatusAPI(APIBaseTest):
         if probed:
             # The probe asks for the root team's workflow, whatever casing the URL carries.
             assert mock_probe.call_args_list[0].args[0] == f"review-pr:{self.team.id}:posthog/posthog:5"
+
+    def test_probes_temporal_with_a_short_deadline(self) -> None:
+        self._report()
+        handle = MagicMock()
+        handle.describe = AsyncMock(side_effect=RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+
+        with patch("products.review_hog.backend.temporal.client.sync_connect") as mock_connect:
+            mock_connect.return_value.get_workflow_handle.return_value = handle
+            res = self.client.get(self.url, {"pr_url": PR_URL})
+
+        assert res.json()["state"] == "unknown"
+        assert [call.kwargs["rpc_timeout"] for call in handle.describe.call_args_list] == [timedelta(seconds=2)] * 2
 
     def test_resolving_state_and_latest_review(self) -> None:
         report = self._report(
