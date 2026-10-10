@@ -5394,10 +5394,10 @@ Today (10): `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactm
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
-- [ ] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high)
-- [ ] `messagesentstatistics` — Per-message delivery outcome metrics, the base fact table for deliverability analysis (high)
-- [ ] `messagehistory` — Per-message event/state transition log (sent, opened, clicked, bounced, spam) (high)
-- [ ] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
+- [x] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high). Added as `statcounters`: daily, event-timed counters for the whole API key.
+- [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
+- [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
+- [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
 - [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
 - [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
 - [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)

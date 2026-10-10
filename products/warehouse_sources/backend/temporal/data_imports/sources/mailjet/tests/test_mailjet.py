@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.ma
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
     MAILJET_ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
+    STATCOUNTERS_EARLIEST_UNIX_TS,
+    STATCOUNTERS_ENDPOINT,
     WEBHOOK_TABLE_NAME,
 )
 
@@ -92,6 +95,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 LIMIT = MAILJET_ENDPOINTS["contact"].page_size
+OFFSET_PAGINATED_ENDPOINTS = [name for name in MAILJET_ENDPOINTS if name != STATCOUNTERS_ENDPOINT]
 
 
 class TestToUnixTs:
@@ -128,7 +132,7 @@ class TestOffsetPagination:
         assert params[0]["Limit"] == LIMIT
         assert params[1]["Offset"] == LIMIT
 
-    @parameterized.expand([(name,) for name in MAILJET_ENDPOINTS])
+    @parameterized.expand([(name,) for name in OFFSET_PAGINATED_ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sort_param_sent(self, endpoint: str, MockSession) -> None:
         session = MockSession.return_value
@@ -171,6 +175,101 @@ class TestIncremental:
         )
 
         assert params[0]["FromTS"] == 1767225600
+
+
+DAY = 24 * 60 * 60
+WINDOW = 90 * DAY
+
+
+class TestStatcounters:
+    def _session(self, mock_session: mock.MagicMock, pages: list[list[dict[str, Any]]]) -> mock.MagicMock:
+        session = mock_session.return_value
+        session.get.side_effect = [_json_response({"Data": rows, "Count": len(rows)}) for rows in pages]
+        return session
+
+    @time_machine.travel(datetime.fromtimestamp(STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW + 5 * DAY, tz=UTC), tick=False)
+    @mock.patch(MAILJET_SESSION_PATCH)
+    def test_full_refresh_walks_non_overlapping_windows_up_to_now(self, mock_session) -> None:
+        session = self._session(
+            mock_session,
+            [
+                [{"Timeslice": "2018-04-02T00:00:00Z"}, {"Timeslice": "2018-04-01T00:00:00Z"}],
+                [],
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source(STATCOUNTERS_ENDPOINT, manager))
+
+        now = STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW + 5 * DAY
+        windows = [
+            (call.kwargs["params"]["FromTS"], call.kwargs["params"]["ToTS"]) for call in session.get.call_args_list
+        ]
+        assert windows == [
+            (STATCOUNTERS_EARLIEST_UNIX_TS, STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW - 1),
+            (STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW, now),
+        ]
+        params = session.get.call_args.kwargs["params"]
+        assert (params["CounterSource"], params["CounterTiming"], params["CounterResolution"]) == (
+            "APIKey",
+            "Event",
+            "Day",
+        )
+        # sort_mode="asc" relies on rows arriving oldest first.
+        assert [row["Timeslice"] for row in rows] == ["2018-04-01T00:00:00Z", "2018-04-02T00:00:00Z"]
+        assert [call.args[0].from_ts for call in manager.save_state.call_args_list] == [
+            STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW,
+            STATCOUNTERS_EARLIEST_UNIX_TS + 2 * WINDOW,
+        ]
+        # The empty window yields nothing, so it has to give the pipeline a chance to hand off.
+        manager.safe_point.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, None, STATCOUNTERS_EARLIEST_UNIX_TS),
+            ("watermark_rereads_its_day", True, datetime(2026, 1, 1, 15, 30, tzinfo=UTC), None, 1767225600),
+            ("iso_string_watermark", True, "2026-01-01T15:30:00Z", None, 1767225600),
+            ("watermark_before_earliest", True, datetime(2010, 1, 1, tzinfo=UTC), None, STATCOUNTERS_EARLIEST_UNIX_TS),
+            (
+                "resume_wins_over_watermark",
+                True,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                MailjetResumeConfig(endpoint=STATCOUNTERS_ENDPOINT, from_ts=1767312000),
+                1767312000,
+            ),
+            (
+                "resume_of_another_endpoint_ignored",
+                False,
+                None,
+                MailjetResumeConfig(endpoint="contact", from_ts=1767312000),
+                STATCOUNTERS_EARLIEST_UNIX_TS,
+            ),
+        ]
+    )
+    @time_machine.travel("2026-01-03T00:00:00Z", tick=False)
+    @mock.patch(MAILJET_SESSION_PATCH)
+    def test_first_window_start(
+        self,
+        _name: str,
+        incremental: bool,
+        last_value: object,
+        resume: MailjetResumeConfig | None,
+        expected_from_ts: int,
+        mock_session,
+    ) -> None:
+        session = mock_session.return_value
+        session.get.return_value = _json_response({"Data": []})
+
+        _rows(
+            _source(
+                STATCOUNTERS_ENDPOINT,
+                _make_manager(resume),
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        assert session.get.call_args_list[0].kwargs["params"]["FromTS"] == expected_from_ts
 
 
 class TestSourceResponseShape:
