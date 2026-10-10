@@ -26,7 +26,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag, materialize_saved_query
+from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
@@ -486,29 +486,32 @@ class EndpointCrudService:
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
-        # DAG cleanup only — the saved queries themselves are reverted and soft-deleted
-        # by endpoint.soft_delete() via version.disable_materialization().
-        for version in endpoint.versions.filter(saved_query__isnull=False):
-            try:
-                if version.saved_query:
-                    delete_node_from_dag(version.saved_query)
-            except Exception as e:
-                logger.exception(
-                    "Failed to remove endpoint node from DAG on destroy",
-                    endpoint_name=endpoint.name,
-                    saved_query_id=version.saved_query.id if version.saved_query else None,
-                )
-                capture_exception(
-                    e,
-                    {
-                        "product": Product.ENDPOINTS,
-                        "team_id": self.team.pk,
-                        "endpoint_name": endpoint.name,
-                        "saved_query_id": version.saved_query.id if version and version.saved_query else None,
-                    },
-                )
+        with transaction.atomic():
+            # DAG cleanup only — the saved queries themselves are reverted and soft-deleted
+            # by endpoint.soft_delete() via version.disable_materialization().
+            for version in endpoint.versions.filter(saved_query__isnull=False):
+                try:
+                    if version.saved_query:
+                        delete_node_from_dag(version.saved_query)
+                except HasDependentsError:
+                    raise
+                except Exception as e:
+                    logger.exception(
+                        "Failed to remove endpoint node from DAG on destroy",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=version.saved_query.id if version.saved_query else None,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team.pk,
+                            "endpoint_name": endpoint.name,
+                            "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                        },
+                    )
 
-        endpoint.soft_delete()
+            endpoint.soft_delete()
         clear_endpoint_materialization_cache(
             self.team.pk, endpoint.name, versions=endpoint.versions.values_list("version", flat=True)
         )

@@ -292,3 +292,97 @@ export const AccuracyBeforePrecisionRecall: Story = {
         testOptions: { viewportWidths: ['wide'] },
     },
 }
+
+function coverageRuns(days: number, perDay: (day: number) => Partial<AutoresearchRunApi>): AutoresearchRunApi[] {
+    return Array.from({ length: days }, (_, day) => ({
+        id: `coverage-${day}`,
+        pipeline: PIPELINE_ID,
+        run_type: 'inference',
+        status: 'completed',
+        error: '',
+        created_at: `2026-02-${String(day + 16).padStart(2, '0')}T03:00:00Z`,
+        ...perDay(day),
+    })) as unknown as AutoresearchRunApi[]
+}
+
+function coverageStory(coverageRunList: AutoresearchRunApi[]): Story {
+    return {
+        decorators: [
+            mswDecorator({
+                get: {
+                    [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/runs/`]: toPaginatedResponse(coverageRunList),
+                },
+            }),
+        ],
+        parameters: {
+            pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=predictions`,
+            testOptions: { viewportWidths: ['wide', 'narrow'] },
+        },
+    }
+}
+
+// Everyone fits under the scoring cap, so each run rescores the whole population.
+export const CoverageBelowCap: Story = coverageStory(
+    coverageRuns(12, (day) => ({
+        rows_scored: 48000,
+        metrics: { rows_eligible: 48000 },
+        coverage: {
+            population: 48000,
+            with_score: day === 0 ? 0 : 48000,
+            never_scored: day === 0 ? 48000 : 0,
+            age_days_avg: day === 0 ? null : 1,
+            age_days_p50: day === 0 ? null : 1,
+            age_days_p90: day === 0 ? null : 1,
+            age_days_max: day === 0 ? null : 1,
+            lookback_days: 30,
+        },
+    }))
+)
+
+// Each run scores 45,000 of 250,000 people, and the first rotation is not complete yet.
+export const CoverageRollingMidCycle: Story = coverageStory(
+    coverageRuns(5, (day) => ({
+        rows_scored: 45000,
+        metrics: { rows_eligible: 250000 },
+        coverage: {
+            population: 250000,
+            with_score: 45000 * day,
+            never_scored: 250000 - 45000 * day,
+            age_days_avg: day === 0 ? null : (day - 1) / 2,
+            age_days_p50: day === 0 ? null : (day - 1) / 2,
+            age_days_p90: day === 0 ? null : (day - 1) * 0.9,
+            age_days_max: day === 0 ? null : day - 1,
+            lookback_days: 30,
+        },
+    }))
+)
+
+// Failed runs leave gaps, so the oldest scores are older than the daily target.
+export const CoverageWithFailedRuns: Story = coverageStory(
+    coverageRuns(14, (day) => {
+        if ([5, 6, 10, 11, 13].includes(day)) {
+            return {
+                status: 'failed',
+                rows_scored: null,
+                metrics: {},
+                coverage: null,
+                error: 'The scoring query timed out.',
+            }
+        }
+        const age = day === 7 || day === 12 ? 3 : 1
+        return {
+            rows_scored: 48000,
+            metrics: { rows_eligible: 48000 },
+            coverage: {
+                population: 48000,
+                with_score: day === 0 ? 0 : 48000,
+                never_scored: day === 0 ? 48000 : 0,
+                age_days_avg: day === 0 ? null : age,
+                age_days_p50: day === 0 ? null : age,
+                age_days_p90: day === 0 ? null : age,
+                age_days_max: day === 0 ? null : age,
+                lookback_days: 30,
+            },
+        }
+    })
+)

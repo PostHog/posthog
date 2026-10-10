@@ -34,7 +34,6 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -284,6 +283,8 @@ class ResolveActingUserInput:
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
+    # Full in older payloads, which keeps them off the Flash-after-Full check below.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -855,6 +856,13 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
     )
 
 
+def _flash_after_full(input: ResolveActingUserInput) -> bool:
+    """Whether a queued Flash request now follows a Full review published while it waited."""
+    if input.review_mode != REVIEW_MODE_FLASH or input.report_id is None:
+        return False
+    return full_review_published(ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first())
+
+
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
     # Resolved even on override runs: the owner decides resolution and the clean-review media,
     # whoever asked for the review.
@@ -874,7 +882,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
-    if input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed:
+    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or _flash_after_full(input):
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
@@ -899,11 +907,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
     preferences = defaults if borrowed else preferences_by_user[acting_user_id]
     owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
-    resolution = ResolutionGate(
-        owner_user_id=owner.user_id,
-        owner_opted_in=owner_preferences.resolve_comments,
-        internal_features=owner.user_id is not None and has_internal_features(input.team_id),
-    )
+    resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         review_labeled_prs=True,
@@ -1423,7 +1427,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 # The reviews API shows this as the finding's validator note, so it says that no validator ran.
-SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. A Standard review publishes its findings directly."
 
 
 def _is_final_attempt() -> bool:
