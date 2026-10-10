@@ -82,7 +82,6 @@ class TestRunSandboxReview:
         # Least privilege: an unset scope list means "full" MCP access for a session that reads
         # untrusted PR-comment text — dropping this pin is a security regression.
         assert context.posthog_mcp_scopes == ["llm_skill:read", "user:read"]
-        assert context.untrusted_checkout is True
 
     @parameterized.expand(
         [
@@ -149,7 +148,6 @@ class TestRunSandboxReview:
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
         # The session path builds its own context, so the least-privilege pin must hold here too.
         assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read", "user:read"]
-        assert call_kwargs["context"].untrusted_checkout is True
 
     @parameterized.expand(
         [

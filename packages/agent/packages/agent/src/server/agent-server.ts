@@ -2049,10 +2049,8 @@ export class AgentServer {
    * The task's origin decides which origin-gated local tools load, so a transient failure here
    * would silently drop report_activity from an analysis run.
    */
-  private async fetchTaskForSessionContext(
-    taskId: string,
-  ): Promise<Task | null> {
-    return this.fetchForSessionContext(
+  private async fetchTaskForSessionContext(taskId: string): Promise<Task> {
+    const task = await this.fetchForSessionContext(
       () => this.posthogAPI.getTask(taskId),
       (error) =>
         this.logger.warn("Failed to fetch task for session context", {
@@ -2060,6 +2058,12 @@ export class AgentServer {
           error,
         }),
     );
+    if (!task) {
+      // The task origin decides whether repository settings load. Starting
+      // without it would turn a control-plane outage into a fail-open session.
+      throw new Error("Task context is required to initialize the session");
+    }
+    return task;
   }
 
   /**
@@ -2070,8 +2074,8 @@ export class AgentServer {
   private async fetchTaskRunForSessionContext(
     taskId: string,
     runId: string,
-  ): Promise<TaskRun> {
-    const taskRun = await this.fetchForSessionContext(
+  ): Promise<TaskRun | null> {
+    return this.fetchForSessionContext(
       () => this.posthogAPI.getTaskRun(taskId, runId),
       (error) =>
         this.logger.warn("Failed to fetch task run for session context", {
@@ -2080,12 +2084,6 @@ export class AgentServer {
           error,
         }),
     );
-    if (!taskRun) {
-      // Run state contains security posture such as untrusted_checkout. Starting
-      // without it would turn a control-plane outage into a fail-open session.
-      throw new Error("Task run context is required to initialize the session");
-    }
-    return taskRun;
   }
 
   private async _doInitializeSession(payload: JwtPayload): Promise<void> {
@@ -2443,7 +2441,6 @@ export class AgentServer {
         taskOriginProduct: preTask.origin_product,
       }),
       ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
-      ...(runState?.untrusted_checkout === true && { untrustedCheckout: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {

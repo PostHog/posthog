@@ -285,7 +285,6 @@ class TestFacadeReadsAndMappers(TestCase):
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
-                "untrusted_checkout": True,
                 "sandbox_jwt_kid": "secret",
                 "scout_trial": {"id": "private-trial"},
                 "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
@@ -310,8 +309,6 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
-        # The sandbox needs this server-owned bit to keep repository configuration disabled.
-        assert detail.state.get("untrusted_checkout") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
         assert "scout_trial" not in detail.state
         assert "scout_trial_private" not in detail.state
@@ -1334,10 +1331,9 @@ class TestFacadeReadsAndMappers(TestCase):
         [
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
-            ("untrusted_checkout", True),
         ]
     )
-    def test_run_task_resume_carries_protected_stamp(self, state_key: str, value: str | bool):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -1349,7 +1345,7 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={state_key: value},
+            state={state_key: branch},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1362,7 +1358,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertEqual(new_run.state.get(state_key), value)
+        self.assertEqual(new_run.state.get(state_key), branch)
 
     @parameterized.expand(
         [

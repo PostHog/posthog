@@ -45,7 +45,7 @@ import {
   type TestRepo,
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
-import type { StoredEntry, TaskRun } from "../types";
+import type { StoredEntry, Task, TaskRun } from "../types";
 import {
   AgentServer,
   isTurnCompleteNotification,
@@ -8258,7 +8258,7 @@ describe("AgentServer session context security", () => {
     vi.useRealTimers();
   });
 
-  it("refuses to initialize without task-run state after retries", async () => {
+  it("refuses to initialize without the task after retries", async () => {
     vi.useFakeTimers();
     const server = new AgentServer({
       port: 0,
@@ -8271,25 +8271,19 @@ describe("AgentServer session context security", () => {
       runId: "test-run-id",
     });
     const internals = server as unknown as {
-      posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      fetchTaskRunForSessionContext(
-        taskId: string,
-        runId: string,
-      ): Promise<TaskRun>;
+      posthogAPI: { getTask: ReturnType<typeof vi.fn> };
+      fetchTaskForSessionContext(taskId: string): Promise<Task>;
     };
-    internals.posthogAPI.getTaskRun = vi.fn(async () => {
+    internals.posthogAPI.getTask = vi.fn(async () => {
       throw new Error("control plane unavailable");
     });
 
-    const result = internals.fetchTaskRunForSessionContext(
-      "test-task-id",
-      "test-run-id",
-    );
+    const result = internals.fetchTaskForSessionContext("test-task-id");
     const assertion = expect(result).rejects.toThrow(
-      "Task run context is required",
+      "Task context is required",
     );
     await vi.runAllTimersAsync();
     await assertion;
-    expect(internals.posthogAPI.getTaskRun).toHaveBeenCalledTimes(3);
+    expect(internals.posthogAPI.getTask).toHaveBeenCalledTimes(3);
   });
 });

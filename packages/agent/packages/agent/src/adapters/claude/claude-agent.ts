@@ -3117,10 +3117,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
+    const untrustedCheckout = meta?.taskOriginProduct === "review_hog";
     const settingsManager = new SettingsManager(
       cwd,
       !!this.options?.machineAuth,
-      meta?.untrustedCheckout === true,
+      untrustedCheckout,
     );
     await settingsManager.initialize();
 
@@ -3287,7 +3288,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
-      untrustedCheckout: meta?.untrustedCheckout === true,
+      untrustedCheckout,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,
