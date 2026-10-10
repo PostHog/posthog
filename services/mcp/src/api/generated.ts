@@ -126798,8 +126798,8 @@ export namespace Schemas {
     /**
      * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
-     * * `mine` - mine
-     * * `everyone` - everyone
+     * * `mine` - Mine
+     * * `everyone` - Everyone
      * @minLength 1
      */
     scope?: ReviewHogReviewsTableRetrieveScope;

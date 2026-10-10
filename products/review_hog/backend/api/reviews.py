@@ -94,6 +94,11 @@ SCOPE_MINE = "mine"
 SCOPE_EVERYONE = "everyone"
 
 
+class ReviewScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
+
+
 class ReviewsListParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
         choices=[SCOPE_MINE, SCOPE_EVERYONE],
@@ -353,7 +358,7 @@ class ReviewTableStatus(models.TextChoices):
 
 class ReviewsTableParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
-        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        choices=ReviewScope.choices,
         default=SCOPE_MINE,
         help_text="Whose reviews to list: `mine` (the default) for reviews the requesting user ran "
         "plus reviews of pull requests they authored (matched via their linked GitHub login), "
