@@ -27,9 +27,35 @@ no extra setting.
 personal token, and the project key is already public-facing, so a long unattended run never holds
 the operator's own credential.
 
+Log in to the same project that `POSTHOG_PROJECT_API_KEY` belongs to. The retention check below
+reads the logged-in project, so the import stops before sending anything when the two projects
+differ.
+
+PostHog keeps backdated logs only for teams with historical imports turned on. For any other team,
+intake drops them after answering 200, so contact PostHog support before the first import.
+
 Always run `--dry-run` first. It sizes the job and reports how many sampled records each extraction
 rule actually matched. A rule that matches nothing reports `NOT FOUND`, which is the only warning
 you get before a run that would otherwise take hours and produce unusable data.
+
+## Internal certificates
+
+A self-hosted Loki usually answers on an internal hostname, and no public certificate authority
+issues certificates for a name that does not resolve on the public internet. Clusters sign those
+hosts with an authority they run themselves.
+
+The CLI trusts the public authorities and whatever is in the trust store of the machine it runs
+on, so an internally signed Loki works once its root certificate is in that store. In a container,
+install the certificate into the image, or mount it and set `SSL_CERT_FILE` to the file or
+`SSL_CERT_DIR` to a directory of them.
+
+Setting either variable replaces the machine's trust store instead of adding to it. The public
+authorities are compiled into the CLI and stay trusted either way, so pointing `SSL_CERT_FILE` at
+a single internal root does not break the connection to PostHog.
+
+A certificate the CLI cannot verify stops the run on its first request, with
+`invalid peer certificate: UnknownIssuer`. Add the root certificate through one of the routes
+above.
 
 ## The config
 
@@ -95,5 +121,28 @@ Widening `range.from` discards the checkpoint and re-imports everything, and say
 
 ## Retention
 
-Imported records take their retention from when they were imported, not from their own timestamp,
-so a backfill expires the configured number of retention days after the import finishes.
+PostHog keeps only the records that are still inside the project's retention. A record whose
+timestamp plus the retention is already in the past is dropped at intake, even though the request
+succeeds, so a range older than the retention adds nothing but transfer time.
+
+Before it sends anything, the import reads the project's logs retention and says which part of the
+range would be dropped. `--dry-run` prints the same summary. To keep that part, raise logs
+retention in the project settings first.
+
+When part of the range is past retention, the import asks before it goes ahead, and then skips
+those records instead of sending them. One answer covers the whole run, even though the cutoff
+moves forward while a long import runs. Without a terminal, for example in a Kubernetes Job, the
+import stops before sending anything unless you pass `--skip-expired`, which answers the question
+in advance.
+
+If the import cannot read the retention, for example because the API key lacks `project:read`,
+it says so and asks the same question. Nothing is skipped in that case, and intake still drops
+whatever is past retention.
+
+The check uses the project's default logs retention only. Retention rules can give some logs a
+longer or shorter retention than the default, and the import does not read them. If you use
+retention rules, logs that a longer rule would keep may still be skipped, and logs that a shorter
+rule covers may be dropped at intake without a warning.
+
+Records that are kept take their retention from when they were imported, not from their own
+timestamp, so they expire the configured number of retention days after the import finishes.

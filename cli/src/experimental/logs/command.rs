@@ -27,10 +27,29 @@ pub enum ImportSource {
         /// Report the size, duration and mapping coverage of the run without sending anything.
         #[arg(long, default_value_t = false)]
         dry_run: bool,
+
+        /// Skip records older than the project's logs retention without asking. Required when no
+        /// terminal can answer the confirmation, for example in a Kubernetes Job.
+        #[arg(long, default_value_t = false)]
+        skip_expired: bool,
     },
 }
 
+use std::io::IsTerminal;
+
 use anyhow::{bail, Result};
+use inquire::InquireError;
+
+use super::config::LokiImportConfig;
+use super::loki::{LokiAuth, LokiClient};
+use super::mapping::Mapper;
+use super::plan::{render, RunPlan};
+use super::project::{check_login_matches_target, login_project_token};
+use super::retention::{assess, project_retention_days, Expiry};
+
+/// How many records a dry run pulls to prove the mapping. Large enough that a rule matching a
+/// minority of records still shows a non-zero count, small enough to return in seconds.
+const SAMPLE_RECORDS: usize = 100;
 
 impl LogsCommand {
     pub fn run(&self) -> Result<()> {
@@ -43,20 +62,156 @@ impl LogsCommand {
 impl ImportSource {
     fn run(&self) -> Result<()> {
         match self {
-            ImportSource::Loki { config, .. } => {
-                // Parsing and validating the config is the whole of this layer. Reading Loki and
-                // sending to the intake arrives with the engine.
+            ImportSource::Loki {
+                config,
+                checkpoint,
+                dry_run,
+                skip_expired,
+            } => {
                 let text = std::fs::read_to_string(config).map_err(|error| {
                     anyhow::anyhow!("cannot read {}: {error}", config.display())
                 })?;
-                super::config::LokiImportConfig::parse(&text)?;
+                let parsed = LokiImportConfig::parse(&text)?;
 
-                bail!(
-                    "this build validates the import config but cannot run an import yet. \
-                     The config at {} parsed cleanly.",
-                    config.display()
-                )
+                let target_key = std::env::var(super::run::PROJECT_KEY_VAR)
+                    .ok()
+                    .filter(|key| !key.is_empty());
+                check_login_matches_target(
+                    login_project_token().as_deref(),
+                    target_key.as_deref(),
+                )?;
+
+                let retention_days = project_retention_days();
+                let expiry = assess(
+                    parsed.range.from,
+                    parsed.range.to,
+                    retention_days,
+                    chrono::Utc::now(),
+                );
+
+                if *dry_run {
+                    return dry_run_report(&parsed, &expiry);
+                }
+
+                confirm_expiry(&expiry, *skip_expired)?;
+                run_import(&parsed, checkpoint, retention_days)
             }
         }
     }
+}
+
+/// Intake drops records older than retention without telling the sender, so the run states what
+/// it will drop and goes ahead only on an explicit yes.
+fn confirm_expiry(expiry: &Expiry, skip_expired: bool) -> Result<()> {
+    let Some(confirmation) = expiry.confirmation() else {
+        return Ok(());
+    };
+    eprintln!("{}", confirmation.summary);
+    if skip_expired {
+        return Ok(());
+    }
+    // The prompt reads stdin, so stdin is what has to be a terminal. Output piped to a log file
+    // must not stop a run that can still be answered.
+    if !std::io::stdin().is_terminal() {
+        bail!("Stopped before sending anything. Pass --skip-expired to go ahead without asking.");
+    }
+    let confirmed = match inquire::Confirm::new(&confirmation.prompt)
+        .with_default(false)
+        .prompt()
+    {
+        Ok(answer) => answer,
+        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => false,
+        Err(error) => return Err(error.into()),
+    };
+    if !confirmed {
+        bail!("Import cancelled. Nothing was sent.");
+    }
+    Ok(())
+}
+
+fn dry_run_report(config: &LokiImportConfig, expiry: &Expiry) -> Result<()> {
+    let client = LokiClient::new(
+        &config.source,
+        LokiAuth::from_env(),
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?,
+    );
+    let mapper = Mapper::new(config.extract.clone())?;
+
+    // Each selector gets an equal share of the sample. A first selector that filled the whole
+    // sample would report a field that only later selectors carry as NOT FOUND.
+    let per_selector = SAMPLE_RECORDS.div_ceil(config.range.select.len());
+    let from = expiry.effective_from(config.range.from, config.range.to);
+    let mut volume = 0;
+    let mut sample = Vec::new();
+    // A range wholly past retention leaves nothing to size or sample.
+    for selector in config
+        .range
+        .select
+        .iter()
+        .filter(|_| from < config.range.to)
+    {
+        volume += client.volume_bytes(selector, from, config.range.to)?;
+        let share = per_selector.min(SAMPLE_RECORDS - sample.len());
+        if share > 0 {
+            sample.extend(client.sample(selector, from, config.range.to, share)?);
+        }
+    }
+
+    let hits = mapper.hits(&sample);
+    let mapped: Vec<_> = sample.iter().map(|entry| mapper.map(entry)).collect();
+    // First record that actually carried each field. Reading only the first record would report
+    // NOT FOUND for a field most records have, in the output built to prevent exactly that.
+    let samples = [
+        (
+            "service_name",
+            mapped.iter().find_map(|r| r.service_name.clone()),
+        ),
+        (
+            "severity",
+            mapped
+                .iter()
+                .find_map(|r| r.severity.as_ref().map(|(text, _)| text.clone())),
+        ),
+        ("trace_id", mapped.iter().find_map(|r| r.trace_id.clone())),
+        ("span_id", mapped.iter().find_map(|r| r.span_id.clone())),
+    ];
+
+    let sample_bytes: u64 = sample.iter().map(|entry| entry.line.len() as u64).sum();
+    let plan = RunPlan::build(config, from, volume, sample.len() as u64, sample_bytes);
+    print!("{}", render(config, &plan, &hits, &samples));
+    if let Some(confirmation) = expiry.confirmation() {
+        println!("\n{}", confirmation.summary);
+    }
+    Ok(())
+}
+
+fn run_import(
+    config: &LokiImportConfig,
+    checkpoint: &std::path::Path,
+    retention_days: Option<i64>,
+) -> Result<()> {
+    use super::run::{intake_url, project_key_from_env, Importer};
+
+    let http = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+    let client = LokiClient::new(&config.source, LokiAuth::from_env(), http.clone());
+    let mapper = Mapper::new(config.extract.clone())?;
+    // The CLI already resolved the host from --host, then the stored login, then the default.
+    // Re-deriving it here would send an EU project's logs to US.
+    let host = crate::invocation_context::context().config.host.clone();
+
+    Importer {
+        config,
+        loki: &client,
+        mapper: &mapper,
+        http: &http,
+        intake_url: intake_url(&host, config.range.from),
+        project_key: project_key_from_env()?,
+        checkpoint_path: checkpoint,
+        retention_days,
+    }
+    .run()
 }
