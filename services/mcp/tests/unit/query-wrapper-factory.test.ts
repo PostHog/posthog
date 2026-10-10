@@ -639,3 +639,45 @@ describe('createQueryWrapper warnings', () => {
         expect(result).not.toHaveProperty('warnings')
     })
 })
+
+describe('createQueryWrapper cursor pagination', () => {
+    const schema = z.object({ kind: z.string(), after: z.string().optional() })
+
+    it('forwards has_next and next_cursor, and sends after on the next request', async () => {
+        const runQuery = vi
+            .fn()
+            .mockResolvedValueOnce({ results: [{ id: 'a' }], has_next: true, next_cursor: 'cursor-1' })
+            .mockResolvedValueOnce({ results: [{ id: 'b' }], has_next: false, next_cursor: null })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'RecordingsQuery' })()
+
+        const first = (await tool.handler(context, { kind: 'RecordingsQuery' })) as any
+        expect(first).toMatchObject({ has_next: true, next_cursor: 'cursor-1' })
+
+        const second = (await tool.handler(context, { kind: 'RecordingsQuery', after: first.next_cursor })) as any
+        expect(runQuery.mock.calls[1]?.[0].query.after).toBe('cursor-1')
+        expect(second).toMatchObject({ results: [{ id: 'b' }], has_next: false, next_cursor: null })
+    })
+
+    it('omits the keys for queries that do not paginate by cursor', async () => {
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results: [] }) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(context, { kind: 'HogQLQuery' })) as any
+
+        expect(result).not.toHaveProperty('has_next')
+        expect(result).not.toHaveProperty('next_cursor')
+    })
+})
