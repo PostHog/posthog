@@ -5,9 +5,25 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import CharField, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery, Value
+from django.db.models import (
+    BigIntegerField,
+    BooleanField,
+    CharField,
+    F,
+    Func,
+    JSONField,
+    Manager,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+)
 from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -60,7 +76,7 @@ from products.exports.backend.models.subscription import (
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
-from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.models.subscription_context import SubscriptionContext, context_ref
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -141,6 +157,7 @@ class _TargetLookups:
     live_context_insight_lookup: str
     live_context_dashboard_lookup: str
     snapshot_context_ref_overlap: str | None
+    rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -154,6 +171,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     live_context_insight_lookup="contexts__insight_id__in",
     live_context_dashboard_lookup="contexts__dashboard_id__in",
     snapshot_context_ref_overlap=None,
+    rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -168,6 +186,7 @@ _DELIVERY_TARGETS = _TargetLookups(
     live_context_insight_lookup="subscription__contexts__insight_id__in",
     live_context_dashboard_lookup="subscription__contexts__dashboard_id__in",
     snapshot_context_ref_overlap="context_refs__overlap",
+    rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -1183,7 +1202,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _context_refs(identifiers: set[tuple[str, int]]) -> list[str]:
-        return sorted(f"{kind}:{identifier}" for kind, identifier in identifiers)
+        return sorted(context_ref(kind, identifier) for kind, identifier in identifiers)
 
     @staticmethod
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
@@ -1486,6 +1505,26 @@ def _context_ref_subquery(kind: str, blocked_ids: QuerySet, *, id_field: str = "
     return ArraySubquery(references)
 
 
+def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: QuerySet) -> Func:
+    return Func(
+        F(snapshot_field),
+        Func(Value(json_path), template="%(expressions)s::jsonpath", output_field=CharField()),
+        Func(
+            Cast(Value("ids"), output_field=TextField()),
+            # An empty target set compiles to a bare NULL, which Postgres cannot type without the cast.
+            Func(
+                Cast(ArraySubquery(target_ids), output_field=ArrayField(BigIntegerField())),
+                function="to_jsonb",
+                output_field=JSONField(),
+            ),
+            function="jsonb_build_object",
+            output_field=JSONField(),
+        ),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
+
+
 def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
     return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
 
@@ -1539,12 +1578,20 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
             }
         )
 
+    # The subscription can point somewhere else now, so also check what the delivery rendered.
+    rendered_a_blocked_target = Q()
+    if targets.rendered_snapshot is not None:
+        rendered_a_blocked_target = _snapshot_renders_any_of(
+            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", blocked_insights
+        ) | _snapshot_renders_any_of(targets.rendered_snapshot, "$.dashboard ? (@.id == $ids[*])", blocked_dashboards)
+
     return ~(
         targets_a_blocked_insight
         | targets_a_blocked_dashboard
         | exports_a_blocked_insight
         | renders_a_blocked_tile
         | references_a_blocked_context
+        | rendered_a_blocked_target
     )
 
 

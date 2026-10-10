@@ -4279,7 +4279,9 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             target_value="owner@example.com",
             status=SubscriptionDelivery.Status.COMPLETED,
             **{
-                "content_snapshot": {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+                "content_snapshot": {
+                    "insights": [{"id": self.open_insight.id, "name": "Secret", "query_results": [[1, 2, 3]]}]
+                },
                 **overrides,
             },
         )
@@ -4514,6 +4516,33 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription = self._ai_sub_with_contexts(target)
         self._delivery_for(subscription, context_refs=[f"{kind}:{target.id}"])
         SubscriptionContext.objects.for_team(self.team.id).filter(subscription=subscription).delete()
+
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=False)
+
+    @parameterized.expand(
+        [
+            ("a restricted insight", lambda self: {"insights": [{"id": self.restricted_insight.id}]}),
+            (
+                "a restricted dashboard",
+                lambda self: {
+                    "dashboard": {"id": self.restricted_dashboard.id},
+                    "insights": [{"id": self.open_insight.id}],
+                },
+            ),
+            (
+                "a restricted tile on an open dashboard",
+                lambda self: {
+                    "dashboard": {"id": self._dashboard_with_tiles(self.open_insight).id},
+                    "insights": [{"id": self.open_insight.id}, {"id": self.restricted_insight.id}],
+                },
+            ),
+        ]
+    )
+    def test_historical_delivery_keeps_the_authorization_of_what_it_rendered_after_the_target_changes(
+        self, _name, rendered_snapshot
+    ):
+        subscription = self._sub_on_an_open_insight()
+        self._delivery_for(subscription, content_snapshot=rendered_snapshot(self))
 
         self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=False)
 
