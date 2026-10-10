@@ -517,6 +517,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         return this.repository.resolvePersonsByDistinctIds(keys, CALLER_TAG)
     }
 
+    private resolvePersonIds(
+        site: ResolveSite,
+        keys: DistinctIdKey[]
+    ): ReturnType<PersonHogPersonWriteRepository['resolvePersonIdsByDistinctIds']> {
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site }, keys.length)
+        return this.repository.resolvePersonIdsByDistinctIds(keys, CALLER_TAG)
+    }
+
     /** Resolves through identity and serves its answer directly, saving the leader hop. */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.getCachedPerson(teamId, distinctId, 'check')
@@ -1120,7 +1128,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
         }
         try {
-            const resolved = await this.resolveDistinctIds(
+            const resolved = await this.resolvePersonIds(
                 'prefetch',
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
@@ -1136,7 +1144,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                             personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
                             return
                         }
-                        if (!entry.person) {
+                        if (entry.personId === null) {
                             this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
                                 grade: 'check',
                                 generation,
@@ -1144,8 +1152,8 @@ export class PersonhogPersonsStore implements PersonsStore {
                             })
                             return
                         }
-                        const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        // Merged away since identity answered; the update read resolves it.
+                        const person = await this.repository.fetchPersonById(entry.teamId, entry.personId, CALLER_TAG)
+                        // Deleted or merged away; the update read resolves it.
                         if (!this.prefetchingBatches.has(batchId) || person === null) {
                             personhogStorePrefetchAnswerCounter.inc({
                                 outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',

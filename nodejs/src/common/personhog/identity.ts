@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 import {
     GetDistinctIdsForPersonsRequestSchema,
     GetOrCreatePersonByDistinctIdRequestSchema,
+    GetPersonByDistinctIdResult,
     GetPersonsByDistinctIdsRequestSchema,
     MergePersonsRequestSchema,
     MergeSourceOutcome,
@@ -177,10 +178,36 @@ export class PersonhogIdentityOperations {
         keys: DistinctIdKey[],
         callerTag?: string
     ): Promise<{ teamId: number; distinctId: string; person: PersonIdentity | null }[]> {
-        if (keys.length === 0) {
-            return []
-        }
-        const out: { teamId: number; distinctId: string; person: PersonIdentity | null }[] = []
+        const results = await this.resolveInChunks(keys, false, callerTag)
+        return results.map((result) => ({
+            teamId: Number(result.teamId),
+            distinctId: result.distinctId,
+            person: result.person ? protoPersonToIdentity(result.person) : null,
+        }))
+    }
+
+    /**
+     * Person ids only, from the distinct id table. The person may be deleted
+     * or merged away, so callers must confirm it through the leader.
+     */
+    async getPersonIdsByDistinctIds(
+        keys: DistinctIdKey[],
+        callerTag?: string
+    ): Promise<{ teamId: number; distinctId: string; personId: string | null }[]> {
+        const results = await this.resolveInChunks(keys, true, callerTag)
+        return results.map((result) => ({
+            teamId: Number(result.teamId),
+            distinctId: result.distinctId,
+            personId: result.person ? String(result.person.id) : null,
+        }))
+    }
+
+    private async resolveInChunks(
+        keys: DistinctIdKey[],
+        idsOnly: boolean,
+        callerTag?: string
+    ): Promise<GetPersonByDistinctIdResult[]> {
+        const out: GetPersonByDistinctIdResult[] = []
         for (let i = 0; i < keys.length; i += IDENTITY_BATCH_SIZE) {
             const chunk = keys.slice(i, i + IDENTITY_BATCH_SIZE)
             const response = await this.client.getPersonsByDistinctIds(
@@ -189,16 +216,11 @@ export class PersonhogIdentityOperations {
                         teamId: BigInt(key.teamId),
                         distinctId: key.distinctId,
                     })),
+                    idsOnly,
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
-            for (const result of response.results) {
-                out.push({
-                    teamId: Number(result.teamId),
-                    distinctId: result.distinctId,
-                    person: result.person ? protoPersonToIdentity(result.person) : null,
-                })
-            }
+            out.push(...response.results)
         }
         return out
     }

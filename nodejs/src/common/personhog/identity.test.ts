@@ -130,18 +130,23 @@ describe('PersonhogIdentityOperations', () => {
     // The identity service rejects batches above 250, so the wrappers must
     // chunk — without this, a large-batch prefetch degrades to a silent
     // no-op on exactly the batches it exists for.
-    it('chunks resolve requests to the service batch cap', async () => {
+    it.each([
+        ['getPersonsByDistinctIds' as const, false],
+        ['getPersonIdsByDistinctIds' as const, true],
+    ])('%s chunks resolve requests to the service batch cap', async (method, idsOnly) => {
         const handler = jest.fn((req: GetPersonsByDistinctIdsRequest) => ({
             results: req.keys.map((key) => ({ teamId: key.teamId, distinctId: key.distinctId, person: undefined })),
         }))
         const ops = makeOps({ getPersonsByDistinctIds: handler })
 
         const keys = Array.from({ length: 251 }, (_, i) => ({ teamId: 1, distinctId: `d${i}` }))
-        const results = await ops.getPersonsByDistinctIds(keys)
+        const results = await ops[method](keys)
 
         expect(handler).toHaveBeenCalledTimes(2)
-        expect(handler.mock.calls[0][0].keys).toHaveLength(250)
-        expect(handler.mock.calls[1][0].keys).toHaveLength(1)
+        expect(handler.mock.calls.map(([req]) => [req.keys.length, req.idsOnly])).toEqual([
+            [250, idsOnly],
+            [1, idsOnly],
+        ])
         expect(results).toHaveLength(251)
     })
 

@@ -101,6 +101,16 @@ describe('PersonhogPersonsStore', () => {
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
+        // Identity answers an ids-only resolve with the id of the person a full resolve returns.
+        repository.resolvePersonIdsByDistinctIds = jest.fn((keys, callerTag) =>
+            repository.resolvePersonsByDistinctIds(keys, callerTag).then((results) =>
+                results.map(({ teamId, distinctId, person }) => ({
+                    teamId,
+                    distinctId,
+                    personId: person?.id ?? null,
+                }))
+            )
+        ) as never
         store = new PersonhogPersonsStore(repository)
     })
 
@@ -344,8 +354,8 @@ describe('PersonhogPersonsStore', () => {
             expect((await bound.fetchForUpdate(1, distinctId))?.id).toBe('7')
         }
 
-        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toHaveLength(ids.length)
+        expect(repository.resolvePersonIdsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonIdsByDistinctIds.mock.calls[0][0]).toHaveLength(ids.length)
     })
 
     it.each([['fetchForUpdate' as const], ['fetchForChecking' as const]])(
@@ -399,8 +409,8 @@ describe('PersonhogPersonsStore', () => {
             { teamId: 1, distinctId: 'd1', batchId: 0 },
             { teamId: 1, distinctId: 'd1', batchId: 0 },
         ])
-        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toEqual([{ teamId: 1, distinctId: 'd1' }])
+        expect(repository.resolvePersonIdsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonIdsByDistinctIds.mock.calls[0][0]).toEqual([{ teamId: 1, distinctId: 'd1' }])
     })
 
     it('a failed prefetch falls back to first-touch resolution', async () => {
