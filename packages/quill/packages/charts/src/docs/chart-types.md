@@ -99,8 +99,15 @@ There is no `series` or `labels`.
   `var(--…)` colors resolve inside the chart.
 - `nodeAlign` decides where a flow that ends early sits: `justify` (default) moves terminal nodes to the last column; `left` keeps each node at its own depth, which reads right when columns are stages.
   `preserveNodeOrder` keeps input order within a column instead of untangling ribbons.
-- `columnLabels` renders headers above each column and reserves room for them.
+  A node with `column` set is pinned there whatever its depth, and the graph grows to fit the highest pin; use it when the data names its own stage, so `columnLabels` stay truthful for flows that end early or start late.
+  Pin every node or none, because an unpinned node is placed by depth and ignores its neighbors' pins.
+  Pins must run forward along the links: a link whose target column is at or before its source's draws backwards, with no error.
+  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws.
+- `columnLabels` renders headers above each column and reserves room for them, added to any consumer `margins.top`; a header too wide for its column truncates.
   Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
+  `lastColumnLabels: 'outside'` moves the last column's labels to the right of the nodes and reserves a margin for them (capped at 160px and at half the plot width), so names in that column read in full on a narrow chart. The margin counts only the nodes that land in the last column under `nodeAlign`, and it adds to a consumer `margins.right` rather than being replaced by it.
+  Hovering a label counts as hovering its node, so a truncated name shows in full in the tooltip.
+  A label that would print over a larger neighbor's label in the same column is dropped; the tooltip still names that node.
   `showNodeValues` appends the node value.
 - Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
   The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed value of source nodes with no incoming link).
