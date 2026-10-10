@@ -408,44 +408,41 @@ export interface AiSubscriptionGateInputs {
     aiConsentApproved: boolean
     isCloud: boolean
     isDebug: boolean
-    aiFlagEnabled: boolean
 }
 
 export interface AiSubscriptionGate {
-    /** Org cleared every gate (consent + cloud/debug + flag) needed to author an AI report. */
+    /** Org cleared every gate (consent + cloud/debug) needed to author an AI report. */
     aiAllowed: boolean
-    /** Show the "What to send" (insight vs AI) toggle — new parent-anchored subs, feature on. */
+    /** Show the "What to send" (insight vs AI) toggle — new parent-anchored subs. */
     showResourceTypeToggle: boolean
     /** The AI option in the toggle is selectable (vs greyed with a consent reason). */
     aiOptionEnabled: boolean
-    /** Insight-flow hint: feature exists but consent is missing. */
+    /** Insight-flow hint: consent is missing. */
     showConsentHint: boolean
-    /** AI-only-form banner: feature exists, consent missing, creating (not editing). */
+    /** AI-only-form banner: consent missing, creating (not editing). */
     showAiFormConsentBanner: boolean
     /** Block submit on a new AI subscription that can't be created — mirrors the create-only backend gate. */
     submitBlocked: boolean
 }
 
 /**
- * Single source of truth for how the AI-subscription feature flag (visibility) and the
- * org AI-data-processing consent (enablement) gate the subscription form. Pure so the
- * flag-off / consent-missing combinations are provable without rendering the component.
+ * Single source of truth for how the org AI-data-processing consent and the cloud/debug
+ * requirement gate the subscription form. Pure so the consent-missing combinations are
+ * provable without rendering the component.
  *
- * - flag off → the feature does not exist: hide the toggle, option, and banners.
- * - flag on, no consent → it exists but is blocked: toggle shows with AI greyed + a consent
- *   hint; submit is blocked on the AI-only form.
+ * - no consent → toggle shows with AI greyed + a consent hint; submit is blocked on the AI-only form.
  * - editing → never block (the backend gates creation only; users must be able to edit/disable).
  */
 export function getAiSubscriptionGate(inputs: AiSubscriptionGateInputs): AiSubscriptionGate {
-    const { isAiPrompt, isParentless, isEditing, aiConsentApproved, isCloud, isDebug, aiFlagEnabled } = inputs
-    const aiAllowed = aiConsentApproved && (isCloud || isDebug) && aiFlagEnabled
-    const showResourceTypeToggle = !isParentless && !isEditing && aiFlagEnabled
+    const { isAiPrompt, isParentless, isEditing, aiConsentApproved, isCloud, isDebug } = inputs
+    const aiAllowed = aiConsentApproved && (isCloud || isDebug)
+    const showResourceTypeToggle = !isParentless && !isEditing
     return {
         aiAllowed,
         showResourceTypeToggle,
         aiOptionEnabled: aiAllowed,
         showConsentHint: showResourceTypeToggle && !aiAllowed,
-        showAiFormConsentBanner: isAiPrompt && !isEditing && aiFlagEnabled && !aiAllowed,
+        showAiFormConsentBanner: isAiPrompt && !isEditing && !aiAllowed,
         submitBlocked: isAiPrompt && !isEditing && !aiAllowed,
     }
 }

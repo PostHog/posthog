@@ -14,7 +14,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -122,7 +121,6 @@ export function SubscriptionWizard({
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -139,7 +137,6 @@ export function SubscriptionWizard({
         aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
         isCloud: Boolean(preflight?.cloud),
         isDebug: Boolean(preflight?.is_debug),
-        aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
     const selectedInsightsReady = !dashboard || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady

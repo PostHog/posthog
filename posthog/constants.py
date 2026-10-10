@@ -318,8 +318,6 @@ class FlagRequestType(StrEnum):
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 
-# Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
-SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"

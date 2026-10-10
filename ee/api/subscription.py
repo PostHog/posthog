@@ -35,7 +35,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
@@ -195,21 +194,11 @@ def _viewable_queryset(
     return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
 
-def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
+def _ai_create_gate_reason(organization) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
     if not organization.is_ai_data_processing_approved:
         return "Your organization must approve AI data processing before creating AI subscriptions."
-    # Per-user gate so people can self-enable via feature previews (early access) — the flag is
-    # person-based. AI credits and the subscription limit stay org-scoped, enforced separately.
-    # Non-user callers get a synthetic team_<id> distinct_id that never matches → fails closed.
-    if not posthoganalytics.feature_enabled(
-        SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-        distinct_id,
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    ):
-        return "AI subscriptions are not enabled for your account."
     return None
 
 
@@ -691,7 +680,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             raise ValidationError({"target_type": ["AI subscriptions only support email, slack, or teams delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
-            gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
+            gate_reason = _ai_create_gate_reason(self.context["get_organization"]())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
 
