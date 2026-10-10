@@ -3165,6 +3165,12 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                 searchKeywords: ['tests'],
             },
+            {
+                name: 'Property syncs',
+                href: urls.warehouseProperties(),
+                flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
+                searchKeywords: ['warehouse properties', 'person properties', 'group properties'],
+            },
         ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
@@ -3240,18 +3246,5 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
         sceneKey: 'WarehouseDestinations',
         sceneKeys: ['WarehouseDestinations'],
-    },
-    {
-        path: 'Warehouse properties',
-        category: 'Schema',
-        iconType: 'warehouse_property',
-        iconColor: [
-            'var(--color-product-warehouse-properties-light)',
-            'var(--color-product-warehouse-properties-dark)',
-        ],
-        href: urls.warehouseProperties(),
-        flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
-        sceneKey: 'WarehouseProperties',
-        sceneKeys: ['WarehouseProperties'],
     },
 ]

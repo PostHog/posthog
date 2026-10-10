@@ -24,7 +24,7 @@ per column.
 - "Sync my `postgres.customer_attributes` columns to person properties"
 - "We send a daily identify job from our warehouse, can PostHog pull it instead?"
 - "Map this table to people" / "reverse ETL into PostHog"
-- The user is looking at Data → Warehouse properties and wants a whole table mapped
+- The user is looking at Data → Models → Property syncs and wants a whole table mapped
 
 Use `setting-up-a-data-warehouse-source` instead when the table is not in the warehouse yet. This skill starts
 once the data is syncing.

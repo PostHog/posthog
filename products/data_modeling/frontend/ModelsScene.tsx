@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -24,6 +25,8 @@ import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
 import { ViewsTab } from './ViewsTab'
 
+type DataModelingSceneTab = ModelsSceneTab | 'property-syncs'
+
 export const scene: SceneExport = {
     component: ModelsScene,
     logic: modelsSceneLogic,
@@ -31,8 +34,14 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, dataQualityTabEnabled, suspensionBySavedQueryId } =
-        useValues(modelsSceneLogic)
+    const {
+        savedQueryIdToNodeId,
+        activeTab,
+        lineageTabVisited,
+        dataQualityTabEnabled,
+        featureFlags,
+        suspensionBySavedQueryId,
+    } = useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
@@ -48,7 +57,7 @@ export function ModelsScene(): JSX.Element {
         )
     }
 
-    const tabs: LemonTab<ModelsSceneTab>[] = [
+    const tabs: LemonTab<DataModelingSceneTab>[] = [
         {
             key: 'overview',
             label: 'Overview',
@@ -79,6 +88,16 @@ export function ModelsScene(): JSX.Element {
                       link: urls.models('data-quality'),
                       content: <DataQualityOverview />,
                       'data-attr': 'models-tab-data-quality',
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]
+            ? [
+                  {
+                      key: 'property-syncs' as const,
+                      label: 'Property syncs',
+                      link: urls.warehouseProperties(),
+                      'data-attr': 'models-tab-property-syncs',
                   },
               ]
             : []),
