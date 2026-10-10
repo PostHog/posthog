@@ -3282,6 +3282,35 @@ describe('dashboardLogic', () => {
                         },
                     })
             })
+
+            it('initial load queues a fresh insight that has no result', async () => {
+                const dashboard = dashboards[5]
+                const freshWithResult = {
+                    ...dashboard.tiles[0].insight!,
+                    cache_target_age: now().add(1, 'minute').toISOString(),
+                }
+                const freshWithoutResult = {
+                    ...dashboard.tiles[1].insight!,
+                    result: null,
+                    cache_target_age: now().add(1, 'minute').toISOString(),
+                }
+                dashboard.tiles[0].insight = freshWithResult
+                dashboard.tiles[1].insight = freshWithoutResult
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                })
+                    .toDispatchActions([
+                        'refreshDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([freshWithoutResult.short_id], false, true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [freshWithoutResult.short_id]: { loading: false, queued: true, timer: null },
+                            [freshWithResult.short_id]: undefined,
+                        },
+                    })
+            })
         })
 
         describe('page visibility', () => {

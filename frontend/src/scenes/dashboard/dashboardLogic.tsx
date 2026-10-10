@@ -4378,11 +4378,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // sort tiles so we poll them in the exact order they are computed on the backend
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .filter((t): t is DashboardTile & { insight: InsightModel } => !!t.insight)
-                // only refresh stale insights
+                // only refresh stale insights, and insights with no result to show
                 .filter(
                     (t) =>
                         forceRefresh ||
                         !isInitialLoadOrUpdate ||
+                        t.insight.result == null ||
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
