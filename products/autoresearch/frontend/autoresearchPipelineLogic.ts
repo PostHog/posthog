@@ -70,6 +70,7 @@ import {
     validatedPredictionDates,
 } from './onlinePerformance'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
+import { type CoveragePoint, type CoverageSummary, coverageHistory, coverageSummary } from './predictionCoverage'
 import {
     PREDICTION_SEGMENTS,
     PREDICTION_SEGMENT_THRESHOLDS,
@@ -281,6 +282,8 @@ export interface autoresearchPipelineLogicValues {
     breadcrumbs: Breadcrumb[]
     champion: AutoresearchModelApi | null
     championConfusion: PooledConfusion | null
+    coverageHistory: CoveragePoint[]
+    coverageSummary: CoverageSummary | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
@@ -749,6 +752,12 @@ export interface autoresearchPipelineLogicMeta {
             runs: AutoresearchRunApi[],
             pipeline: AutoresearchPipelineApi | null
         ) => ScoringCoverage | null
+        coverageSummary: (
+            runs: AutoresearchRunApi[],
+            estimate: ScoringCoverage | null,
+            pipeline: AutoresearchPipelineApi | null
+        ) => CoverageSummary | null
+        coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
         latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
         realizedAucPoints: (onlinePerformance: OnlinePerformanceRowApi[]) => RealizedAucPoint[]
         segmentCalibration: (latestChampionPerformance: OnlinePerformanceRowApi | null) => SegmentCalibration[]
@@ -1302,6 +1311,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): ScoringCoverage | null =>
                 scoringCoverage(runs, pipeline?.cadence_days ?? 1),
         ],
+        coverageSummary: [
+            (s) => [s.runs, s.scoringCoverage, s.pipeline],
+            (
+                runs: AutoresearchRunApi[],
+                estimate: ScoringCoverage | null,
+                pipeline: AutoresearchPipelineApi | null
+            ): CoverageSummary | null =>
+                coverageSummary(runs, estimate?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
+        ],
+        coverageHistory: [(s) => [s.runs], (runs: AutoresearchRunApi[]): CoveragePoint[] => coverageHistory(runs)],
         latestChampionPerformance: [
             (s) => [s.onlinePerformance],
             (onlinePerformance: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null =>
