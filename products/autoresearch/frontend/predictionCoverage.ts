@@ -86,9 +86,14 @@ export function coverageHistory(runs: AutoresearchRunApi[]): CoveragePoint[] {
     if (days.length === 0) {
         return []
     }
+    // Failed live runs after the last measure extend the axis, so trailing failed days show as gaps too.
+    const lastDay = runs
+        .filter((run) => isLiveChampionRun(run) && run.status === 'failed')
+        .map((run) => run.created_at.slice(0, 10))
+        .reduce((latest, day) => (day > latest ? day : latest), days[days.length - 1])
     // A day with no measured run stays on the axis as a gap, so failed or skipped runs stay visible.
     const points: CoveragePoint[] = []
-    for (let day = dayjs.utc(days[0]); !day.isAfter(dayjs.utc(days[days.length - 1])); day = day.add(1, 'day')) {
+    for (let day = dayjs.utc(days[0]); !day.isAfter(dayjs.utc(lastDay)); day = day.add(1, 'day')) {
         const key = day.format('YYYY-MM-DD')
         points.push(byDay.get(key) ?? { day: key, coveragePct: null, ageP50Days: null, ageP90Days: null })
     }

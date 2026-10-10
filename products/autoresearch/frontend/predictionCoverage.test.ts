@@ -97,19 +97,21 @@ describe('predictionCoverage', () => {
         expect(coverageSummary([run({ metrics })], 4)?.cutoffDate).toEqual(expected)
     })
 
-    test('coverageHistory keeps the newest measured run per day and leaves a gap for a day without one', () => {
+    test('coverageHistory keeps the newest measured run per day and leaves a gap for each day without one, including trailing failed days', () => {
         const history = coverageHistory([
             run({ created_at: '2026-03-02T15:00:00Z', coverage: coverage({ with_score: 800, age_days_p50: 1 }) }),
             run({ created_at: '2026-03-01T03:00:00Z', coverage: coverage({ with_score: 500 }) }),
             run({ created_at: '2026-03-02T03:00:00Z', coverage: coverage({ with_score: 700 }) }),
             run({ created_at: '2026-03-03T03:00:00Z', status: 'failed', coverage: null }),
             run({ created_at: '2026-03-04T03:00:00Z', coverage: coverage({ with_score: 900 }) }),
+            run({ created_at: '2026-03-05T03:00:00Z', status: 'failed', coverage: null }),
         ])
         expect(history).toEqual([
             { day: '2026-03-01', coveragePct: 50, ageP50Days: 2, ageP90Days: 3.5 },
             { day: '2026-03-02', coveragePct: 80, ageP50Days: 1, ageP90Days: 3.5 },
             { day: '2026-03-03', coveragePct: null, ageP50Days: null, ageP90Days: null },
             { day: '2026-03-04', coveragePct: 90, ageP50Days: 2, ageP90Days: 3.5 },
+            { day: '2026-03-05', coveragePct: null, ageP50Days: null, ageP90Days: null },
         ])
     })
 })

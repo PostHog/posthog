@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { type Series, TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -79,7 +79,8 @@ export function CoverageSummaryBanner(): JSX.Element | null {
 
 /** Coverage and score age per scoring day, from the runs list. */
 export function CoverageHistoryChart(): JSX.Element {
-    const { coverageHistory } = useValues(autoresearchPipelineLogic)
+    const { coverageHistory, runsLoaded, runsError, runsLoading } = useValues(autoresearchPipelineLogic)
+    const { loadRuns } = useActions(autoresearchPipelineLogic)
     const theme = useChartTheme()
 
     const series = useMemo<Series[]>(
@@ -124,6 +125,19 @@ export function CoverageHistoryChart(): JSX.Element {
         []
     )
 
+    if (runsError) {
+        return (
+            <div className="flex items-center gap-2">
+                <p className="text-sm text-muted mb-0">Couldn't load the scoring runs.</p>
+                <LemonButton size="small" type="secondary" onClick={loadRuns} loading={runsLoading}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+    if (!runsLoaded) {
+        return <LemonSkeleton className="h-64" />
+    }
     if (coverageHistory.filter((p) => p.coveragePct != null).length < 2) {
         return (
             <p className="text-sm text-muted mb-0">
