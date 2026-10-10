@@ -89,6 +89,7 @@ export function SurveyViewRedesign(): JSX.Element {
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
@@ -471,7 +472,10 @@ export function SurveyViewRedesign(): JSX.Element {
                             key: 'summary',
                             label: 'Summary',
                             content: isDraft ? (
-                                <SurveyDraftContent onSeeSurveyDetails={openDraftDetails} />
+                                // An open panel already shows the details, so the button would do nothing.
+                                <SurveyDraftContent
+                                    onSeeSurveyDetails={scenePanelOpen ? undefined : openDraftDetails}
+                                />
                             ) : (
                                 <SurveySummaryContent onViewResponses={() => setActiveTab(SurveyTab.RESPONSES)} />
                             ),
