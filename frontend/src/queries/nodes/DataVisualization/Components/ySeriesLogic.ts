@@ -30,10 +30,10 @@ export interface ySeriesLogicValues {
     display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
-        label: string
-        trendLine: boolean
         excludeFromTotal: boolean
         hideValueLabel: boolean
+        label: string
+        trendLine: boolean
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -42,10 +42,10 @@ export interface ySeriesLogicValues {
         {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -58,10 +58,10 @@ export interface ySeriesLogicValues {
         {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -119,19 +119,19 @@ export interface ySeriesLogicActions {
     resetDisplay: (values?: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
-        label: string
-        trendLine: boolean
         excludeFromTotal: boolean
         hideValueLabel: boolean
+        label: string
+        trendLine: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -162,20 +162,20 @@ export interface ySeriesLogicActions {
         values: DeepPartial<{
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
         values: DeepPartial<{
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -223,38 +223,38 @@ export interface ySeriesLogicActions {
     submitDisplayRequest: (display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
-        label: string
-        trendLine: boolean
         excludeFromTotal: boolean
         hideValueLabel: boolean
+        label: string
+        trendLine: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
     submitDisplaySuccess: (display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
-        label: string
-        trendLine: boolean
         excludeFromTotal: boolean
         hideValueLabel: boolean
+        label: string
+        trendLine: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
-            label: string
-            trendLine: boolean
             excludeFromTotal: boolean
             hideValueLabel: boolean
+            label: string
+            trendLine: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
