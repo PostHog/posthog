@@ -53,7 +53,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
-from products.review_hog.backend.reviewer.review_state import turn_review_mode
+from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
@@ -702,7 +702,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         turns = [bundle.turn(str(report.id), report.run_count) for report in reports]
         if scope == PerspectiveStatsScope.OWN_DEEP:
             # Standard turns read none of the user's skills, so they would dilute the kept counts.
-            turns = [pairs for pairs in turns if turn_review_mode(pairs) == REVIEW_MODE_FULL]
+            turns = [
+                pairs
+                for report, pairs in zip(reports, turns)
+                if completed_turn_review_mode(report, pairs) == REVIEW_MODE_FULL
+            ]
             turns = turns[:OWN_DEEP_STATS_REVIEW_LIMIT]
         stats: dict[str, dict[str, int]] = {}
         for pairs in turns:

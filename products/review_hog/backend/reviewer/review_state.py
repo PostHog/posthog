@@ -7,8 +7,7 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, RE
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
 
 
-def turn_review_mode(pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict | None]]) -> str:
-    """The mode a turn ran in, read from its findings. A turn without findings reads as a Deep (full) turn."""
+def _findings_review_mode(pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict | None]]) -> str | None:
     for finding, _ in pairs:
         if finding.validation_context:
             try:
@@ -19,7 +18,12 @@ def turn_review_mode(pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict
                 mode = context.get("review_mode")
                 if isinstance(mode, str) and mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH):
                     return mode
-    return REVIEW_MODE_FULL
+    return None
+
+
+def turn_review_mode(pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict | None]]) -> str:
+    """The mode a turn ran in, read from its findings. A turn without findings reads as a Deep (full) turn."""
+    return _findings_review_mode(pairs) or REVIEW_MODE_FULL
 
 
 def review_mode_for_run(report: ReviewReport, run_index: int) -> str:
@@ -34,6 +38,20 @@ def published_heads_by_mode(report: ReviewReport) -> dict[str, str]:
     # Older reports stored the mode on findings, before publication had separate watermarks.
     run_index = max((int(index) for index in (report.published_head_shas or {})), default=report.run_count)
     return {review_mode_for_run(report, run_index): report.published_head_sha}
+
+
+def completed_turn_review_mode(
+    report: ReviewReport, pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+) -> str:
+    """The mode of a report's completed turn. A turn without findings falls back to the publish watermarks."""
+    mode = _findings_review_mode(pairs)
+    if mode is not None:
+        return mode
+    head = report.completed_head_sha or report.head_sha
+    heads = published_heads_by_mode(report)
+    if head and heads.get(REVIEW_MODE_FLASH) == head and heads.get(REVIEW_MODE_FULL) != head:
+        return REVIEW_MODE_FLASH
+    return REVIEW_MODE_FULL
 
 
 def review_already_published(report: ReviewReport, head_sha: str, review_mode: str) -> bool:

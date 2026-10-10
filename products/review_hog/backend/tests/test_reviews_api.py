@@ -882,6 +882,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         # Deep review uses the teammate's skills, so neither may count.
         standard = self._report(pr_number=4, acting_user=self.user)
         self._finding(standard, "1-s", priority=IssuePriority.MUST_FIX, perspective=logic, review_mode="flash")
+        # A clean Standard turn has no findings to carry its mode, so only the publish watermark tells.
+        self._report(pr_number=5, acting_user=self.user, head_sha="c1ea2", published_heads_by_mode={"flash": "c1ea2"})
 
         res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
 
