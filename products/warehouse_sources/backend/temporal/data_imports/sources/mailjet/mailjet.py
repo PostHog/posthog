@@ -56,7 +56,7 @@ WEBHOOK_BASIC_AUTH_USERNAME = "posthog"
 LOGGER = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailjetResumeConfig:
     offset: int = 0
     # The schema this offset belongs to. A single job can sync multiple schemas, so we
