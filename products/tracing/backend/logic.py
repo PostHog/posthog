@@ -838,7 +838,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             placeholders={
                 "date_from": ast.Constant(value=self.query_date_range.date_from() - ROOT_SPAN_LOOKBACK),
                 "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                "excluded": ast.Or(exprs=excluded) if len(excluded) > 1 else excluded[0],
+                "excluded": ast.Or(exprs=excluded),
             },
         )
         return parse_expr(
