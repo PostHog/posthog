@@ -1,0 +1,586 @@
+{
+    "method": "aiObservability.llmaScoreDefinitionList",
+    "toolName": "llma-score-definition-list",
+    "operationId": "llm_analytics_score_definitions_list",
+    "title": "List scorers",
+    "category": "AI observability",
+    "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaScoreDefinitionListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaScoreDefinitionListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListRequestSchema5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "archived",
+            "effectiveDescription": "Filter by archived state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by archived state.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "kind",
+            "effectiveDescription": "Filter by scorer kind.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by scorer kind.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "order_by",
+            "effectiveDescription": "Sort by name, kind, created_at, updated_at, or current_version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort by name, kind, created_at, updated_at, or current_version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListInput",
+            "field": "search",
+            "effectiveDescription": "Search scorers by name or description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search scorers by name or description.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape2",
+            "field": "current_version",
+            "effectiveDescription": "Current immutable configuration version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current immutable configuration version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/current_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape2",
+            "field": "current_version_id",
+            "effectiveDescription": "UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape2",
+            "field": "config",
+            "effectiveDescription": "Current immutable scorer configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current immutable scorer configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape2",
+            "field": "created_by",
+            "effectiveDescription": "User who created the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "field": "options",
+            "effectiveDescription": "Ordered categorical options available to the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered categorical options available to the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "field": "selection_mode",
+            "effectiveDescription": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "field": "min_selections",
+            "effectiveDescription": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/min_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "field": "max_selections",
+            "effectiveDescription": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/max_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape3",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape4",
+            "field": "key",
+            "effectiveDescription": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape4",
+            "field": "label",
+            "effectiveDescription": "Human-readable option label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable option label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape5",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape6",
+            "field": "min",
+            "effectiveDescription": "Optional inclusive minimum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive minimum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape6",
+            "field": "max",
+            "effectiveDescription": "Optional inclusive maximum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive maximum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape6",
+            "field": "step",
+            "effectiveDescription": "Optional increment step for numeric input, for example 1 or 0.5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional increment step for numeric input, for example 1 or 0.5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape6",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape7",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape7",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape8",
+            "field": "true_is_failure",
+            "effectiveDescription": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape8",
+            "field": "true_label",
+            "effectiveDescription": "Optional label for a true value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a true value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/true_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListResponseShape8",
+            "field": "false_label",
+            "effectiveDescription": "Optional label for a false value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a false value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/false_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

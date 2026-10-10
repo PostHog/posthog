@@ -1,0 +1,374 @@
+{
+    "method": "aiObservability.llmaPromptList",
+    "toolName": "llma-prompt-list",
+    "operationId": "llm_prompts_list",
+    "title": "List prompts",
+    "category": "Experiments",
+    "description": "List all LLM prompts stored for the current team. Optionally filter by name. Pass `label` (e.g. 'production') to get each prompt at the version that label currently points to; prompts without that label are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small. With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references resolved and `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference tags intact.",
+    "requiredScopes": ["llm_prompt:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaPromptListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaPromptListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaPromptListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List all LLM prompts stored for the current team. Optionally filter by name. Pass `label` (e.g. 'production') to get each prompt at the version that label currently points to; prompts without that label are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small. With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references resolved and `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference tags intact.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaPromptListInput",
+            "field": "search",
+            "effectiveDescription": "Optional substring filter applied to prompt names and prompt content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional substring filter applied to prompt names and prompt content.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListInput",
+            "field": "label",
+            "effectiveDescription": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListInput",
+            "field": "content",
+            "effectiveDescription": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/ai_observability/mcp/tools.yaml",
+                        "pointer": "/tools/llma-prompt-list/param_overrides/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "config",
+            "effectiveDescription": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/version_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "labels",
+            "effectiveDescription": "Names of the labels currently pointing at this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the labels currently pointing at this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "activity_item_id",
+            "effectiveDescription": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/activity_item_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape2",
+            "field": "prompt",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape6",
+            "field": "level",
+            "effectiveDescription": "Markdown heading level (1-6).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown heading level (1-6).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape6",
+            "field": "text",
+            "effectiveDescription": "Heading text with markdown link syntax preserved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heading text with markdown link syntax preserved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape7",
+            "field": "name",
+            "effectiveDescription": "Label name, e.g. 'production'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label name, e.g. 'production'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape7",
+            "field": "version",
+            "effectiveDescription": "Prompt version this label currently points to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt version this label currently points to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape8",
+            "field": "name",
+            "effectiveDescription": "Name of the referenced prompt that was spliced in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the referenced prompt that was spliced in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape8",
+            "field": "version",
+            "effectiveDescription": "Exact version whose content was spliced in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact version whose content was spliced in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptListResponseShape8",
+            "field": "label",
+            "effectiveDescription": "Label the reference used, or null when it pinned a version directly.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label the reference used, or null when it pinned a version directly.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/label"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

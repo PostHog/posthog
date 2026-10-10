@@ -1,0 +1,80 @@
+{
+    "method": "aiObservability.llmaClusteringConfigGet",
+    "toolName": "llma-clustering-config-get",
+    "operationId": "llm_analytics_clustering_config_list",
+    "title": "Get clustering config",
+    "category": "AI observability",
+    "description": "Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
+    "requiredScopes": ["ai_observability_clusters:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaClusteringConfigGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-config-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-config-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaClusteringConfigGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-config-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-config-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaClusteringConfigGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-config-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringConfigGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-config-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Team-level clustering configuration (event filters for automated pipelines).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1clustering_config~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaClusteringConfigGetData",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/event_filters"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

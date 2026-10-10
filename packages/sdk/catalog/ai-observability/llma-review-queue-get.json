@@ -1,0 +1,140 @@
+{
+    "method": "aiObservability.llmaReviewQueueGet",
+    "toolName": "llma-review-queue-get",
+    "operationId": "llm_analytics_review_queues_retrieve",
+    "title": "Get review queue",
+    "category": "AI observability",
+    "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaReviewQueueGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaReviewQueueGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaReviewQueueGetResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this review queue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queues/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueGetData",
+            "field": "name",
+            "effectiveDescription": "Human-readable queue name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable queue name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueGetData",
+            "field": "pending_item_count",
+            "effectiveDescription": "Number of pending traces currently assigned to this queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of pending traces currently assigned to this queue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/pending_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueGetData",
+            "field": "created_by",
+            "effectiveDescription": "User who created this review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this review queue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

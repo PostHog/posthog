@@ -1,0 +1,74 @@
+{
+    "method": "aiObservability.llmaClusteringJobDelete",
+    "toolName": "llma-clustering-job-delete",
+    "operationId": "llm_analytics_clustering_jobs_destroy",
+    "title": "Delete clustering job",
+    "category": "AI observability",
+    "description": "Delete a scheduled AI observability clustering job by ID. This removes future scheduled clustering for that job but does not delete historical $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters events already emitted by previous runs.",
+    "requiredScopes": ["ai_observability_clusters:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaClusteringJobDeleteInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-delete.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaClusteringJobDeleteOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaClusteringJobDeleteData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-delete.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for clustering job configurations (max 10 per team).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1clustering_jobs~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a scheduled AI observability clustering job by ID. This removes future scheduled clustering for that job but does not delete historical $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters events already emitted by previous runs.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this clustering job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this clustering job.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_jobs/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

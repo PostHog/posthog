@@ -1,0 +1,184 @@
+{
+    "method": "accessControl.accessControlRoleRuleSetExecute",
+    "toolName": "access-control-role-rule-set-execute",
+    "title": "Set or clear one role's access rule for a scope (execute)",
+    "category": "Access control",
+    "description": "Step 2 of 2 for change a role's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+    "requiredScopes": ["access_control:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: role_based_access"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlRoleRuleSetExecuteInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-rule-set-execute.ts",
+        "declaration": "dist/generated/access-control/access-control-role-rule-set-execute.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlRoleRuleSetExecuteOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-rule-set-execute.ts",
+        "declaration": "dist/generated/access-control/access-control-role-rule-set-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-rule-set-execute.ts",
+            "declaration": "dist/generated/access-control/access-control-role-rule-set-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for change a role's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/access-control-role-rule-set-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "resource",
+            "effectiveDescription": "The rule's scope, as sent in the request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The rule's scope, as sent in the request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "resource_id",
+            "effectiveDescription": "The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "access_level",
+            "effectiveDescription": "The stored level.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored level.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "member_id",
+            "effectiveDescription": "The organization membership the rule is for. Null unless it is a member rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The organization membership the rule is for. Null unless it is a member rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/member_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "role_id",
+            "effectiveDescription": "The role the rule is for. Null unless it is a role rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The role the rule is for. Null unless it is a role rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetExecuteData",
+            "field": "_agentNote",
+            "effectiveDescription": "Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

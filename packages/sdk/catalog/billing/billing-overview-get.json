@@ -1,0 +1,167 @@
+{
+    "method": "billing.billingOverviewGet",
+    "toolName": "billing-overview-get",
+    "operationId": "billing_list",
+    "title": "Get billing overview",
+    "category": "Billing",
+    "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingOverviewGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-overview-get.ts",
+        "declaration": "dist/generated/billing/billing-overview-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingOverviewGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-overview-get.ts",
+        "declaration": "dist/generated/billing/billing-overview-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingOverviewGetResponseShape3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-overview-get.ts",
+            "declaration": "dist/generated/billing/billing-overview-get.d.ts"
+        },
+        {
+            "name": "BillingBillingOverviewGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-overview-get.ts",
+            "declaration": "dist/generated/billing/billing-overview-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BillingBillingOverviewGetResponseShape3",
+            "field": "partner_name",
+            "effectiveDescription": "Name of the partner that pays for this organization. Can be empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the partner that pays for this organization. Can be empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape3/properties/partner_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "usage_summary",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/usage_summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "billing_period",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/billing_period"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "custom_limits_usd",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/custom_limits_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "next_period_custom_limits_usd",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/next_period_custom_limits_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "trial",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/trial"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingOverviewGetData",
+            "field": "billing_managed_by_partner",
+            "effectiveDescription": "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/billing_managed_by_partner"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

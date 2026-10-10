@@ -1,0 +1,283 @@
+{
+    "method": "aiObservability.llmaPromptCreate",
+    "toolName": "llma-prompt-create",
+    "operationId": "llm_prompts_create",
+    "title": "Create prompt",
+    "category": "Experiments",
+    "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g. model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.",
+    "requiredScopes": ["llm_prompt:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaPromptCreateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaPromptCreateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaPromptCreateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateRequestSchema0Variant1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptCreateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g. model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateInput",
+            "field": "name",
+            "effectiveDescription": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateInput",
+            "field": "prompt",
+            "effectiveDescription": "Prompt payload as JSON or string data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt payload as JSON or string data.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateInput",
+            "field": "config",
+            "effectiveDescription": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateInput",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateResponseShape5",
+            "field": "level",
+            "effectiveDescription": "Markdown heading level (1-6).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown heading level (1-6).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateResponseShape5",
+            "field": "text",
+            "effectiveDescription": "Heading text with markdown link syntax preserved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heading text with markdown link syntax preserved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "name",
+            "effectiveDescription": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "prompt",
+            "effectiveDescription": "Prompt payload as JSON or string data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt payload as JSON or string data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "config",
+            "effectiveDescription": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/version_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "labels",
+            "effectiveDescription": "Names of the labels currently pointing at this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the labels currently pointing at this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptCreateData",
+            "field": "activity_item_id",
+            "effectiveDescription": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/activity_item_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

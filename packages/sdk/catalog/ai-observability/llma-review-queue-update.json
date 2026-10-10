@@ -1,0 +1,162 @@
+{
+    "method": "aiObservability.llmaReviewQueueUpdate",
+    "toolName": "llma-review-queue-update",
+    "operationId": "llm_analytics_review_queues_partial_update",
+    "title": "Update review queue",
+    "category": "AI observability",
+    "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
+    "requiredScopes": ["llm_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaReviewQueueUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaReviewQueueUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaReviewQueueUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueUpdateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this review queue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queues/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable queue name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable queue name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queues/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable queue name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable queue name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateData",
+            "field": "pending_item_count",
+            "effectiveDescription": "Number of pending traces currently assigned to this queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of pending traces currently assigned to this queue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/pending_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created this review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this review queue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueUpdateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

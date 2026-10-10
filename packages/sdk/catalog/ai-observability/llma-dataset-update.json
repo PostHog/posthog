@@ -1,0 +1,268 @@
+{
+    "method": "aiObservability.llmaDatasetUpdate",
+    "toolName": "llma-dataset-update",
+    "operationId": "datasets_partial_update",
+    "title": "Update dataset",
+    "category": "AI observability",
+    "description": "Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a dataset revision.",
+    "requiredScopes": ["dataset:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: llm-analytics-datasets"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaDatasetUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaDatasetUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Update descriptive dataset fields without changing its revision.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1datasets~1{id}~1/patch"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a dataset revision.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this dataset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this dataset.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateInput",
+            "field": "name",
+            "effectiveDescription": "New dataset name. Names are unique within a project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New dataset name. Names are unique within a project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateInput",
+            "field": "description",
+            "effectiveDescription": "New dataset description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "New dataset description.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateInput",
+            "field": "metadata",
+            "effectiveDescription": "Replacement JSON object for descriptive dataset metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement JSON object for descriptive dataset metadata.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateResponseShape2",
+            "effectiveDescription": "JSON object with descriptive dataset metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with descriptive dataset metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "metadata",
+            "effectiveDescription": "JSON object with descriptive dataset metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with descriptive dataset metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "current_revision",
+            "effectiveDescription": "Latest dataset revision, or null before the first item is added.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest dataset revision, or null before the first item is added.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_revision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "current_revision_id",
+            "effectiveDescription": "ID of the latest committed dataset revision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the latest committed dataset revision.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_revision_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "team_id",
+            "effectiveDescription": "Project that owns the dataset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project that owns the dataset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/team_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetUpdateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

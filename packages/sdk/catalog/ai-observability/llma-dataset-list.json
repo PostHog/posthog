@@ -1,0 +1,265 @@
+{
+    "method": "aiObservability.llmaDatasetList",
+    "toolName": "llma-dataset-list",
+    "operationId": "datasets_list",
+    "title": "List datasets",
+    "category": "AI observability",
+    "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+    "requiredScopes": ["dataset:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: llm-analytics-datasets"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaDatasetListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaDatasetListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListRequestSchema6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListDataResultsItem",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List active datasets by default, or archived datasets when requested.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1datasets~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "archived",
+            "effectiveDescription": "Return archived datasets instead of active datasets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return archived datasets instead of active datasets.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "id__in",
+            "effectiveDescription": "Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "order_by",
+            "effectiveDescription": "Field and direction used to order results.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `updated_at` - updated_at\n* `-updated_at` - -updated_at",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Field and direction used to order results.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `updated_at` - updated_at\n* `-updated_at` - -updated_at",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListInput",
+            "field": "search",
+            "effectiveDescription": "Search dataset names, descriptions, and metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search dataset names, descriptions, and metadata.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListData",
+            "field": "results[]",
+            "effectiveDescription": "Mixin for serializers to add user access control fields",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mixin for serializers to add user access control fields",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListData",
+            "field": "results[].current_revision",
+            "effectiveDescription": "Latest dataset revision, or null before the first item is added.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest dataset revision, or null before the first item is added.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/current_revision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListData",
+            "field": "results[].user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

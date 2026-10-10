@@ -1,0 +1,186 @@
+{
+    "method": "accessControl.accessControlRoleRuleSetPrepare",
+    "toolName": "access-control-role-rule-set-prepare",
+    "title": "Set or clear one role's access rule for a scope (prepare)",
+    "category": "Access control",
+    "description": "Step 1 of 2 for change a role's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+    "requiredScopes": ["access_control:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: role_based_access"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlRoleRuleSetPrepareInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+        "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlRoleRuleSetPrepareOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+        "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlRoleRuleSetPrepareRequestSchema0",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlRoleRuleSetPrepareRequestSchema2",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlRoleRuleSetPrepareInputResource",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlRoleRuleSetPrepareData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-role-rule-set-prepare.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 1 of 2 for change a role's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/access-control-role-rule-set-prepare/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareRequest_Schema0",
+            "effectiveDescription": "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareInput",
+            "field": "id",
+            "effectiveDescription": "Project id. If omitted, uses the active project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project id. If omitted, uses the active project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareInput",
+            "field": "resource",
+            "effectiveDescription": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareInput",
+            "field": "resource_id",
+            "effectiveDescription": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareInput",
+            "field": "access_level",
+            "effectiveDescription": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareInput",
+            "field": "role_id",
+            "effectiveDescription": "The role id, as `role_id` in access-control-roles-list or `id` in roles-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The role id, as `role_id` in access-control-roles-list or `id` in roles-list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleRuleSetPrepareData",
+            "field": "next_steps",
+            "effectiveDescription": "Hint for the model. Surfaces as text on the tool result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hint for the model. Surfaces as text on the tool result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/next_steps"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

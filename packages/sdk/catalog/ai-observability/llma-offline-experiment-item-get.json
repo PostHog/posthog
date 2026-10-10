@@ -1,0 +1,455 @@
+{
+    "method": "aiObservability.llmaOfflineExperimentItemGet",
+    "toolName": "llma-offline-experiment-item-get",
+    "operationId": "ai_observability_offline_experiments_items_retrieve",
+    "title": "Get offline experiment item",
+    "category": "AI observability",
+    "description": "Retrieve one item by experiment id and item_id, including case/trial identities, dataset references, and payload availability. Does not load input/output or results. Use item-result-list for scores and item-payload-get for stored input/output content.",
+    "requiredScopes": ["evaluation:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: ai-observability-offline-evaluations"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaOfflineExperimentItemGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-item-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-item-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaOfflineExperimentItemGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-item-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-item-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-item-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Retrieve one item by experiment id and item_id, including case/trial identities, dataset references, and payload availability. Does not load input/output or results. Use item-result-list for scores and item-payload-get for stored input/output content.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetInput",
+            "field": "id",
+            "effectiveDescription": "Experiment UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetInput",
+            "field": "item_id",
+            "effectiveDescription": "Item UUID within the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Item UUID within the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable result UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable result UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "item_id",
+            "effectiveDescription": "Item evaluated by this result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Item evaluated by this result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/item_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Evaluation outcome.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluation outcome.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "value",
+            "effectiveDescription": "Typed score for ok outcomes; null for other outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed score for ok outcomes; null for other outcomes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "error_code",
+            "effectiveDescription": "Optional evaluator error code.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional evaluator error code.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "evaluator_trace_id",
+            "effectiveDescription": "Optional evaluator trace navigation reference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional evaluator trace navigation reference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/evaluator_trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "evaluated_at",
+            "effectiveDescription": "Caller-supplied evaluation time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Caller-supplied evaluation time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/evaluated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "accepted_at",
+            "effectiveDescription": "Original server acceptance time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original server acceptance time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/accepted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "payload_state",
+            "effectiveDescription": "Result payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/payload_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "payload_expires_at",
+            "effectiveDescription": "Payload retention deadline; cleanup is not yet enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Payload retention deadline; cleanup is not yet enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/payload_expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetResponseShape2",
+            "field": "scorer_version_id",
+            "effectiveDescription": "Exact scorer-version UUID in the item page's scorer_versions list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact scorer-version UUID in the item page's scorer_versions list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/scorer_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "id",
+            "effectiveDescription": "Stable item UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable item UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "experiment_id",
+            "effectiveDescription": "Owning experiment UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Owning experiment UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/experiment_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "case_key",
+            "effectiveDescription": "Optional stable case identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional stable case identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/case_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "trial",
+            "effectiveDescription": "Optional trial identifier within a case.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional trial identifier within a case.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/trial"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "dataset_item_identifier",
+            "effectiveDescription": "Durable dataset item identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Durable dataset item identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset_item_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "dataset_item_version_identifier",
+            "effectiveDescription": "Durable dataset item-version identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Durable dataset item-version identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset_item_version_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "dataset_item_version_id",
+            "effectiveDescription": "Optional hosted item-version navigation reference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional hosted item-version navigation reference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset_item_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "application_trace_id",
+            "effectiveDescription": "Optional application trace navigation reference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional application trace navigation reference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/application_trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "accepted_at",
+            "effectiveDescription": "Original server acceptance time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original server acceptance time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/accepted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "payload_state",
+            "effectiveDescription": "Item payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Item payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/payload_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "payload_expires_at",
+            "effectiveDescription": "Payload retention deadline; cleanup is not yet enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Payload retention deadline; cleanup is not yet enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/payload_expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentItemGetData",
+            "field": "results",
+            "effectiveDescription": "Cells for explicitly selected scorer versions; empty when none selected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cells for explicitly selected scorer versions; empty when none selected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

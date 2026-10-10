@@ -1,0 +1,1116 @@
+{
+    "method": "aiObservability.llmaOfflineExperimentScorerSummaryList",
+    "toolName": "llma-offline-experiment-scorer-summary-list",
+    "operationId": "ai_observability_offline_experiments_scorer_summaries_list",
+    "title": "Summarize offline experiment scores",
+    "category": "AI observability",
+    "description": "Read server-computed summaries over all experiment results, grouped by exact immutable scorer version, independently of item pagination. Pass rates divide passing scores by successful results only; errors, skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged filters.",
+    "requiredScopes": ["evaluation:read", "llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: ai-observability-offline-evaluations"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListRequestSchema3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListRequestSchema4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape11",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentScorerSummaryListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-scorer-summary-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-scorer-summary-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Read server-computed summaries over all experiment results, grouped by exact immutable scorer version, independently of item pagination. Pass rates divide passing scores by successful results only; errors, skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged filters.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListRequest_Schema1",
+            "effectiveDescription": "Page size, from 1 to 100. Defaults to 50.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size, from 1 to 100. Defaults to 50.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+            "field": "id",
+            "effectiveDescription": "Experiment UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/scorer_summaries/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+            "field": "cursor",
+            "effectiveDescription": "Continuation cursor returned by the previous page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Continuation cursor returned by the previous page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/scorer_summaries/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+            "field": "limit",
+            "effectiveDescription": "Page size, from 1 to 100. Defaults to 20.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size, from 1 to 100. Defaults to 50.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/scorer_summaries/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Page size, from 1 to 100. Defaults to 20.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/ai_observability/mcp/tools.yaml",
+                        "pointer": "/tools/llma-offline-experiment-scorer-summary-list/param_overrides/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+            "field": "scorer_definition_id",
+            "effectiveDescription": "Restrict results to this scorer definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict results to this scorer definition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/scorer_summaries/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListInput",
+            "field": "scorer_version_ids",
+            "effectiveDescription": "Comma-separated list of at most 20 distinct scorer-version UUIDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of at most 20 distinct scorer-version UUIDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/scorer_summaries/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "scorer",
+            "effectiveDescription": "Exact scorer version summarized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact scorer version summarized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/scorer"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "observed_item_count",
+            "effectiveDescription": "All observed experiment items, independent of scorer selection or item pagination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All observed experiment items, independent of scorer selection or item pagination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/observed_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "result_count",
+            "effectiveDescription": "Submitted results for this scorer version, across all statuses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Submitted results for this scorer version, across all statuses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/result_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "status_counts",
+            "effectiveDescription": "Counts for each submitted outcome.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts for each submitted outcome.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/status_counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "missing_result_count",
+            "effectiveDescription": "Observed items without a result for this version; not the number of all intended missing items.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observed items without a result for this version; not the number of all intended missing items.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/missing_result_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "distinct_case_count",
+            "effectiveDescription": "Distinct non-null case keys in observed items.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct non-null case keys in observed items.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/distinct_case_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "items_with_case_key_count",
+            "effectiveDescription": "Observed items with case keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observed items with case keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/items_with_case_key_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "items_without_case_key_count",
+            "effectiveDescription": "Observed items without case keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observed items without case keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/items_without_case_key_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "trial_item_count",
+            "effectiveDescription": "Observed items with trial identifiers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observed items with trial identifiers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/trial_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "distinct_trial_count",
+            "effectiveDescription": "Distinct case/trial identities; trial-only items remain independent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct case/trial identities; trial-only items remain independent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/distinct_trial_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "mean",
+            "effectiveDescription": "Numeric mean of successful scores only; null for other kinds or no successes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric mean of successful scores only; null for other kinds or no successes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/mean"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "true_count",
+            "effectiveDescription": "Successful boolean true results; null for other kinds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful boolean true results; null for other kinds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/true_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "false_count",
+            "effectiveDescription": "Successful boolean false results; null for other kinds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful boolean false results; null for other kinds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/false_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "true_rate",
+            "effectiveDescription": "Boolean true fraction among successes; null with no successes or for other kinds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Boolean true fraction among successes; null with no successes or for other kinds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/true_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "pass_count",
+            "effectiveDescription": "Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/pass_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "fail_count",
+            "effectiveDescription": "Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/fail_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "pass_rate",
+            "effectiveDescription": "Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/pass_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape2",
+            "field": "categories",
+            "effectiveDescription": "Pinned categorical distribution; multiselect rates may sum above one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned categorical distribution; multiselect rates may sum above one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "id",
+            "effectiveDescription": "Exact immutable scorer-version UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact immutable scorer-version UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "definition_id",
+            "effectiveDescription": "Stable scorer definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable scorer definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/definition_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "version",
+            "effectiveDescription": "Version number within the definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number within the definition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "kind",
+            "effectiveDescription": "Scorer value kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scorer value kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Current scorer display name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current scorer display name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "description",
+            "effectiveDescription": "Current scorer description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current scorer description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "archived",
+            "effectiveDescription": "Whether the scorer is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scorer is archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape3",
+            "field": "config",
+            "effectiveDescription": "Pinned immutable configuration used to interpret these results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned immutable configuration used to interpret these results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "field": "options",
+            "effectiveDescription": "Ordered categorical options available to the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered categorical options available to the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "field": "selection_mode",
+            "effectiveDescription": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "field": "min_selections",
+            "effectiveDescription": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/min_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "field": "max_selections",
+            "effectiveDescription": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/max_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape4",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape5",
+            "field": "key",
+            "effectiveDescription": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape5",
+            "field": "label",
+            "effectiveDescription": "Human-readable option label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable option label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape6",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape7",
+            "field": "min",
+            "effectiveDescription": "Optional inclusive minimum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive minimum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape7",
+            "field": "max",
+            "effectiveDescription": "Optional inclusive maximum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive maximum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape7",
+            "field": "step",
+            "effectiveDescription": "Optional increment step for numeric input, for example 1 or 0.5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional increment step for numeric input, for example 1 or 0.5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape7",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape8",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape8",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape9",
+            "field": "true_is_failure",
+            "effectiveDescription": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape9",
+            "field": "true_label",
+            "effectiveDescription": "Optional label for a true value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a true value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/true_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape9",
+            "field": "false_label",
+            "effectiveDescription": "Optional label for a false value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a false value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/false_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape10",
+            "field": "ok",
+            "effectiveDescription": "Successful results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/ok"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape10",
+            "field": "error",
+            "effectiveDescription": "Evaluator errors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluator errors.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape10",
+            "field": "skipped",
+            "effectiveDescription": "Skipped evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Skipped evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/skipped"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape10",
+            "field": "not_applicable",
+            "effectiveDescription": "Not-applicable evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Not-applicable evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/not_applicable"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape11",
+            "field": "key",
+            "effectiveDescription": "Category key from the pinned configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category key from the pinned configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape11/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape11",
+            "field": "count",
+            "effectiveDescription": "Successful results selecting this category.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful results selecting this category.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape11/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape11",
+            "field": "rate",
+            "effectiveDescription": "Selection count divided by successful result count; null with no successes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Selection count divided by successful result count; null with no successes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape11/properties/rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListResponseShape11",
+            "field": "label",
+            "effectiveDescription": "Category label from the pinned configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category label from the pinned configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape11/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListData",
+            "field": "count",
+            "effectiveDescription": "Total authorized rows matching the filters, independent of this page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total authorized rows matching the filters, independent of this page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListData",
+            "field": "next_cursor",
+            "effectiveDescription": "Continuation cursor, or null after the final page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Continuation cursor, or null after the final page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/next_cursor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListData",
+            "field": "results",
+            "effectiveDescription": "Scorer-version summary page; each group includes all matching results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scorer-version summary page; each group includes all matching results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentScorerSummaryListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

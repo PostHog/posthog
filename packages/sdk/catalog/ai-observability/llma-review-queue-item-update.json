@@ -1,0 +1,178 @@
+{
+    "method": "aiObservability.llmaReviewQueueItemUpdate",
+    "toolName": "llma-review-queue-item-update",
+    "operationId": "llm_analytics_review_queue_items_partial_update",
+    "title": "Update review queue item",
+    "category": "AI observability",
+    "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
+    "requiredScopes": ["llm_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaReviewQueueItemUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaReviewQueueItemUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemUpdateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this review queue item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this review queue item.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queue_items/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateInput",
+            "field": "queue_id",
+            "effectiveDescription": "Review queue ID that should own this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Review queue ID that should own this pending trace.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queue_items/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "field": "queue_id",
+            "effectiveDescription": "Review queue ID that currently owns this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Review queue ID that currently owns this pending trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/queue_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "field": "queue_name",
+            "effectiveDescription": "Human-readable name of the queue that currently owns this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the queue that currently owns this pending trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/queue_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID currently pending review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID currently pending review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who queued this trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who queued this trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemUpdateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

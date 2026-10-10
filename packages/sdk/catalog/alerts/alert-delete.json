@@ -1,0 +1,65 @@
+{
+    "method": "alerts.alertDelete",
+    "toolName": "alert-delete",
+    "operationId": "alerts_destroy",
+    "title": "Delete alert",
+    "category": "Alerts",
+    "description": "Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will no longer receive notifications.",
+    "requiredScopes": ["alert:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/alerts/client.ts",
+    "input": {
+        "name": "AlertsAlertDeleteInput",
+        "importPath": "@posthog/sdk/alerts",
+        "source": "src/generated/alerts/alert-delete.ts",
+        "declaration": "dist/generated/alerts/alert-delete.d.ts"
+    },
+    "output": {
+        "name": "AlertsAlertDeleteOutput",
+        "importPath": "@posthog/sdk/alerts",
+        "source": "src/generated/alerts/alert-delete.ts",
+        "declaration": "dist/generated/alerts/alert-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AlertsAlertDeleteData",
+            "importPath": "@posthog/sdk/alerts",
+            "source": "src/generated/alerts/alert-delete.ts",
+            "declaration": "dist/generated/alerts/alert-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will no longer receive notifications.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/alerts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AlertsAlertDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

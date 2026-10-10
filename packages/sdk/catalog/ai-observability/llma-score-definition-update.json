@@ -1,0 +1,520 @@
+{
+    "method": "aiObservability.llmaScoreDefinitionUpdate",
+    "toolName": "llma-score-definition-update",
+    "operationId": "llm_analytics_score_definitions_partial_update",
+    "title": "Update scorer metadata",
+    "category": "AI observability",
+    "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
+    "requiredScopes": ["llm_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaScoreDefinitionUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaScoreDefinitionUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaScoreDefinitionUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-score-definition-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-score-definition-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this score definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this score definition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Updated scorer name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Updated scorer name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateInput",
+            "field": "description",
+            "effectiveDescription": "Updated scorer description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Updated scorer description.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateInput",
+            "field": "archived",
+            "effectiveDescription": "Whether the scorer is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scorer is archived.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/score_definitions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "field": "options",
+            "effectiveDescription": "Ordered categorical options available to the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered categorical options available to the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "field": "selection_mode",
+            "effectiveDescription": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "field": "min_selections",
+            "effectiveDescription": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/min_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "field": "max_selections",
+            "effectiveDescription": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/max_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape2",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape3",
+            "field": "key",
+            "effectiveDescription": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape3",
+            "field": "label",
+            "effectiveDescription": "Human-readable option label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable option label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape4",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape5",
+            "field": "min",
+            "effectiveDescription": "Optional inclusive minimum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive minimum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape5",
+            "field": "max",
+            "effectiveDescription": "Optional inclusive maximum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive maximum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape5",
+            "field": "step",
+            "effectiveDescription": "Optional increment step for numeric input, for example 1 or 0.5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional increment step for numeric input, for example 1 or 0.5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape5",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape6",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape6",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape7",
+            "field": "true_is_failure",
+            "effectiveDescription": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape7",
+            "field": "true_label",
+            "effectiveDescription": "Optional label for a true value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a true value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/true_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateResponseShape7",
+            "field": "false_label",
+            "effectiveDescription": "Optional label for a false value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a false value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/false_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateData",
+            "field": "current_version",
+            "effectiveDescription": "Current immutable configuration version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current immutable configuration version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateData",
+            "field": "current_version_id",
+            "effectiveDescription": "UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateData",
+            "field": "config",
+            "effectiveDescription": "Current immutable scorer configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current immutable scorer configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaScoreDefinitionUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "llma-score-definition-new-version",
+            "method": "aiObservability.llmaScoreDefinitionNewVersion"
+        }
+    ]
+}

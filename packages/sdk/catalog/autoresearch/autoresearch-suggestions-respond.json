@@ -1,0 +1,198 @@
+{
+    "method": "autoresearch.autoresearchSuggestionsRespond",
+    "toolName": "autoresearch-suggestions-respond",
+    "operationId": "autoresearch_suggestions_respond_create",
+    "title": "Respond to a suggestion",
+    "category": "Autoresearch",
+    "description": "Record how you handled a steering suggestion so the human who submitted it sees the outcome (it stays 'queued' in the UI until you do). Set status to 'picked_up' (applied as a search constraint across iterations), 'acted_on' (spawned one or more iterations from it), or 'dismissed' (rejected — explain why in agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion picked_up/dismissed without a dedicated iteration.",
+    "requiredScopes": ["autoresearch:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchSuggestionsRespondInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-suggestions-respond.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-suggestions-respond.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchSuggestionsRespondOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-suggestions-respond.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-suggestions-respond.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchSuggestionsRespondRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-suggestions-respond.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-suggestions-respond.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchSuggestionsRespondInputStatus",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-suggestions-respond.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-suggestions-respond.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchSuggestionsRespondData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-suggestions-respond.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-suggestions-respond.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1suggestions~1{id}~1respond~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Record how you handled a steering suggestion so the human who submitted it sees the outcome (it stays 'queued' in the UI until you do). Set status to 'picked_up' (applied as a search constraint across iterations), 'acted_on' (spawned one or more iterations from it), or 'dismissed' (rejected — explain why in agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion picked_up/dismissed without a dedicated iteration.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this autoresearch suggestion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this autoresearch suggestion.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/suggestions/{id}/respond/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondInput",
+            "field": "status",
+            "effectiveDescription": "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/suggestions/{id}/respond/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondInput",
+            "field": "agent_response",
+            "effectiveDescription": "Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/suggestions/{id}/respond/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondData",
+            "field": "id",
+            "effectiveDescription": "Unique UUID of this suggestion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique UUID of this suggestion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondData",
+            "field": "pipeline",
+            "effectiveDescription": "Pipeline this suggestion targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pipeline this suggestion targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/pipeline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondData",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).\n\n* `queued` - Queued\n* `picked_up` - Picked up\n* `acted_on` - Acted on\n* `dismissed` - Dismissed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).\n\n* `queued` - Queued\n* `picked_up` - Picked up\n* `acted_on` - Acted on\n* `dismissed` - Dismissed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondData",
+            "field": "agent_response",
+            "effectiveDescription": "Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/agent_response"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchSuggestionsRespondData",
+            "field": "linked_iteration_ids",
+            "effectiveDescription": "UUIDs of iterations spawned from this suggestion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUIDs of iterations spawned from this suggestion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/linked_iteration_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

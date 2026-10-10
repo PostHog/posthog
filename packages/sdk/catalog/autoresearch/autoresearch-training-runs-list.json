@@ -1,0 +1,267 @@
+{
+    "method": "autoresearch.autoresearchTrainingRunsList",
+    "toolName": "autoresearch-training-runs-list",
+    "operationId": "autoresearch_training_runs_list",
+    "title": "List training runs",
+    "category": "Autoresearch",
+    "description": "List training runs for a pipeline, ordered most recent first. Check status (completed/failed), iteration_count, and best_holdout_score to understand training history.",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchTrainingRunsListInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchTrainingRunsListOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsListRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsListRequestSchema1",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsListDataResultsItem",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsListData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List and retrieve training runs for a pipeline.\n\nA training run records the agent's search for a model: each iteration's recipe and holdout\nscore, and the summary of the run once it completes.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1training_runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List training runs for a pipeline, ordered most recent first. Check status (completed/failed), iteration_count, and best_holdout_score to understand training history.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].id",
+            "effectiveDescription": "Unique UUID of this training run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique UUID of this training run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].pipeline",
+            "effectiveDescription": "Pipeline this training run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pipeline this training run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/pipeline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].status",
+            "effectiveDescription": "Run status: pending, running, completed, or failed.\n\n* `pending` - Pending\n* `running` - Running\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run status: pending, running, completed, or failed.\n\n* `pending` - Pending\n* `running` - Running\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].iteration_budget",
+            "effectiveDescription": "Maximum iterations allowed for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum iterations allowed for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iteration_budget"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].iteration_count",
+            "effectiveDescription": "Number of iterations completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of iterations completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iteration_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].best_holdout_score",
+            "effectiveDescription": "Best holdout AUC achieved across all iterations in this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Best holdout AUC achieved across all iterations in this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/best_holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].error",
+            "effectiveDescription": "Error message if the run failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message if the run failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].started_at",
+            "effectiveDescription": "Timestamp when the training run started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the training run started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "results[].completed_at",
+            "effectiveDescription": "Timestamp when the training run completed or failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the training run completed or failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

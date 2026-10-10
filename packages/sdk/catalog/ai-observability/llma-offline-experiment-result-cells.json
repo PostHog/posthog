@@ -1,0 +1,753 @@
+{
+    "method": "aiObservability.llmaOfflineExperimentResultCells",
+    "toolName": "llma-offline-experiment-result-cells",
+    "operationId": "ai_observability_offline_experiments_result_cells_retrieve",
+    "title": "Get offline result cells",
+    "category": "AI observability",
+    "description": "Read result cells for fixed item_ids and scorer_version_ids in an experiment. Supply comma-separated UUIDs: 1–50 distinct items and 1–20 distinct scorer versions. Returns scorer_versions plus existing results, without payloads. Use fixed item IDs when fetching multiple scorer batches; an absent cell means missing only after its batch succeeds. Preserves backend scorer permissions and pinned configurations.",
+    "requiredScopes": ["evaluation:read", "llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: ai-observability-offline-evaluations"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaOfflineExperimentResultCellsInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaOfflineExperimentResultCellsOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentResultCellsData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-result-cells.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-result-cells.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Read result cells for fixed item_ids and scorer_version_ids in an experiment. Supply comma-separated UUIDs: 1–50 distinct items and 1–20 distinct scorer versions. Returns scorer_versions plus existing results, without payloads. Use fixed item IDs when fetching multiple scorer batches; an absent cell means missing only after its batch succeeds. Preserves backend scorer permissions and pinned configurations.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsInput",
+            "field": "id",
+            "effectiveDescription": "Experiment UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/result_cells/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsInput",
+            "field": "item_ids",
+            "effectiveDescription": "Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/result_cells/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsInput",
+            "field": "scorer_version_ids",
+            "effectiveDescription": "Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/result_cells/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Exact immutable scorer-version UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact immutable scorer-version UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "definition_id",
+            "effectiveDescription": "Stable scorer definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable scorer definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/definition_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "version",
+            "effectiveDescription": "Version number within the definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number within the definition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "Scorer value kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scorer value kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Current scorer display name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current scorer display name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Current scorer description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current scorer description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "archived",
+            "effectiveDescription": "Whether the scorer is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scorer is archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape2",
+            "field": "config",
+            "effectiveDescription": "Pinned immutable configuration used to interpret these results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned immutable configuration used to interpret these results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "field": "options",
+            "effectiveDescription": "Ordered categorical options available to the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered categorical options available to the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "field": "selection_mode",
+            "effectiveDescription": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "field": "min_selections",
+            "effectiveDescription": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/min_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "field": "max_selections",
+            "effectiveDescription": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/max_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape3",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape4",
+            "field": "key",
+            "effectiveDescription": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape4",
+            "field": "label",
+            "effectiveDescription": "Human-readable option label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable option label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape5",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape6",
+            "field": "min",
+            "effectiveDescription": "Optional inclusive minimum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive minimum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape6",
+            "field": "max",
+            "effectiveDescription": "Optional inclusive maximum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive maximum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape6",
+            "field": "step",
+            "effectiveDescription": "Optional increment step for numeric input, for example 1 or 0.5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional increment step for numeric input, for example 1 or 0.5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape6",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape7",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape7",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape8",
+            "field": "true_is_failure",
+            "effectiveDescription": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape8",
+            "field": "true_label",
+            "effectiveDescription": "Optional label for a true value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a true value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/true_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape8",
+            "field": "false_label",
+            "effectiveDescription": "Optional label for a false value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a false value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/false_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "id",
+            "effectiveDescription": "Stable result UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable result UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "item_id",
+            "effectiveDescription": "Item evaluated by this result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Item evaluated by this result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/item_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "status",
+            "effectiveDescription": "Evaluation outcome.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluation outcome.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "value",
+            "effectiveDescription": "Typed score for ok outcomes; null for other outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed score for ok outcomes; null for other outcomes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "error_code",
+            "effectiveDescription": "Optional evaluator error code.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional evaluator error code.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "evaluator_trace_id",
+            "effectiveDescription": "Optional evaluator trace navigation reference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional evaluator trace navigation reference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/evaluator_trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "evaluated_at",
+            "effectiveDescription": "Caller-supplied evaluation time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Caller-supplied evaluation time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/evaluated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "accepted_at",
+            "effectiveDescription": "Original server acceptance time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original server acceptance time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/accepted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "payload_state",
+            "effectiveDescription": "Result payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result payload storage state.\n\n* `not_provided` - Not provided\n* `available` - Available\n* `expired` - Expired",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/payload_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "payload_expires_at",
+            "effectiveDescription": "Payload retention deadline; cleanup is not yet enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Payload retention deadline; cleanup is not yet enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/payload_expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsResponseShape9",
+            "field": "scorer_version_id",
+            "effectiveDescription": "Exact scorer-version UUID in the item page's scorer_versions list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact scorer-version UUID in the item page's scorer_versions list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/scorer_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsData",
+            "field": "scorer_versions",
+            "effectiveDescription": "Selected authorized versions, including versions with no results for these items.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Selected authorized versions, including versions with no results for these items.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/scorer_versions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentResultCellsData",
+            "field": "results",
+            "effectiveDescription": "Submitted results for the exact selected items and versions; at most 1,000 cells.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Submitted results for the exact selected items and versions; at most 1,000 cells.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,299 @@
+{
+    "method": "autoresearch.autoresearchModelsList",
+    "toolName": "autoresearch-models-list",
+    "operationId": "autoresearch_models_list",
+    "title": "List models for a pipeline",
+    "category": "Autoresearch",
+    "description": "List champion, challenger, and archived model versions for a pipeline. Each model includes its holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model has role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchModelsListInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchModelsListOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchModelsListRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchModelsListRequestSchema1",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchModelsListDataResultsItem",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchModelsListData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-models-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-models-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List and retrieve champion/challenger models for a pipeline.\n\nModels are the persisted artifacts produced by training runs. Each model\nholds a portable recipe (feature SQL, transforms, model class, params) that\nthe daily inference workflow compiles to score users.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1models~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List champion, challenger, and archived model versions for a pipeline. Each model includes its holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model has role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchModelsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/models/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/models/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].id",
+            "effectiveDescription": "Unique UUID of this model version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique UUID of this model version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].pipeline",
+            "effectiveDescription": "Pipeline this model belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pipeline this model belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/pipeline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].role",
+            "effectiveDescription": "Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.\n\n* `champion` - Champion\n* `challenger` - Challenger\n* `archived` - Archived",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.\n\n* `champion` - Champion\n* `challenger` - Challenger\n* `archived` - Archived",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].recipe_hash",
+            "effectiveDescription": "SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/recipe_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].holdout_score",
+            "effectiveDescription": "AUC on the held-out test split at training time. Preliminary signal before online labels mature.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AUC on the held-out test split at training time. Preliminary signal before online labels mature.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].realized_score",
+            "effectiveDescription": "Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/realized_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].is_preliminary",
+            "effectiveDescription": "True if this model has not yet been validated against realized online outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if this model has not yet been validated against realized online outcomes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/is_preliminary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].agent_description",
+            "effectiveDescription": "The agent's own plain-English description of what this recipe does and why it was chosen.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The agent's own plain-English description of what this recipe does and why it was chosen.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/agent_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].trained_on_start",
+            "effectiveDescription": "Start of the training data window (inclusive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the training data window (inclusive).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/trained_on_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].trained_on_end",
+            "effectiveDescription": "End of the training data window (exclusive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the training data window (exclusive).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/trained_on_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "results[].promoted_at",
+            "effectiveDescription": "Timestamp when this model was promoted to champion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when this model was promoted to champion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/promoted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchModelsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,614 @@
+{
+    "method": "aiObservability.llmaTraceReviewGet",
+    "toolName": "llma-trace-review-get",
+    "operationId": "llm_analytics_trace_reviews_retrieve",
+    "title": "Get trace review",
+    "category": "AI observability",
+    "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaTraceReviewGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaTraceReviewGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTraceReviewGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-trace-review-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-trace-review-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this trace review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this trace review.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/trace_reviews/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_id",
+            "effectiveDescription": "Stable scorer definition ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable scorer definition ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_name",
+            "effectiveDescription": "Human-readable scorer name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable scorer name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_kind",
+            "effectiveDescription": "Scorer kind for this saved score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scorer kind for this saved score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_archived",
+            "effectiveDescription": "Whether the scorer is currently archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scorer is currently archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_version_id",
+            "effectiveDescription": "Immutable scorer version ID used to validate this score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable scorer version ID used to validate this score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_version",
+            "effectiveDescription": "Immutable scorer version number used to validate this score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable scorer version number used to validate this score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "definition_config",
+            "effectiveDescription": "Immutable scorer configuration snapshot used to validate this score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable scorer configuration snapshot used to validate this score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/definition_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape4",
+            "field": "categorical_values",
+            "effectiveDescription": "Categorical option keys selected for this score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Categorical option keys selected for this score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/categorical_values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "field": "options",
+            "effectiveDescription": "Ordered categorical options available to the scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered categorical options available to the scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "field": "selection_mode",
+            "effectiveDescription": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "field": "min_selections",
+            "effectiveDescription": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/min_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "field": "max_selections",
+            "effectiveDescription": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/max_selections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape5",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape6",
+            "field": "key",
+            "effectiveDescription": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape6",
+            "field": "label",
+            "effectiveDescription": "Human-readable option label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable option label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape7",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape8",
+            "field": "min",
+            "effectiveDescription": "Optional inclusive minimum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive minimum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape8",
+            "field": "max",
+            "effectiveDescription": "Optional inclusive maximum score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional inclusive maximum score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape8",
+            "field": "step",
+            "effectiveDescription": "Optional increment step for numeric input, for example 1 or 0.5.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional increment step for numeric input, for example 1 or 0.5.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape8",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape9",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.\n\n* `gte` - At or above\n* `lte` - At or below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape9",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape10",
+            "field": "true_is_failure",
+            "effectiveDescription": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape10",
+            "field": "true_label",
+            "effectiveDescription": "Optional label for a true value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a true value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/true_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetResponseShape10",
+            "field": "false_label",
+            "effectiveDescription": "Optional label for a false value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional label for a false value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/false_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID for the review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID for the review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "trace_url",
+            "effectiveDescription": "Absolute URL to the trace this review is attached to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute URL to the trace this review is attached to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/trace_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "comment",
+            "effectiveDescription": "Optional comment or reasoning for the review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional comment or reasoning for the review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/comment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "reviewed_by",
+            "effectiveDescription": "User who last saved this review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who last saved this review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/reviewed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "scores",
+            "effectiveDescription": "Saved scorer values for this review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Saved scorer values for this review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/scores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTraceReviewGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

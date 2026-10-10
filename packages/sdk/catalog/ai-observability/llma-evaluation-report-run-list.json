@@ -1,0 +1,977 @@
+{
+    "method": "aiObservability.llmaEvaluationReportRunList",
+    "toolName": "llma-evaluation-report-run-list",
+    "operationId": "llm_analytics_evaluation_reports_runs_list",
+    "title": "List evaluation report runs",
+    "category": "AI observability",
+    "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+    "requiredScopes": ["evaluation:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationReportRunListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationReportRunListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape11",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape12",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape13",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape14",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportRunListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-run-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-run-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List report runs (history) for this report.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1evaluation_reports~1{id}~1runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this evaluation report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this evaluation report.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of this report run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of this report run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "report",
+            "effectiveDescription": "UUID of the report config that generated this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report config that generated this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/report"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "content",
+            "effectiveDescription": "Structured report narrative, citations, and metrics. Legacy runs may contain only some fields.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured report narrative, citations, and metrics. Legacy runs may contain only some fields.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "metadata",
+            "effectiveDescription": "Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "period_start",
+            "effectiveDescription": "Start of the evaluation window covered by this report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the evaluation window covered by this report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/period_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "period_end",
+            "effectiveDescription": "End of the evaluation window covered by this report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the evaluation window covered by this report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/period_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "delivery_status",
+            "effectiveDescription": "Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.\n\n* `pending` - Pending\n* `generated` - Generated\n* `delivered` - Delivered\n* `partial_failure` - Partial Failure\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.\n\n* `pending` - Pending\n* `generated` - Generated\n* `delivered` - Delivered\n* `partial_failure` - Partial Failure\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/delivery_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "delivery_errors",
+            "effectiveDescription": "Delivery error messages. Empty when all configured deliveries succeeded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Delivery error messages. Empty when all configured deliveries succeeded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/delivery_errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When this report run was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this report run was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "evaluation_target",
+            "effectiveDescription": "Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/evaluation_target"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "title",
+            "effectiveDescription": "Agent-generated report headline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent-generated report headline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "sections",
+            "effectiveDescription": "Ordered narrative sections in the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered narrative sections in the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/sections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "citations",
+            "effectiveDescription": "References grounding findings in the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "References grounding findings in the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/citations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "generation_status",
+            "effectiveDescription": "Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.\n\n* `completed` - completed\n* `metrics_unavailable` - metrics_unavailable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.\n\n* `completed` - completed\n* `metrics_unavailable` - metrics_unavailable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/generation_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape3",
+            "field": "metrics",
+            "effectiveDescription": "Structured metrics for completed reports, or null when metrics were temporarily unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured metrics for completed reports, or null when metrics were temporarily unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape4",
+            "field": "title",
+            "effectiveDescription": "Agent-generated section heading.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent-generated section heading.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape4",
+            "field": "content",
+            "effectiveDescription": "Markdown narrative for this section.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown narrative for this section.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape5",
+            "field": "generation_id",
+            "effectiveDescription": "Optional generation UUID for generation-target report citations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional generation UUID for generation-target report citations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/generation_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape5",
+            "field": "trace_id",
+            "effectiveDescription": "Identifier of the trace cited by this report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier of the trace cited by this report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape5",
+            "field": "session_id",
+            "effectiveDescription": "Optional session identifier for session-target report citations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional session identifier for session-target report citations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape5",
+            "field": "reason",
+            "effectiveDescription": "Short explanation of why this example is cited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short explanation of why this example is cited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "output_config",
+            "effectiveDescription": "Output configuration and passing rule used for both report periods.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output configuration and passing rule used for both report periods.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/output_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "output_type",
+            "effectiveDescription": "Evaluation result type. Stored metrics without this field represent boolean evaluations.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical\n* `sentiment` - Sentiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluation result type. Stored metrics without this field represent boolean evaluations.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical\n* `sentiment` - Sentiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/output_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "total_runs",
+            "effectiveDescription": "Number of evaluation results in the report period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of evaluation results in the report period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/total_runs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "result_counts",
+            "effectiveDescription": "Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/result_counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "result_rates",
+            "effectiveDescription": "Percentage by output-specific result label, from 0 to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage by output-specific result label, from 0 to 100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/result_rates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "period_start",
+            "effectiveDescription": "ISO 8601 start of the evaluation window represented by these metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 start of the evaluation window represented by these metrics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/period_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "period_end",
+            "effectiveDescription": "ISO 8601 end of the evaluation window represented by these metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 end of the evaluation window represented by these metrics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/period_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "previous_total_runs",
+            "effectiveDescription": "Number of evaluation results in the previous comparison period, or null when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of evaluation results in the previous comparison period, or null when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/previous_total_runs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "previous_result_counts",
+            "effectiveDescription": "Count by result label for the previous period, or null when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count by result label for the previous period, or null when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/previous_result_counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "previous_result_rates",
+            "effectiveDescription": "Percentage by result label for the previous period, or null when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage by result label for the previous period, or null when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/previous_result_rates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "pass_rate",
+            "effectiveDescription": "Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/pass_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape6",
+            "field": "previous_pass_rate",
+            "effectiveDescription": "Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/previous_pass_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "effectiveDescription": "Output configuration and passing rule used for both report periods.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output configuration and passing rule used for both report periods.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "allows_na",
+            "effectiveDescription": "Whether the evaluation can return N/A for non-applicable generations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/allows_na"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "true_is_failure",
+            "effectiveDescription": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "min",
+            "effectiveDescription": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "max",
+            "effectiveDescription": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "step",
+            "effectiveDescription": "Optional positive input increment. Does not round evaluation results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional positive input increment. Does not round evaluation results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "options",
+            "effectiveDescription": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "selection_mode",
+            "effectiveDescription": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape7",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape7/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape8",
+            "field": "key",
+            "effectiveDescription": "Stable category key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable category key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape8",
+            "field": "label",
+            "effectiveDescription": "Category display label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category display label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape9",
+            "field": "operator",
+            "effectiveDescription": "Pass at or above (gte), or at or below (lte), the threshold.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass at or above (gte), or at or below (lte), the threshold.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape9",
+            "field": "threshold",
+            "effectiveDescription": "Finite passing threshold within any configured score bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Finite passing threshold within any configured score bounds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape9/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape10",
+            "field": "categories",
+            "effectiveDescription": "Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape10/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape11",
+            "effectiveDescription": "Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportRunListResponseShape12",
+            "effectiveDescription": "Percentage by output-specific result label, from 0 to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage by output-specific result label, from 0 to 100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape12"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

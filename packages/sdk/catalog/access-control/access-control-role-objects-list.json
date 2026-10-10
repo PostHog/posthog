@@ -1,0 +1,240 @@
+{
+    "method": "accessControl.accessControlRoleObjectsList",
+    "toolName": "access-control-role-objects-list",
+    "operationId": "organizations_projects_access_control_role_objects_retrieve",
+    "title": "List a role's object-level rules",
+    "category": "Access control",
+    "description": "The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
+    "requiredScopes": ["access_control:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: role_based_access"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlRoleObjectsListInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-objects-list.ts",
+        "declaration": "dist/generated/access-control/access-control-role-objects-list.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlRoleObjectsListOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-objects-list.ts",
+        "declaration": "dist/generated/access-control/access-control-role-objects-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-objects-list.ts",
+            "declaration": "dist/generated/access-control/access-control-role-objects-list.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlRoleObjectsListData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-objects-list.ts",
+            "declaration": "dist/generated/access-control/access-control-role-objects-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Object rules configured for a role: the single objects the role's members are granted or denied, regardless of the resource-level rules.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1projects~1{id}~1access_control_role_objects~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListInput",
+            "field": "id",
+            "effectiveDescription": "Project id. If omitted, uses the active project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique value identifying this project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/projects/{id}/access_control_role_objects/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Project id. If omitted, uses the active project.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/access_control/mcp/tools.yaml",
+                        "pointer": "/tools/access-control-role-objects-list/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListInput",
+            "field": "role_id",
+            "effectiveDescription": "The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The role id, as `role_id` in the roles endpoint.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/projects/{id}/access_control_role_objects/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/access_control/mcp/tools.yaml",
+                        "pointer": "/tools/access-control-role-objects-list/param_overrides/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "effectiveDescription": "A stored rule on one object, as configured for a subject.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A stored rule on one object, as configured for a subject.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "field": "resource",
+            "effectiveDescription": "The object's resource type, for example `dashboard`.\n\n* `action` - action\n* `access_control` - access_control\n* `account` - account\n* `activity_log` - activity_log\n* `alert` - alert\n* `annotation` - annotation\n* `approvals` - approvals\n* `autoresearch` - autoresearch\n* `batch_export` - batch_export\n* `batch_import` - batch_import\n* `batch_import_support` - batch_import_support\n* `billing` - billing\n* `business_knowledge` - business_knowledge\n* `canvas` - canvas\n* `cohort` - cohort\n* `comment` - comment\n* `conversation` - conversation\n* `cross_project_dashboard` - cross_project_dashboard\n* `customer_analytics` - customer_analytics\n* `customer_task` - customer_task\n* `customer_journey` - customer_journey\n* `customer_profile_config` - customer_profile_config\n* `data_catalog` - data_catalog\n* `data_catalog_approval` - data_catalog_approval\n* `data_deletion` - data_deletion\n* `dashboard` - dashboard\n* `event_filter` - event_filter\n* `dashboard_template` - dashboard_template\n* `dataset` - dataset\n* `early_access_feature` - early_access_feature\n* `endpoint` - endpoint\n* `engineering_analytics` - engineering_analytics\n* `error_tracking` - error_tracking\n* `evaluation` - evaluation\n* `element` - element\n* `event_definition` - event_definition\n* `experiment` - experiment\n* `experiment_holdout` - experiment_holdout\n* `experiment_saved_metric` - experiment_saved_metric\n* `export` - export\n* `external_data_schema` - external_data_schema\n* `external_data_source` - external_data_source\n* `feature_flag` - feature_flag\n* `file_system` - file_system\n* `file_system_shortcut` - file_system_shortcut\n* `group` - group\n* `health_issue` - health_issue\n* `heatmap` - heatmap\n* `hog_flow` - hog_flow\n* `hog_function` - hog_function\n* `ingestion_warning` - ingestion_warning\n* `insight` - insight\n* `insight_variable` - insight_variable\n* `integration` - integration\n* `legal_document` - legal_document\n* `link` - link\n* `live_debugger` - live_debugger\n* `llm_analytics` - llm_analytics\n* `ai_observability_clusters` - ai_observability_clusters\n* `llm_gateway` - llm_gateway\n* `llm_playground` - llm_playground\n* `llm_prompt` - llm_prompt\n* `llm_provider_key` - llm_provider_key\n* `llm_skill` - llm_skill\n* `logs` - logs\n* `loop` - loop\n* `marketing_analytics` - marketing_analytics\n* `mcp_analytics` - mcp_analytics\n* `mcp_registry` - mcp_registry\n* `metrics` - metrics\n* `notebook` - notebook\n* `offline_evaluation_ingestion` - offline_evaluation_ingestion\n* `organization` - organization\n* `organization_integration` - organization_integration\n* `organization_member` - organization_member\n* `person` - person\n* `plugin` - plugin\n* `product_enablement` - product_enablement\n* `product_tour` - product_tour\n* `project` - project\n* `property_definition` - property_definition\n* `query` - query\n* `query_performance` - query_performance\n* `replay_scanner` - replay_scanner\n* `review_hog` - review_hog\n* `revenue_analytics` - revenue_analytics\n* `session_recording` - session_recording\n* `session_recording_playlist` - session_recording_playlist\n* `sharing_configuration` - sharing_configuration\n* `signal_scout` - signal_scout\n* `stamphog` - stamphog\n* `streamlit_app` - streamlit_app\n* `subscription` - subscription\n* `support_ticket` - support_ticket\n* `survey` - survey\n* `tagger` - tagger\n* `ticket` - ticket\n* `task` - task\n* `today` - today\n* `toolbar` - toolbar\n* `tracing` - tracing\n* `field_note` - field_note\n* `uploaded_media` - uploaded_media\n* `usage_metric` - usage_metric\n* `user` - user\n* `user_interview` - user_interview\n* `vision_action` - vision_action\n* `vision_alert` - vision_alert\n* `visual_review` - visual_review\n* `warehouse_objects` - warehouse_objects\n* `warehouse_table` - warehouse_table\n* `warehouse_view` - warehouse_view\n* `web_analytics` - web_analytics\n* `webhook` - webhook\n* `wizard_session` - wizard_session\n* `wizard_run` - wizard_run",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object's resource type, for example `dashboard`.\n\n* `action` - action\n* `access_control` - access_control\n* `account` - account\n* `activity_log` - activity_log\n* `alert` - alert\n* `annotation` - annotation\n* `approvals` - approvals\n* `autoresearch` - autoresearch\n* `batch_export` - batch_export\n* `batch_import` - batch_import\n* `batch_import_support` - batch_import_support\n* `billing` - billing\n* `business_knowledge` - business_knowledge\n* `canvas` - canvas\n* `cohort` - cohort\n* `comment` - comment\n* `conversation` - conversation\n* `cross_project_dashboard` - cross_project_dashboard\n* `customer_analytics` - customer_analytics\n* `customer_task` - customer_task\n* `customer_journey` - customer_journey\n* `customer_profile_config` - customer_profile_config\n* `data_catalog` - data_catalog\n* `data_catalog_approval` - data_catalog_approval\n* `data_deletion` - data_deletion\n* `dashboard` - dashboard\n* `event_filter` - event_filter\n* `dashboard_template` - dashboard_template\n* `dataset` - dataset\n* `early_access_feature` - early_access_feature\n* `endpoint` - endpoint\n* `engineering_analytics` - engineering_analytics\n* `error_tracking` - error_tracking\n* `evaluation` - evaluation\n* `element` - element\n* `event_definition` - event_definition\n* `experiment` - experiment\n* `experiment_holdout` - experiment_holdout\n* `experiment_saved_metric` - experiment_saved_metric\n* `export` - export\n* `external_data_schema` - external_data_schema\n* `external_data_source` - external_data_source\n* `feature_flag` - feature_flag\n* `file_system` - file_system\n* `file_system_shortcut` - file_system_shortcut\n* `group` - group\n* `health_issue` - health_issue\n* `heatmap` - heatmap\n* `hog_flow` - hog_flow\n* `hog_function` - hog_function\n* `ingestion_warning` - ingestion_warning\n* `insight` - insight\n* `insight_variable` - insight_variable\n* `integration` - integration\n* `legal_document` - legal_document\n* `link` - link\n* `live_debugger` - live_debugger\n* `llm_analytics` - llm_analytics\n* `ai_observability_clusters` - ai_observability_clusters\n* `llm_gateway` - llm_gateway\n* `llm_playground` - llm_playground\n* `llm_prompt` - llm_prompt\n* `llm_provider_key` - llm_provider_key\n* `llm_skill` - llm_skill\n* `logs` - logs\n* `loop` - loop\n* `marketing_analytics` - marketing_analytics\n* `mcp_analytics` - mcp_analytics\n* `mcp_registry` - mcp_registry\n* `metrics` - metrics\n* `notebook` - notebook\n* `offline_evaluation_ingestion` - offline_evaluation_ingestion\n* `organization` - organization\n* `organization_integration` - organization_integration\n* `organization_member` - organization_member\n* `person` - person\n* `plugin` - plugin\n* `product_enablement` - product_enablement\n* `product_tour` - product_tour\n* `project` - project\n* `property_definition` - property_definition\n* `query` - query\n* `query_performance` - query_performance\n* `replay_scanner` - replay_scanner\n* `review_hog` - review_hog\n* `revenue_analytics` - revenue_analytics\n* `session_recording` - session_recording\n* `session_recording_playlist` - session_recording_playlist\n* `sharing_configuration` - sharing_configuration\n* `signal_scout` - signal_scout\n* `stamphog` - stamphog\n* `streamlit_app` - streamlit_app\n* `subscription` - subscription\n* `support_ticket` - support_ticket\n* `survey` - survey\n* `tagger` - tagger\n* `ticket` - ticket\n* `task` - task\n* `today` - today\n* `toolbar` - toolbar\n* `tracing` - tracing\n* `field_note` - field_note\n* `uploaded_media` - uploaded_media\n* `usage_metric` - usage_metric\n* `user` - user\n* `user_interview` - user_interview\n* `vision_action` - vision_action\n* `vision_alert` - vision_alert\n* `visual_review` - visual_review\n* `warehouse_objects` - warehouse_objects\n* `warehouse_table` - warehouse_table\n* `warehouse_view` - warehouse_view\n* `web_analytics` - web_analytics\n* `webhook` - webhook\n* `wizard_session` - wizard_session\n* `wizard_run` - wizard_run",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "field": "resource_id",
+            "effectiveDescription": "The object's primary key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object's primary key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "The object's display name. Falls back to the id when it has no name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object's display name. Falls back to the id when it has no name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "field": "short_id",
+            "effectiveDescription": "The object's short id, for models that link by one (insights, notebooks).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object's short id, for models that link by one (insights, notebooks).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListResponseShape2",
+            "field": "access_level",
+            "effectiveDescription": "The level the rule grants or restricts to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The level the rule grants or restricts to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListData",
+            "field": "results",
+            "effectiveDescription": "The subject's object rules, sorted by resource and name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subject's object rules, sorted by resource and name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRoleObjectsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

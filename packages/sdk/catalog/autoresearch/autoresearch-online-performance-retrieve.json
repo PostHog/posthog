@@ -1,0 +1,712 @@
+{
+    "method": "autoresearch.autoresearchOnlinePerformanceRetrieve",
+    "toolName": "autoresearch-online-performance-retrieve",
+    "operationId": "autoresearch_online_performance_retrieve",
+    "title": "Read realized performance history",
+    "category": "Autoresearch",
+    "description": "Read how a pipeline's models performed against real outcomes, one row per model per validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean_p_y against base_rate (mean_p_y above base_rate means the model over-predicts), lift at 10% and 20%, the ISO weekday, and the model's role when it emitted and now. Use it to see trends across dates and to judge a champion right after a promotion: the archived former champion keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has run. Use limit to bound the number of dates (default 60).",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{id}~1online_performance~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read how a pipeline's models performed against real outcomes, one row per model per validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean_p_y against base_rate (mean_p_y above base_rate means the model over-predicts), lift at 10% and 20%, the ISO weekday, and the model's role when it emitted and now. Use it to see trends across dates and to judge a champion right after a promotion: the archived former champion keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has run. Use limit to bound the number of dates (default 60).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this autoresearch pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this autoresearch pipeline.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{id}/online_performance/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{id}/online_performance/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "validation_run_id",
+            "effectiveDescription": "UUID of the validation run that recorded these metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the validation run that recorded these metrics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/validation_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "prediction_date",
+            "effectiveDescription": "Date the predictions were made for (UTC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date the predictions were made for (UTC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/prediction_date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "horizon_days",
+            "effectiveDescription": "Prediction horizon, in days, the predictions were made under.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prediction horizon, in days, the predictions were made under.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/horizon_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "weekday",
+            "effectiveDescription": "ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/weekday"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "model_id",
+            "effectiveDescription": "UUID of the model that emitted the predictions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the model that emitted the predictions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/model_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "emitted_role",
+            "effectiveDescription": "Role the model had when it emitted the predictions: 'champion' or 'challenger'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Role the model had when it emitted the predictions: 'champion' or 'challenger'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/emitted_role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "current_role",
+            "effectiveDescription": "Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/current_role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "n_scored",
+            "effectiveDescription": "Number of users the model scored on this date.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of users the model scored on this date.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/n_scored"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "n_positive",
+            "effectiveDescription": "Number of scored users who did the target event in the horizon.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of scored users who did the target event in the horizon.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/n_positive"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "base_rate",
+            "effectiveDescription": "Fraction of scored users who did the target event (n_positive / n_scored).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fraction of scored users who did the target event (n_positive / n_scored).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/base_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "mean_p_y",
+            "effectiveDescription": "Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/mean_p_y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "realized_auc",
+            "effectiveDescription": "Realized ROC AUC against actual outcomes. Null when the date has one class only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Realized ROC AUC against actual outcomes. Null when the date has one class only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/realized_auc"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "realized_auc_ci_low",
+            "effectiveDescription": "Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/realized_auc_ci_low"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "realized_auc_ci_high",
+            "effectiveDescription": "Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/realized_auc_ci_high"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "brier_score",
+            "effectiveDescription": "Brier score. Lower is better.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Brier score. Lower is better.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/brier_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "calibration_error",
+            "effectiveDescription": "Expected calibration error over 10 equal-width bins. Lower is better.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Expected calibration error over 10 equal-width bins. Lower is better.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/calibration_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "lift_at_10",
+            "effectiveDescription": "Positives in the top 10% by score, relative to a random 10%.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Positives in the top 10% by score, relative to a random 10%.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/lift_at_10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "lift_at_20",
+            "effectiveDescription": "Positives in the top 20% by score, relative to a random 20%.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Positives in the top 20% by score, relative to a random 20%.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/lift_at_20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "average_precision",
+            "effectiveDescription": "Average precision: area under the precision-recall curve. Higher is better, and a random model scores about base_rate. Null when no scored user did the target event, or for dates validated before this metric existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Average precision: area under the precision-recall curve. Higher is better, and a random model scores about base_rate. Null when no scored user did the target event, or for dates validated before this metric existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/average_precision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "confusion",
+            "effectiveDescription": "Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/confusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "calibration_bins",
+            "effectiveDescription": "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/calibration_bins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "warning",
+            "effectiveDescription": "'single_class_no_auc' when every scored user had the same outcome, otherwise null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'single_class_no_auc' when every scored user had the same outcome, otherwise null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/warning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "validated_at",
+            "effectiveDescription": "When the validation run completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the validation run completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/validated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3",
+            "field": "top_10",
+            "effectiveDescription": "Counts when the top 10% of users by score are flagged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts when the top 10% of users by score are flagged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/top_10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3",
+            "field": "top_20",
+            "effectiveDescription": "Counts when the top 20% of users by score are flagged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts when the top 20% of users by score are flagged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/top_20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3",
+            "field": "likely",
+            "effectiveDescription": "Counts when users with a score of 0.6 or higher (the Likely segment) are flagged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts when users with a score of 0.6 or higher (the Likely segment) are flagged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/likely"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "tp",
+            "effectiveDescription": "True positives: flagged users who did the target event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True positives: flagged users who did the target event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/tp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "fp",
+            "effectiveDescription": "False positives: flagged users who did not do the target event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False positives: flagged users who did not do the target event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/fp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "fn",
+            "effectiveDescription": "False negatives: users not flagged who did the target event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False negatives: users not flagged who did the target event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/fn"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "tn",
+            "effectiveDescription": "True negatives: users not flagged who did not do the target event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True negatives: users not flagged who did not do the target event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/tn"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "n_flagged",
+            "effectiveDescription": "Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the boundary score, so this can be a little above k.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the boundary score, so this can be a little above k.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/n_flagged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "precision",
+            "effectiveDescription": "tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/precision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape4",
+            "field": "recall",
+            "effectiveDescription": "tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/recall"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape5",
+            "field": "n",
+            "effectiveDescription": "Number of scored users in this bin.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of scored users in this bin.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/n"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape5",
+            "field": "mean_p_y",
+            "effectiveDescription": "Mean predicted probability of the users in this bin.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean predicted probability of the users in this bin.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/mean_p_y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape5",
+            "field": "positive_rate",
+            "effectiveDescription": "Fraction of the users in this bin who did the target event within the horizon.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fraction of the users in this bin who did the target event within the horizon.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/positive_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveData",
+            "field": "rows",
+            "effectiveDescription": "One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/rows"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

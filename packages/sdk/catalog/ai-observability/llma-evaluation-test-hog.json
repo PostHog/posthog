@@ -1,0 +1,738 @@
+{
+    "method": "aiObservability.llmaEvaluationTestHog",
+    "toolName": "llma-evaluation-test-hog",
+    "operationId": "evaluations_test_hog_create",
+    "title": "Test Hog evaluation code",
+    "category": "AI observability",
+    "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+    "requiredScopes": ["evaluation:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationTestHogInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationTestHogOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema11",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema10Variant1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema10Variant2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema12",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema13",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema14Item",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema14",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema15",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema17",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema18",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogRequestSchema16",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationTestHogData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-test-hog.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-test-hog.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Test Hog evaluation code against sample events without saving.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1evaluations~1test_hog~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema0",
+            "effectiveDescription": "* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "allows_na",
+            "effectiveDescription": "Whether the evaluation can return N/A for non-applicable generations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/allows_na"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "true_is_failure",
+            "effectiveDescription": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/true_is_failure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "min",
+            "effectiveDescription": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "max",
+            "effectiveDescription": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "step",
+            "effectiveDescription": "Optional positive input increment. Does not round evaluation results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional positive input increment. Does not round evaluation results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/step"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "options",
+            "effectiveDescription": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/options"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "selection_mode",
+            "effectiveDescription": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/selection_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema1",
+            "field": "passing_rule",
+            "effectiveDescription": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema1/properties/passing_rule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema8",
+            "field": "key",
+            "effectiveDescription": "Stable category key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable category key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema8/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema8",
+            "field": "label",
+            "effectiveDescription": "Category display label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category display label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema8/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema15",
+            "effectiveDescription": "* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema16",
+            "field": "window_seconds",
+            "effectiveDescription": "Aggregation window for trace samples, in seconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation window for trace samples, in seconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema16/properties/window_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogRequest_Schema16",
+            "field": "quiet_period_seconds",
+            "effectiveDescription": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/$defs/__schema16/properties/quiet_period_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "output_type",
+            "effectiveDescription": "Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "output_config",
+            "effectiveDescription": "Output settings used to validate the preview, including bounds, categories, and allows_na.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output settings used to validate the preview, including bounds, categories, and allows_na.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "source",
+            "effectiveDescription": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "sample_count",
+            "effectiveDescription": "Number of recent $ai_generation events to test against (1–10, default 5).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of recent $ai_generation events to test against (1–10, default 5).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "allows_na",
+            "effectiveDescription": "Whether the evaluation can return N/A for non-applicable generations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "conditions",
+            "effectiveDescription": "Optional trigger conditions to filter which events are sampled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional trigger conditions to filter which events are sampled.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "target",
+            "effectiveDescription": "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogInput",
+            "field": "target_config",
+            "effectiveDescription": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluations/test_hog/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "categories",
+            "effectiveDescription": "Selected category keys. An empty list is an applicable result; null means no categorical result was produced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Selected category keys. An empty list is an applicable result; null means no categorical result was produced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/categories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "score",
+            "effectiveDescription": "Raw numeric score, or null when no numeric score was produced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw numeric score, or null when no numeric score was produced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "sample_id",
+            "effectiveDescription": "Stable identifier for the sampled generation, trace, or session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for the sampled generation, trace, or session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/sample_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "sample_type",
+            "effectiveDescription": "Type of sampled unit: generation, trace, or session.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of sampled unit: generation, trace, or session.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/sample_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "event_uuid",
+            "effectiveDescription": "UUID of the sampled $ai_generation event, or null for a trace or session sample.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the sampled $ai_generation event, or null for a trace or session sample.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/event_uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "input_preview",
+            "effectiveDescription": "First 200 characters of input from the sampled unit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First 200 characters of input from the sampled unit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/input_preview"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "output_preview",
+            "effectiveDescription": "First 200 characters of output from the sampled unit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First 200 characters of output from the sampled unit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/output_preview"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "result",
+            "effectiveDescription": "Raw boolean result, or null when the evaluation returns N/A or raises an error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw boolean result, or null when the evaluation returns N/A or raises an error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/result"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "reasoning",
+            "effectiveDescription": "Hog evaluation reasoning string, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog evaluation reasoning string, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/reasoning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogResponseShape2",
+            "field": "error",
+            "effectiveDescription": "Error message if the Hog code raised an exception.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message if the Hog code raised an exception.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationTestHogData",
+            "field": "message",
+            "effectiveDescription": "Optional message, e.g. when no recent events were found.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional message, e.g. when no recent events were found.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/message"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

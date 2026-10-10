@@ -1,0 +1,809 @@
+{
+    "method": "autoresearch.autoresearchTrainingRunsHistory",
+    "toolName": "autoresearch-training-runs-history",
+    "operationId": "autoresearch_training_runs_history_retrieve",
+    "title": "Read prior training-run history",
+    "category": "Autoresearch",
+    "description": "Cross-run learning memory. Returns recent completed training runs — this pipeline first, then same-target sibling pipelines on the team. Each run has a distilled `summary` (read this first: distillation, recommended_next, the kept_ladder of winning approaches, and dead_ends to avoid) plus the full `iterations` trail (every recipe tried, its agent_description rationale, holdout_score, kept/discarded status, model_spec) to drill into when a summary points somewhere worth it. Call this before iterating to reuse the features and transforms that won and avoid repeating approaches already discarded. Optional `limit` (default 5, max 20) caps how many prior runs are returned.",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchTrainingRunsHistoryInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchTrainingRunsHistoryOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape7",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape6",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape9",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape8",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsHistoryData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-history.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-history.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1training_runs~1history~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Cross-run learning memory. Returns recent completed training runs — this pipeline first, then same-target sibling pipelines on the team. Each run has a distilled `summary` (read this first: distillation, recommended_next, the kept_ladder of winning approaches, and dead_ends to avoid) plus the full `iterations` trail (every recipe tried, its agent_description rationale, holdout_score, kept/discarded status, model_spec) to drill into when a summary points somewhere worth it. Call this before iterating to reuse the features and transforms that won and avoid repeating approaches already discarded. Optional `limit` (default 5, max 20) caps how many prior runs are returned.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of prior runs to return (default 5, at most 20).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of prior runs to return (default 5, at most 20).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/history/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "effectiveDescription": "One prior completed training run plus its full iteration trail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One prior completed training run plus its full iteration trail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "run_id",
+            "effectiveDescription": "UUID of the completed training run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the completed training run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "pipeline_id",
+            "effectiveDescription": "UUID of the pipeline this run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the pipeline this run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/pipeline_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "is_current_pipeline",
+            "effectiveDescription": "True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/is_current_pipeline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "target_event",
+            "effectiveDescription": "Target event this run's pipeline predicts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target event this run's pipeline predicts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/target_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "horizon_days",
+            "effectiveDescription": "Prediction horizon (days) of this run's pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prediction horizon (days) of this run's pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/horizon_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "best_holdout_score",
+            "effectiveDescription": "Best holdout AUC achieved across this run's iterations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Best holdout AUC achieved across this run's iterations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/best_holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "iteration_count",
+            "effectiveDescription": "Number of iterations recorded in this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of iterations recorded in this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iteration_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "completed_at",
+            "effectiveDescription": "When this run completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this run completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "summary",
+            "effectiveDescription": "Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape2",
+            "field": "iterations",
+            "effectiveDescription": "The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iterations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "effectiveDescription": "Tier-1 distilled summary of a completed run — the orientation memory a new run reads first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tier-1 distilled summary of a completed run — the orientation memory a new run reads first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "target_event",
+            "effectiveDescription": "Target event the run's pipeline predicts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target event the run's pipeline predicts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/target_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "horizon_days",
+            "effectiveDescription": "Prediction horizon, in days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prediction horizon, in days.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/horizon_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "best_holdout_score",
+            "effectiveDescription": "Best holdout AUC achieved in the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Best holdout AUC achieved in the run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/best_holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "champion_promoted",
+            "effectiveDescription": "Whether this run's best model was promoted to champion (vs kept as challenger).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this run's best model was promoted to champion (vs kept as challenger).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/champion_promoted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "champion_model_class",
+            "effectiveDescription": "Model class of the run's best model.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model class of the run's best model.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/champion_model_class"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "kept_ladder",
+            "effectiveDescription": "Kept iterations, highest holdout AUC first — the winning approaches worth reusing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Kept iterations, highest holdout AUC first — the winning approaches worth reusing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/kept_ladder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "dead_ends",
+            "effectiveDescription": "Discarded or crashed iterations — approaches already tried that did not help; avoid repeating.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Discarded or crashed iterations — approaches already tried that did not help; avoid repeating.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/dead_ends"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "recommended_next",
+            "effectiveDescription": "Agent's suggested next experiments for a future run. Empty if not provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent's suggested next experiments for a future run. Empty if not provided.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/recommended_next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "distillation",
+            "effectiveDescription": "Agent's 1–2 sentence distillation of what this run learned. Empty if not provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent's 1–2 sentence distillation of what this run learned. Empty if not provided.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/distillation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape3",
+            "field": "report_notebook_short_id",
+            "effectiveDescription": "Short id of the report notebook the agent built for this run. Empty if there is none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short id of the report notebook the agent built for this run. Empty if there is none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape3/properties/report_notebook_short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "effectiveDescription": "One iteration referenced from a run summary's ladder or dead-ends list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One iteration referenced from a run summary's ladder or dead-ends list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "field": "iteration_number",
+            "effectiveDescription": "Iteration index this entry refers to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Iteration index this entry refers to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/iteration_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "field": "holdout_score",
+            "effectiveDescription": "Holdout AUC for this iteration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Holdout AUC for this iteration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "field": "model_class",
+            "effectiveDescription": "Model class tried in this iteration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model class tried in this iteration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/model_class"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape4",
+            "field": "agent_description",
+            "effectiveDescription": "The agent's rationale for this attempt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The agent's rationale for this attempt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape4/properties/agent_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "effectiveDescription": "The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "iteration_number",
+            "effectiveDescription": "Order of this attempt within its run (0-based).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Order of this attempt within its run (0-based).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/iteration_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "status",
+            "effectiveDescription": "Whether this recipe was kept (improved the best score), discarded, or crashed.\n\n* `kept` - Kept\n* `discarded` - Discarded\n* `crashed` - Crashed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this recipe was kept (improved the best score), discarded, or crashed.\n\n* `kept` - Kept\n* `discarded` - Discarded\n* `crashed` - Crashed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "holdout_score",
+            "effectiveDescription": "Holdout AUC this iteration achieved. Null if it was skipped/degenerate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Holdout AUC this iteration achieved. Null if it was skipped/degenerate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/holdout_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "train_score",
+            "effectiveDescription": "Train-fold AUC for this iteration, if recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Train-fold AUC for this iteration, if recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/train_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "agent_description",
+            "effectiveDescription": "The agent's one-line rationale for what it tried and why.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The agent's one-line rationale for what it tried and why.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/agent_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "model_spec",
+            "effectiveDescription": "Model class and hyperparameters tried in this iteration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model class and hyperparameters tried in this iteration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/model_spec"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape5",
+            "field": "recipe_snapshot",
+            "effectiveDescription": "The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape5/properties/recipe_snapshot"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape6",
+            "effectiveDescription": "Model class and hyperparameters tried in this iteration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model class and hyperparameters tried in this iteration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape6",
+            "field": "model_class",
+            "effectiveDescription": "Dotted path of the estimator class.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dotted path of the estimator class.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/model_class"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape6",
+            "field": "model_params",
+            "effectiveDescription": "Keyword arguments for the estimator's constructor; null or absent means the defaults.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Keyword arguments for the estimator's constructor; null or absent means the defaults.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/model_params"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape8",
+            "effectiveDescription": "The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape8",
+            "field": "feature_sql",
+            "effectiveDescription": "A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape8/properties/feature_sql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryResponseShape8",
+            "field": "feature_transforms",
+            "effectiveDescription": "Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape8/properties/feature_transforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryData",
+            "effectiveDescription": "Cross-run learning memory: prior runs the agent should read before iterating.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cross-run learning memory: prior runs the agent should read before iterating.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsHistoryData",
+            "field": "runs",
+            "effectiveDescription": "Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/runs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

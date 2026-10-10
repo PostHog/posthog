@@ -1,0 +1,343 @@
+{
+    "method": "aiObservability.llmaDatasetItemGet",
+    "toolName": "llma-dataset-item-get",
+    "operationId": "dataset_items_retrieve",
+    "title": "Get dataset item",
+    "category": "AI observability",
+    "description": "Retrieve the current immutable version of an active or archived dataset item by its stable item UUID. Pass `revision` to retrieve the version visible at an exact dataset revision.",
+    "requiredScopes": ["dataset:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: llm-analytics-datasets"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaDatasetItemGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaDatasetItemGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetItemGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-item-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-item-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve the current item version or the version visible at an exact dataset revision.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1dataset_items~1{dataset_item_id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve the current immutable version of an active or archived dataset item by its stable item UUID. Pass `revision` to retrieve the version visible at an exact dataset revision.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetInput",
+            "field": "revision",
+            "effectiveDescription": "Return the item as it appeared at this exact dataset revision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return the item as it appeared at this exact dataset revision.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dataset_items/{dataset_item_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetResponseShape3",
+            "effectiveDescription": "JSON object with item metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with item metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "id",
+            "effectiveDescription": "Stable dataset item ID shared by every version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable dataset item ID shared by every version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "dataset",
+            "effectiveDescription": "Dataset that owns the item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dataset that owns the item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "client_item_id",
+            "effectiveDescription": "Optional caller-owned stable key that cannot be changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional caller-owned stable key that cannot be changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/client_item_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "version_id",
+            "effectiveDescription": "ID of this immutable item version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of this immutable item version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "dataset_revision",
+            "effectiveDescription": "Dataset revision that introduced this item version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dataset revision that introduced this item version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset_revision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "dataset_revision_id",
+            "effectiveDescription": "ID of the dataset revision that introduced this item version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the dataset revision that introduced this item version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/dataset_revision_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "input",
+            "effectiveDescription": "Input supplied to the system under test.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input supplied to the system under test.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/input"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "expected_output",
+            "effectiveDescription": "Optional user-authored expected output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional user-authored expected output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/expected_output"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "source_output",
+            "effectiveDescription": "Optional actual output captured from the source trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional actual output captured from the source trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/source_output"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "metadata",
+            "effectiveDescription": "JSON object with item metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with item metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "created_at",
+            "effectiveDescription": "When the stable item was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the stable item was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "updated_at",
+            "effectiveDescription": "When the item last received a new version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the item last received a new version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "version_created_at",
+            "effectiveDescription": "When this immutable version was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this immutable version was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/version_created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetItemGetData",
+            "field": "team_id",
+            "effectiveDescription": "Project that owns the item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project that owns the item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/team_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

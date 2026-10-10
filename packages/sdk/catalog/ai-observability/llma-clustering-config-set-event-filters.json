@@ -1,0 +1,102 @@
+{
+    "method": "aiObservability.llmaClusteringConfigSetEventFilters",
+    "toolName": "llma-clustering-config-set-event-filters",
+    "operationId": "llm_analytics_clustering_config_set_event_filters_create",
+    "title": "Set clustering config filters",
+    "category": "AI observability",
+    "description": "Replace the team's clustering event filters. Pass event_filters as a PostHog property-filter array, or an empty array to clear the filters. Prefer clustering jobs for new trace, generation, or evaluation clustering automation.",
+    "requiredScopes": ["ai_observability_clusters:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaClusteringConfigSetEventFiltersInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-config-set-event-filters.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-config-set-event-filters.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaClusteringConfigSetEventFiltersOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-config-set-event-filters.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-config-set-event-filters.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaClusteringConfigSetEventFiltersRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-config-set-event-filters.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-config-set-event-filters.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringConfigSetEventFiltersResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-config-set-event-filters.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-config-set-event-filters.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringConfigSetEventFiltersData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-config-set-event-filters.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-config-set-event-filters.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Team-level clustering configuration (event filters for automated pipelines).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1clustering_config~1set_event_filters~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Replace the team's clustering event filters. Pass event_filters as a PostHog property-filter array, or an empty array to clear the filters. Prefer clustering jobs for new trace, generation, or evaluation clustering automation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaClusteringConfigSetEventFiltersInput",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_config/set_event_filters/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaClusteringConfigSetEventFiltersData",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/event_filters"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

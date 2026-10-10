@@ -1,0 +1,114 @@
+{
+    "method": "billing.billingSubscriptionGet",
+    "toolName": "billing-subscription-get",
+    "operationId": "billing_subscription_retrieve",
+    "title": "Get subscription",
+    "category": "Billing",
+    "description": "The organization's subscription: plan, subscription flag and level, billing period, trial, discounts, startup program labels and billing provider. One small read, readable by any member. Use it to answer \"what plan is this organization on\", \"when does the billing period end\" or \"is there an active trial\". For usage against limits call billing-usage-summary-get; to find a product, add-on or feature call billing-products-summary-get; for feature access call billing-features-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: organization-billing-api"],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingSubscriptionGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-subscription-get.ts",
+        "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingSubscriptionGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-subscription-get.ts",
+        "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingSubscriptionGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-subscription-get.ts",
+            "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSubscriptionGetResponseShape3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-subscription-get.ts",
+            "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSubscriptionGetResponseShape4",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-subscription-get.ts",
+            "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSubscriptionGetResponseShape5",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-subscription-get.ts",
+            "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSubscriptionGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-subscription-get.ts",
+            "declaration": "dist/generated/billing/billing-subscription-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1billing~1subscription~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The organization's subscription: plan, subscription flag and level, billing period, trial, discounts, startup program labels and billing provider. One small read, readable by any member. Use it to answer \"what plan is this organization on\", \"when does the billing period end\" or \"is there an active trial\". For usage against limits call billing-usage-summary-get; to find a product, add-on or feature call billing-products-summary-get; for feature access call billing-features-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BillingBillingSubscriptionGetResponseShape5",
+            "field": "partner_name",
+            "effectiveDescription": "Name of the partner that pays for this organization. Can be empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the partner that pays for this organization. Can be empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape5/properties/partner_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingSubscriptionGetData",
+            "field": "billing_managed_by_partner",
+            "effectiveDescription": "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/billing_managed_by_partner"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

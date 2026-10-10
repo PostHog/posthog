@@ -1,0 +1,226 @@
+{
+    "method": "aiObservability.llmaEvaluationJudgeModels",
+    "toolName": "llma-evaluation-judge-models",
+    "operationId": "llm_analytics_models_retrieve",
+    "title": "List supported llm_judge models",
+    "category": "AI observability",
+    "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationJudgeModelsInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationJudgeModelsOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationJudgeModelsRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationJudgeModelsRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationJudgeModelsData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-judge-models.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-judge-models.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List available models, for one provider or for every supported provider.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1models~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsInput",
+            "field": "key_id",
+            "effectiveDescription": "Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/models/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsInput",
+            "field": "provider",
+            "effectiveDescription": "LLM provider to list models for. Omit it to list every supported provider and its models in one call.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM provider to list models for. Omit it to list every supported provider and its models in one call.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/models/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape2",
+            "field": "provider",
+            "effectiveDescription": "Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape3",
+            "field": "provider",
+            "effectiveDescription": "Supported provider value, exactly as the `provider` param accepts it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Supported provider value, exactly as the `provider` param accepts it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape3",
+            "field": "model_count",
+            "effectiveDescription": "How many of this provider's models appear in `models`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many of this provider's models appear in `models`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/model_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsResponseShape3",
+            "field": "requires_provider_key",
+            "effectiveDescription": "True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/requires_provider_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsData",
+            "field": "models",
+            "effectiveDescription": "Models supported for the requested provider, or for every supported provider when `provider` is omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Models supported for the requested provider, or for every supported provider when `provider` is omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/models"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationJudgeModelsData",
+            "field": "providers",
+            "effectiveDescription": "One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/providers"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,316 @@
+{
+    "method": "billing.billingProductsSummaryGet",
+    "toolName": "billing-products-summary-get",
+    "operationId": "billing_products_summary_retrieve",
+    "title": "Get every product in summary",
+    "category": "Billing",
+    "description": "Every product with its add-ons and the names of its features, without prices or plans. Use it to find the product, add-on or feature a question is about. A product or add-on says whether the organization subscribes to it. A feature says whether it is available to the organization, trials and overrides included, and lists the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: organization-billing-api"],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingProductsSummaryGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-products-summary-get.ts",
+        "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingProductsSummaryGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-products-summary-get.ts",
+        "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingProductsSummaryGetResponseShape3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-products-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductsSummaryGetResponseShape4",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-products-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductsSummaryGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-products-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductsSummaryGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-products-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-products-summary-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1billing~1products~1summary~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Every product with its add-ons and the names of its features, without prices or plans. Use it to find the product, add-on or feature a question is about. A product or add-on says whether the organization subscribes to it. A feature says whether it is available to the organization, trials and overrides included, and lists the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "key",
+            "effectiveDescription": "The product key. Pass it to the product route for prices and plans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product key. Pass it to the product route for prices and plans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "name",
+            "effectiveDescription": "The product name, as the billing page shows it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product name, as the billing page shows it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "description",
+            "effectiveDescription": "What the product does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the product does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "subscribed",
+            "effectiveDescription": "Whether the organization subscribes to the product. Null for an inclusion-only product that carries no price of its own, such as Platform and support, where the plan the organization is on is what counts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the organization subscribes to the product. Null for an inclusion-only product that carries no price of its own, such as Platform and support, where the plan the organization is on is what counts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/subscribed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "addons",
+            "effectiveDescription": "The product's add-ons.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product's add-ons.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/addons"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape2",
+            "field": "features",
+            "effectiveDescription": "The features the product and its add-ons carry, each one listed once.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The features the product and its add-ons carry, each one listed once.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/features"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape3",
+            "field": "key",
+            "effectiveDescription": "The add-on key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The add-on key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape3",
+            "field": "name",
+            "effectiveDescription": "The add-on name, as the billing page shows it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The add-on name, as the billing page shows it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape3",
+            "field": "description",
+            "effectiveDescription": "What the add-on does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the add-on does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape3/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape3",
+            "field": "subscribed",
+            "effectiveDescription": "Whether the organization subscribes to the add-on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the organization subscribes to the add-on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape3/properties/subscribed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape4",
+            "field": "key",
+            "effectiveDescription": "The feature key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape4",
+            "field": "name",
+            "effectiveDescription": "The feature name, as the billing page shows it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature name, as the billing page shows it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape4",
+            "field": "included",
+            "effectiveDescription": "Whether the feature is available to the organization, trials and overrides included.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the feature is available to the organization, trials and overrides included.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape4/properties/included"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetResponseShape4",
+            "field": "addon_keys",
+            "effectiveDescription": "The add-ons of this product that carry the feature. Empty when only the product carries it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The add-ons of this product that carry the feature. Empty when only the product carries it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape4/properties/addon_keys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductsSummaryGetData",
+            "field": "results",
+            "effectiveDescription": "Every product, add-ons included.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every product, add-ons included.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

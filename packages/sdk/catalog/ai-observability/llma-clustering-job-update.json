@@ -1,0 +1,146 @@
+{
+    "method": "aiObservability.llmaClusteringJobUpdate",
+    "toolName": "llma-clustering-job-update",
+    "operationId": "llm_analytics_clustering_jobs_partial_update",
+    "title": "Update clustering job",
+    "category": "AI observability",
+    "description": "Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).",
+    "requiredScopes": ["ai_observability_clusters:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaClusteringJobUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaClusteringJobUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaClusteringJobUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringJobUpdateRequestSchema1Item",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringJobUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringJobUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringJobUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for clustering job configurations (max 10 per team).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1clustering_jobs~1{id}~1/patch"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this clustering job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this clustering job.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_jobs/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobUpdateInput",
+            "field": "analysis_level",
+            "effectiveDescription": "* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_jobs/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobUpdateInput",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_jobs/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobUpdateData",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/event_filters"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

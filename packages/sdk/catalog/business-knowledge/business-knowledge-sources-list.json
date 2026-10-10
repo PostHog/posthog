@@ -1,0 +1,244 @@
+{
+    "method": "businessKnowledge.businessKnowledgeSourcesList",
+    "toolName": "business-knowledge-sources-list",
+    "operationId": "business_knowledge_sources_list",
+    "title": "List business knowledge sources",
+    "category": "Business knowledge",
+    "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+    "requiredScopes": ["business_knowledge:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: product-business-knowledge"],
+    "methodSource": "src/generated/business-knowledge/client.ts",
+    "input": {
+        "name": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+        "importPath": "@posthog/sdk/business-knowledge",
+        "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+        "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+    },
+    "output": {
+        "name": "BusinessKnowledgeBusinessKnowledgeSourcesListOutput",
+        "importPath": "@posthog/sdk/business-knowledge",
+        "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+        "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListRequestSchema0",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListRequestSchema1",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListRequestSchema2",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListRequestSchema3",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListRequestSchema4",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListDataResultsItem",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        },
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-list.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/business_knowledge/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+            "field": "added_by",
+            "effectiveDescription": "Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring match against the source name and URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring match against the source name and URL.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListInput",
+            "field": "source_type",
+            "effectiveDescription": "Filter to a single source type (text, url, or file).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to a single source type (text, url, or file).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "field": "results[].document_count",
+            "effectiveDescription": "Number of documents belonging to this source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of documents belonging to this source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape2/properties/document_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "field": "results[].chunk_count",
+            "effectiveDescription": "Number of chunks belonging to this source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of chunks belonging to this source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape2/properties/chunk_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "field": "results[].has_unsafe_documents",
+            "effectiveDescription": "True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape2/properties/has_unsafe_documents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "field": "results[].next_refresh_at",
+            "effectiveDescription": "When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape2/properties/next_refresh_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

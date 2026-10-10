@@ -1,0 +1,169 @@
+{
+    "method": "autoresearch.autoresearchTrainingRunsArtifactsGetCreate",
+    "toolName": "autoresearch-training-runs-artifacts-get-create",
+    "operationId": "autoresearch_training_runs_artifacts_get_create",
+    "title": "Get an artifact bundle file",
+    "category": "Autoresearch",
+    "description": "Fetch one file from a training run's artifact bundle, base64-encoded. Use this to read the prior champion's train.py / features.sql as a starting point before iterating (look up the champion's source_training_run via autoresearch-models-retrieve).",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-training-runs-artifacts-get-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch one file from this training run's artifact bundle, base64-encoded.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1training_runs~1{id}~1artifacts~1get~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Fetch one file from a training run's artifact bundle, base64-encoded. Use this to read the prior champion's train.py / features.sql as a starting point before iterating (look up the champion's source_training_run via autoresearch-models-retrieve).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this autoresearch training run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this autoresearch training run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/{id}/artifacts/get/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateInput",
+            "field": "path",
+            "effectiveDescription": "Relative path of the file within the bundle, e.g. 'train.py'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative path of the file within the bundle, e.g. 'train.py'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/{id}/artifacts/get/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "effectiveDescription": "A single bundle file's content, base64-encoded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single bundle file's content, base64-encoded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "field": "path",
+            "effectiveDescription": "Relative path of the file within the bundle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative path of the file within the bundle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "field": "size_bytes",
+            "effectiveDescription": "File size in bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File size in bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/size_bytes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "field": "sha256",
+            "effectiveDescription": "SHA-256 hex digest of the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHA-256 hex digest of the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchTrainingRunsArtifactsGetCreateData",
+            "field": "content_base64",
+            "effectiveDescription": "File contents, base64-encoded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File contents, base64-encoded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/content_base64"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,370 @@
+{
+    "method": "aiObservability.llmaEvaluationReportList",
+    "toolName": "llma-evaluation-report-list",
+    "operationId": "llm_analytics_evaluation_reports_list",
+    "title": "List evaluation report configs",
+    "category": "AI observability",
+    "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+    "requiredScopes": ["evaluation:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationReportListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationReportListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationReportListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportListRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationReportListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-report-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-report-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for evaluation report configurations + report run history.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1evaluation_reports~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListInput",
+            "field": "evaluation",
+            "effectiveDescription": "Only return report configs for this evaluation UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return report configs for this evaluation UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/evaluation_reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "evaluation",
+            "effectiveDescription": "UUID of the evaluation this report config belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the evaluation this report config belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/evaluation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "frequency",
+            "effectiveDescription": "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/frequency"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "rrule",
+            "effectiveDescription": "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/rrule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "starts_at",
+            "effectiveDescription": "Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/starts_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "timezone_name",
+            "effectiveDescription": "Read-only timezone used for scheduled reports. Evaluation reports use UTC.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read-only timezone used for scheduled reports. Evaluation reports use UTC.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/timezone_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "delivery_targets",
+            "effectiveDescription": "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/delivery_targets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "max_sample_size",
+            "effectiveDescription": "Maximum number of evaluation runs included in each report. Defaults to 200.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of evaluation runs included in each report. Defaults to 200.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/max_sample_size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "enabled",
+            "effectiveDescription": "Whether report delivery is active. Disabled configs do not fire.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether report delivery is active. Disabled configs do not fire.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "deleted",
+            "effectiveDescription": "Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "generated_report_count",
+            "effectiveDescription": "Number of reports generated from this evaluation report config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of reports generated from this evaluation report config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/generated_report_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "last_generated_at",
+            "effectiveDescription": "When the most recent report was generated, or null if no reports have been generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the most recent report was generated, or null if no reports have been generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/last_generated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "report_prompt_guidance",
+            "effectiveDescription": "Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/report_prompt_guidance"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "trigger_threshold",
+            "effectiveDescription": "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/trigger_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "cooldown_minutes",
+            "effectiveDescription": "Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/cooldown_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationReportListResponseShape2",
+            "field": "daily_run_cap",
+            "effectiveDescription": "Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/daily_run_cap"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

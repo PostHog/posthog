@@ -1,0 +1,170 @@
+{
+    "method": "accessControl.accessControlDefaultRuleSetPrepare",
+    "toolName": "access-control-default-rule-set-prepare",
+    "title": "Set or clear the default access rule for a scope (prepare)",
+    "category": "Access control",
+    "description": "Step 1 of 2 for change the default access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+    "requiredScopes": ["access_control:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: access_control"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlDefaultRuleSetPrepareInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+        "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlDefaultRuleSetPrepareOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+        "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlDefaultRuleSetPrepareRequestSchema0",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlDefaultRuleSetPrepareRequestSchema2",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlDefaultRuleSetPrepareInputResource",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlDefaultRuleSetPrepareData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-default-rule-set-prepare.ts",
+            "declaration": "dist/generated/access-control/access-control-default-rule-set-prepare.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 1 of 2 for change the default access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/access-control-default-rule-set-prepare/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareRequest_Schema0",
+            "effectiveDescription": "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareInput",
+            "field": "id",
+            "effectiveDescription": "Project id. If omitted, uses the active project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project id. If omitted, uses the active project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareInput",
+            "field": "resource",
+            "effectiveDescription": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareInput",
+            "field": "resource_id",
+            "effectiveDescription": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareInput",
+            "field": "access_level",
+            "effectiveDescription": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetPrepareData",
+            "field": "next_steps",
+            "effectiveDescription": "Hint for the model. Surfaces as text on the tool result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hint for the model. Surfaces as text on the tool result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/next_steps"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
