@@ -3,7 +3,7 @@ import logging
 from typing import Any, cast, get_args
 
 from django.db import models
-from django.db.models import Max, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
@@ -22,7 +22,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
@@ -44,7 +44,6 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import TurnFindingsBundle, load_chunk_set, load_findings_bundle
 from products.review_hog.backend.reviewer.progress import (
-    IN_PROGRESS_STALE_AFTER,
     RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
     RESOLUTION_STOPPED,
@@ -54,6 +53,7 @@ from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
     TurnMarker,
     TurnStats,
+    in_progress_report_ids,
     latest_resolution_summaries,
     progress_payload,
     resolution_states,
@@ -517,39 +517,6 @@ class _PageEnvelopeSchema(AutoSchema):
         return operation_id
 
 
-def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
-    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
-
-    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
-    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
-    a stuck spinner forever.
-
-    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
-    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
-    would restart the staleness window and re-show the spinner for a report with nothing running —
-    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
-    finalize) that the ageing-out exists to retire.
-    """
-    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
-    if not candidates:
-        return set()
-    latest_artefact = dict(
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=[report.id for report in candidates])
-        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
-        .values_list("report_id")
-        .annotate(latest=Max("created_at"))
-        .values_list("report_id", "latest")
-    )
-    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
-    fresh: set[str] = set()
-    for report in candidates:
-        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
-        if last_activity is not None and last_activity >= cutoff:
-            fresh.add(str(report.id))
-    return fresh
-
-
 def _turn_progress(
     team_id: int,
     reports: list[ReviewReport],
@@ -797,7 +764,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 :probe_limit
             ]
         )
-        in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
+        in_progress_ids = in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
         # Visibly running first (first turns, then re-reviews), then recent completed — deduped so a
         # re-review that also ranks in the completed slice keeps its front position.
         seen: set[str] = set()
@@ -1043,7 +1010,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         pairs = bundle.turn(report_id, run_index)
         chunk_set = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=turn_head) if turn_head else None
         resolutions = resolution_states(team_id, [report])
-        in_progress_ids = _in_progress_report_ids(team_id, [report])
+        in_progress_ids = in_progress_report_ids(team_id, [report])
         progress = _turn_progress(team_id, [report], in_progress_ids, resolutions, bundle).get(report_id)
 
         def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
