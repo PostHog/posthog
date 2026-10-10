@@ -91,6 +91,17 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+# sshtunnel reports every failure to reach the gateway with this fixed wording, which names no fix.
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_ERROR = (
+    "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion "
+    "host is running and reachable, and that PostHog's IP addresses are allowed through its firewall."
+)
+_SSH_TUNNEL_GENERIC_ERROR = (
+    "Could not connect to ClickHouse through your SSH tunnel. Check the SSH tunnel settings for this source, then "
+    "try again."
+)
+
 _HOST_NOT_RESOLVED = "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog."
 
 # Error message → user-friendly translation. Matched as a substring of the
@@ -286,7 +297,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # this per-source dict, so without the entry a down tunnel retries to the maximum and
             # reports the customer's gateway misconfig as error-tracking noise. Postgres, MySQL, and
             # MSSQL already treat this identical error as non-retryable.
-            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_ERROR,
             "Could not resolve the ClickHouse host": None,
             "nodename nor servname provided": None,
             "Name or service not known": None,
@@ -571,11 +582,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
-            return (
-                False,
-                e.value
-                or "Could not connect to ClickHouse via the SSH tunnel. Please check all connection details are valid.",
-            )
+            if _SSH_GATEWAY_SESSION_ERROR in (e.value or ""):
+                return False, _SSH_GATEWAY_UNREACHABLE_ERROR
+            # Other sshtunnel messages are written for a traceback reader and can carry the host it dialed.
+            capture_exception(e)
+            return False, _SSH_TUNNEL_GENERIC_ERROR
         except ClickHouseConnectionError as e:
             message = self._translate_error(str(e))
             return False, message or GENERIC_CONNECTION_ERROR

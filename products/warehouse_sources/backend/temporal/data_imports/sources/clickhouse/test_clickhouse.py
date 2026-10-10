@@ -18,6 +18,7 @@ import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -628,6 +629,40 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == GENERIC_CONNECTION_ERROR
+
+    @pytest.mark.parametrize(
+        "raw_error,expected",
+        [
+            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
+            (
+                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                "SSH tunnel settings",
+            ),
+        ],
+    )
+    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "play.clickhouse.com"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid", return_value=(True, None)):
+                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                    with patch.object(source_module, "capture_exception"):
+                        valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert msg is not None and expected in msg
+        assert "SSH gateway" not in msg
+        assert "example.com" not in msg
 
 
 class TestHasDuplicatePrimaryKeys:
