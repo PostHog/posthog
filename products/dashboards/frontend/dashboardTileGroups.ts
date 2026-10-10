@@ -4,11 +4,12 @@ import { correctBounds } from 'react-grid-layout/core'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import type { DashboardTile } from '~/types'
+import type { DashboardLayoutSize, DashboardTile } from '~/types'
 
 interface GroupTitlesInput {
     tiles: DashboardTile[]
-    smLayout: Layout | undefined
+    layout: Layout | undefined
+    activeBreakpoint: DashboardLayoutSize
     groupTitles: Record<string, string> | undefined
     compactor: Compactor
     widgetTilesShown: boolean
@@ -20,16 +21,22 @@ function getGroupTitle(groupTitles: Record<string, string>, groupKey: string): s
 }
 
 /** Repeats what the grid does before it paints: drop tiles it does not render, then clamp and compact. */
-function getRenderedLayout(smLayout: Layout | undefined, renderedTileIds: Set<string>, compactor: Compactor): Layout {
-    const cols = BREAKPOINT_COLUMN_COUNTS.sm
-    const layout = cloneLayout((smLayout ?? []).filter((item) => renderedTileIds.has(item.i)))
-    return compactor.compact(correctBounds(layout, { cols }), cols)
+function getRenderedLayout(
+    layout: Layout | undefined,
+    breakpoint: DashboardLayoutSize,
+    renderedTileIds: Set<string>,
+    compactor: Compactor
+): Layout {
+    const cols = BREAKPOINT_COLUMN_COUNTS[breakpoint]
+    const renderedLayout = cloneLayout((layout ?? []).filter((item) => renderedTileIds.has(item.i)))
+    return compactor.compact(correctBounds(renderedLayout, { cols }), cols)
 }
 
 /** Maps each titled group to its top-left rendered tile, so the dashboard draws the group title once. */
 export function getGroupTitlesByTileId({
     tiles,
-    smLayout,
+    layout,
+    activeBreakpoint,
     groupTitles,
     compactor,
     widgetTilesShown,
@@ -39,7 +46,8 @@ export function getGroupTitlesByTileId({
     }
     const renderedTiles = tiles.filter((tile) => !tile.widget || widgetTilesShown)
     const renderedLayout = getRenderedLayout(
-        smLayout,
+        layout,
+        activeBreakpoint,
         new Set(renderedTiles.map((tile) => tile.id.toString())),
         compactor
     )

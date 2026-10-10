@@ -33,11 +33,8 @@
         }
 
         /* Tile decorations draw outside the tile box, so the same paint clip would cut them off */
-        &:has(
-            .DashboardTileDecorations__group-title,
-            .DashboardTileDecorations__crown,
-            .DashboardTileDecorations__hog
-        ) {
+        &:has(> .DashboardTileDecorations__group-title, > .DashboardTileDecorations__crown),
+        &:hover:has(> .DashboardTileDecorations__hog) {
             content-visibility: visible;
         }
     }

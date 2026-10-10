@@ -103,6 +103,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        sizeKey,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -263,16 +264,18 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const widgetTilesShown = dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)
+    const activeBreakpoint = sizeKey ?? 'sm'
     const groupTitlesByTileId = useMemo(
         () =>
             getGroupTitlesByTileId({
                 tiles: tiles || [],
-                smLayout: layouts['sm'],
+                layout: layouts[activeBreakpoint],
+                activeBreakpoint,
                 groupTitles: dashboard?.customization?.group_titles,
                 compactor: gridCompactor,
                 widgetTilesShown,
             }),
-        [tiles, layouts, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
+        [tiles, layouts, activeBreakpoint, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
     )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
