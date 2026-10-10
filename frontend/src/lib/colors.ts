@@ -74,6 +74,31 @@ export const FALLBACK_DATA_COLOR_THEME: DataColorTheme = FALLBACK_DATA_COLOR_THE
     {} as DataColorTheme
 )
 
+// The hues of quill's highlight and status colors. A chart draws on a canvas, which needs resolved colors and not
+// the CSS variables, so the values are written out here.
+const QUILL_DATA_COLOR_THEME_COLORS = [
+    '#2d69de', // blue
+    '#f34f0f', // orange
+    '#137738', // green
+    '#762bb2', // purple
+    '#d6a62e', // yellow
+    '#c2272d', // red
+    '#74a7e8', // light blue
+    '#f5ab77', // peach
+    '#6fb880', // light green
+    '#b08ada', // light purple
+    '#e78d98', // pink
+    '#2b9095', // teal
+    '#5c18d7', // violet
+    '#424e5d', // slate
+    '#874c00', // brown
+] as const
+
+export const QUILL_DATA_COLOR_THEME: DataColorTheme = QUILL_DATA_COLOR_THEME_COLORS.reduce((theme, color, index) => {
+    theme[`preset-${index + 1}`] = color
+    return theme
+}, {} as DataColorTheme)
+
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
