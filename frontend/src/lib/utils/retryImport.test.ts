@@ -63,16 +63,19 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(1)
     })
 
-    it('retries a generic network TypeError and marks it as a chunk load error once exhausted', async () => {
-        const error = new TypeError('Load failed')
-        const factory = jest.fn().mockRejectedValue(error)
+    it.each(['Load failed', 'Cross-origin script load denied by Cross-Origin Resource Sharing policy.'])(
+        'retries a generic network TypeError (%s) and marks it as a chunk load error once exhausted',
+        async (message) => {
+            const error = new TypeError(message)
+            const factory = jest.fn().mockRejectedValue(error)
 
-        const promise = retryImport(factory)
-        void promise.catch(() => {})
-        await jest.runAllTimersAsync()
+            const promise = retryImport(factory)
+            void promise.catch(() => {})
+            await jest.runAllTimersAsync()
 
-        await expect(promise).rejects.toBe(error)
-        expect(factory).toHaveBeenCalledTimes(3)
-        expect(isChunkLoadError(error)).toBe(true)
-    })
+            await expect(promise).rejects.toBe(error)
+            expect(factory).toHaveBeenCalledTimes(3)
+            expect(isChunkLoadError(error)).toBe(true)
+        }
+    )
 })

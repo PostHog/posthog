@@ -61,6 +61,14 @@ describe('isGenericNetworkTypeError', () => {
             { name: 'TypeError', message: 'NetworkError when attempting to fetch resource.' },
             true,
         ],
+        [
+            'Safari native TypeError: cross-origin script load denied',
+            {
+                name: 'TypeError',
+                message: 'Cross-origin script load denied by Cross-Origin Resource Sharing policy.',
+            },
+            true,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['non-TypeError with a matching message', { name: 'Error', message: 'Load failed' }, false],
         ['error with no name or message', {}, false],
