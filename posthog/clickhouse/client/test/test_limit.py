@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -378,6 +379,12 @@ class TestOrgConcurrencyLimit(BaseTest):
             mock_redis.return_value.get.return_value = None
 
             result = get_org_app_concurrency_limit(uuid.uuid4())  # Non-existent org
+            self.assertIsNone(result)
+
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.side_effect = RedisTimeoutError("Timeout reading from socket")
+
+            result = get_org_app_concurrency_limit(self.organization.id)
             self.assertIsNone(result)
 
 
