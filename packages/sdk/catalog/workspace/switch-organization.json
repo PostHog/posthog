@@ -1,0 +1,93 @@
+{
+    "method": "workspace.switchOrganization",
+    "toolName": "switch-organization",
+    "title": "Switch active organization",
+    "category": "Organization & project management",
+    "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-get` to resolve an organization name to an id. This only reaches organizations your own API key covers — for another PostHog account or cloud region (US/EU), use `posthog-connection-call` over a PostHog connection instead. Default to the active organization when no specific organization is mentioned.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/workspace/client.ts",
+    "input": {
+        "name": "WorkspaceSwitchOrganizationInput",
+        "importPath": "@posthog/sdk/workspace",
+        "source": "src/generated/workspace/switch-organization.ts",
+        "declaration": "dist/generated/workspace/switch-organization.d.ts"
+    },
+    "output": {
+        "name": "WorkspaceSwitchOrganizationOutput",
+        "importPath": "@posthog/sdk/workspace",
+        "source": "src/generated/workspace/switch-organization.ts",
+        "declaration": "dist/generated/workspace/switch-organization.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkspaceSwitchOrganizationInputVariant1",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationInputVariant2",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationInputVariant3",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationInputVariant4",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationInputVariant5",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationResponseShape2",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchOrganizationData",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-organization.ts",
+            "declaration": "dist/generated/workspace/switch-organization.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-get` to resolve an organization name to an id. This only reaches organizations your own API key covers — for another PostHog account or cloud region (US/EU), use `posthog-connection-call` over a PostHog connection instead. Default to the active organization when no specific organization is mentioned.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/switch-organization/description"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": [
+        {
+            "toolName": "organizations-get",
+            "method": "workspace.organizationsGet"
+        },
+        {
+            "toolName": "posthog-connection-call",
+            "method": "integrations.posthogConnectionCall"
+        }
+    ]
+}

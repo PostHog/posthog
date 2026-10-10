@@ -1,0 +1,168 @@
+{
+    "method": "workflows.workflowsTestRun",
+    "toolName": "workflows-test-run",
+    "operationId": "hog_flows_invocations_create",
+    "title": "Test-run workflow",
+    "category": "Workflows",
+    "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}), shaped like what the trigger really receives: for event triggers, an event matching the trigger filters; for internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype, text, ts, thread_ts) and carry no person; copy a real payload from workflows-get-invocation when a past run exists. The trigger step evaluates event, internal-event, and warehouse-row trigger filters against globals and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.",
+    "requiredScopes": ["hog_flow:write", "group:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/workflows/client.ts",
+    "input": {
+        "name": "WorkflowsWorkflowsTestRunInput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-test-run.ts",
+        "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+    },
+    "output": {
+        "name": "WorkflowsWorkflowsTestRunOutput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-test-run.ts",
+        "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkflowsWorkflowsTestRunRequestSchema0",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-test-run.ts",
+            "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsTestRunRequestSchema1",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-test-run.ts",
+            "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsTestRunRequestSchema2",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-test-run.ts",
+            "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsTestRunRequestSchema3",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-test-run.ts",
+            "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsTestRunData",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-test-run.ts",
+            "declaration": "dist/generated/workflows/workflows-test-run.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}), shaped like what the trigger really receives: for event triggers, an event matching the trigger filters; for internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype, text, ts, thread_ts) and carry no person; copy a real payload from workflows-get-invocation when a past run exists. The trigger step evaluates event, internal-event, and warehouse-row trigger filters against globals and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/workflows/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WorkflowsWorkflowsTestRunInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog flow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog flow.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsTestRunInput",
+            "field": "globals",
+            "effectiveDescription": "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsTestRunInput",
+            "field": "mock_async_functions",
+            "effectiveDescription": "True (default) mocks HTTP/email/SMS. False fires real side effects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True (default) mocks HTTP/email/SMS. False fires real side effects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsTestRunInput",
+            "field": "current_action_id",
+            "effectiveDescription": "Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsTestRunInput",
+            "field": "use_draft",
+            "effectiveDescription": "Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsTestRunData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

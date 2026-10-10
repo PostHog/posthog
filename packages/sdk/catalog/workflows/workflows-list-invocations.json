@@ -1,0 +1,218 @@
+{
+    "method": "workflows.workflowsListInvocations",
+    "toolName": "workflows-list-invocations",
+    "operationId": "hog_flows_invocation_results_retrieve",
+    "title": "List workflow invocations",
+    "category": "Workflows",
+    "description": "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
+    "requiredScopes": ["hog_flow:read", "person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/workflows/client.ts",
+    "input": {
+        "name": "WorkflowsWorkflowsListInvocationsInput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-list-invocations.ts",
+        "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+    },
+    "output": {
+        "name": "WorkflowsWorkflowsListInvocationsOutput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-list-invocations.ts",
+        "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema0",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema1",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema2",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema3",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema4",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsRequestSchema5",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsResponseShape2",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsListInvocationsData",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-list-invocations.ts",
+            "declaration": "dist/generated/workflows/workflows-list-invocations.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/workflows/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog flow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog flow.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "after",
+            "effectiveDescription": "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "before",
+            "effectiveDescription": "End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "distinct_id",
+            "effectiveDescription": "Only return invocations triggered for this distinct_id (the person the run executed for).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return invocations triggered for this distinct_id (the person the run executed for).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "error_message_contains",
+            "effectiveDescription": "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of invocations to return (1-500, default 50).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of invocations to return (1-500, default 50).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsInput",
+            "field": "status",
+            "effectiveDescription": "Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/invocation_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsListInvocationsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

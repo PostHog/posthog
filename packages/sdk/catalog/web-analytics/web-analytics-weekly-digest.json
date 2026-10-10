@@ -1,0 +1,736 @@
+{
+    "method": "webAnalytics.webAnalyticsWeeklyDigest",
+    "toolName": "web-analytics-weekly-digest",
+    "operationId": "web_analytics_weekly_digest",
+    "title": "Summarize web analytics",
+    "category": "Web analytics",
+    "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
+    "requiredScopes": ["web_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsWebAnalyticsWeeklyDigestInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+        "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsWebAnalyticsWeeklyDigestOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+        "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape7",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-weekly-digest.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-weekly-digest.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1web_analytics~1weekly_digest~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/web_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestInput",
+            "field": "compare",
+            "effectiveDescription": "When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/web_analytics/weekly_digest/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestInput",
+            "field": "days",
+            "effectiveDescription": "Lookback window in days (1–90). Defaults to 7.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lookback window in days (1–90). Defaults to 7.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/web_analytics/weekly_digest/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape2",
+            "field": "current",
+            "effectiveDescription": "Value for the most recent period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value for the most recent period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/current"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape2",
+            "field": "previous",
+            "effectiveDescription": "Value for the prior period, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value for the prior period, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/previous"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape2",
+            "field": "change",
+            "effectiveDescription": "Period-over-period change, null when not meaningful.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period-over-period change, null when not meaningful.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/change"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "field": "percent",
+            "effectiveDescription": "Absolute percentage change, rounded to nearest integer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute percentage change, rounded to nearest integer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/percent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "field": "direction",
+            "effectiveDescription": "Direction of the change relative to the prior period.\n\n* `Up` - Up\n* `Down` - Down",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Direction of the change relative to the prior period.\n\n* `Up` - Up\n* `Down` - Down",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/direction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "field": "color",
+            "effectiveDescription": "Hex color indicating whether the change is a positive or negative signal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex color indicating whether the change is a positive or negative signal.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/color"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "field": "text",
+            "effectiveDescription": "Short label, e.g. 'Up 12%'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short label, e.g. 'Up 12%'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape3",
+            "field": "long_text",
+            "effectiveDescription": "Verbose label, e.g. 'Up 12% from prior period'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Verbose label, e.g. 'Up 12% from prior period'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/long_text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape4",
+            "field": "current",
+            "effectiveDescription": "Human-readable duration, e.g. '2m 34s'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable duration, e.g. '2m 34s'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape4/properties/current"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape4",
+            "field": "previous",
+            "effectiveDescription": "Prior-period duration, e.g. '2m 10s'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prior-period duration, e.g. '2m 10s'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape4/properties/previous"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape4",
+            "field": "change",
+            "effectiveDescription": "Period-over-period change, null when not meaningful.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period-over-period change, null when not meaningful.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape4/properties/change"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape5",
+            "field": "host",
+            "effectiveDescription": "Host for the page, if recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Host for the page, if recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape5/properties/host"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape5",
+            "field": "path",
+            "effectiveDescription": "URL path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL path.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape5/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape5",
+            "field": "visitors",
+            "effectiveDescription": "Unique visitors in the period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique visitors in the period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape5/properties/visitors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape5",
+            "field": "change",
+            "effectiveDescription": "Period-over-period change in visitors, null when not meaningful.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period-over-period change in visitors, null when not meaningful.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape5/properties/change"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape6",
+            "field": "name",
+            "effectiveDescription": "Initial referring domain.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Initial referring domain.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape6/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape6",
+            "field": "visitors",
+            "effectiveDescription": "Unique visitors from this source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique visitors from this source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape6/properties/visitors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape6",
+            "field": "change",
+            "effectiveDescription": "Period-over-period change in visitors, null when not meaningful.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period-over-period change in visitors, null when not meaningful.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape6/properties/change"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape7",
+            "field": "name",
+            "effectiveDescription": "Goal name (action name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal name (action name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape7/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape7",
+            "field": "conversions",
+            "effectiveDescription": "Total conversions in the period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total conversions in the period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape7/properties/conversions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape7",
+            "field": "change",
+            "effectiveDescription": "Period-over-period change in conversions, null when not meaningful.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period-over-period change in conversions, null when not meaningful.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape7/properties/change"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "data_status",
+            "effectiveDescription": "How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.\n\n* `ok` - OK\n* `no_web_sessions` - No web sessions\n* `no_sessions` - No sessions\n* `unknown` - Unknown",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.\n\n* `ok` - OK\n* `no_web_sessions` - No web sessions\n* `no_sessions` - No sessions\n* `unknown` - Unknown",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/data_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "date_from",
+            "effectiveDescription": "Start of the current period, in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the current period, in the project timezone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "date_to",
+            "effectiveDescription": "End of the current period, in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the current period, in the project timezone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "timezone",
+            "effectiveDescription": "Project timezone for the period boundaries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project timezone for the period boundaries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/timezone"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "filter_test_accounts",
+            "effectiveDescription": "True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/filter_test_accounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestResponseShape8",
+            "field": "notes",
+            "effectiveDescription": "Metric definitions to use when you compare the digest with a direct query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric definitions to use when you compare the digest with a direct query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape8/properties/notes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "visitors",
+            "effectiveDescription": "Unique visitors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique visitors.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/visitors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "pageviews",
+            "effectiveDescription": "Total pageviews.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total pageviews.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/pageviews"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "sessions",
+            "effectiveDescription": "Total sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total sessions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "bounce_rate",
+            "effectiveDescription": "Bounce rate (0–100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bounce rate (0–100).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/bounce_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "avg_session_duration",
+            "effectiveDescription": "Average session duration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Average session duration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/avg_session_duration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "top_pages",
+            "effectiveDescription": "Top 5 pages by unique visitors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top 5 pages by unique visitors.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/top_pages"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "top_sources",
+            "effectiveDescription": "Top 5 traffic sources by unique visitors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top 5 traffic sources by unique visitors.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/top_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "goals",
+            "effectiveDescription": "Goal conversions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal conversions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/goals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "metadata",
+            "effectiveDescription": "Period, filters and metric definitions behind the numbers, and a status that explains a zero.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Period, filters and metric definitions behind the numbers, and a status that explains a zero.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsWeeklyDigestData",
+            "field": "dashboard_url",
+            "effectiveDescription": "Link to the Web analytics dashboard for this project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link to the Web analytics dashboard for this project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape1/properties/dashboard_url"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
