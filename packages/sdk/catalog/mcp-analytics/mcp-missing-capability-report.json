@@ -1,0 +1,374 @@
+{
+    "method": "mcpAnalytics.mcpMissingCapabilityReport",
+    "toolName": "mcp-missing-capability-report",
+    "operationId": "mcp_analytics_missing_capabilities_create",
+    "title": "Report missing capability",
+    "category": "MCP analytics",
+    "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
+    "requiredScopes": ["mcp_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsMcpMissingCapabilityReportInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-missing-capability-report.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-missing-capability-report.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsMcpMissingCapabilityReportOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-missing-capability-report.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-missing-capability-report.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsMcpMissingCapabilityReportRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-missing-capability-report.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-missing-capability-report.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpMissingCapabilityReportRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-missing-capability-report.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-missing-capability-report.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpMissingCapabilityReportData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-missing-capability-report.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-missing-capability-report.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a new missing capability report for the current project.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1mcp_analytics~1missing_capabilities~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportInput",
+            "field": "attempted_tool",
+            "effectiveDescription": "The tool the user tried before leaving feedback, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The tool the user tried before leaving feedback, if known.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/missing_capabilities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportInput",
+            "field": "goal",
+            "effectiveDescription": "The user's intended outcome when using MCP.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The user's intended outcome when using MCP.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/missing_capabilities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportInput",
+            "field": "missing_capability",
+            "effectiveDescription": "Capability, tool, or workflow support that is currently missing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Capability, tool, or workflow support that is currently missing.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/missing_capabilities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportInput",
+            "field": "blocked",
+            "effectiveDescription": "Whether the missing capability blocked the user's progress.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the missing capability blocked the user's progress.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/missing_capabilities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for this submission.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for this submission.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "kind",
+            "effectiveDescription": "Whether this submission is general feedback or a missing capability report.\n\n* `feedback` - Feedback\n* `missing_capability` - Missing capability",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this submission is general feedback or a missing capability report.\n\n* `feedback` - Feedback\n* `missing_capability` - Missing capability",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "goal",
+            "effectiveDescription": "The user's goal in plain language.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The user's goal in plain language.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "summary",
+            "effectiveDescription": "The core feedback or missing capability request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The core feedback or missing capability request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "category",
+            "effectiveDescription": "Feedback category when present. Empty for submissions that do not use categories.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feedback category when present. Empty for submissions that do not use categories.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "blocked",
+            "effectiveDescription": "Whether the missing capability blocked progress. Null when not provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the missing capability blocked progress. Null when not provided.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/blocked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "attempted_tool",
+            "effectiveDescription": "The tool the user tried before submitting this feedback, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The tool the user tried before submitting this feedback, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/attempted_tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_client_name",
+            "effectiveDescription": "MCP client name captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP client name captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_client_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_client_version",
+            "effectiveDescription": "MCP client version captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP client version captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_client_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_protocol_version",
+            "effectiveDescription": "MCP protocol version captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP protocol version captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_protocol_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_transport",
+            "effectiveDescription": "MCP transport captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP transport captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_transport"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_session_id",
+            "effectiveDescription": "MCP session identifier captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP session identifier captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "mcp_trace_id",
+            "effectiveDescription": "MCP trace identifier captured alongside the submission when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP trace identifier captured alongside the submission when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/mcp_trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "created_at",
+            "effectiveDescription": "When this submission was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this submission was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpMissingCapabilityReportData",
+            "field": "updated_at",
+            "effectiveDescription": "When this submission was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this submission was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

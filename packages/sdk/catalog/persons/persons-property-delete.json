@@ -1,0 +1,123 @@
+{
+    "method": "persons.personsPropertyDelete",
+    "toolName": "persons-property-delete",
+    "operationId": "persons_delete_property_create",
+    "title": "Delete person property",
+    "category": "Persons",
+    "description": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+    "requiredScopes": ["person:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/persons/client.ts",
+    "input": {
+        "name": "PersonsPersonsPropertyDeleteInput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-property-delete.ts",
+        "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+    },
+    "output": {
+        "name": "PersonsPersonsPropertyDeleteOutput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-property-delete.ts",
+        "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PersonsPersonsPropertyDeleteRequestSchema0",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-property-delete.ts",
+            "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsPropertyDeleteRequestSchema2",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-property-delete.ts",
+            "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsPropertyDeleteRequestSchema1",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-property-delete.ts",
+            "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsPropertyDeleteData",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-property-delete.ts",
+            "declaration": "dist/generated/persons/persons-property-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1persons~1{id}~1delete_property~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/persons/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PersonsPersonsPropertyDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/{id}/delete_property/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsPropertyDeleteInput",
+            "field": "unset",
+            "effectiveDescription": "A property key, or a list of property keys, to remove from this person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A property key, or a list of property keys, to remove from this person.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/{id}/delete_property/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsPropertyDeleteData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

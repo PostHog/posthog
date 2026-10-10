@@ -1,0 +1,638 @@
+{
+    "method": "marketingAnalytics.marketingAnalyticsUtmAudit",
+    "toolName": "marketing-analytics-utm-audit",
+    "operationId": "marketing_analytics_utm_audit_retrieve",
+    "title": "Audit UTM tagging quality",
+    "category": "Marketing analytics",
+    "description": "Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events appear in 'non-integrated', or why UTMs are not matching the ad platform data.",
+    "requiredScopes": ["marketing_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: marketing-analytics-mcp"],
+    "methodSource": "src/generated/marketing-analytics/client.ts",
+    "input": {
+        "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditInput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+    },
+    "output": {
+        "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditOutput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditRequestSchema0",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditRequestSchema1",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape4",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-utm-audit.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-utm-audit.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Cross-reference campaigns with spend from ad platforms against pageview events with UTM parameters to identify tracking issues.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1marketing_analytics~1utm_audit~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events appear in 'non-integrated', or why UTMs are not matching the ad platform data.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/marketing_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditInput",
+            "field": "date_from",
+            "effectiveDescription": "Start date for the audit period",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start date for the audit period",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/utm_audit/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditInput",
+            "field": "date_to",
+            "effectiveDescription": "End date for the audit period",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End date for the audit period",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/utm_audit/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "campaign_name",
+            "effectiveDescription": "Campaign name from the ad platform",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Campaign name from the ad platform",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/campaign_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "campaign_id",
+            "effectiveDescription": "Campaign ID from the ad platform",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Campaign ID from the ad platform",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/campaign_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "source_name",
+            "effectiveDescription": "Integration source name (e.g. google, meta)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration source name (e.g. google, meta)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/source_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "spend",
+            "effectiveDescription": "Total spend for this campaign in the period",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total spend for this campaign in the period",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/spend"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "clicks",
+            "effectiveDescription": "Total clicks for this campaign",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total clicks for this campaign",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/clicks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "impressions",
+            "effectiveDescription": "Total impressions for this campaign",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total impressions for this campaign",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/impressions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "has_utm_events",
+            "effectiveDescription": "Whether matching UTM pageview events were found",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether matching UTM pageview events were found",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/has_utm_events"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "event_count",
+            "effectiveDescription": "Number of matching UTM pageview events",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching UTM pageview events",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/event_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape2",
+            "field": "issues",
+            "effectiveDescription": "List of detected UTM configuration issues",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of detected UTM configuration issues",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/issues"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "field",
+            "effectiveDescription": "The UTM field with the issue (e.g. utm_campaign, utm_source)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The UTM field with the issue (e.g. utm_campaign, utm_source)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/field"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "severity",
+            "effectiveDescription": "Issue severity level\n\n* `error` - error\n* `warning` - warning",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue severity level\n\n* `error` - error\n* `warning` - warning",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "kind",
+            "effectiveDescription": "Which kind of UTM problem this campaign has\n\n* `not_linked` - not_linked\n* `name_collision` - name_collision\n* `no_tagged_events` - no_tagged_events\n* `unknown_source` - unknown_source\n* `missing_source` - missing_source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which kind of UTM problem this campaign has\n\n* `not_linked` - not_linked\n* `name_collision` - name_collision\n* `no_tagged_events` - no_tagged_events\n* `unknown_source` - unknown_source\n* `missing_source` - missing_source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "message",
+            "effectiveDescription": "Human-readable headline; the frontend composes richer text from the fields below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable headline; the frontend composes richer text from the fields below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "alternative_sources",
+            "effectiveDescription": "utm_source values actually found on this campaign's pageviews, ordered by event count",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "utm_source values actually found on this campaign's pageviews, ordered by event count",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/alternative_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "shared_with_integrations",
+            "effectiveDescription": "Other integrations whose campaigns share this campaign's name (name_collision only)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Other integrations whose campaigns share this campaign's name (name_collision only)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/shared_with_integrations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "missing_source_count",
+            "effectiveDescription": "Pageviews that matched this campaign but carried no utm_source, on any issue kind",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pageviews that matched this campaign but carried no utm_source, on any issue kind",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/missing_source_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "suggested_actions",
+            "effectiveDescription": "Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/suggested_actions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape3",
+            "field": "mapping_candidate",
+            "effectiveDescription": "The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/mapping_candidate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape4",
+            "field": "utm_source",
+            "effectiveDescription": "A utm_source value found on this campaign's pageviews",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A utm_source value found on this campaign's pageviews",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape4/properties/utm_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape4",
+            "field": "event_count",
+            "effectiveDescription": "Number of pageview events with this utm_source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of pageview events with this utm_source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape4/properties/event_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "utm_campaign",
+            "effectiveDescription": "UTM campaign value from pageview events",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTM campaign value from pageview events",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/utm_campaign"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "utm_source",
+            "effectiveDescription": "UTM source value from pageview events",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTM source value from pageview events",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/utm_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "event_count",
+            "effectiveDescription": "Number of pageview events with this UTM combination",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of pageview events with this UTM combination",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/event_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "campaign_match",
+            "effectiveDescription": "How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)\n\n* `none` - none\n* `auto` - auto\n* `mapped` - mapped",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)\n\n* `none` - none\n* `auto` - auto\n* `mapped` - mapped",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/campaign_match"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "source_match",
+            "effectiveDescription": "How utm_source matched: none, auto (default source), or mapped (custom mapping)\n\n* `none` - none\n* `auto` - auto\n* `mapped` - mapped",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How utm_source matched: none, auto (default source), or mapped (custom mapping)\n\n* `none` - none\n* `auto` - auto\n* `mapped` - mapped",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/source_match"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditResponseShape5",
+            "field": "matched_campaign",
+            "effectiveDescription": "Name of the matched campaign, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the matched campaign, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape5/properties/matched_campaign"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "total_campaigns",
+            "effectiveDescription": "Total number of campaigns with spend",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of campaigns with spend",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/total_campaigns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "campaigns_with_issues",
+            "effectiveDescription": "Number of campaigns with UTM issues",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of campaigns with UTM issues",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/campaigns_with_issues"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "campaigns_without_issues",
+            "effectiveDescription": "Number of campaigns without issues",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of campaigns without issues",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/campaigns_without_issues"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "total_spend_at_risk",
+            "effectiveDescription": "Total spend on campaigns with UTM issues",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total spend on campaigns with UTM issues",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/total_spend_at_risk"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "results",
+            "effectiveDescription": "Audit results per campaign",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Audit results per campaign",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsUtmAuditData",
+            "field": "all_utm_events",
+            "effectiveDescription": "All UTM events with match status",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All UTM events with match status",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/all_utm_events"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

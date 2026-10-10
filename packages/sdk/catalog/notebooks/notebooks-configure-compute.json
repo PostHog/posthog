@@ -1,0 +1,252 @@
+{
+    "method": "notebooks.notebooksConfigureCompute",
+    "toolName": "notebooks-configure-compute",
+    "operationId": "notebooks_kernel_config_create",
+    "title": "Configure notebook compute",
+    "category": "Notebooks",
+    "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Changing cpu_cores or memory_gb restarts a running kernel so the new size takes effect, and the response's restarted says whether that happened. A restart discards every materialized dataframe, so cells that referenced one must run again — prefer sizing the sandbox before the first Python cell runs, and tell the user what a mid-analysis resize will cost them. Changing only idle_timeout_seconds never restarts; restart_required then reports that a live kernel will not pick it up until it restarts on its own. The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or change the size. That price always describes the sandbox actually serving the notebook, so if a restart failed it is the old one still running, not the size you just set. notebooks-compute-options lists the presets and the values this tool accepts.",
+    "requiredScopes": ["notebook:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksConfigureComputeInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+        "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksConfigureComputeOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+        "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksConfigureComputeRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+            "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksConfigureComputeRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+            "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksConfigureComputeRequestSchema2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+            "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksConfigureComputeData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-configure-compute.ts",
+            "declaration": "dist/generated/notebooks/notebooks-configure-compute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1kernel~1config~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Changing cpu_cores or memory_gb restarts a running kernel so the new size takes effect, and the response's restarted says whether that happened. A restart discards every materialized dataframe, so cells that referenced one must run again — prefer sizing the sandbox before the first Python cell runs, and tell the user what a mid-analysis resize will cost them. Changing only idle_timeout_seconds never restarts; restart_required then reports that a live kernel will not pick it up until it restarts on its own. The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or change the size. That price always describes the sandbox actually serving the notebook, so if a restart failed it is the old one still running, not the size you just set. notebooks-compute-options lists the presets and the values this tool accepts.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeInput",
+            "field": "short_id",
+            "effectiveDescription": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeInput",
+            "field": "cpu_cores",
+            "effectiveDescription": "CPU cores for the notebook's sandbox kernel; must be a supported option.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CPU cores for the notebook's sandbox kernel; must be a supported option.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/kernel/config/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeInput",
+            "field": "memory_gb",
+            "effectiveDescription": "Memory in GB for the notebook's sandbox kernel; must be a supported option.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory in GB for the notebook's sandbox kernel; must be a supported option.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/kernel/config/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeInput",
+            "field": "idle_timeout_seconds",
+            "effectiveDescription": "Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/kernel/config/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "cpu_cores",
+            "effectiveDescription": "Configured CPU cores; null means the default applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured CPU cores; null means the default applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/cpu_cores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "memory_gb",
+            "effectiveDescription": "Configured memory in GB; null means the default applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured memory in GB; null means the default applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/memory_gb"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "idle_timeout_seconds",
+            "effectiveDescription": "Configured maximum sandbox lifetime in seconds; null means the default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured maximum sandbox lifetime in seconds; null means the default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/idle_timeout_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "restarted",
+            "effectiveDescription": "True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/restarted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "restart_required",
+            "effectiveDescription": "True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/restart_required"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "hourly_price",
+            "effectiveDescription": "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/hourly_price"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksConfigureComputeData",
+            "field": "preset_key",
+            "effectiveDescription": "Compute preset the configured shape matches, or null when it was tuned by hand.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compute preset the configured shape matches, or null when it was tuned by hand.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/preset_key"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,508 @@
+{
+    "method": "marketingAnalytics.marketingAnalyticsDataSources",
+    "toolName": "marketing-analytics-data-sources",
+    "operationId": "marketing_analytics_data_sources_retrieve",
+    "title": "List marketing data sources health",
+    "category": "Marketing analytics",
+    "description": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
+    "requiredScopes": ["marketing_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: marketing-analytics-mcp"],
+    "methodSource": "src/generated/marketing-analytics/client.ts",
+    "input": {
+        "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesInput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+    },
+    "output": {
+        "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesOutput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesRequestSchema0",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsDataSourcesData",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-data-sources.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-data-sources.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Check the platform → data-warehouse side of every native marketing integration: connection state, sync recency, row counts, required-table status, and schema-mapping coverage. Read-only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1marketing_analytics~1data_sources~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/marketing_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesInput",
+            "field": "source_type",
+            "effectiveDescription": "Optional. Restrict to one integration (e.g. 'GoogleAds').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional. Restrict to one integration (e.g. 'GoogleAds').",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/data_sources/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "source_type",
+            "effectiveDescription": "External data source type key (e.g. 'GoogleAds', 'MetaAds')",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "External data source type key (e.g. 'GoogleAds', 'MetaAds')",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "is_native",
+            "effectiveDescription": "Whether this is a native marketing integration",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this is a native marketing integration",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_native"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "display_name",
+            "effectiveDescription": "Human-readable integration name (e.g. 'Google Ads')",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable integration name (e.g. 'Google Ads')",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "connected",
+            "effectiveDescription": "Whether a live source of this type is connected",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a live source of this type is connected",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/connected"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "last_sync_at",
+            "effectiveDescription": "When the source last completed a sync",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the source last completed a sync",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_sync_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "last_sync_status",
+            "effectiveDescription": "Sync status: ok/error/stale/tables_failed/not_connected/never",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync status: ok/error/stale/tables_failed/not_connected/never",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_sync_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "last_error",
+            "effectiveDescription": "Latest unresolved sync error message, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest unresolved sync error message, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "rows_last_24h",
+            "effectiveDescription": "Rows synced in the last 24 hours",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows synced in the last 24 hours",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/rows_last_24h"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "rows_last_7d",
+            "effectiveDescription": "Rows synced in the last 7 days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows synced in the last 7 days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/rows_last_7d"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "sources_map_present",
+            "effectiveDescription": "Whether a column mapping exists for this source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a column mapping exists for this source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/sources_map_present"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "schema_columns_mapped",
+            "effectiveDescription": "Schema columns currently mapped for this source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema columns currently mapped for this source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/schema_columns_mapped"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "schema_columns_required_missing",
+            "effectiveDescription": "Required schema columns that are not yet mapped",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required schema columns that are not yet mapped",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/schema_columns_required_missing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "required_tables",
+            "effectiveDescription": "Per-required-table sync status for this integration",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-required-table sync status for this integration",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/required_tables"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "settings_url",
+            "effectiveDescription": "URL to the Marketing analytics global settings page",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL to the Marketing analytics global settings page",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/settings_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "schemas_url",
+            "effectiveDescription": "URL to the per-source Schemas tab, or null if not connected",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL to the per-source Schemas tab, or null if not connected",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/schemas_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "diagnosis",
+            "effectiveDescription": "Human-readable diagnosis of this source's health",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable diagnosis of this source's health",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/diagnosis"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape2",
+            "field": "fix_suggestion",
+            "effectiveDescription": "Suggested fix when the source is unhealthy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suggested fix when the source is unhealthy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/fix_suggestion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "field": "table_name",
+            "effectiveDescription": "Name of the required source table (e.g. 'campaign', 'campaign_stats')",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the required source table (e.g. 'campaign', 'campaign_stats')",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "field": "present",
+            "effectiveDescription": "Whether the table exists as a schema on the connected source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the table exists as a schema on the connected source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/present"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "field": "should_sync",
+            "effectiveDescription": "Whether the table is enabled for sync",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the table is enabled for sync",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/should_sync"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "field": "status",
+            "effectiveDescription": "ExternalDataSchema status: Completed/Running/Failed/Paused/Cancelled, or null",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ExternalDataSchema status: Completed/Running/Failed/Paused/Cancelled, or null",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesResponseShape3",
+            "field": "last_synced_at",
+            "effectiveDescription": "When this table last completed a sync",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this table last completed a sync",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/last_synced_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesData",
+            "field": "integrations",
+            "effectiveDescription": "One health entry per native integration",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One health entry per native integration",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/integrations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesData",
+            "field": "has_any_data",
+            "effectiveDescription": "True if any integration synced rows in the last 7 days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if any integration synced rows in the last 7 days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/has_any_data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesData",
+            "field": "overall_status",
+            "effectiveDescription": "Overall: healthy/degraded/broken/no_sources",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overall: healthy/degraded/broken/no_sources",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/overall_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsDataSourcesData",
+            "field": "issues_summary",
+            "effectiveDescription": "Short human-readable summary of detected issues",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short human-readable summary of detected issues",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/issues_summary"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

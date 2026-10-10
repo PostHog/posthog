@@ -1,0 +1,218 @@
+{
+    "method": "notebooks.notebooksWidgetGenerate",
+    "toolName": "notebooks-widget-generate",
+    "operationId": "notebooks_widget_generate",
+    "title": "Generate notebook widget",
+    "category": "Notebooks",
+    "description": "Generate or improve an interactive notebook widget from instructions and the notebook's completed SQL and Python dataframes. This tool's availability means generated Widget tags are enabled for the current user. First insert a Widget component with notebooks-add-cell: cell_type=\"component\", tag_name=\"Widget\", props={\"prompt\":\"Describe the visualization\"}, and a short title. If using markdown editing instead, insert <Widget nodeId=\"a-stable-unique-id\" prompt=\"Describe the visualization\" /> into a saved markdown notebook. Insertion alone does not start generation. Run the SQL and Python cells the widget should use first; unrelated unrun cells are skipped. Then call this tool with the notebook short_id, the inserted node_id, prompt, and a fresh UUID generation_id. Reuse that UUID when retrying the same request. Use generation_operation=\"initial\" for a new widget, \"regenerate\" to replace it, or \"improve\" with expected_current_version_id to change the current version. Generation uses AI credits. Poll notebooks-widget-status until lifecycle_status is ready or failed; notebooks-widget-cancel stops an active job. Direct the user to the widget in the notebook to review and run it. Generated previews with dataframe access require the user's approval in the notebook.",
+    "requiredScopes": ["notebook:write", "query:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets", "requires_ai_consent: true"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksWidgetGenerateInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksWidgetGenerateOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksWidgetGenerateRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetGenerateRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetGenerateRequestSchema2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetGenerateData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-generate.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-generate.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1widgets~1{node_id}~1generate~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Generate or improve an interactive notebook widget from instructions and the notebook's completed SQL and Python dataframes. This tool's availability means generated Widget tags are enabled for the current user. First insert a Widget component with notebooks-add-cell: cell_type=\"component\", tag_name=\"Widget\", props={\"prompt\":\"Describe the visualization\"}, and a short title. If using markdown editing instead, insert <Widget nodeId=\"a-stable-unique-id\" prompt=\"Describe the visualization\" /> into a saved markdown notebook. Insertion alone does not start generation. Run the SQL and Python cells the widget should use first; unrelated unrun cells are skipped. Then call this tool with the notebook short_id, the inserted node_id, prompt, and a fresh UUID generation_id. Reuse that UUID when retrying the same request. Use generation_operation=\"initial\" for a new widget, \"regenerate\" to replace it, or \"improve\" with expected_current_version_id to change the current version. Generation uses AI credits. Poll notebooks-widget-status until lifecycle_status is ready or failed; notebooks-widget-cancel stops an active job. Direct the user to the widget in the notebook to review and run it. Generated previews with dataframe access require the user's approval in the notebook.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateRequest_Schema0",
+            "effectiveDescription": "* `claude-haiku-4-5` - claude-haiku-4-5\n* `claude-sonnet-4-6` - claude-sonnet-4-6\n* `claude-sonnet-5` - claude-sonnet-5\n* `claude-opus-5` - claude-opus-5",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `claude-haiku-4-5` - claude-haiku-4-5\n* `claude-sonnet-4-6` - claude-sonnet-4-6\n* `claude-sonnet-5` - claude-sonnet-5\n* `claude-opus-5` - claude-opus-5",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateRequest_Schema1",
+            "effectiveDescription": "* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "node_id",
+            "effectiveDescription": "Stable identifier of the generated widget node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier of the generated widget node.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "short_id",
+            "effectiveDescription": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "prompt",
+            "effectiveDescription": "Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "generation_id",
+            "effectiveDescription": "Idempotency key for this generation job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Idempotency key for this generation job.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "model",
+            "effectiveDescription": "AI model used to generate the widget.\n\n* `claude-haiku-4-5` - claude-haiku-4-5\n* `claude-sonnet-4-6` - claude-sonnet-4-6\n* `claude-sonnet-5` - claude-sonnet-5\n* `claude-opus-5` - claude-opus-5",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI model used to generate the widget.\n\n* `claude-haiku-4-5` - claude-haiku-4-5\n* `claude-sonnet-4-6` - claude-sonnet-4-6\n* `claude-sonnet-5` - claude-sonnet-5\n* `claude-opus-5` - claude-opus-5",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "generation_operation",
+            "effectiveDescription": "Whether to generate from scratch or improve the current source.\n\n* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to generate from scratch or improve the current source.\n\n* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetGenerateInput",
+            "field": "expected_current_version_id",
+            "effectiveDescription": "Current widget version the improvement is based on. Required for improve operations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current widget version the improvement is based on. Required for improve operations.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/generate/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

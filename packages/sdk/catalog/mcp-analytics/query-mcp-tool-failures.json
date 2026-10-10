@@ -1,0 +1,1171 @@
+{
+    "method": "mcpAnalytics.queryMcpToolFailures",
+    "toolName": "query-mcp-tool-failures",
+    "title": "Top errors for one MCP tool",
+    "category": "MCP analytics",
+    "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with their error messages. Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+    "requiredScopes": ["query:read", "mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsQueryMcpToolFailuresInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsQueryMcpToolFailuresOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema5",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema6",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema8",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresRequestSchema7",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresInputDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresInputPropertiesItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresInputPropertiesItemVariant1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresInputPropertiesItemVariant2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresInputPropertiesItemVariant3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersBounceRatePageViewMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersInCohortVia",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersInlineCohortCalculation",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersMaterializationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersMaterializedColumnsOptimizationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersParserMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersPersonsArgMaxVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersPersonsJoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersPersonsOnEventsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersPropertyGroupsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersSessionTableVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiersSessionsV2JoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseFilterLogicalOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotMatcher",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomChannelField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomChannelOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomChannelCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseCustomChannelRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseDataWarehouseEventsModifier",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponsePropertyOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseMCPAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseInteger",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresDataQuery",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresDataWarningsItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolFailuresData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-failures.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-failures.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with their error messages. Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "dateRange.date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "dateRange.date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "dateRange.daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "dateRange.excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "dateRange.explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresInput",
+            "field": "toolName",
+            "effectiveDescription": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "field": "daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "field": "excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseDateRange",
+            "field": "explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "effectiveDescription": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "cookielessTrafficIsRegular",
+            "effectiveDescription": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/cookielessTrafficIsRegular"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "forceClickhouseDataSkippingIndexes",
+            "effectiveDescription": "If these are provided, the query will fail if these skip indexes are not used",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If these are provided, the query will fail if these skip indexes are not used",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/forceClickhouseDataSkippingIndexes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "mergeFederatedAggregateJoins",
+            "effectiveDescription": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/mergeFederatedAggregateJoins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "parserMode",
+            "effectiveDescription": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/parserMode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "personIdPushdown",
+            "effectiveDescription": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/personIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "sessionIdPushdown",
+            "effectiveDescription": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "sessionPropertyPreAggregation",
+            "effectiveDescription": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionPropertyPreAggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "typeAwareCastSimplification",
+            "effectiveDescription": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/typeAwareCastSimplification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "useNewEventsSchema",
+            "effectiveDescription": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/useNewEventsSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "usePreaggregatedTableTransforms",
+            "effectiveDescription": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/usePreaggregatedTableTransforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseHogQLQueryModifiers",
+            "field": "webAnalyticsFirstPageviewFilters",
+            "effectiveDescription": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/webAnalyticsFirstPageviewFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotRule",
+            "effectiveDescription": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotRule",
+            "field": "category",
+            "effectiveDescription": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotRule",
+            "field": "combiner",
+            "effectiveDescription": "Whether every condition must match (AND) or any one of them (OR).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether every condition must match (AND) or any one of them (OR).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/combiner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotRule",
+            "field": "name",
+            "effectiveDescription": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotCondition",
+            "effectiveDescription": "One condition of a project's bot rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One condition of a project's bot rule.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotCondition",
+            "field": "key",
+            "effectiveDescription": "The event property this condition reads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event property this condition reads.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotCondition",
+            "field": "pattern",
+            "effectiveDescription": "Matched against the property named by `key`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matched against the property named by `key`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/pattern"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseCustomBotField",
+            "effectiveDescription": "The event properties a project's own bot rule can match on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event properties a project's own bot rule can match on.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotField"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "effectiveDescription": "Tags that will be added to the Query log comment  *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tags that will be added to the Query log comment  *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "field": "name",
+            "effectiveDescription": "Name of the query, preferably unique. For example web_analytics_vitals",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the query, preferably unique. For example web_analytics_vitals",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "field": "presetId",
+            "effectiveDescription": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/presetId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "field": "productKey",
+            "effectiveDescription": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/productKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseQueryLogTags",
+            "field": "scene",
+            "effectiveDescription": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/scene"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "effectiveDescription": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailureItem"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "field": "error_status",
+            "effectiveDescription": "Raw $mcp_error_status as a string; empty when the bucket has no HTTP status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw $mcp_error_status as a string; empty when the bucket has no HTTP status.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailureItem/properties/error_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "field": "error_type",
+            "effectiveDescription": "Raw $mcp_error_type bucket (\"unknown\" when the event carries none) — pass to MCPToolFailureOccurrencesQuery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw $mcp_error_type bucket (\"unknown\" when the event carries none) — pass to MCPToolFailureOccurrencesQuery.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailureItem/properties/error_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "field": "harnesses",
+            "effectiveDescription": "Resolved harness labels seen for this failure, deduped and sorted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved harness labels seen for this failure, deduped and sorted.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailureItem/properties/harnesses"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresResponseMCPToolFailureItem",
+            "field": "message",
+            "effectiveDescription": "Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. \"api_5xx (HTTP 500)\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. \"api_5xx (HTTP 500)\").",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailureItem/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "query",
+            "effectiveDescription": "Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailuresQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "query.modifiers",
+            "effectiveDescription": "Modifiers used when performing the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Modifiers used when performing the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailuresQuery/properties/modifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "query.toolName",
+            "effectiveDescription": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailuresQuery/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "query.version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolFailuresQuery/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolFailuresData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

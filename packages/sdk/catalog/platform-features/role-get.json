@@ -1,0 +1,117 @@
+{
+    "method": "platformFeatures.roleGet",
+    "toolName": "role-get",
+    "operationId": "roles_retrieve",
+    "title": "Get a specific role.",
+    "category": "Platform Features",
+    "description": "Get details of a specific role including its name, creation date, and creator.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesRoleGetInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/role-get.ts",
+        "declaration": "dist/generated/platform-features/role-get.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesRoleGetOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/role-get.ts",
+        "declaration": "dist/generated/platform-features/role-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesRoleGetResponseShape3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-get.ts",
+            "declaration": "dist/generated/platform-features/role-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleGetResponseShape2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-get.ts",
+            "declaration": "dist/generated/platform-features/role-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleGetResponseShape4",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-get.ts",
+            "declaration": "dist/generated/platform-features/role-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleGetData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-get.ts",
+            "declaration": "dist/generated/platform-features/role-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Role endpoints disclose member records, so they scope them the same way the members list\ndoes when the org restricts member list visibility.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1roles~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get details of a specific role including its name, creation date, and creator.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesRoleGetInput",
+            "field": "id",
+            "effectiveDescription": "Required. The role id from roles-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this role.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/roles/{id}/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Required. The role id from roles-list.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/platform_features/mcp/tools.yaml",
+                        "pointer": "/tools/role-get/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesRoleGetData",
+            "field": "members",
+            "effectiveDescription": "Members assigned to this role",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Members assigned to this role",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/members"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

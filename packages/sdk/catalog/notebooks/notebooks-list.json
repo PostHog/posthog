@@ -1,0 +1,325 @@
+{
+    "method": "notebooks.notebooksList",
+    "toolName": "notebooks-list",
+    "operationId": "notebooks_list",
+    "title": "List notebooks",
+    "category": "Notebooks",
+    "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
+    "requiredScopes": ["notebook:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksListInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-list.ts",
+        "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksListOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-list.ts",
+        "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksListRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListRequestSchema6",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "contains",
+            "effectiveDescription": "Filter for notebooks that match a provided filter.\n                Each match pair is separated by a colon,\n                multiple match pairs can be sent separated by a space or a comma",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter for notebooks that match a provided filter.\n                Each match pair is separated by a colon,\n                multiple match pairs can be sent separated by a space or a comma",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "created_by",
+            "effectiveDescription": "The UUID of the Notebook's creator",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The UUID of the Notebook's creator",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "date_from",
+            "effectiveDescription": "Filter for notebooks created after this date & time",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter for notebooks created after this date & time",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "date_to",
+            "effectiveDescription": "Filter for notebooks created before this date & time",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter for notebooks created before this date & time",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListInput",
+            "field": "user",
+            "effectiveDescription": "If any value is provided for this parameter, return notebooks created by the logged in user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If any value is provided for this parameter, return notebooks created by the logged in user.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListResponseShape2",
+            "field": "short_id",
+            "effectiveDescription": "Short alphanumeric identifier used in URLs and API lookups.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short alphanumeric identifier used in URLs and API lookups.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Title of the notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Title of the notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListResponseShape2",
+            "field": "deleted",
+            "effectiveDescription": "Whether the notebook has been soft-deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the notebook has been soft-deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListResponseShape2",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

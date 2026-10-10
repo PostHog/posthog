@@ -1,0 +1,1020 @@
+{
+    "method": "metrics.queryMetrics",
+    "toolName": "query-metrics",
+    "operationId": "metrics_query_create",
+    "title": "Query metrics",
+    "category": "Metrics",
+    "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"metricName\": \"m\", \"aggregation\": \"rate\", \"dateFrom\": \"2026-01-01T00:00:00Z\" } }\n```\n\nTwo request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.",
+    "requiredScopes": ["metrics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: metrics"],
+    "methodSource": "src/generated/metrics/client.ts",
+    "input": {
+        "name": "MetricsQueryMetricsInput",
+        "importPath": "@posthog/sdk/metrics",
+        "source": "src/generated/metrics/query-metrics.ts",
+        "declaration": "dist/generated/metrics/query-metrics.d.ts"
+    },
+    "output": {
+        "name": "MetricsQueryMetricsOutput",
+        "importPath": "@posthog/sdk/metrics",
+        "source": "src/generated/metrics/query-metrics.ts",
+        "declaration": "dist/generated/metrics/query-metrics.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MetricsQueryMetricsRequestSchema0",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema2",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema4",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema6",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema8",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema12",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema13",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema10Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema10",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema16",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema14Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema14",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema17",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema21",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema22",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema23",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema24",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema26",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema27",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema25Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema25",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema29",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema28Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema28",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema19Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema19",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema30",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema32",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsRequestSchema33",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsInputQuery",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsResponseShape3",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsResponseShape4",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsResponseShape2",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        },
+        {
+            "name": "MetricsQueryMetricsData",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/query-metrics.ts",
+            "declaration": "dist/generated/metrics/query-metrics.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"metricName\": \"m\", \"aggregation\": \"rate\", \"dateFrom\": \"2026-01-01T00:00:00Z\" } }\n```\n\nTwo request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/metrics/mcp/prompts/query-metrics.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema0",
+            "effectiveDescription": "Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema2",
+            "effectiveDescription": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema4",
+            "effectiveDescription": "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema6",
+            "effectiveDescription": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema8",
+            "effectiveDescription": "Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema10",
+            "effectiveDescription": "Label predicates ANDed together. Rows must satisfy every filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label predicates ANDed together. Rows must satisfy every filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema10",
+            "field": "[].key",
+            "effectiveDescription": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema10",
+            "field": "[].op",
+            "effectiveDescription": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/op"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema10",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. For regex operators this is the pattern.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. For regex operators this is the pattern.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema10",
+            "field": "[].scope",
+            "effectiveDescription": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema12",
+            "effectiveDescription": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema13",
+            "effectiveDescription": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema14",
+            "effectiveDescription": "Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema14",
+            "field": "[].key",
+            "effectiveDescription": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema15/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema14",
+            "field": "[].scope",
+            "effectiveDescription": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema15/items/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema16",
+            "effectiveDescription": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema17",
+            "effectiveDescription": "Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n* `second_15` - second_15\n* `second_30` - second_30\n* `minute` - minute\n* `minute_5` - minute_5\n* `minute_15` - minute_15\n* `minute_30` - minute_30\n* `hour` - hour\n* `hour_6` - hour_6\n* `day` - day\n* `week` - week",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n* `second_15` - second_15\n* `second_30` - second_30\n* `minute` - minute\n* `minute_5` - minute_5\n* `minute_15` - minute_15\n* `minute_30` - minute_30\n* `hour` - hour\n* `hour_6` - hour_6\n* `day` - day\n* `week` - week",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema17"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "effectiveDescription": "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema19"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].name",
+            "effectiveDescription": "Clause name a formula refers to (e.g. 'a').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Clause name a formula refers to (e.g. 'a').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].metricName",
+            "effectiveDescription": "Exact metric name this clause queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact metric name this clause queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/metricName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].metricType",
+            "effectiveDescription": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/metricType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].aggregation",
+            "effectiveDescription": "Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/aggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].rangeFunction",
+            "effectiveDescription": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/rangeFunction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].quantile",
+            "effectiveDescription": "Quantile in (0, 1) for 'histogram_quantile'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quantile in (0, 1) for 'histogram_quantile'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/quantile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].filters",
+            "effectiveDescription": "Label predicates ANDed together for this clause.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label predicates ANDed together for this clause.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema19",
+            "field": "[].groupBy",
+            "effectiveDescription": "Labels to split this clause into separate series by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Labels to split this clause into separate series by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema20/items/properties/groupBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema22",
+            "effectiveDescription": "* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema25",
+            "field": "[].key",
+            "effectiveDescription": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema25/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema25",
+            "field": "[].op",
+            "effectiveDescription": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema25/items/properties/op"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema25",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. For regex operators this is the pattern.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. For regex operators this is the pattern.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema25/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema25",
+            "field": "[].scope",
+            "effectiveDescription": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema25/items/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema26",
+            "effectiveDescription": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema27",
+            "effectiveDescription": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema28",
+            "field": "[].key",
+            "effectiveDescription": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema28/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema28",
+            "field": "[].scope",
+            "effectiveDescription": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema28/items/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema29",
+            "effectiveDescription": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema30",
+            "effectiveDescription": "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema30"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema32",
+            "effectiveDescription": "Lower bound (inclusive) for the query range. ISO 8601.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower bound (inclusive) for the query range. ISO 8601.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema32"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsRequest_Schema33",
+            "effectiveDescription": "Upper bound (exclusive) for the query range. Defaults to now if omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper bound (exclusive) for the query range. Defaults to now if omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema33"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsInput",
+            "field": "query",
+            "effectiveDescription": "The metric query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The metric query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/metrics/query/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape2",
+            "field": "labels",
+            "effectiveDescription": "Label values identifying this series. Empty for an ungrouped query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label values identifying this series. Empty for an ungrouped query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape2",
+            "field": "points",
+            "effectiveDescription": "Time-bucketed points, ordered by time ascending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-bucketed points, ordered by time ascending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/points"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape2",
+            "field": "metric_name",
+            "effectiveDescription": "Metric the series was computed from. Null for formula results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric the series was computed from. Null for formula results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/metric_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape2",
+            "field": "clause",
+            "effectiveDescription": "Name of the query clause that produced this series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the query clause that produced this series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/clause"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape3",
+            "effectiveDescription": "Label values identifying this series. Empty for an ungrouped query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label values identifying this series. Empty for an ungrouped query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape4",
+            "field": "time",
+            "effectiveDescription": "Bucket start as ISO 8601 timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket start as ISO 8601 timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape4/properties/time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsResponseShape4",
+            "field": "value",
+            "effectiveDescription": "Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape4/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsData",
+            "field": "results",
+            "effectiveDescription": "One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsQueryMetricsData",
+            "field": "hint",
+            "effectiveDescription": "Set only when the query returned no points: what to check before querying again.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set only when the query returned no points: what to check before querying again.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/hint"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "metric-names-list",
+            "method": "metrics.metricNamesList"
+        },
+        {
+            "toolName": "query-logs",
+            "method": "logs.queryLogs"
+        }
+    ]
+}

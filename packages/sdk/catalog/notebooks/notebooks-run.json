@@ -1,0 +1,241 @@
+{
+    "method": "notebooks.notebooksRun",
+    "toolName": "notebooks-run",
+    "title": "Run notebook",
+    "category": "Notebooks",
+    "description": "Run every SQL and Python cell of a markdown notebook, in document order, in one call. Cells run one at a time, and the run stops at the first cell that fails or is stopped, so a later cell never reads a stale upstream result. Pass `variables` to set the notebook's values first: the list replaces the whole set and the notebook stores it, so \"refresh this report for last week\" is a single call. Waits up to ~45s and writes each cell's result into the document as it lands. A longer run comes back with status 'running' and a run_id; continue with notebooks-run-status, which keeps waiting and writes the rest. Editing the notebook during a run does not change which cells run: the plan is frozen when the run starts, and a result whose cell was deleted is dropped. Editing a cell's code mid-run is the one case to avoid: the frozen code still runs, and its result lands under the code you just wrote. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them the sandbox_hourly_price the first time a run starts one.",
+    "requiredScopes": ["notebook:write", "query:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksRunInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-run.ts",
+        "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksRunOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-run.ts",
+        "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksRunRequestSchema1Type",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunRequestSchema2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunRequestSchema3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksRunData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-run.ts",
+            "declaration": "dist/generated/notebooks/notebooks-run.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run every SQL and Python cell of a markdown notebook, in document order, in one call. Cells run one at a time, and the run stops at the first cell that fails or is stopped, so a later cell never reads a stale upstream result. Pass `variables` to set the notebook's values first: the list replaces the whole set and the notebook stores it, so \"refresh this report for last week\" is a single call. Waits up to ~45s and writes each cell's result into the document as it lands. A longer run comes back with status 'running' and a run_id; continue with notebooks-run-status, which keeps waiting and writes the rest. Editing the notebook during a run does not change which cells run: the plan is frozen when the run starts, and a result whose cell was deleted is dropped. Editing a cell's code mid-run is the one case to avoid: the frozen code still runs, and its result lands under the code you just wrote. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them the sandbox_hourly_price the first time a run starts one.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/notebooks-run/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksRunRequest_Schema1",
+            "field": "name",
+            "effectiveDescription": "Identifier cells read: `{name}` in a SQL cell, a plain global in a Python cell. Letters, numbers, and underscores; must not start with a number, repeat another variable, or reuse a cell's dataframe_name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier cells read: `{name}` in a SQL cell, a plain global in a Python cell. Letters, numbers, and underscores; must not start with a number, repeat another variable, or reuse a cell's dataframe_name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunRequest_Schema1",
+            "field": "type",
+            "effectiveDescription": "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunRequest_Schema1",
+            "field": "value",
+            "effectiveDescription": "The current value. Omit or pass null for a declared-but-unset variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current value. Omit or pass null for a declared-but-unset variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema1/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunInput",
+            "field": "notebook_id",
+            "effectiveDescription": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/notebook_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunInput",
+            "field": "variables",
+            "effectiveDescription": "Set the notebook's variables before the run, in one call. This replaces the whole list, so include every variable you want to keep, and the notebook stores what you pass. Omit it to run with the variables already saved. At most 10.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set the notebook's variables before the run, in one call. This replaces the whole list, so include every variable you want to keep, and the notebook stores what you pass. Omit it to run with the variables already saved. At most 10.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/variables"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunInput",
+            "field": "wait",
+            "effectiveDescription": "Wait for the run and write each result into the document as it lands. Set false to start the run and return immediately, then follow with notebooks-run-status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wait for the run and write each result into the document as it lands. Set false to start the run and return immediately, then follow with notebooks-run-status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/wait"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunResponseShape2",
+            "field": "status",
+            "effectiveDescription": "'running', 'done', 'failed', 'interrupted', or null before the run reaches the cell.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'running', 'done', 'failed', 'interrupted', or null before the run reaches the cell.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunResponseShape3",
+            "field": "rows_preview[][]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape3/properties/rows_preview/items/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksRunResponseShape3",
+            "field": "media",
+            "effectiveDescription": "Base64 payloads stay out of model context; mime types signal that figures exist.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Base64 payloads stay out of model context; mime types signal that figures exist.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape3/properties/media"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,185 @@
+{
+    "method": "persons.personsRetrieve",
+    "toolName": "persons-retrieve",
+    "operationId": "persons_retrieve",
+    "title": "Get person",
+    "category": "Persons",
+    "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+    "requiredScopes": ["person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/persons/client.ts",
+    "input": {
+        "name": "PersonsPersonsRetrieveInput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-retrieve.ts",
+        "declaration": "dist/generated/persons/persons-retrieve.d.ts"
+    },
+    "output": {
+        "name": "PersonsPersonsRetrieveOutput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-retrieve.ts",
+        "declaration": "dist/generated/persons/persons-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PersonsPersonsRetrieveData",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-retrieve.ts",
+            "declaration": "dist/generated/persons/persons-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1persons~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/persons/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PersonsPersonsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "id",
+            "effectiveDescription": "Numeric person ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric person ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "uuid",
+            "effectiveDescription": "Unique identifier (UUID) for this person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier (UUID) for this person.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "name",
+            "effectiveDescription": "Display name derived from person properties (email, name, or username).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name derived from person properties (email, name, or username).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "properties",
+            "effectiveDescription": "Key-value map of person properties set via $set and $set_once operations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key-value map of person properties set via $set and $set_once operations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "created_at",
+            "effectiveDescription": "When this person was first seen (ISO 8601).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this person was first seen (ISO 8601).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "last_seen_at",
+            "effectiveDescription": "Timestamp of the last event from this person, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the last event from this person, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape1/properties/last_seen_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

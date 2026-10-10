@@ -1,0 +1,288 @@
+{
+    "method": "notebooks.notebooksListFrames",
+    "toolName": "notebooks-list-frames",
+    "operationId": "notebooks_kernel_status_retrieve",
+    "title": "List notebook dataframes",
+    "category": "Notebooks",
+    "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only when backend is modal.",
+    "requiredScopes": ["notebook:read", "query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksListFramesInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-list-frames.ts",
+        "declaration": "dist/generated/notebooks/notebooks-list-frames.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksListFramesOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-list-frames.ts",
+        "declaration": "dist/generated/notebooks/notebooks-list-frames.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksListFramesResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list-frames.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list-frames.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksListFramesData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-list-frames.ts",
+            "declaration": "dist/generated/notebooks/notebooks-list-frames.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1kernel~1status~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only when backend is modal.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksListFramesInput",
+            "field": "short_id",
+            "effectiveDescription": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Name a SQL node can SELECT from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name a SQL node can SELECT from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesResponseShape2",
+            "field": "columns",
+            "effectiveDescription": "DuckDB type per column, as [name, type] pairs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "DuckDB type per column, as [name, type] pairs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesResponseShape2",
+            "field": "row_count",
+            "effectiveDescription": "Rows available, or null when counting would require a table scan (a DDL view).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows available, or null when counting would require a table scan (a DDL view).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/row_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesResponseShape2",
+            "field": "row_count_is_estimate",
+            "effectiveDescription": "True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/row_count_is_estimate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "status",
+            "effectiveDescription": "Live-checked kernel state: 'starting', 'running', 'stopped', 'timed_out', 'discarded', or 'error'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Live-checked kernel state: 'starting', 'running', 'stopped', 'timed_out', 'discarded', or 'error'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "frames",
+            "effectiveDescription": "Dataframes and DuckDB tables a cell can currently reference, with column names and types. Empty unless the kernel is running and the caller has query access.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dataframes and DuckDB tables a cell can currently reference, with column names and types. Empty unless the kernel is running and the caller has query access.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/frames"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "cpu_cores",
+            "effectiveDescription": "CPU cores the sandbox is configured with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CPU cores the sandbox is configured with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/cpu_cores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "memory_gb",
+            "effectiveDescription": "Memory in GB the sandbox is configured with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory in GB the sandbox is configured with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/memory_gb"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "idle_timeout_seconds",
+            "effectiveDescription": "Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/idle_timeout_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "backend",
+            "effectiveDescription": "Sandbox backend the kernel runs on: 'modal' or 'docker'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox backend the kernel runs on: 'modal' or 'docker'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/backend"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "hourly_price",
+            "effectiveDescription": "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/hourly_price"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksListFramesData",
+            "field": "preset_key",
+            "effectiveDescription": "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/preset_key"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

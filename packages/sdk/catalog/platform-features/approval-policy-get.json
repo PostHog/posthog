@@ -1,0 +1,141 @@
+{
+    "method": "platformFeatures.approvalPolicyGet",
+    "toolName": "approval-policy-get",
+    "operationId": "approval_policies_retrieve",
+    "title": "Get a specific approval policy.",
+    "category": "Platform Features",
+    "description": "Get details of an approval policy including conditions, approver configuration, quorum requirements, and bypass rules.",
+    "requiredScopes": ["approvals:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesApprovalPolicyGetInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/approval-policy-get.ts",
+        "declaration": "dist/generated/platform-features/approval-policy-get.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesApprovalPolicyGetOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/approval-policy-get.ts",
+        "declaration": "dist/generated/platform-features/approval-policy-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesApprovalPolicyGetResponseShape3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/approval-policy-get.ts",
+            "declaration": "dist/generated/platform-features/approval-policy-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesApprovalPolicyGetResponseShape2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/approval-policy-get.ts",
+            "declaration": "dist/generated/platform-features/approval-policy-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesApprovalPolicyGetData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/approval-policy-get.ts",
+            "declaration": "dist/generated/platform-features/approval-policy-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get details of an approval policy including conditions, approver configuration, quorum requirements, and bypass rules.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesApprovalPolicyGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this approval policy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this approval policy.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/approval_policies/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesApprovalPolicyGetData",
+            "field": "conditions",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/conditions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesApprovalPolicyGetData",
+            "field": "approver_config",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/approver_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesApprovalPolicyGetData",
+            "field": "bypass_org_membership_levels",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/bypass_org_membership_levels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesApprovalPolicyGetData",
+            "field": "expires_after",
+            "effectiveDescription": "Auto-expire change requests after this duration",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Auto-expire change requests after this duration",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/expires_after"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

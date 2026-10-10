@@ -1,0 +1,87 @@
+{
+    "method": "notebooks.notebooksDeleteCell",
+    "toolName": "notebooks-delete-cell",
+    "title": "Delete notebook cell",
+    "category": "Notebooks",
+    "description": "Delete a cell from a markdown notebook by node_id. Nothing downstream is touched: the response lists orphaned_dependents — cells that referenced the deleted cell's dataframe and now need rewriting or deleting. The kernel keeps any already-materialized dataframe until it restarts, so a dependent may still run against the deleted cell's last result; rewrite dependents promptly.",
+    "requiredScopes": ["notebook:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksDeleteCellInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-delete-cell.ts",
+        "declaration": "dist/generated/notebooks/notebooks-delete-cell.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksDeleteCellOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-delete-cell.ts",
+        "declaration": "dist/generated/notebooks/notebooks-delete-cell.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksDeleteCellResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-delete-cell.ts",
+            "declaration": "dist/generated/notebooks/notebooks-delete-cell.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksDeleteCellData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-delete-cell.ts",
+            "declaration": "dist/generated/notebooks/notebooks-delete-cell.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete a cell from a markdown notebook by node_id. Nothing downstream is touched: the response lists orphaned_dependents — cells that referenced the deleted cell's dataframe and now need rewriting or deleting. The kernel keeps any already-materialized dataframe until it restarts, so a dependent may still run against the deleted cell's last result; rewrite dependents promptly.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/notebooks-delete-cell/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksDeleteCellInput",
+            "field": "notebook_id",
+            "effectiveDescription": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/notebook_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksDeleteCellInput",
+            "field": "node_id",
+            "effectiveDescription": "The cell to delete, as returned by notebooks-add-cell.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cell to delete, as returned by notebooks-add-cell.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/node_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

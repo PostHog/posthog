@@ -1,0 +1,861 @@
+{
+    "method": "metrics.characterizeMetricAnomaly",
+    "toolName": "characterize-metric-anomaly",
+    "operationId": "metrics_characterize_create",
+    "title": "Characterize metric anomaly",
+    "category": "Metrics",
+    "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"metricName\": \"m\", \"anomalyFrom\": \"2026-01-01T00:00:00Z\" } }\n```\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius.",
+    "requiredScopes": ["metrics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: metrics"],
+    "methodSource": "src/generated/metrics/client.ts",
+    "input": {
+        "name": "MetricsCharacterizeMetricAnomalyInput",
+        "importPath": "@posthog/sdk/metrics",
+        "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+        "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+    },
+    "output": {
+        "name": "MetricsCharacterizeMetricAnomalyOutput",
+        "importPath": "@posthog/sdk/metrics",
+        "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+        "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema0",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema1",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema2",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema4",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema6",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema8",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema10",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema14",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema15",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema12Item",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema12",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyRequestSchema16",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyInputQuery",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyResponseShape4",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyResponseShape5",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyResponseShape3",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        },
+        {
+            "name": "MetricsCharacterizeMetricAnomalyData",
+            "importPath": "@posthog/sdk/metrics",
+            "source": "src/generated/metrics/characterize-metric-anomaly.ts",
+            "declaration": "dist/generated/metrics/characterize-metric-anomaly.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Characterize a metric anomaly: compare an anomaly window against a\nbaseline, find the onset, and rank which label values moved.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1metrics~1characterize~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"metricName\": \"m\", \"anomalyFrom\": \"2026-01-01T00:00:00Z\" } }\n```\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/metrics/mcp/prompts/characterize-metric-anomaly.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema0",
+            "effectiveDescription": "Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema1",
+            "effectiveDescription": "Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema2",
+            "effectiveDescription": "End of the suspicious window (exclusive). Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the suspicious window (exclusive). Defaults to now.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema4",
+            "effectiveDescription": "Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema6",
+            "effectiveDescription": "End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema8",
+            "effectiveDescription": "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema10",
+            "effectiveDescription": "Quantile for histogram_quantile. Defaults to 0.95.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quantile for histogram_quantile. Defaults to 0.95.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema12",
+            "effectiveDescription": "Label predicates narrowing which series are characterized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label predicates narrowing which series are characterized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema12",
+            "field": "[].key",
+            "effectiveDescription": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema12",
+            "field": "[].op",
+            "effectiveDescription": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/op"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema12",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. For regex operators this is the pattern.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. For regex operators this is the pattern.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema12",
+            "field": "[].scope",
+            "effectiveDescription": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema14",
+            "effectiveDescription": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema15",
+            "effectiveDescription": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyRequest_Schema16",
+            "effectiveDescription": "Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyInput",
+            "field": "query",
+            "effectiveDescription": "The anomaly characterization to run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The anomaly characterization to run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/metrics/characterize/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "field": "key",
+            "effectiveDescription": "Label key that was drilled into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label key that was drilled into.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "field": "label",
+            "effectiveDescription": "Label value this row describes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label value this row describes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "field": "baseline_value",
+            "effectiveDescription": "Mean value over the baseline window for this label value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean value over the baseline window for this label value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/baseline_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "field": "anomaly_value",
+            "effectiveDescription": "Mean value over the anomaly window for this label value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean value over the anomaly window for this label value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/anomaly_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape2",
+            "field": "change_ratio",
+            "effectiveDescription": "anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape2/properties/change_ratio"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape3",
+            "field": "labels",
+            "effectiveDescription": "Label values identifying this series. Empty for an ungrouped query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label values identifying this series. Empty for an ungrouped query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape3/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape3",
+            "field": "points",
+            "effectiveDescription": "Time-bucketed points, ordered by time ascending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-bucketed points, ordered by time ascending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape3/properties/points"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape3",
+            "field": "metric_name",
+            "effectiveDescription": "Metric the series was computed from. Null for formula results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric the series was computed from. Null for formula results.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape3/properties/metric_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape3",
+            "field": "clause",
+            "effectiveDescription": "Name of the query clause that produced this series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the query clause that produced this series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape3/properties/clause"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape4",
+            "effectiveDescription": "Label values identifying this series. Empty for an ungrouped query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label values identifying this series. Empty for an ungrouped query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape5",
+            "field": "time",
+            "effectiveDescription": "Bucket start as ISO 8601 timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket start as ISO 8601 timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape5/properties/time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyResponseShape5",
+            "field": "value",
+            "effectiveDescription": "Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "metric_name",
+            "effectiveDescription": "Metric that was characterized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric that was characterized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/metric_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "aggregation",
+            "effectiveDescription": "Aggregation used (auto-picked when not specified).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregation used (auto-picked when not specified).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/aggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "interval",
+            "effectiveDescription": "Bucket size of the analysis grid.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket size of the analysis grid.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "baseline_from",
+            "effectiveDescription": "Baseline window start, ISO 8601.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Baseline window start, ISO 8601.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/baseline_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "baseline_to",
+            "effectiveDescription": "Baseline window end, ISO 8601.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Baseline window end, ISO 8601.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/baseline_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "anomaly_from",
+            "effectiveDescription": "Anomaly window start, ISO 8601.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Anomaly window start, ISO 8601.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/anomaly_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "anomaly_to",
+            "effectiveDescription": "Anomaly window end, ISO 8601.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Anomaly window end, ISO 8601.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/anomaly_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "baseline_mean",
+            "effectiveDescription": "Mean over the baseline window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean over the baseline window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/baseline_mean"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "baseline_stddev",
+            "effectiveDescription": "Population stddev over the baseline window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Population stddev over the baseline window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/baseline_stddev"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "anomaly_mean",
+            "effectiveDescription": "Mean over the anomaly window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean over the anomaly window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/anomaly_mean"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "anomaly_peak",
+            "effectiveDescription": "Maximum bucket value in the anomaly window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum bucket value in the anomaly window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/anomaly_peak"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "change_ratio",
+            "effectiveDescription": "anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/change_ratio"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "direction",
+            "effectiveDescription": "Which way the metric moved versus the baseline.\n\n* `up` - up\n* `down` - down\n* `flat` - flat",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which way the metric moved versus the baseline.\n\n* `up` - up\n* `down` - down\n* `flat` - flat",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/direction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "onset_time",
+            "effectiveDescription": "First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/onset_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "top_movers",
+            "effectiveDescription": "Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/top_movers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MetricsCharacterizeMetricAnomalyData",
+            "field": "series",
+            "effectiveDescription": "The metric across baseline + anomaly windows on one grid, for plotting or further inspection.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The metric across baseline + anomaly windows on one grid, for plotting or further inspection.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/metrics.ts",
+                        "pointer": "#/Shape1/properties/series"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "metric-names-list",
+            "method": "metrics.metricNamesList"
+        },
+        {
+            "toolName": "query-logs",
+            "method": "logs.queryLogs"
+        }
+    ]
+}

@@ -1,0 +1,106 @@
+{
+    "method": "notebooks.notebooksWidgetCancel",
+    "toolName": "notebooks-widget-cancel",
+    "operationId": "notebooks_widget_cancel",
+    "title": "Cancel notebook widget generation",
+    "category": "Notebooks",
+    "description": "Cancel an active generated notebook widget job. Use the notebook short_id, the Widget tag's nodeId, and the generation_id supplied when starting the job or returned as active_job.id by notebooks-widget-status. Existing generated versions remain available.",
+    "requiredScopes": ["notebook:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksWidgetCancelInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-cancel.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-cancel.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksWidgetCancelOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-cancel.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-cancel.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksWidgetCancelData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-cancel.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-cancel.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1widgets~1{node_id}~1cancel~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Cancel an active generated notebook widget job. Use the notebook short_id, the Widget tag's nodeId, and the generation_id supplied when starting the job or returned as active_job.id by notebooks-widget-status. Existing generated versions remain available.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksWidgetCancelInput",
+            "field": "node_id",
+            "effectiveDescription": "Stable identifier of the generated widget node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier of the generated widget node.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/cancel/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetCancelInput",
+            "field": "short_id",
+            "effectiveDescription": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetCancelInput",
+            "field": "generation_id",
+            "effectiveDescription": "Generation job to cancel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generation job to cancel.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/cancel/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

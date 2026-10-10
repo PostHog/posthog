@@ -1,0 +1,158 @@
+{
+    "method": "platformFeatures.roleMembersList",
+    "toolName": "role-members-list",
+    "operationId": "roles_role_memberships_list",
+    "title": "List members of a role.",
+    "category": "Platform Features",
+    "description": "List all members assigned to a specific role. Shows who has which role in the organization.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesRoleMembersListInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/role-members-list.ts",
+        "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesRoleMembersListOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/role-members-list.ts",
+        "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesRoleMembersListRequestSchema0",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListRequestSchema1",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListResponseShape5",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListResponseShape4",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListResponseShape3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListResponseShape2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesRoleMembersListData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/role-members-list.ts",
+            "declaration": "dist/generated/platform-features/role-members-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Role endpoints disclose member records, so they scope them the same way the members list\ndoes when the org restricts member list visibility.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1roles~1{role_id}~1role_memberships~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List all members assigned to a specific role. Shows who has which role in the organization.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesRoleMembersListInput",
+            "field": "role_id",
+            "effectiveDescription": "Required. The role id from roles-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required. The role id from roles-list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesRoleMembersListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/roles/{role_id}/role_memberships/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesRoleMembersListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/roles/{role_id}/role_memberships/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesRoleMembersListResponseShape3",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape3/properties/search_match_type"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

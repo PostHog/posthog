@@ -1,0 +1,237 @@
+{
+    "method": "platformFeatures.orgMembersList",
+    "toolName": "org-members-list",
+    "operationId": "members_list",
+    "title": "List organization members.",
+    "category": "Platform Features",
+    "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
+    "requiredScopes": ["organization_member:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesOrgMembersListInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/org-members-list.ts",
+        "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesOrgMembersListOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/org-members-list.ts",
+        "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema0",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema1",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema4",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema5",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListRequestSchema6",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListResponseShape4",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListResponseShape3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListResponseShape2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrgMembersListData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-members-list.ts",
+            "declaration": "dist/generated/platform-features/org-members-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "email_domain",
+            "effectiveDescription": "Only return members whose email address is on this domain (case-insensitive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return members whose email address is on this domain (case-insensitive).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "levels",
+            "effectiveDescription": "Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "order",
+            "effectiveDescription": "Sort order. Defaults to `-joined_at`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort order. Defaults to `-joined_at`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "outside_verified_domains",
+            "effectiveDescription": "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListInput",
+            "field": "search",
+            "effectiveDescription": "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/members/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMembersListResponseShape2",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/search_match_type"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
