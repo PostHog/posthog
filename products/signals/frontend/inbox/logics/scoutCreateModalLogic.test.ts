@@ -61,6 +61,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         status_changed_at: null,
         status_changed_by: null,
         auto_pause_exempt: false,
+        lifecycle_locked: false,
         network_access: 'trusted',
         model: null,
         precheck_query: null,

@@ -2727,6 +2727,15 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
     write_scopes = models.JSONField(default=list, db_default=[])
+    # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
+    # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
+    # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it
+    # — the same bar `write_scopes` clears, and for the same reason: a project-wide scope is held
+    # by people and by unattended agents alike, and pausing is unbounded while resuming passes
+    # the enabled-scout cap, so one bulk write can silence a fleet that cannot be restored in one
+    # step. It never blocks a system transition: an inactivity sweep or the failure breaker still
+    # pauses a locked scout.
+    lifecycle_locked = models.BooleanField(default=False, db_default=False)
     allowed_mcp_tools = models.JSONField(null=True, blank=True)
     tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
