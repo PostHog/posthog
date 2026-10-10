@@ -139,7 +139,10 @@ tools:
             start and end: the character span of its source in markdown. A markdown cell's id is derived from its text,
             so edit it with notebooks-update-cell against the same read that returned it. Legacy rich-text notebooks
             return their raw document in content instead of markdown. When you do not have the notebook's short_id, find
-            it with notebooks-list.
+            it with notebooks-list. The full read repeats every cell's source in markdown and can be large. To orient,
+            pass detail 'compact': it returns markdown as null and cuts each cell's code to a short preview. To read
+            or edit specific cells, pass their node_ids in cell_ids: it returns markdown as null and only those cells,
+            each with its complete code.
         param_overrides:
             short_id:
                 description: >
