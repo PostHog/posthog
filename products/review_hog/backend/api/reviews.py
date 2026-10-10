@@ -11,6 +11,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.requested_reviews import (
@@ -53,6 +54,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,7 @@ MAX_REVIEWS_LIMIT = 100
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
+OWN_DEEP_STATS_REVIEW_LIMIT = 10
 
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
@@ -89,13 +92,21 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     )
 
 
+class PerspectiveStatsScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
+    OWN_DEEP = "own_deep", "Own Deep reviews"
+
+
 class PerspectiveStatsParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
-        choices=[SCOPE_MINE, SCOPE_EVERYONE],
-        default=SCOPE_MINE,
+        choices=PerspectiveStatsScope.choices,
+        default=PerspectiveStatsScope.MINE,
         help_text="Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran "
         "plus reviews of pull requests they authored (matched via their linked GitHub login), "
-        "`everyone` for every review on this project.",
+        "`everyone` for every review on this project, `own_deep` for the last "
+        f"{OWN_DEEP_STATS_REVIEW_LIMIT} Deep reviews the requesting user started. The review skills "
+        "in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.",
     )
 
 
@@ -104,7 +115,7 @@ class ReviewProgressSerializer(serializers.Serializer):
         choices=REVIEW_STAGES,
         help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
         "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
-        "or finalizing (building and publishing the review). A single-agent Flash turn reports its "
+        "or finalizing (building and publishing the review). A single-agent Standard turn reports its "
         "own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and "
         "finalizing (merging, capping, and publishing the findings).",
     )
@@ -185,7 +196,7 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
     full_review_published = serializers.BooleanField(
-        help_text="Whether a Full review of this pull request has been published. No Flash review runs after one."
+        help_text="Whether a Deep review of this pull request has been published. No Standard review runs after one."
     )
     in_progress = serializers.BooleanField(
         help_text="Whether a run is on this report right now: a review turn or a resolution run "
@@ -261,7 +272,7 @@ class ReviewTriggerRequestRunMode(models.TextChoices):
     REVIEW = RUN_MODE_REVIEW, "Review"
     REVIEW_ONLY = RUN_MODE_REVIEW_ONLY, "Review only"
     RESOLVE_ONLY = RUN_MODE_RESOLVE_ONLY, "Resolve only"
-    FLASH = RUN_MODE_FLASH, "Flash"
+    FLASH = RUN_MODE_FLASH, "Standard"
 
 
 class ReviewTriggerRequestSerializer(serializers.Serializer):
@@ -277,8 +288,8 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
         "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
         "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
-        "opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves "
-        "comments, and is refused once the PR has a published Full review. The owner is the PR's author, "
+        "opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves "
+        "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
         "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
@@ -291,7 +302,7 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
         "pull request's current commit already has a published review in the requested mode, "
         "'joined_running_review' when a review was already in flight and the request joined its queue. "
-        "A requested Full review waits for an active Flash review."
+        "A requested Deep review waits for an active Standard review."
     )
 
 
@@ -301,9 +312,8 @@ class ReviewTriggerErrorSerializer(serializers.Serializer):
         required=False,
         choices=ReviewRequestRefusal.choices,
         help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
-        "(the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not "
-        "turned on resolving comments), 'internal_feature' (the run mode is not available in this project). "
-        "Absent for other errors.",
+        "(the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not "
+        "turned on resolving comments). Absent for other errors.",
     )
 
 
@@ -530,6 +540,19 @@ def _review_payload(
     }
 
 
+class EffectiveTeamScopedKeyPermission(BasePermission):
+    """Reviews live on the root project, and the API scope check covers only the URL project.
+
+    So a key scoped to an environment must not reach its parent project through an environment URL.
+    """
+
+    message = "This key is not scoped to the project that holds the reviews."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
+
+
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Recent ReviewHog reviews on this project.
 
@@ -548,7 +571,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
     posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
@@ -672,20 +695,40 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
         "recent completed reviews in scope — the requesting user's by default, every review on this project "
-        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
+        "with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those "
+        "the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        scope = params.validated_data["scope"]
+        queryset: QuerySet[ReviewReport]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            team_id = resolve_effective_team_id(self.team_id)
+            # Filter before the report limit, so newer Standard reports cannot push Deep ones out of the window.
+            # Rows from before the per-mode watermark predate Standard reviews.
+            queryset = ReviewReport.objects.for_team(team_id, canonical=True).filter(
+                Q(published_heads_by_mode__has_key=REVIEW_MODE_FULL) | Q(published_heads_by_mode__isnull=True),
+                acting_user_id=request.user.id,
+            )
+        else:
+            team_id, queryset = self._reports(request, scope=scope)
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
-        stats: dict[str, dict[str, int]] = {}
         bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
-        for report in reports:
-            pairs = bundle.turn(str(report.id), report.run_count)
+        turns = [bundle.turn(str(report.id), report.run_count) for report in reports]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            # Standard turns read none of the user's skills, so they would dilute the kept counts.
+            turns = [
+                pairs
+                for report, pairs in zip(reports, turns)
+                if completed_turn_review_mode(report, pairs) == REVIEW_MODE_FULL
+            ]
+            turns = turns[:OWN_DEEP_STATS_REVIEW_LIMIT]
+        stats: dict[str, dict[str, int]] = {}
+        for pairs in turns:
             for finding, verdict in pairs:
                 entry = stats.setdefault(
                     finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}
@@ -695,7 +738,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     entry["kept" if verdict.is_valid else "dismissed"] += 1
         items: list[dict[str, Any]] = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
         items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
-        payload = {"report_count": len(reports), "perspectives": items}
+        payload = {"report_count": len(turns), "perspectives": items}
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
 
     @extend_schema(
@@ -712,14 +755,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project, or Flash or resolve-only was "
-                "requested in a project without the review-hog-internal flag (code 'internal_feature').",
+                description="The review-hog feature flag is off for this project.",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
                 description="The pull request's cycle is busy (busy-guard): reviews are blocked while its "
                 "comments are being resolved, and resolve-only runs are blocked while a review is running. "
-                "Also returned with a code when Flash follows a published Full review ('flash_after_full') "
+                "Also returned with a code when a Standard review follows a published Deep review ('flash_after_full') "
                 "or the PR owner has not opted in to resolution ('resolution_not_opted_in').",
             ),
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
@@ -731,7 +773,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "appears under their recent reviews. Resolution writes to the branch only when the pull request "
         "owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution "
         "stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a "
-        "lower-cost Flash review that never resolves comments and is refused after a published Full review. "
+        "lower-cost Standard review that never resolves comments and is refused after a published Deep review. "
         "Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
         "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
