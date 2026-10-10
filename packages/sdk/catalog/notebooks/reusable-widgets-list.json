@@ -1,0 +1,294 @@
+{
+    "method": "notebooks.reusableWidgetsList",
+    "toolName": "reusable-widgets-list",
+    "operationId": "reusable_widgets_list",
+    "title": "Search reusable notebook widgets",
+    "category": "Notebooks",
+    "description": "Search the project's curated reusable widget catalog by name, description, or tag. Check this catalog before generating a new visualization. Results include stable widget IDs, current version IDs, tags, and usage counts. This is a curated API shape rather than a general database table so it is available in both MCP modes.",
+    "requiredScopes": ["notebook:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksReusableWidgetsListInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/reusable-widgets-list.ts",
+        "declaration": "dist/generated/notebooks/reusable-widgets-list.d.ts"
+    },
+    "output": {
+        "name": "NotebooksReusableWidgetsListOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/reusable-widgets-list.ts",
+        "declaration": "dist/generated/notebooks/reusable-widgets-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksReusableWidgetsListResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-list.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-list.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsListData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-list.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Search the project's curated reusable widget catalog by name, description, or tag. Check this catalog before generating a new visualization. Results include stable widget IDs, current version IDs, tags, and usage counts. This is a curated API shape rather than a general database table so it is available in both MCP modes.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable reusable widget identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable reusable widget identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Catalog name of the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Catalog name of the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Description of the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "tags",
+            "effectiveDescription": "Searchable widget labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Searchable widget labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "publication_status",
+            "effectiveDescription": "Catalog lifecycle of the reusable widget.\n\n* `published` - published\n* `deprecated` - deprecated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Catalog lifecycle of the reusable widget.\n\n* `published` - published\n* `deprecated` - deprecated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/publication_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "current_version_id",
+            "effectiveDescription": "Current immutable version used by unpinned instances.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current immutable version used by unpinned instances.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "version_count",
+            "effectiveDescription": "Number of immutable versions in this widget's history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of immutable versions in this widget's history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/version_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "instance_count",
+            "effectiveDescription": "Number of notebook placements using this widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of notebook placements using this widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/instance_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the widget identity was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the widget identity was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "published_at",
+            "effectiveDescription": "When the widget became reusable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the widget became reusable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/published_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When the reusable widget was last changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the reusable widget was last changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListData",
+            "field": "results",
+            "effectiveDescription": "Reusable widgets in this page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reusable widgets in this page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListData",
+            "field": "count",
+            "effectiveDescription": "Total reusable widgets matching the search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total reusable widgets matching the search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListData",
+            "field": "next_offset",
+            "effectiveDescription": "Offset for the next page, or null when this is the final page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Offset for the next page, or null when this is the final page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/next_offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

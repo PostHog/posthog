@@ -1,0 +1,789 @@
+{
+    "method": "notebooks.notebooksWidgetAttach",
+    "toolName": "notebooks-widget-attach",
+    "operationId": "notebooks_widget_attach",
+    "title": "Add reusable widget to notebook",
+    "category": "Notebooks",
+    "description": "Attach a reusable widget to an existing Widget node in a notebook. First save a `<Widget nodeId=\"...\" />` element in the notebook markdown, then pass that node_id here. Map every logical input slot from the widget contract to a dataframe in this notebook with `{source: \"dataframe_name\"}`. When source columns do not match the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared version; pass a version UUID to pin this placement.",
+    "requiredScopes": ["notebook:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksWidgetAttachInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksWidgetAttachOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksWidgetAttachRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachRequestSchema1Variant1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape8",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetAttachData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-attach.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-attach.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1widgets~1{node_id}~1attach~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Attach a reusable widget to an existing Widget node in a notebook. First save a `<Widget nodeId=\"...\" />` element in the notebook markdown, then pass that node_id here. Map every logical input slot from the widget contract to a dataframe in this notebook with `{source: \"dataframe_name\"}`. When source columns do not match the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared version; pass a version UUID to pin this placement.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachInput",
+            "field": "node_id",
+            "effectiveDescription": "Stable identifier of the generated widget node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier of the generated widget node.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/attach/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachInput",
+            "field": "widget_id",
+            "effectiveDescription": "Reusable widget to place in this notebook node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reusable widget to place in this notebook node.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/attach/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachInput",
+            "field": "version_id",
+            "effectiveDescription": "Version to pin, or null to follow the reusable widget's latest version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version to pin, or null to follow the reusable widget's latest version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/attach/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachInput",
+            "field": "input_bindings",
+            "effectiveDescription": "Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/attach/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape2",
+            "effectiveDescription": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape4",
+            "field": "slot",
+            "effectiveDescription": "Stable logical input name used by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable logical input name used by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/slot"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape4",
+            "field": "sourceName",
+            "effectiveDescription": "Original dataframe name when the widget was published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original dataframe name when the widget was published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/sourceName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape4",
+            "field": "columns",
+            "effectiveDescription": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape4",
+            "field": "schemaHash",
+            "effectiveDescription": "Hash of the expected column schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the expected column schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/schemaHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape5",
+            "field": "name",
+            "effectiveDescription": "Column name expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape5",
+            "field": "type",
+            "effectiveDescription": "Column type expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column type expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "id",
+            "effectiveDescription": "Generation job identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generation job identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "status",
+            "effectiveDescription": "Current durable job state.\n\n* `queued` - queued\n* `generating` - generating\n* `publishing` - publishing",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current durable job state.\n\n* `queued` - queued\n* `generating` - generating\n* `publishing` - publishing",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "phase",
+            "effectiveDescription": "Current generation phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current generation phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "model",
+            "effectiveDescription": "AI model processing the job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI model processing the job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "created_at",
+            "effectiveDescription": "When the job was queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job was queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape6",
+            "field": "started_at",
+            "effectiveDescription": "When a worker started the job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When a worker started the job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "severity",
+            "effectiveDescription": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "summary",
+            "effectiveDescription": "Concise result from the automated security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concise result from the automated security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "findings",
+            "effectiveDescription": "Potential security issues found in the source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Potential security issues found in the source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "model",
+            "effectiveDescription": "Fast AI model used for the security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fast AI model used for the security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "review_version",
+            "effectiveDescription": "Version of the security review instructions and parser.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the security review instructions and parser.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/review_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape7",
+            "field": "reviewed_at",
+            "effectiveDescription": "When this exact widget source was reviewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this exact widget source was reviewed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/reviewed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape8",
+            "field": "severity",
+            "effectiveDescription": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape8",
+            "field": "title",
+            "effectiveDescription": "Short description of the potential security issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description of the potential security issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachResponseShape8",
+            "field": "details",
+            "effectiveDescription": "Why the source may be unsafe and what it could do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the source may be unsafe and what it could do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/details"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "lifecycle_status",
+            "effectiveDescription": "Current widget and preview state.\n\n* `awaiting_generation` - awaiting_generation\n* `generating` - generating\n* `building` - building\n* `ready` - ready\n* `failed` - failed\n* `incompatible` - incompatible",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current widget and preview state.\n\n* `awaiting_generation` - awaiting_generation\n* `generating` - generating\n* `building` - building\n* `ready` - ready\n* `failed` - failed\n* `incompatible` - incompatible",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/lifecycle_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "error_detail",
+            "effectiveDescription": "Actionable failure detail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actionable failure detail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/error_detail"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "error_code",
+            "effectiveDescription": "Stable failure code for support and diagnostics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable failure code for support and diagnostics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "failure_phase",
+            "effectiveDescription": "Generation step that failed, if a generation job failed.\n\n* `generating_source` - generating_source\n* `reviewing_source` - reviewing_source\n* `publishing_source` - publishing_source\n* `unknown` - unknown",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generation step that failed, if a generation job failed.\n\n* `generating_source` - generating_source\n* `reviewing_source` - reviewing_source\n* `publishing_source` - publishing_source\n* `unknown` - unknown",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/failure_phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "frame_names",
+            "effectiveDescription": "Logical dataframe slots available to the selected version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Logical dataframe slots available to the selected version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/frame_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "input_bindings",
+            "effectiveDescription": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/input_bindings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "input_contract",
+            "effectiveDescription": "Logical dataframe slots and output schemas required by the selected widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Logical dataframe slots and output schemas required by the selected widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/input_contract"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "current_version_id",
+            "effectiveDescription": "Selected immutable widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Selected immutable widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "pinned_version_id",
+            "effectiveDescription": "Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/pinned_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "widget_id",
+            "effectiveDescription": "Reusable widget identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reusable widget identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/widget_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "instance_id",
+            "effectiveDescription": "Placement in this notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Placement in this notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/instance_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "has_versions",
+            "effectiveDescription": "Whether the widget has generated history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the widget has generated history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/has_versions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "active_job",
+            "effectiveDescription": "Active generation job, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Active generation job, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/active_job"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "security_review",
+            "effectiveDescription": "Automated review for the selected source, or null for a legacy unreviewed version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automated review for the selected source, or null for a legacy unreviewed version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/security_review"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "is_reusable",
+            "effectiveDescription": "Whether this widget identity is published in the reusable widget catalog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this widget identity is published in the reusable widget catalog.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/is_reusable"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetAttachData",
+            "field": "build_hash",
+            "effectiveDescription": "Hex SHA-256 over the exact immutable artifact manifest selected for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 over the exact immutable artifact manifest selected for display.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/build_hash"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

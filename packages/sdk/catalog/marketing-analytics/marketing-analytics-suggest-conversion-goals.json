@@ -1,0 +1,300 @@
+{
+    "method": "marketingAnalytics.marketingAnalyticsSuggestConversionGoals",
+    "toolName": "marketing-analytics-suggest-conversion-goals",
+    "operationId": "marketing_analytics_suggest_conversion_goals_retrieve",
+    "title": "Suggest conversion goal candidates",
+    "category": "Marketing analytics",
+    "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
+    "requiredScopes": ["marketing_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: marketing-analytics-mcp"],
+    "methodSource": "src/generated/marketing-analytics/client.ts",
+    "input": {
+        "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsInput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+    },
+    "output": {
+        "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsOutput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsRequestSchema0",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsRequestSchema1",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsData",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-suggest-conversion-goals.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Rank existing custom events as conversion-goal candidates by volume, UTM-tag coverage, and unique users, excluding system/autocaptured events. Read-only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1marketing_analytics~1suggest_conversion_goals~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/marketing_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsInput",
+            "field": "min_count",
+            "effectiveDescription": "Minimum 30d event count to be a candidate",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum 30d event count to be a candidate",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/suggest_conversion_goals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsInput",
+            "field": "top_n",
+            "effectiveDescription": "Max candidates to return",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max candidates to return",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/suggest_conversion_goals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "event_name",
+            "effectiveDescription": "Name of the candidate event",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the candidate event",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/event_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "last_30d_count",
+            "effectiveDescription": "Count of this event in the last 30 days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of this event in the last 30 days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_30d_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "distinct_users_30d",
+            "effectiveDescription": "Distinct users who triggered the event in 30 days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct users who triggered the event in 30 days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/distinct_users_30d"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "pct_with_utm_source",
+            "effectiveDescription": "Percentage of events that carry a utm_source",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of events that carry a utm_source",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/pct_with_utm_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "pct_with_utm_campaign",
+            "effectiveDescription": "Percentage of events that carry a utm_campaign",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of events that carry a utm_campaign",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/pct_with_utm_campaign"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "top_utm_sources",
+            "effectiveDescription": "List of [utm_source, count] pairs",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of [utm_source, count] pairs",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/top_utm_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "is_already_a_goal",
+            "effectiveDescription": "Whether this event is already configured as a goal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this event is already configured as a goal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_already_a_goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "suggestion_score",
+            "effectiveDescription": "Ranking score (higher is a stronger candidate)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ranking score (higher is a stronger candidate)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/suggestion_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsResponseShape2",
+            "field": "suggestion_reason",
+            "effectiveDescription": "Human-readable rationale for the suggestion",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable rationale for the suggestion",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/suggestion_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsData",
+            "field": "candidates",
+            "effectiveDescription": "Ranked candidate events for conversion goals",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ranked candidate events for conversion goals",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/candidates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsData",
+            "field": "lookback_days",
+            "effectiveDescription": "Lookback window in days used for the analysis",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lookback window in days used for the analysis",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/lookback_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSuggestConversionGoalsData",
+            "field": "excluded_events_count",
+            "effectiveDescription": "Number of system/autocaptured events excluded",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of system/autocaptured events excluded",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/excluded_events_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

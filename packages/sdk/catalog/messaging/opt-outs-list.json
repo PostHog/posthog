@@ -1,0 +1,235 @@
+{
+    "method": "messaging.optOutsList",
+    "toolName": "opt-outs-list",
+    "operationId": "messaging_preferences_opt_outs_retrieve",
+    "title": "List opt-outs",
+    "category": "Messaging",
+    "description": "List recipients opted out of a message category, most recently updated first. Omit category_key to list recipients opted out of all marketing messages.",
+    "requiredScopes": ["hog_flow:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/messaging/client.ts",
+    "input": {
+        "name": "MessagingOptOutsListInput",
+        "importPath": "@posthog/sdk/messaging",
+        "source": "src/generated/messaging/opt-outs-list.ts",
+        "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+    },
+    "output": {
+        "name": "MessagingOptOutsListOutput",
+        "importPath": "@posthog/sdk/messaging",
+        "source": "src/generated/messaging/opt-outs-list.ts",
+        "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MessagingOptOutsListRequestSchema0",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-list.ts",
+            "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+        },
+        {
+            "name": "MessagingOptOutsListRequestSchema1",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-list.ts",
+            "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+        },
+        {
+            "name": "MessagingOptOutsListResponseShape2",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-list.ts",
+            "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+        },
+        {
+            "name": "MessagingOptOutsListData",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-list.ts",
+            "declaration": "dist/generated/messaging/opt-outs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get opt-outs filtered by category or overall opt-outs if no category specified",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1messaging_preferences~1opt_outs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List recipients opted out of a message category, most recently updated first. Omit category_key to list recipients opted out of all marketing messages.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/messaging/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MessagingOptOutsListInput",
+            "field": "category_key",
+            "effectiveDescription": "Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_preferences/opt_outs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring match on the recipient identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring match on the recipient identifier.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_preferences/opt_outs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Server-assigned UUID for this recipient's preference record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Server-assigned UUID for this recipient's preference record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListResponseShape2",
+            "field": "identifier",
+            "effectiveDescription": "The recipient identifier (e.g. email address).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipient identifier (e.g. email address).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape2/properties/identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When the preference was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the preference was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListResponseShape2",
+            "field": "preferences",
+            "effectiveDescription": "Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape2/properties/preferences"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListData",
+            "effectiveDescription": "OpenAPI shape for the paginated opt-outs response, so the generated clients get the\n{count, next, previous, results} envelope instead of an untyped object.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI shape for the paginated opt-outs response, so the generated clients get the\n{count, next, previous, results} envelope instead of an untyped object.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListData",
+            "field": "count",
+            "effectiveDescription": "Total number of opted-out recipients for the category.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of opted-out recipients for the category.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListData",
+            "field": "next",
+            "effectiveDescription": "URL for the next page, or null on the last page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the next page, or null on the last page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsListData",
+            "field": "previous",
+            "effectiveDescription": "URL for the previous page, or null on the first page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the previous page, or null on the first page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/previous"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

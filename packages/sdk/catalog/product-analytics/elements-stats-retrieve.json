@@ -1,0 +1,396 @@
+{
+    "method": "productAnalytics.elementsStatsRetrieve",
+    "toolName": "elements-stats-retrieve",
+    "operationId": "elements_stats_retrieve",
+    "title": "Get element click stats",
+    "category": "Product analytics",
+    "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+    "requiredScopes": ["element:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/product-analytics/client.ts",
+    "input": {
+        "name": "ProductAnalyticsElementsStatsRetrieveInput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+        "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ProductAnalyticsElementsStatsRetrieveOutput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+        "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema3",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema4",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema5",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema6",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema7",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveRequestSchema8",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsElementsStatsRetrieveData",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/elements-stats-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/elements-stats-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain\nthey occurred on, ordered by count. Defaults to all three event types; narrow with the\ninclude parameter.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1elements~1stats~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/product_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "data_attributes",
+            "effectiveDescription": "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range (e.g. 2024-01-31). Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range (e.g. 2024-01-31). Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "filter_test_accounts",
+            "effectiveDescription": "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "include",
+            "effectiveDescription": "Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum rows per page",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum rows per page",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "properties",
+            "effectiveDescription": "JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https://example.com/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https://example.com/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveInput",
+            "field": "sampling_factor",
+            "effectiveDescription": "Sampling factor between 0 and 1",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling factor between 0 and 1",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/elements/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Number of events matching this element chain",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of events matching this element chain",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveResponseShape2",
+            "field": "hash",
+            "effectiveDescription": "Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveResponseShape2",
+            "field": "type",
+            "effectiveDescription": "Event type: $autocapture, $rageclick, or $dead_click",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event type: $autocapture, $rageclick, or $dead_click",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveResponseShape2",
+            "field": "elements",
+            "effectiveDescription": "Parsed elements of the chain, clicked element first",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parsed elements of the chain, clicked element first",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/elements"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveResponseShape3",
+            "field": "attributes",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape3/properties/attributes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveData",
+            "field": "results",
+            "effectiveDescription": "Element chains with event counts, ordered by count",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Element chains with event counts, ordered by count",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveData",
+            "field": "next",
+            "effectiveDescription": "URL for the next page of results, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the next page of results, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape1/properties/next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsElementsStatsRetrieveData",
+            "field": "previous",
+            "effectiveDescription": "URL for the previous page of results, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the previous page of results, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape1/properties/previous"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

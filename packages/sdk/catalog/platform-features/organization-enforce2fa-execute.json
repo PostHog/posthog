@@ -1,0 +1,90 @@
+{
+    "method": "platformFeatures.organizationEnforce2faExecute",
+    "toolName": "organization-enforce-2fa-execute",
+    "operationId": "partial_update",
+    "title": "Enforce two-factor authentication org-wide (execute)",
+    "category": "Platform Features",
+    "description": "Step 2 of 2 for change 2FA enforcement. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: 2fa_enforcement"],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesOrganizationEnforce2faExecuteInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/organization-enforce2fa-execute.ts",
+        "declaration": "dist/generated/platform-features/organization-enforce2fa-execute.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesOrganizationEnforce2faExecuteOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/organization-enforce2fa-execute.ts",
+        "declaration": "dist/generated/platform-features/organization-enforce2fa-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesOrganizationEnforce2faExecuteData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/organization-enforce2fa-execute.ts",
+            "declaration": "dist/generated/platform-features/organization-enforce2fa-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for change 2FA enforcement. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/organization-enforce-2fa-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesOrganizationEnforce2faExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrganizationEnforce2faExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

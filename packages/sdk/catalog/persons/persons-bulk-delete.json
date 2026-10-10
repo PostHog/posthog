@@ -1,0 +1,270 @@
+{
+    "method": "persons.personsBulkDelete",
+    "toolName": "persons-bulk-delete",
+    "operationId": "persons_bulk_delete_create",
+    "title": "Bulk delete persons",
+    "category": "Persons",
+    "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+    "requiredScopes": ["person:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/persons/client.ts",
+    "input": {
+        "name": "PersonsPersonsBulkDeleteInput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-bulk-delete.ts",
+        "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+    },
+    "output": {
+        "name": "PersonsPersonsBulkDeleteOutput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-bulk-delete.ts",
+        "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PersonsPersonsBulkDeleteRequestSchema0",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteRequestSchema1",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteRequestSchema2",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteRequestSchema3",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteRequestSchema4",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteDataDeletionErrorsItem",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        },
+        {
+            "name": "PersonsPersonsBulkDeleteData",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-bulk-delete.ts",
+            "declaration": "dist/generated/persons/persons-bulk-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.\n\nPerson records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1persons~1bulk_delete~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/persons/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PersonsPersonsBulkDeleteInput",
+            "field": "ids",
+            "effectiveDescription": "A list of PostHog person UUIDs to delete (max 1000).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A list of PostHog person UUIDs to delete (max 1000).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/bulk_delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteInput",
+            "field": "distinct_ids",
+            "effectiveDescription": "A list of distinct IDs whose associated persons will be deleted (max 1000).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A list of distinct IDs whose associated persons will be deleted (max 1000).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/bulk_delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteInput",
+            "field": "delete_events",
+            "effectiveDescription": "If true, queue deletion of all events associated with these persons.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, queue deletion of all events associated with these persons.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/bulk_delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteInput",
+            "field": "delete_recordings",
+            "effectiveDescription": "If true, queue deletion of all recordings associated with these persons.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, queue deletion of all recordings associated with these persons.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/bulk_delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteInput",
+            "field": "keep_person",
+            "effectiveDescription": "If true, keep the person records but delete their events and recordings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, keep the person records but delete their events and recordings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/bulk_delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "persons_found",
+            "effectiveDescription": "Number of persons matched by the provided IDs or distinct IDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons matched by the provided IDs or distinct IDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/persons_found"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "persons_deleted",
+            "effectiveDescription": "Number of person records deleted from the database during this request. 0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of person records deleted from the database during this request. 0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/persons_deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "persons_queued_for_deletion",
+            "effectiveDescription": "Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/persons_queued_for_deletion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "events_queued_for_deletion",
+            "effectiveDescription": "Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/events_queued_for_deletion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "recordings_queued_for_deletion",
+            "effectiveDescription": "Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/recordings_queued_for_deletion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsBulkDeleteData",
+            "field": "deletion_errors",
+            "effectiveDescription": "Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonBulkDeleteResponse/properties/deletion_errors"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

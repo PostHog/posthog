@@ -1,0 +1,1416 @@
+{
+    "method": "mcpAnalytics.mcpAnalyticsIntentClustersRetrieve",
+    "toolName": "mcp-analytics-intent-clusters-retrieve",
+    "operationId": "mcp_analytics_intent_clusters_retrieve",
+    "title": "Get intent cluster snapshot",
+    "category": "MCP analytics",
+    "description": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents (tool distribution, error rate, routing entropy, journey paths, error switches) plus a tool-centric pivot (per tool: the intent clusters it serves with capture share and rank, discovery rate against the advertised tools-list catalog, description-to-intent fit, contested score) and tool-overlap pairs competing for the same intents. computed_with carries sample-coverage percentages; treat counts as sample statistics. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
+    "requiredScopes": ["mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: mcp-analytics-intent-routing"],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape7",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape10",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1mcp_analytics~1intent_clusters~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents (tool distribution, error rate, routing entropy, journey paths, error switches) plus a tool-centric pivot (per tool: the intent clusters it serves with capture share and rank, discovery rate against the advertised tools-list catalog, description-to-intent fit, contested score) and tool-overlap pairs competing for the same intents. computed_with carries sample-coverage percentages; treat counts as sample statistics. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveInput",
+            "field": "tool",
+            "effectiveDescription": "Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/intent_clusters/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "status",
+            "effectiveDescription": "Whether a snapshot is current (idle), being recomputed (computing), or failed (error).\n\n* `idle` - Idle\n* `computing` - Computing\n* `error` - Error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a snapshot is current (idle), being recomputed (computing), or failed (error).\n\n* `idle` - Idle\n* `computing` - Computing\n* `error` - Error",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "error_message",
+            "effectiveDescription": "Error message from the most recent failed run, otherwise empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message from the most recent failed run, otherwise empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/error_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "last_computed_at",
+            "effectiveDescription": "When the latest snapshot finished computing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the latest snapshot finished computing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/last_computed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "last_computed_by_email",
+            "effectiveDescription": "Email of the user who triggered the latest recompute, empty for system-triggered runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the user who triggered the latest recompute, empty for system-triggered runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/last_computed_by_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "clusters",
+            "effectiveDescription": "All clusters in the snapshot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All clusters in the snapshot.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "tools",
+            "effectiveDescription": "Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "tool_overlaps",
+            "effectiveDescription": "Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/tool_overlaps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape1",
+            "field": "computed_with",
+            "effectiveDescription": "Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/computed_with"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable cluster identifier within this snapshot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable cluster identifier within this snapshot.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "label",
+            "effectiveDescription": "Representative intent text for the cluster (the medoid intent closest to the cluster centroid).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Representative intent text for the cluster (the medoid intent closest to the cluster centroid).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "intent_count",
+            "effectiveDescription": "Number of distinct intent texts that belong to this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct intent texts that belong to this cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/intent_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "session_count",
+            "effectiveDescription": "Number of MCP sessions whose summarised intent belongs to this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of MCP sessions whose summarised intent belongs to this cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/session_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "call_count",
+            "effectiveDescription": "Total number of $mcp_tool_call events represented by this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of $mcp_tool_call events represented by this cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/call_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "error_count",
+            "effectiveDescription": "Total number of error responses observed across the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of error responses observed across the cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/error_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "error_rate_pct",
+            "effectiveDescription": "Aggregate error rate across all tool calls in the cluster, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate error rate across all tool calls in the cluster, 0–100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/error_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "routing_entropy",
+            "effectiveDescription": "Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/routing_entropy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "tool_distribution",
+            "effectiveDescription": "Per-tool breakdown of calls and errors within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-tool breakdown of calls and errors within the cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/tool_distribution"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "sample_intents",
+            "effectiveDescription": "Up to three representative intent strings from the cluster, ordered by frequency desc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to three representative intent strings from the cluster, ordered by frequency desc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/sample_intents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "journey",
+            "effectiveDescription": "Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/journey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "switches",
+            "effectiveDescription": "Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/switches"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape2",
+            "field": "self_retries",
+            "effectiveDescription": "Errored call immediately retried with the same tool. Top 5 by count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored call immediately retried with the same tool. Top 5 by count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/self_retries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "field": "tool",
+            "effectiveDescription": "MCP tool name that received calls for this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP tool name that received calls for this cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape3/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "field": "count",
+            "effectiveDescription": "Number of tool calls routed to this tool across the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of tool calls routed to this tool across the cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape3/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "field": "pct",
+            "effectiveDescription": "Percentage of the cluster's calls that went to this tool, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of the cluster's calls that went to this tool, 0–100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape3/properties/pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "field": "errors",
+            "effectiveDescription": "Number of error responses observed for this tool within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of error responses observed for this tool within the cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape3/properties/errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape3",
+            "field": "error_rate_pct",
+            "effectiveDescription": "Error rate for this tool within the cluster, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error rate for this tool within the cluster, 0–100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape3/properties/error_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape4",
+            "field": "paths",
+            "effectiveDescription": "Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape4/properties/paths"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape4",
+            "field": "total_sessions",
+            "effectiveDescription": "Total session count represented across all paths in this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total session count represented across all paths in this cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape4/properties/total_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape4",
+            "field": "leak",
+            "effectiveDescription": "Highest-volume non-completed path. Null when every path completed successfully.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest-volume non-completed path. Null when every path completed successfully.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape4/properties/leak"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape5",
+            "field": "steps",
+            "effectiveDescription": "Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape5/properties/steps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape5",
+            "field": "outcome",
+            "effectiveDescription": "Terminal outcome of the sessions following this path.\n\n* `completed` - Completed\n* `error` - Error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Terminal outcome of the sessions following this path.\n\n* `completed` - Completed\n* `error` - Error",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape5/properties/outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape5",
+            "field": "count",
+            "effectiveDescription": "Number of sessions in this cluster that followed this exact path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of sessions in this cluster that followed this exact path.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape5/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape6",
+            "field": "from_tool",
+            "effectiveDescription": "Tool whose errored call the agent abandoned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool whose errored call the agent abandoned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape6/properties/from_tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape6",
+            "field": "to_tool",
+            "effectiveDescription": "Different tool the agent tried immediately after.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Different tool the agent tried immediately after.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape6/properties/to_tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape6",
+            "field": "count",
+            "effectiveDescription": "How many times this exact error-then-switch happened within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many times this exact error-then-switch happened within the cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape6/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape7",
+            "field": "tool",
+            "effectiveDescription": "Tool the agent retried immediately after its own error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool the agent retried immediately after its own error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape7/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape7",
+            "field": "count",
+            "effectiveDescription": "Number of immediate same-tool retries after an error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of immediate same-tool retries after an error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape7/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "tool",
+            "effectiveDescription": "Effective MCP tool name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Effective MCP tool name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "call_count",
+            "effectiveDescription": "Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/call_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "error_count",
+            "effectiveDescription": "Errored attributed calls across the corpus.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored attributed calls across the corpus.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/error_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "session_count",
+            "effectiveDescription": "Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/session_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "contested_score",
+            "effectiveDescription": "Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/contested_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "advertised_sessions",
+            "effectiveDescription": "Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/advertised_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "called_when_advertised",
+            "effectiveDescription": "Of the advertised sessions, how many actually called the tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Of the advertised sessions, how many actually called the tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/called_when_advertised"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "discovery_rate_pct",
+            "effectiveDescription": "called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/discovery_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "description",
+            "effectiveDescription": "Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "n_clusters_served",
+            "effectiveDescription": "How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/n_clusters_served"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape8",
+            "field": "clusters",
+            "effectiveDescription": "Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape8/properties/clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "cluster_id",
+            "effectiveDescription": "Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/cluster_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "calls",
+            "effectiveDescription": "Calls routed to this tool for this intent cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Calls routed to this tool for this intent cluster.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "capture_pct",
+            "effectiveDescription": "Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/capture_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "rank",
+            "effectiveDescription": "This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/rank"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "description_fit",
+            "effectiveDescription": "Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/description_fit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape9",
+            "field": "top_competitor",
+            "effectiveDescription": "The strongest other tool in this cluster. Null when this tool is the only one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The strongest other tool in this cluster. Null when this tool is the only one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape9/properties/top_competitor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape10",
+            "field": "tool",
+            "effectiveDescription": "The other tool with the largest share of this cluster's calls.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The other tool with the largest share of this cluster's calls.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape10/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape10",
+            "field": "pct",
+            "effectiveDescription": "That competitor's share of the cluster's calls, 0-100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "That competitor's share of the cluster's calls, 0-100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape10/properties/pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "tool_a",
+            "effectiveDescription": "First tool of the pair (lexicographic order).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First tool of the pair (lexicographic order).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/tool_a"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "tool_b",
+            "effectiveDescription": "Second tool of the pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Second tool of the pair.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/tool_b"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "contested_calls",
+            "effectiveDescription": "Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/contested_calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "sessions_with_both",
+            "effectiveDescription": "Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/sessions_with_both"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "sessions_with_either",
+            "effectiveDescription": "Sampled sessions that called at least one of the pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions that called at least one of the pair.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/sessions_with_either"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape11",
+            "field": "top_cluster_id",
+            "effectiveDescription": "The cluster contributing the most contested calls for this pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cluster contributing the most contested calls for this pair.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape11/properties/top_cluster_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "distance_threshold",
+            "effectiveDescription": "Cosine distance threshold used by the clustering algorithm.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cosine distance threshold used by the clustering algorithm.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/distance_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "embedding_model",
+            "effectiveDescription": "Embedding model used to vectorise intents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Embedding model used to vectorise intents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/embedding_model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "n_intents",
+            "effectiveDescription": "Number of distinct intents that fed into the clustering run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct intents that fed into the clustering run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/n_intents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "n_clusters",
+            "effectiveDescription": "Number of clusters produced by the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of clusters produced by the run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/n_clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "corpus",
+            "effectiveDescription": "Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/corpus"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "sampled_sessions",
+            "effectiveDescription": "Sessions sampled into the corpus. Null on pre-v2 snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sessions sampled into the corpus. Null on pre-v2 snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/sampled_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "window_sessions",
+            "effectiveDescription": "Total sessions with tool calls in the lookback window (unsampled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total sessions with tool calls in the lookback window (unsampled).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/window_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "session_coverage_pct",
+            "effectiveDescription": "sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/session_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "intent_coverage_pct",
+            "effectiveDescription": "Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/intent_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "imputed_call_pct",
+            "effectiveDescription": "Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/imputed_call_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "unattributed_call_pct",
+            "effectiveDescription": "Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/unattributed_call_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "corpus_call_coverage_pct",
+            "effectiveDescription": "Share of attributed calls whose intent made the top-N cut that feeds clustering.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of attributed calls whose intent made the top-N cut that feeds clustering.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/corpus_call_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "advertisement_coverage_pct",
+            "effectiveDescription": "Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/advertisement_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "n_tools",
+            "effectiveDescription": "Tools included in the tool pivot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools included in the tool pivot.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/n_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "dropped_tools",
+            "effectiveDescription": "Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/dropped_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "dropped_overlap_pairs",
+            "effectiveDescription": "Overlap pairs dropped by the pair cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overlap pairs dropped by the pair cap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/dropped_overlap_pairs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRetrieveResponseShape12",
+            "field": "description_coverage_pct",
+            "effectiveDescription": "Share of pivot tools with a captured description. Description fit is only available for those.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of pivot tools with a captured description. Description fit is only available for those.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape12/properties/description_coverage_pct"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

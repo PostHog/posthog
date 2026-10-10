@@ -1,0 +1,542 @@
+{
+    "method": "notebooks.notebooksCreate",
+    "toolName": "notebooks-create",
+    "operationId": "notebooks_create",
+    "title": "Create notebook",
+    "category": "Notebooks",
+    "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what a reader skims instead of the query.\nThe server stores the notebook as a markdown notebook: it converts this document, embedded charts included, into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.",
+    "requiredScopes": ["notebook:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksCreateInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-create.ts",
+        "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksCreateOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-create.ts",
+        "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema0",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema1",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema6",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema7",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema5Item",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateRequestSchema8",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateResponseShape5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksCreateData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-create.ts",
+            "declaration": "dist/generated/notebooks/notebooks-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what a reader skims instead of the query.\nThe server stores the notebook as a markdown notebook: it converts this document, embedded charts included, into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksCreateRequest_Schema5",
+            "field": "[]",
+            "effectiveDescription": "One notebook-level variable. Shared by the notebook's own `variables` field and a run body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One notebook-level variable. Shared by the notebook's own `variables` field and a run body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema5/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateRequest_Schema6",
+            "effectiveDescription": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateRequest_Schema7",
+            "effectiveDescription": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateRequest_Schema8",
+            "effectiveDescription": "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "title",
+            "effectiveDescription": "Title of the notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Title of the notebook.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "content",
+            "effectiveDescription": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "text_content",
+            "effectiveDescription": "Plain text representation of the notebook content for search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain text representation of the notebook content for search.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "version",
+            "effectiveDescription": "Version number for optimistic concurrency control. Must match the current version when updating content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number for optimistic concurrency control. Must match the current version when updating content.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "deleted",
+            "effectiveDescription": "Whether the notebook has been soft-deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the notebook has been soft-deleted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateInput",
+            "field": "variables",
+            "effectiveDescription": "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateResponseShape5",
+            "effectiveDescription": "One notebook-level variable. Shared by the notebook's own `variables` field and a run body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One notebook-level variable. Shared by the notebook's own `variables` field and a run body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateResponseShape5",
+            "field": "name",
+            "effectiveDescription": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateResponseShape5",
+            "field": "type",
+            "effectiveDescription": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateResponseShape5",
+            "field": "value",
+            "effectiveDescription": "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "id",
+            "effectiveDescription": "UUID of the notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "short_id",
+            "effectiveDescription": "Short alphanumeric identifier used in URLs and API lookups.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short alphanumeric identifier used in URLs and API lookups.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "title",
+            "effectiveDescription": "Title of the notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Title of the notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "content",
+            "effectiveDescription": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "text_content",
+            "effectiveDescription": "Plain text representation of the notebook content for search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain text representation of the notebook content for search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/text_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "version",
+            "effectiveDescription": "Version number for optimistic concurrency control. Must match the current version when updating content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number for optimistic concurrency control. Must match the current version when updating content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "deleted",
+            "effectiveDescription": "Whether the notebook has been soft-deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the notebook has been soft-deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "parent_resource",
+            "effectiveDescription": "Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/parent_resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "variables",
+            "effectiveDescription": "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/variables"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "notebooks-create-markdown",
+            "method": "notebooks.notebooksCreateMarkdown"
+        }
+    ]
+}

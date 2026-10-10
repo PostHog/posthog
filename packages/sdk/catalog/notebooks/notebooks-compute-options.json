@@ -1,0 +1,288 @@
+{
+    "method": "notebooks.notebooksComputeOptions",
+    "toolName": "notebooks-compute-options",
+    "operationId": "notebooks_kernel_compute_options_retrieve",
+    "title": "Get notebook compute options",
+    "category": "Notebooks",
+    "description": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
+    "requiredScopes": ["notebook:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: revamped-py-notebooks"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksComputeOptionsInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-compute-options.ts",
+        "declaration": "dist/generated/notebooks/notebooks-compute-options.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksComputeOptionsOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-compute-options.ts",
+        "declaration": "dist/generated/notebooks/notebooks-compute-options.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-compute-options.ts",
+            "declaration": "dist/generated/notebooks/notebooks-compute-options.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksComputeOptionsData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-compute-options.ts",
+            "declaration": "dist/generated/notebooks/notebooks-compute-options.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1kernel~1compute_options~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "key",
+            "effectiveDescription": "Stable identifier for the preset, e.g. 'balanced'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for the preset, e.g. 'balanced'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Preset name as a person reads it, e.g. 'Balanced'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Preset name as a person reads it, e.g. 'Balanced'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "description",
+            "effectiveDescription": "What this preset suits, in one sentence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this preset suits, in one sentence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "cpu_cores",
+            "effectiveDescription": "CPU cores the preset provisions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CPU cores the preset provisions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/cpu_cores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "memory_gb",
+            "effectiveDescription": "Memory in GB the preset provisions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory in GB the preset provisions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/memory_gb"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsResponseShape2",
+            "field": "hourly_price",
+            "effectiveDescription": "What this preset costs per hour in USD while it is alive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this preset costs per hour in USD while it is alive.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/hourly_price"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "currency",
+            "effectiveDescription": "Currency of every price in this response. Always 'USD'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Currency of every price in this response. Always 'USD'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/currency"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "cpu_rate_per_core_hour",
+            "effectiveDescription": "Price of one CPU core for one hour, in USD.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Price of one CPU core for one hour, in USD.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/cpu_rate_per_core_hour"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "memory_rate_per_gb_hour",
+            "effectiveDescription": "Price of one GB of memory for one hour, in USD.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Price of one GB of memory for one hour, in USD.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/memory_rate_per_gb_hour"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "default_preset_key",
+            "effectiveDescription": "Preset a sandbox starts with when the notebook sets no compute config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Preset a sandbox starts with when the notebook sets no compute config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/default_preset_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "presets",
+            "effectiveDescription": "Sandbox shapes offered as one-click options.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox shapes offered as one-click options.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/presets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "allowed_cpu_cores",
+            "effectiveDescription": "CPU core counts the kernel config endpoint accepts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CPU core counts the kernel config endpoint accepts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/allowed_cpu_cores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "allowed_memory_gb",
+            "effectiveDescription": "Memory sizes in GB the kernel config endpoint accepts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory sizes in GB the kernel config endpoint accepts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/allowed_memory_gb"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksComputeOptionsData",
+            "field": "allowed_idle_timeout_seconds",
+            "effectiveDescription": "Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/allowed_idle_timeout_seconds"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

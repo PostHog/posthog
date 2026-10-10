@@ -1,0 +1,102 @@
+{
+    "method": "platformFeatures.organizationGet",
+    "toolName": "organization-get",
+    "operationId": "retrieve",
+    "title": "Get organization details.",
+    "category": "Platform Features",
+    "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+    "requiredScopes": ["organization:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesOrganizationGetInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/organization-get.ts",
+        "declaration": "dist/generated/platform-features/organization-get.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesOrganizationGetOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/organization-get.ts",
+        "declaration": "dist/generated/platform-features/organization-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesOrganizationGetDataTeamsItem",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/organization-get.ts",
+            "declaration": "dist/generated/platform-features/organization-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrganizationGetDataProjectsItem",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/organization-get.ts",
+            "declaration": "dist/generated/platform-features/organization-get.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesOrganizationGetData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/organization-get.ts",
+            "declaration": "dist/generated/platform-features/organization-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesOrganizationGetInput",
+            "field": "id",
+            "effectiveDescription": "Organization ID. If omitted, uses the active organization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this organization.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{id}/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Organization ID. If omitted, uses the active organization.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/platform_features/mcp/tools.yaml",
+                        "pointer": "/tools/organization-get/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrganizationGetData",
+            "field": "teams[]",
+            "effectiveDescription": "Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.\nAlso used for nested serializers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

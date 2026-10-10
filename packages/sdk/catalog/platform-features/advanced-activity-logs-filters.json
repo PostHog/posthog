@@ -1,0 +1,196 @@
+{
+    "method": "platformFeatures.advancedActivityLogsFilters",
+    "toolName": "advanced-activity-logs-filters",
+    "operationId": "advanced_activity_logs_available_filters_retrieve",
+    "title": "Get available activity log filter options.",
+    "category": "Platform Features",
+    "description": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
+    "requiredScopes": ["activity_log:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: audit_logs"],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesAdvancedActivityLogsFiltersInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+        "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesAdvancedActivityLogsFiltersOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+        "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape3",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape4",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape5",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape6",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape2",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape7",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesAdvancedActivityLogsFiltersData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/advanced-activity-logs-filters.ts",
+            "declaration": "dist/generated/platform-features/advanced-activity-logs-filters.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape2",
+            "field": "users",
+            "effectiveDescription": "Users who have logged activity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users who have logged activity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape2",
+            "field": "scopes",
+            "effectiveDescription": "Available activity scopes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Available activity scopes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/scopes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape2",
+            "field": "activities",
+            "effectiveDescription": "Available activity types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Available activity types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/activities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape2",
+            "field": "clients",
+            "effectiveDescription": "API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/clients"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersResponseShape7",
+            "effectiveDescription": "Discovered detail fields and their value distributions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Discovered detail fields and their value distributions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersData",
+            "field": "static_filters",
+            "effectiveDescription": "Pre-computed filter options for scopes, activities, and users.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-computed filter options for scopes, activities, and users.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/static_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesAdvancedActivityLogsFiltersData",
+            "field": "detail_fields",
+            "effectiveDescription": "Discovered detail fields and their value distributions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Discovered detail fields and their value distributions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/detail_fields"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

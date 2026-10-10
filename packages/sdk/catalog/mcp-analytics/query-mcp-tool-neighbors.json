@@ -1,0 +1,1151 @@
+{
+    "method": "mcpAnalytics.queryMcpToolNeighbors",
+    "toolName": "query-mcp-tool-neighbors",
+    "title": "Tools called alongside one MCP tool",
+    "category": "MCP analytics",
+    "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
+    "requiredScopes": ["query:read", "mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsQueryMcpToolNeighborsInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsQueryMcpToolNeighborsOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema5",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema6",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema8",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsRequestSchema7",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputNeighborDirection",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputPropertiesItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputPropertiesItemVariant1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputPropertiesItemVariant2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsInputPropertiesItemVariant3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersBounceRatePageViewMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersInCohortVia",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersInlineCohortCalculation",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersMaterializationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersMaterializedColumnsOptimizationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersParserMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersPersonsArgMaxVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersPersonsJoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersPersonsOnEventsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersPropertyGroupsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersSessionTableVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiersSessionsV2JoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseFilterLogicalOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotMatcher",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomChannelField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomChannelOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomChannelCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseCustomChannelRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseDataWarehouseEventsModifier",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseMCPAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseInteger",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsResponseMCPToolNeighborItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsDataQueryNeighborDirection",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsDataQuery",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsDataWarningsItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpToolNeighborsData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-tool-neighbors.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-tool-neighbors.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "dateRange.date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "dateRange.date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "dateRange.daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "dateRange.excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "dateRange.explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "neighborDirection",
+            "effectiveDescription": "Whether to count tools called immediately before or after the target tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to count tools called immediately before or after the target tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/neighborDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsInput",
+            "field": "toolName",
+            "effectiveDescription": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "field": "daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "field": "excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseDateRange",
+            "field": "explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "effectiveDescription": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "cookielessTrafficIsRegular",
+            "effectiveDescription": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/cookielessTrafficIsRegular"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "forceClickhouseDataSkippingIndexes",
+            "effectiveDescription": "If these are provided, the query will fail if these skip indexes are not used",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If these are provided, the query will fail if these skip indexes are not used",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/forceClickhouseDataSkippingIndexes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "mergeFederatedAggregateJoins",
+            "effectiveDescription": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/mergeFederatedAggregateJoins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "parserMode",
+            "effectiveDescription": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/parserMode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "personIdPushdown",
+            "effectiveDescription": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/personIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "sessionIdPushdown",
+            "effectiveDescription": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "sessionPropertyPreAggregation",
+            "effectiveDescription": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionPropertyPreAggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "typeAwareCastSimplification",
+            "effectiveDescription": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/typeAwareCastSimplification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "useNewEventsSchema",
+            "effectiveDescription": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/useNewEventsSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "usePreaggregatedTableTransforms",
+            "effectiveDescription": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/usePreaggregatedTableTransforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseHogQLQueryModifiers",
+            "field": "webAnalyticsFirstPageviewFilters",
+            "effectiveDescription": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/webAnalyticsFirstPageviewFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotRule",
+            "effectiveDescription": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotRule",
+            "field": "category",
+            "effectiveDescription": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotRule",
+            "field": "combiner",
+            "effectiveDescription": "Whether every condition must match (AND) or any one of them (OR).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether every condition must match (AND) or any one of them (OR).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/combiner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotRule",
+            "field": "name",
+            "effectiveDescription": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotCondition",
+            "effectiveDescription": "One condition of a project's bot rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One condition of a project's bot rule.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotCondition",
+            "field": "key",
+            "effectiveDescription": "The event property this condition reads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event property this condition reads.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotCondition",
+            "field": "pattern",
+            "effectiveDescription": "Matched against the property named by `key`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matched against the property named by `key`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/pattern"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseCustomBotField",
+            "effectiveDescription": "The event properties a project's own bot rule can match on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event properties a project's own bot rule can match on.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotField"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "effectiveDescription": "Tags that will be added to the Query log comment  *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tags that will be added to the Query log comment  *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "field": "name",
+            "effectiveDescription": "Name of the query, preferably unique. For example web_analytics_vitals",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the query, preferably unique. For example web_analytics_vitals",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "field": "presetId",
+            "effectiveDescription": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/presetId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "field": "productKey",
+            "effectiveDescription": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/productKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseQueryLogTags",
+            "field": "scene",
+            "effectiveDescription": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/scene"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsResponseMCPToolNeighborItem",
+            "effectiveDescription": "One tool frequently called adjacent to the target tool within the same conversation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One tool frequently called adjacent to the target tool within the same conversation.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborItem"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "query",
+            "effectiveDescription": "Tools most often called immediately before or after a single MCP tool within a conversation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools most often called immediately before or after a single MCP tool within a conversation.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborsQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "query.modifiers",
+            "effectiveDescription": "Modifiers used when performing the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Modifiers used when performing the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborsQuery/properties/modifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "query.neighborDirection",
+            "effectiveDescription": "Whether to count tools called immediately before or after the target tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to count tools called immediately before or after the target tool.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborsQuery/properties/neighborDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "query.toolName",
+            "effectiveDescription": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborsQuery/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "query.version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPToolNeighborsQuery/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpToolNeighborsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

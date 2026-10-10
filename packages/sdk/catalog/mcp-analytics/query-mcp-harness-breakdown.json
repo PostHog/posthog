@@ -1,0 +1,1139 @@
+{
+    "method": "mcpAnalytics.queryMcpHarnessBreakdown",
+    "toolName": "query-mcp-harness-breakdown",
+    "title": "Break down MCP tool calls by harness",
+    "category": "MCP analytics",
+    "description": "Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for the MCP client (Claude Agent SDK, Claude Code, OpenAI Codex, Cursor, Claude.ai, …). Returns calls, error count, error rate, and session count per harness. Accepts the same dateRange / properties / filterTestAccounts filters as the dashboard and resolves the harness server-side over the same query runner, so results match the UI exactly. Use to answer \"which harnesses use our MCP, and how reliably?\".",
+    "requiredScopes": ["query:read", "mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsQueryMcpHarnessBreakdownOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+        "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema5",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema6",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema8",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownRequestSchema7",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownInputDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownInputPropertiesItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownInputPropertiesItemVariant1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownInputPropertiesItemVariant2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownInputPropertiesItemVariant3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersBounceRatePageViewMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersInCohortVia",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersInlineCohortCalculation",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersMaterializationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersMaterializedColumnsOptimizationMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersParserMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersPersonsArgMaxVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersPersonsJoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersPersonsOnEventsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersPropertyGroupsMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersSessionTableVersion",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiersSessionsV2JoinMode",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseFilterLogicalOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotMatcher",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomChannelField",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomChannelOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomChannelCondition",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomChannelRule",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseDataWarehouseEventsModifier",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponsePropertyOperator",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseMCPAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseInteger",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownResponseMCPHarnessBreakdownItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownDataQuery",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownDataWarningsItem",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        },
+        {
+            "name": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/query-mcp-harness-breakdown.ts",
+            "declaration": "dist/generated/mcp-analytics/query-mcp-harness-breakdown.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for the MCP client (Claude Agent SDK, Claude Code, OpenAI Codex, Cursor, Claude.ai, …). Returns calls, error count, error rate, and session count per harness. Accepts the same dateRange / properties / filterTestAccounts filters as the dashboard and resolves the harness server-side over the same query runner, so results match the UI exactly. Use to answer \"which harnesses use our MCP, and how reliably?\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "dateRange.date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "dateRange.date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "dateRange.daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "dateRange.excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "dateRange.explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownInput",
+            "field": "toolName",
+            "effectiveDescription": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "field": "daysOfWeek",
+            "effectiveDescription": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/daysOfWeek"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "field": "excludeIncompletePeriods",
+            "effectiveDescription": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/excludeIncompletePeriods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseDateRange",
+            "field": "explicitDate",
+            "effectiveDescription": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DateRange/properties/explicitDate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "effectiveDescription": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "cookielessTrafficIsRegular",
+            "effectiveDescription": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/cookielessTrafficIsRegular"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "forceClickhouseDataSkippingIndexes",
+            "effectiveDescription": "If these are provided, the query will fail if these skip indexes are not used",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If these are provided, the query will fail if these skip indexes are not used",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/forceClickhouseDataSkippingIndexes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "mergeFederatedAggregateJoins",
+            "effectiveDescription": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/mergeFederatedAggregateJoins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "parserMode",
+            "effectiveDescription": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/parserMode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "personIdPushdown",
+            "effectiveDescription": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/personIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "sessionIdPushdown",
+            "effectiveDescription": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "sessionPropertyPreAggregation",
+            "effectiveDescription": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionPropertyPreAggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "typeAwareCastSimplification",
+            "effectiveDescription": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/typeAwareCastSimplification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "useNewEventsSchema",
+            "effectiveDescription": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/useNewEventsSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "usePreaggregatedTableTransforms",
+            "effectiveDescription": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/usePreaggregatedTableTransforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseHogQLQueryModifiers",
+            "field": "webAnalyticsFirstPageviewFilters",
+            "effectiveDescription": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/webAnalyticsFirstPageviewFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotRule",
+            "effectiveDescription": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotRule",
+            "field": "category",
+            "effectiveDescription": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotRule",
+            "field": "combiner",
+            "effectiveDescription": "Whether every condition must match (AND) or any one of them (OR).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether every condition must match (AND) or any one of them (OR).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/combiner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotRule",
+            "field": "name",
+            "effectiveDescription": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotCondition",
+            "effectiveDescription": "One condition of a project's bot rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One condition of a project's bot rule.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotCondition",
+            "field": "key",
+            "effectiveDescription": "The event property this condition reads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event property this condition reads.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotCondition",
+            "field": "pattern",
+            "effectiveDescription": "Matched against the property named by `key`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matched against the property named by `key`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/pattern"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseCustomBotField",
+            "effectiveDescription": "The event properties a project's own bot rule can match on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event properties a project's own bot rule can match on.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotField"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "effectiveDescription": "Tags that will be added to the Query log comment  *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tags that will be added to the Query log comment  *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "field": "name",
+            "effectiveDescription": "Name of the query, preferably unique. For example web_analytics_vitals",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the query, preferably unique. For example web_analytics_vitals",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "field": "presetId",
+            "effectiveDescription": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short id of the saved Web analytics filter preset this query was run under, if any.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/presetId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "field": "productKey",
+            "effectiveDescription": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/productKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseQueryLogTags",
+            "field": "scene",
+            "effectiveDescription": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryLogTags/properties/scene"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseMCPHarnessBreakdownItem",
+            "effectiveDescription": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownItem"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseMCPHarnessBreakdownItem",
+            "field": "harness",
+            "effectiveDescription": "Customer-facing harness label, e.g. \"Claude Agent SDK\", \"OpenAI Codex\", \"Cursor\", \"Other\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer-facing harness label, e.g. \"Claude Agent SDK\", \"OpenAI Codex\", \"Cursor\", \"Other\".",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownItem/properties/harness"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownResponseMCPHarnessBreakdownItem",
+            "field": "harness_sessions",
+            "effectiveDescription": "Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownItem/properties/harness_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "query",
+            "effectiveDescription": "MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "query.modifiers",
+            "effectiveDescription": "Modifiers used when performing the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Modifiers used when performing the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownQuery/properties/modifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "query.toolName",
+            "effectiveDescription": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownQuery/properties/toolName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "query.version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/MCPHarnessBreakdownQuery/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsQueryMcpHarnessBreakdownData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

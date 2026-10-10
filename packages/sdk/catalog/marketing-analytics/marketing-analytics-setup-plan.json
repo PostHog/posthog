@@ -1,0 +1,546 @@
+{
+    "method": "marketingAnalytics.marketingAnalyticsSetupPlan",
+    "toolName": "marketing-analytics-setup-plan",
+    "operationId": "marketing_analytics_setup_plan_retrieve",
+    "title": "Suggest marketing sources and setup improvements",
+    "category": "Marketing analytics",
+    "description": "Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a optional deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals. This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as approximate. Requires a project with the Marketing analytics setup plan enabled.",
+    "requiredScopes": ["marketing_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: marketing-analytics-setup-plan-mcp"],
+    "methodSource": "src/generated/marketing-analytics/client.ts",
+    "input": {
+        "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanInput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+    },
+    "output": {
+        "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanOutput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanRequestSchema0",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanRequestSchema1",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape3",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-setup-plan.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-setup-plan.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Rank everything wrong with a team's marketing analytics setup into concrete suggestions, each carrying the evidence behind it and — where one exists — an `apply` operation to pass straight to apply_setup_ops, plus a `readiness` block saying which capabilities (cost, ROAS, cost per customer, retention by channel) are unlocked and which suggestion is blocking each. Prefer this over `diagnose` when the question is 'what should I fix next': diagnose explains what is wrong, setup_plan says what to do about it in a form you can act on. Read-only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1marketing_analytics~1setup_plan~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a optional deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals. This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as approximate. Requires a project with the Marketing analytics setup plan enabled.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/marketing_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanInput",
+            "field": "date_from",
+            "effectiveDescription": "Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/setup_plan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanInput",
+            "field": "refresh",
+            "effectiveDescription": "Re-run every check instead of serving a recent result. Use right after changing something.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Re-run every check instead of serving a recent result. Use right after changing something.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/marketing_analytics/setup_plan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "Suggestion kind, e.g. connect_source / add_source_mapping",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suggestion kind, e.g. connect_source / add_source_mapping",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "source",
+            "effectiveDescription": "'deterministic' or 'ai' — how this suggestion was produced",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'deterministic' or 'ai' — how this suggestion was produced",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "severity",
+            "effectiveDescription": "error/warning/info",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "error/warning/info",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "confidence",
+            "effectiveDescription": "0-1. Never 1.0: these are inferences, not proofs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0-1. Never 1.0: these are inferences, not proofs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/confidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Short imperative title, e.g. 'Connect Meta Ads'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short imperative title, e.g. 'Connect Meta Ads'",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "evidence",
+            "effectiveDescription": "The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/evidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "unlocks",
+            "effectiveDescription": "Capabilities this unblocks: cost, attribution, roas, cac",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Capabilities this unblocks: cost, attribution, roas, cac",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/unlocks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "apply",
+            "effectiveDescription": "The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/apply"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "also_recommended",
+            "effectiveDescription": "Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/also_recommended"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "also_recommended[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/also_recommended/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "safe_to_batch",
+            "effectiveDescription": "True only for high-confidence, reversible operations — what an 'apply all safe' button may include",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True only for high-confidence, reversible operations — what an 'apply all safe' button may include",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/safe_to_batch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "rank_score",
+            "effectiveDescription": "Ranking score; higher first. Unblocking actions dominate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ranking score; higher first. Unblocking actions dominate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/rank_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "integration",
+            "effectiveDescription": "Integration this concerns, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration this concerns, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/integration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "deep_link",
+            "effectiveDescription": "In-app URL to resolve this manually, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "In-app URL to resolve this manually, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/deep_link"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "docs_url",
+            "effectiveDescription": "Documentation link, if any",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Documentation link, if any",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/docs_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "spend_at_risk",
+            "effectiveDescription": "Ad spend currently mis- or un-attributed because of this",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ad spend currently mis- or un-attributed because of this",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/spend_at_risk"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape2",
+            "field": "event_volume",
+            "effectiveDescription": "Events affected in the window",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events affected in the window",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/event_volume"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape3",
+            "field": "capability",
+            "effectiveDescription": "cost/attribution/roas/cac",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "cost/attribution/roas/cac",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/capability"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape3",
+            "field": "status",
+            "effectiveDescription": "unlocked/partial/blocked",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "unlocked/partial/blocked",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape3",
+            "field": "explanation",
+            "effectiveDescription": "Why it's in that state, in plain English",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why it's in that state, in plain English",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/explanation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanResponseShape3",
+            "field": "blocked_by",
+            "effectiveDescription": "Suggestion ids that unblock this capability — the link from a blocked metric to its fixes",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suggestion ids that unblock this capability — the link from a blocked metric to its fixes",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape3/properties/blocked_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "field": "suggestions",
+            "effectiveDescription": "Ranked suggestions, most important first",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ranked suggestions, most important first",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/suggestions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "field": "readiness",
+            "effectiveDescription": "Per-capability readiness, with the suggestions blocking each",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-capability readiness, with the suggestions blocking each",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/readiness"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "field": "degraded",
+            "effectiveDescription": "Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/degraded"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "field": "truncated",
+            "effectiveDescription": "True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/truncated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsSetupPlanData",
+            "field": "summary",
+            "effectiveDescription": "One-line summary of the plan",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-line summary of the plan",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

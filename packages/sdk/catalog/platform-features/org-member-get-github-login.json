@@ -1,0 +1,81 @@
+{
+    "method": "platformFeatures.orgMemberGetGithubLogin",
+    "toolName": "org-member-get-github-login",
+    "operationId": "members_github_login_retrieve",
+    "title": "Get an organization member's GitHub username.",
+    "category": "Platform Features",
+    "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
+    "requiredScopes": ["organization_member:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesOrgMemberGetGithubLoginInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/org-member-get-github-login.ts",
+        "declaration": "dist/generated/platform-features/org-member-get-github-login.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesOrgMemberGetGithubLoginOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/org-member-get-github-login.ts",
+        "declaration": "dist/generated/platform-features/org-member-get-github-login.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesOrgMemberGetGithubLoginData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/org-member-get-github-login.ts",
+            "declaration": "dist/generated/platform-features/org-member-get-github-login.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesOrgMemberGetGithubLoginInput",
+            "field": "user__uuid",
+            "effectiveDescription": "The PostHog user UUID of the organization member, as returned by org-members-list. Pass \"@me\" for the current user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The PostHog user UUID of the organization member, as returned by org-members-list. Pass \"@me\" for the current user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/user__uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesOrgMemberGetGithubLoginData",
+            "field": "github_login",
+            "effectiveDescription": "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/github_login"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

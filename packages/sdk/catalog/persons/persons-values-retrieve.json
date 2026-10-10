@@ -1,0 +1,111 @@
+{
+    "method": "persons.personsValuesRetrieve",
+    "toolName": "persons-values-retrieve",
+    "operationId": "persons_values_retrieve",
+    "title": "Get person property values",
+    "category": "Persons",
+    "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+    "requiredScopes": ["person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/persons/client.ts",
+    "input": {
+        "name": "PersonsPersonsValuesRetrieveInput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-values-retrieve.ts",
+        "declaration": "dist/generated/persons/persons-values-retrieve.d.ts"
+    },
+    "output": {
+        "name": "PersonsPersonsValuesRetrieveOutput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-values-retrieve.ts",
+        "declaration": "dist/generated/persons/persons-values-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PersonsPersonsValuesRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-values-retrieve.ts",
+            "declaration": "dist/generated/persons/persons-values-retrieve.d.ts"
+        },
+        {
+            "name": "PersonsPersonsValuesRetrieveData",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-values-retrieve.ts",
+            "declaration": "dist/generated/persons/persons-values-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1persons~1values~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/persons/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PersonsPersonsValuesRetrieveInput",
+            "field": "key",
+            "effectiveDescription": "The person property key to get values for (e.g., 'email', 'plan', 'role').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The person property key to get values for (e.g., 'email', 'plan', 'role').",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsValuesRetrieveInput",
+            "field": "value",
+            "effectiveDescription": "Optional search string to filter values (case-insensitive substring match).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional search string to filter values (case-insensitive substring match).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsValuesRetrieveData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

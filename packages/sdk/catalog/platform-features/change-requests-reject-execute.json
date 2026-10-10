@@ -1,0 +1,169 @@
+{
+    "method": "platformFeatures.changeRequestsRejectExecute",
+    "toolName": "change-requests-reject-execute",
+    "operationId": "change_requests_reject_create",
+    "title": "Reject a pending change request (execute)",
+    "category": "Platform Features",
+    "description": "Step 2 of 2 for reject change request. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Cast a rejection vote on a pending change request, blocking the proposed change from being applied. Only eligible approvers can reject, and a user cannot vote twice. A reason is required and is shown to the requester. Read the request first with change-request-get so you can show the user what they are rejecting. Requires human typed confirmation: call `-prepare`, surface its message to the user, and only call `-execute` after the user replies with the literal word \"confirm\".",
+    "requiredScopes": ["approvals:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": ["feature_entitlement: approvals"],
+    "methodSource": "src/generated/platform-features/client.ts",
+    "input": {
+        "name": "PlatformFeaturesChangeRequestsRejectExecuteInput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/change-requests-reject-execute.ts",
+        "declaration": "dist/generated/platform-features/change-requests-reject-execute.d.ts"
+    },
+    "output": {
+        "name": "PlatformFeaturesChangeRequestsRejectExecuteOutput",
+        "importPath": "@posthog/sdk/platform-features",
+        "source": "src/generated/platform-features/change-requests-reject-execute.ts",
+        "declaration": "dist/generated/platform-features/change-requests-reject-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PlatformFeaturesChangeRequestsRejectExecuteDataChangeRequest",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/change-requests-reject-execute.ts",
+            "declaration": "dist/generated/platform-features/change-requests-reject-execute.d.ts"
+        },
+        {
+            "name": "PlatformFeaturesChangeRequestsRejectExecuteData",
+            "importPath": "@posthog/sdk/platform-features",
+            "source": "src/generated/platform-features/change-requests-reject-execute.ts",
+            "declaration": "dist/generated/platform-features/change-requests-reject-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Reject a change request.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1change_requests~1{id}~1reject~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Cast a rejection vote on a pending change request, blocking the proposed change from being applied. Only eligible approvers can reject, and a user cannot vote twice. A reason is required and is shown to the requester. Read the request first with change-request-get so you can show the user what they are rejecting. Requires human typed confirmation: call `-prepare`, surface its message to the user, and only call `-execute` after the user replies with the literal word \"confirm\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/platform_features/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for reject change request. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Cast a rejection vote on a pending change request, blocking the proposed change from being applied. Only eligible approvers can reject, and a user cannot vote twice. A reason is required and is shown to the requester. Read the request first with change-request-get so you can show the user what they are rejecting. Requires human typed confirmation: call `-prepare`, surface its message to the user, and only call `-execute` after the user replies with the literal word \"confirm\".",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/change-requests-reject-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteData",
+            "field": "status",
+            "effectiveDescription": "The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteData",
+            "field": "message",
+            "effectiveDescription": "Human-readable summary of what happened.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable summary of what happened.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteData",
+            "field": "change_request",
+            "effectiveDescription": "The change request after the vote was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The change request after the vote was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape1/properties/change_request"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PlatformFeaturesChangeRequestsRejectExecuteData",
+            "field": "change_request.intent_display",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/platform_features.ts",
+                        "pointer": "#/Shape2/properties/intent_display"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

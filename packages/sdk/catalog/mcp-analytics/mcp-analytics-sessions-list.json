@@ -1,0 +1,485 @@
+{
+    "method": "mcpAnalytics.mcpAnalyticsSessionsList",
+    "toolName": "mcp-analytics-sessions-list",
+    "operationId": "mcp_analytics_sessions_list",
+    "title": "List MCP sessions",
+    "category": "MCP analytics",
+    "description": "List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions are: \"which clients are most active this week?\", \"which sessions called tool X?\", \"how long do sessions usually run?\", \"which person's sessions made the most calls?\", \"which sessions hit errors?\". Each row has session_id, tool_calls, error_calls (errored calls among those counted in tool_calls), session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email / person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated), newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not returned as a field; an unrecognised key silently falls back to newest-first. Also supports a case-insensitive `search`, `has_errors` (true for sessions with at least one errored call, false for sessions with none), a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with mcp-analytics-sessions-generate-intent.",
+    "requiredScopes": ["mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsMcpAnalyticsSessionsListInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsMcpAnalyticsSessionsListOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema5",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema6",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema7",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListRequestSchema8",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsListData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-list.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1mcp_analytics~1sessions~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions are: \"which clients are most active this week?\", \"which sessions called tool X?\", \"how long do sessions usually run?\", \"which person's sessions made the most calls?\", \"which sessions hit errors?\". Each row has session_id, tool_calls, error_calls (errored calls among those counted in tool_calls), session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email / person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated), newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not returned as a field; an unrecognised key silently falls back to newest-first. Also supports a case-insensitive `search`, `has_errors` (true for sessions with at least one errored call, false for sessions with none), a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with mcp-analytics-sessions-generate-intent.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "date_from",
+            "effectiveDescription": "Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "date_to",
+            "effectiveDescription": "End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "filter_test_accounts",
+            "effectiveDescription": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "has_errors",
+            "effectiveDescription": "Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "offset",
+            "effectiveDescription": "Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "order_by",
+            "effectiveDescription": "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "session_id",
+            "effectiveDescription": "$mcp_session_id grouping all $mcp_tool_call events in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "$mcp_session_id grouping all $mcp_tool_call events in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "tool_calls",
+            "effectiveDescription": "Total number of $mcp_tool_call events in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of $mcp_tool_call events in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/tool_calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "error_calls",
+            "effectiveDescription": "Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/error_calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "session_start",
+            "effectiveDescription": "Timestamp of the first $mcp_tool_call event in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the first $mcp_tool_call event in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/session_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "session_end",
+            "effectiveDescription": "Timestamp of the most recent $mcp_tool_call event in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the most recent $mcp_tool_call event in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/session_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "distinct_id_count",
+            "effectiveDescription": "Number of distinct PostHog distinct_ids that produced events in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct PostHog distinct_ids that produced events in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/distinct_id_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "tools_used",
+            "effectiveDescription": "Distinct $mcp_tool_name values seen in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct $mcp_tool_name values seen in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/tools_used"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "mcp_client_name",
+            "effectiveDescription": "Most recent $mcp_client_name observed in the session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most recent $mcp_client_name observed in the session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/mcp_client_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "distinct_id",
+            "effectiveDescription": "Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/distinct_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "person_email",
+            "effectiveDescription": "email property of the Person resolved from distinct_id; empty when no Person is mapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "email property of the Person resolved from distinct_id; empty when no Person is mapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/person_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "person_name",
+            "effectiveDescription": "name property of the Person resolved from distinct_id; empty when no Person is mapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "name property of the Person resolved from distinct_id; empty when no Person is mapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/person_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListResponseShape2",
+            "field": "intent",
+            "effectiveDescription": "LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until generated on demand via the generate_intent endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until generated on demand via the generate_intent endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/intent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListData",
+            "field": "has_next",
+            "effectiveDescription": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/has_next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

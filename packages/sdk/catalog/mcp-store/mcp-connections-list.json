@@ -1,0 +1,194 @@
+{
+    "method": "mcpStore.mcpConnectionsList",
+    "toolName": "mcp-connections-list",
+    "operationId": "mcp_server_installations_list",
+    "title": "List MCP connections",
+    "category": "MCP Store",
+    "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+    "requiredScopes": ["project:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-store/client.ts",
+    "input": {
+        "name": "McpStoreMcpConnectionsListInput",
+        "importPath": "@posthog/sdk/mcp-store",
+        "source": "src/generated/mcp-store/mcp-connections-list.ts",
+        "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+    },
+    "output": {
+        "name": "McpStoreMcpConnectionsListOutput",
+        "importPath": "@posthog/sdk/mcp-store",
+        "source": "src/generated/mcp-store/mcp-connections-list.ts",
+        "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpStoreMcpConnectionsListRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-store",
+            "source": "src/generated/mcp-store/mcp-connections-list.ts",
+            "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+        },
+        {
+            "name": "McpStoreMcpConnectionsListRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-store",
+            "source": "src/generated/mcp-store/mcp-connections-list.ts",
+            "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+        },
+        {
+            "name": "McpStoreMcpConnectionsListResponseShape2",
+            "importPath": "@posthog/sdk/mcp-store",
+            "source": "src/generated/mcp-store/mcp-connections-list.ts",
+            "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+        },
+        {
+            "name": "McpStoreMcpConnectionsListData",
+            "importPath": "@posthog/sdk/mcp-store",
+            "source": "src/generated/mcp-store/mcp-connections-list.ts",
+            "declaration": "dist/generated/mcp-store/mcp-connections-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_store/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpStoreMcpConnectionsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_server_installations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_server_installations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListResponseShape2",
+            "field": "icon_key",
+            "effectiveDescription": "Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_store.ts",
+                        "pointer": "#/Shape2/properties/icon_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListResponseShape2",
+            "field": "icon_domain",
+            "effectiveDescription": "Brand domain from the linked template, rendered via the logo.dev icon proxy. Empty if custom install (no template).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Brand domain from the linked template, rendered via the logo.dev icon proxy. Empty if custom install (no template).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_store.ts",
+                        "pointer": "#/Shape2/properties/icon_domain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Installation description, falling back to the linked template description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Installation description, falling back to the linked template description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_store.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListResponseShape2",
+            "field": "is_owner",
+            "effectiveDescription": "True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_store.ts",
+                        "pointer": "#/Shape2/properties/is_owner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListResponseShape2",
+            "field": "tool_count",
+            "effectiveDescription": "Number of live (non-removed) tools exposed by this installation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of live (non-removed) tools exposed by this installation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_store.ts",
+                        "pointer": "#/Shape2/properties/tool_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpStoreMcpConnectionsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

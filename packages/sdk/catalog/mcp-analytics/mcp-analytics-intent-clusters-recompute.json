@@ -1,0 +1,1400 @@
+{
+    "method": "mcpAnalytics.mcpAnalyticsIntentClustersRecompute",
+    "toolName": "mcp-analytics-intent-clusters-recompute",
+    "operationId": "mcp_analytics_intent_clusters_recompute",
+    "title": "Recompute intent clusters",
+    "category": "MCP analytics",
+    "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: sample recent sessions, attribute each tool call to its own agent intent, embed and cluster the intents, and derive the tool pivot (capture rates, discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
+    "requiredScopes": ["mcp_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: mcp-analytics-intent-routing", "requires_ai_consent: true"],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourneyPathOutcome",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourneyPath",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourney",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSwitch",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSelfRetry",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotCompetitor",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeDataStatus",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-intent-clusters-recompute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the background; poll the GET endpoint for progress (status transitions to 'idle' or 'error').",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1mcp_analytics~1intent_clusters~1recompute~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Trigger an asynchronous recompute of the intent-cluster snapshot: sample recent sessions, attribute each tool call to its own agent intent, embed and cluster the intents, and derive the tool pivot (capture rates, discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "id",
+            "effectiveDescription": "Stable cluster identifier within this snapshot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable cluster identifier within this snapshot.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "label",
+            "effectiveDescription": "Representative intent text for the cluster (the medoid intent closest to the cluster centroid).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Representative intent text for the cluster (the medoid intent closest to the cluster centroid).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "intent_count",
+            "effectiveDescription": "Number of distinct intent texts that belong to this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct intent texts that belong to this cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/intent_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "session_count",
+            "effectiveDescription": "Number of MCP sessions whose summarised intent belongs to this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of MCP sessions whose summarised intent belongs to this cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/session_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "call_count",
+            "effectiveDescription": "Total number of $mcp_tool_call events represented by this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of $mcp_tool_call events represented by this cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/call_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "error_count",
+            "effectiveDescription": "Total number of error responses observed across the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of error responses observed across the cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/error_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "error_rate_pct",
+            "effectiveDescription": "Aggregate error rate across all tool calls in the cluster, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate error rate across all tool calls in the cluster, 0–100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/error_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "routing_entropy",
+            "effectiveDescription": "Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/routing_entropy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "tool_distribution",
+            "effectiveDescription": "Per-tool breakdown of calls and errors within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-tool breakdown of calls and errors within the cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/tool_distribution"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "sample_intents",
+            "effectiveDescription": "Up to three representative intent strings from the cluster, ordered by frequency desc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to three representative intent strings from the cluster, ordered by frequency desc.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/sample_intents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "journey",
+            "effectiveDescription": "Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/journey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "switches",
+            "effectiveDescription": "Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/switches"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentCluster",
+            "field": "self_retries",
+            "effectiveDescription": "Errored call immediately retried with the same tool. Top 5 by count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored call immediately retried with the same tool. Top 5 by count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentCluster/properties/self_retries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "field": "tool",
+            "effectiveDescription": "MCP tool name that received calls for this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP tool name that received calls for this cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterToolEntry/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "field": "count",
+            "effectiveDescription": "Number of tool calls routed to this tool across the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of tool calls routed to this tool across the cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterToolEntry/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "field": "pct",
+            "effectiveDescription": "Percentage of the cluster's calls that went to this tool, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of the cluster's calls that went to this tool, 0–100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterToolEntry/properties/pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "field": "errors",
+            "effectiveDescription": "Number of error responses observed for this tool within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of error responses observed for this tool within the cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterToolEntry/properties/errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterToolEntry",
+            "field": "error_rate_pct",
+            "effectiveDescription": "Error rate for this tool within the cluster, 0–100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error rate for this tool within the cluster, 0–100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterToolEntry/properties/error_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourney",
+            "field": "paths",
+            "effectiveDescription": "Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourney/properties/paths"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourney",
+            "field": "total_sessions",
+            "effectiveDescription": "Total session count represented across all paths in this cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total session count represented across all paths in this cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourney/properties/total_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourney",
+            "field": "leak",
+            "effectiveDescription": "Highest-volume non-completed path. Null when every path completed successfully.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest-volume non-completed path. Null when every path completed successfully.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourney/properties/leak"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourneyPath",
+            "field": "steps",
+            "effectiveDescription": "Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourneyPath/properties/steps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourneyPath",
+            "field": "outcome",
+            "effectiveDescription": "Terminal outcome of the sessions following this path.\n\n* `completed` - Completed\n* `error` - Error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Terminal outcome of the sessions following this path.\n\n* `completed` - Completed\n* `error` - Error",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourneyPath/properties/outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterJourneyPath",
+            "field": "count",
+            "effectiveDescription": "Number of sessions in this cluster that followed this exact path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of sessions in this cluster that followed this exact path.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterJourneyPath/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSwitch",
+            "field": "from_tool",
+            "effectiveDescription": "Tool whose errored call the agent abandoned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool whose errored call the agent abandoned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPClusterSwitch/properties/from_tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSwitch",
+            "field": "to_tool",
+            "effectiveDescription": "Different tool the agent tried immediately after.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Different tool the agent tried immediately after.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPClusterSwitch/properties/to_tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSwitch",
+            "field": "count",
+            "effectiveDescription": "How many times this exact error-then-switch happened within the cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many times this exact error-then-switch happened within the cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPClusterSwitch/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSelfRetry",
+            "field": "tool",
+            "effectiveDescription": "Tool the agent retried immediately after its own error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool the agent retried immediately after its own error.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPClusterSelfRetry/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPClusterSelfRetry",
+            "field": "count",
+            "effectiveDescription": "Number of immediate same-tool retries after an error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of immediate same-tool retries after an error.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPClusterSelfRetry/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "tool",
+            "effectiveDescription": "Effective MCP tool name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Effective MCP tool name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "call_count",
+            "effectiveDescription": "Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/call_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "error_count",
+            "effectiveDescription": "Errored attributed calls across the corpus.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Errored attributed calls across the corpus.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/error_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "session_count",
+            "effectiveDescription": "Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/session_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "contested_score",
+            "effectiveDescription": "Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/contested_score"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "advertised_sessions",
+            "effectiveDescription": "Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/advertised_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "called_when_advertised",
+            "effectiveDescription": "Of the advertised sessions, how many actually called the tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Of the advertised sessions, how many actually called the tool.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/called_when_advertised"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "discovery_rate_pct",
+            "effectiveDescription": "called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/discovery_rate_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "description",
+            "effectiveDescription": "Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "n_clusters_served",
+            "effectiveDescription": "How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/n_clusters_served"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivot",
+            "field": "clusters",
+            "effectiveDescription": "Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivot/properties/clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "cluster_id",
+            "effectiveDescription": "Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/cluster_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "calls",
+            "effectiveDescription": "Calls routed to this tool for this intent cluster.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Calls routed to this tool for this intent cluster.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "capture_pct",
+            "effectiveDescription": "Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/capture_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "rank",
+            "effectiveDescription": "This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/rank"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "description_fit",
+            "effectiveDescription": "Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/description_fit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotClusterEntry",
+            "field": "top_competitor",
+            "effectiveDescription": "The strongest other tool in this cluster. Null when this tool is the only one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The strongest other tool in this cluster. Null when this tool is the only one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotClusterEntry/properties/top_competitor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotCompetitor",
+            "field": "tool",
+            "effectiveDescription": "The other tool with the largest share of this cluster's calls.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The other tool with the largest share of this cluster's calls.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotCompetitor/properties/tool"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolPivotCompetitor",
+            "field": "pct",
+            "effectiveDescription": "That competitor's share of the cluster's calls, 0-100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "That competitor's share of the cluster's calls, 0-100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolPivotCompetitor/properties/pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "tool_a",
+            "effectiveDescription": "First tool of the pair (lexicographic order).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First tool of the pair (lexicographic order).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/tool_a"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "tool_b",
+            "effectiveDescription": "Second tool of the pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Second tool of the pair.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/tool_b"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "contested_calls",
+            "effectiveDescription": "Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/contested_calls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "sessions_with_both",
+            "effectiveDescription": "Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/sessions_with_both"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "sessions_with_either",
+            "effectiveDescription": "Sampled sessions that called at least one of the pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled sessions that called at least one of the pair.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/sessions_with_either"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPToolOverlap",
+            "field": "top_cluster_id",
+            "effectiveDescription": "The cluster contributing the most contested calls for this pair.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cluster contributing the most contested calls for this pair.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPToolOverlap/properties/top_cluster_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "distance_threshold",
+            "effectiveDescription": "Cosine distance threshold used by the clustering algorithm.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cosine distance threshold used by the clustering algorithm.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/distance_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "embedding_model",
+            "effectiveDescription": "Embedding model used to vectorise intents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Embedding model used to vectorise intents.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/embedding_model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "n_intents",
+            "effectiveDescription": "Number of distinct intents that fed into the clustering run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of distinct intents that fed into the clustering run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/n_intents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "n_clusters",
+            "effectiveDescription": "Number of clusters produced by the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of clusters produced by the run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/n_clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "corpus",
+            "effectiveDescription": "Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/corpus"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "sampled_sessions",
+            "effectiveDescription": "Sessions sampled into the corpus. Null on pre-v2 snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sessions sampled into the corpus. Null on pre-v2 snapshots.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/sampled_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "window_sessions",
+            "effectiveDescription": "Total sessions with tool calls in the lookback window (unsampled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total sessions with tool calls in the lookback window (unsampled).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/window_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "session_coverage_pct",
+            "effectiveDescription": "sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/session_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "intent_coverage_pct",
+            "effectiveDescription": "Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/intent_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "imputed_call_pct",
+            "effectiveDescription": "Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/imputed_call_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "unattributed_call_pct",
+            "effectiveDescription": "Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/unattributed_call_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "corpus_call_coverage_pct",
+            "effectiveDescription": "Share of attributed calls whose intent made the top-N cut that feeds clustering.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of attributed calls whose intent made the top-N cut that feeds clustering.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/corpus_call_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "advertisement_coverage_pct",
+            "effectiveDescription": "Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/advertisement_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "n_tools",
+            "effectiveDescription": "Tools included in the tool pivot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools included in the tool pivot.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/n_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "dropped_tools",
+            "effectiveDescription": "Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/dropped_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "dropped_overlap_pairs",
+            "effectiveDescription": "Overlap pairs dropped by the pair cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overlap pairs dropped by the pair cap.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/dropped_overlap_pairs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeResponseMCPIntentClusterSnapshotMeta",
+            "field": "description_coverage_pct",
+            "effectiveDescription": "Share of pivot tools with a captured description. Description fit is only available for those.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of pivot tools with a captured description. Description fit is only available for those.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshotMeta/properties/description_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "status",
+            "effectiveDescription": "Whether a snapshot is current (idle), being recomputed (computing), or failed (error).\n\n* `idle` - Idle\n* `computing` - Computing\n* `error` - Error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a snapshot is current (idle), being recomputed (computing), or failed (error).\n\n* `idle` - Idle\n* `computing` - Computing\n* `error` - Error",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "error_message",
+            "effectiveDescription": "Error message from the most recent failed run, otherwise empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message from the most recent failed run, otherwise empty.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/error_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "last_computed_at",
+            "effectiveDescription": "When the latest snapshot finished computing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the latest snapshot finished computing.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/last_computed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "last_computed_by_email",
+            "effectiveDescription": "Email of the user who triggered the latest recompute, empty for system-triggered runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the user who triggered the latest recompute, empty for system-triggered runs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/last_computed_by_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "clusters",
+            "effectiveDescription": "All clusters in the snapshot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All clusters in the snapshot.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/clusters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "tools",
+            "effectiveDescription": "Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "tool_overlaps",
+            "effectiveDescription": "Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/tool_overlaps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsIntentClustersRecomputeData",
+            "field": "computed_with",
+            "effectiveDescription": "Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MCPIntentClusterSnapshot/properties/computed_with"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

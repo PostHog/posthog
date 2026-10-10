@@ -1,0 +1,739 @@
+{
+    "method": "notebooks.notebooksWidgetStatus",
+    "toolName": "notebooks-widget-status",
+    "operationId": "notebooks_widget_status",
+    "title": "Get notebook widget generation status",
+    "category": "Notebooks",
+    "description": "Read a generated notebook widget's lifecycle_status, active job, current version, and automated security review. Use the notebook short_id and the Widget tag's nodeId. Poll while generating or building, waiting a few seconds between calls. Ready means the build finished; the user may still need to approve execution in the notebook. On failed or incompatible, read error_detail and error_code before retrying.",
+    "requiredScopes": ["notebook:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksNotebooksWidgetStatusInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-status.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+    },
+    "output": {
+        "name": "NotebooksNotebooksWidgetStatusOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/notebooks-widget-status.ts",
+        "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape8",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        },
+        {
+            "name": "NotebooksNotebooksWidgetStatusData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/notebooks-widget-status.ts",
+            "declaration": "dist/generated/notebooks/notebooks-widget-status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1notebooks~1{short_id}~1widgets~1{node_id}~1status~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read a generated notebook widget's lifecycle_status, active job, current version, and automated security review. Use the notebook short_id and the Widget tag's nodeId. Poll while generating or building, waiting a few seconds between calls. Ready means the build finished; the user may still need to approve execution in the notebook. On failed or incompatible, read error_detail and error_code before retrying.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusInput",
+            "field": "node_id",
+            "effectiveDescription": "Stable identifier of the generated widget node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier of the generated widget node.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusInput",
+            "field": "short_id",
+            "effectiveDescription": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape2",
+            "effectiveDescription": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape4",
+            "field": "slot",
+            "effectiveDescription": "Stable logical input name used by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable logical input name used by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/slot"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape4",
+            "field": "sourceName",
+            "effectiveDescription": "Original dataframe name when the widget was published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original dataframe name when the widget was published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/sourceName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape4",
+            "field": "columns",
+            "effectiveDescription": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape4",
+            "field": "schemaHash",
+            "effectiveDescription": "Hash of the expected column schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the expected column schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/schemaHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape5",
+            "field": "name",
+            "effectiveDescription": "Column name expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape5",
+            "field": "type",
+            "effectiveDescription": "Column type expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column type expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "id",
+            "effectiveDescription": "Generation job identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generation job identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "status",
+            "effectiveDescription": "Current durable job state.\n\n* `queued` - queued\n* `generating` - generating\n* `publishing` - publishing",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current durable job state.\n\n* `queued` - queued\n* `generating` - generating\n* `publishing` - publishing",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "phase",
+            "effectiveDescription": "Current generation phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current generation phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "model",
+            "effectiveDescription": "AI model processing the job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI model processing the job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "created_at",
+            "effectiveDescription": "When the job was queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job was queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape6",
+            "field": "started_at",
+            "effectiveDescription": "When a worker started the job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When a worker started the job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "severity",
+            "effectiveDescription": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "summary",
+            "effectiveDescription": "Concise result from the automated security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concise result from the automated security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "findings",
+            "effectiveDescription": "Potential security issues found in the source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Potential security issues found in the source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "model",
+            "effectiveDescription": "Fast AI model used for the security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fast AI model used for the security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "review_version",
+            "effectiveDescription": "Version of the security review instructions and parser.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the security review instructions and parser.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/review_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape7",
+            "field": "reviewed_at",
+            "effectiveDescription": "When this exact widget source was reviewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this exact widget source was reviewed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape7/properties/reviewed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape8",
+            "field": "severity",
+            "effectiveDescription": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape8",
+            "field": "title",
+            "effectiveDescription": "Short description of the potential security issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description of the potential security issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusResponseShape8",
+            "field": "details",
+            "effectiveDescription": "Why the source may be unsafe and what it could do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the source may be unsafe and what it could do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape8/properties/details"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "lifecycle_status",
+            "effectiveDescription": "Current widget and preview state.\n\n* `awaiting_generation` - awaiting_generation\n* `generating` - generating\n* `building` - building\n* `ready` - ready\n* `failed` - failed\n* `incompatible` - incompatible",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current widget and preview state.\n\n* `awaiting_generation` - awaiting_generation\n* `generating` - generating\n* `building` - building\n* `ready` - ready\n* `failed` - failed\n* `incompatible` - incompatible",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/lifecycle_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "error_detail",
+            "effectiveDescription": "Actionable failure detail.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actionable failure detail.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/error_detail"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "error_code",
+            "effectiveDescription": "Stable failure code for support and diagnostics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable failure code for support and diagnostics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "failure_phase",
+            "effectiveDescription": "Generation step that failed, if a generation job failed.\n\n* `generating_source` - generating_source\n* `reviewing_source` - reviewing_source\n* `publishing_source` - publishing_source\n* `unknown` - unknown",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generation step that failed, if a generation job failed.\n\n* `generating_source` - generating_source\n* `reviewing_source` - reviewing_source\n* `publishing_source` - publishing_source\n* `unknown` - unknown",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/failure_phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "frame_names",
+            "effectiveDescription": "Logical dataframe slots available to the selected version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Logical dataframe slots available to the selected version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/frame_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "input_bindings",
+            "effectiveDescription": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/input_bindings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "input_contract",
+            "effectiveDescription": "Logical dataframe slots and output schemas required by the selected widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Logical dataframe slots and output schemas required by the selected widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/input_contract"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "current_version_id",
+            "effectiveDescription": "Selected immutable widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Selected immutable widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "pinned_version_id",
+            "effectiveDescription": "Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/pinned_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "widget_id",
+            "effectiveDescription": "Reusable widget identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reusable widget identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/widget_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "instance_id",
+            "effectiveDescription": "Placement in this notebook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Placement in this notebook.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/instance_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "has_versions",
+            "effectiveDescription": "Whether the widget has generated history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the widget has generated history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/has_versions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "active_job",
+            "effectiveDescription": "Active generation job, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Active generation job, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/active_job"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "security_review",
+            "effectiveDescription": "Automated review for the selected source, or null for a legacy unreviewed version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automated review for the selected source, or null for a legacy unreviewed version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/security_review"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "is_reusable",
+            "effectiveDescription": "Whether this widget identity is published in the reusable widget catalog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this widget identity is published in the reusable widget catalog.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/is_reusable"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksNotebooksWidgetStatusData",
+            "field": "build_hash",
+            "effectiveDescription": "Hex SHA-256 over the exact immutable artifact manifest selected for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 over the exact immutable artifact manifest selected for display.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/build_hash"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

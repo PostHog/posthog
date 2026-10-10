@@ -1,0 +1,160 @@
+{
+    "method": "messaging.optOutsRemove",
+    "toolName": "opt-outs-remove",
+    "operationId": "messaging_preferences_remove_opt_out_create",
+    "title": "Remove a recipient from the opt-out list",
+    "category": "Messaging",
+    "description": "Opt a recipient back in to the message category named by category_key, or to all marketing messages if omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.",
+    "requiredScopes": ["hog_flow:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/messaging/client.ts",
+    "input": {
+        "name": "MessagingOptOutsRemoveInput",
+        "importPath": "@posthog/sdk/messaging",
+        "source": "src/generated/messaging/opt-outs-remove.ts",
+        "declaration": "dist/generated/messaging/opt-outs-remove.d.ts"
+    },
+    "output": {
+        "name": "MessagingOptOutsRemoveOutput",
+        "importPath": "@posthog/sdk/messaging",
+        "source": "src/generated/messaging/opt-outs-remove.ts",
+        "declaration": "dist/generated/messaging/opt-outs-remove.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MessagingOptOutsRemoveRequestSchema0",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-remove.ts",
+            "declaration": "dist/generated/messaging/opt-outs-remove.d.ts"
+        },
+        {
+            "name": "MessagingOptOutsRemoveData",
+            "importPath": "@posthog/sdk/messaging",
+            "source": "src/generated/messaging/opt-outs-remove.ts",
+            "declaration": "dist/generated/messaging/opt-outs-remove.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Opt a recipient back in to a specific category, or to all marketing messages.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1messaging_preferences~1remove_opt_out~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Opt a recipient back in to the message category named by category_key, or to all marketing messages if omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/messaging/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MessagingOptOutsRemoveInput",
+            "field": "identifier",
+            "effectiveDescription": "The recipient identifier to opt back in (e.g. email address).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipient identifier to opt back in (e.g. email address).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_preferences/remove_opt_out/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsRemoveInput",
+            "field": "category_key",
+            "effectiveDescription": "Optional message category key. If omitted, the recipient is opted back in to all marketing messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional message category key. If omitted, the recipient is opted back in to all marketing messages.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_preferences/remove_opt_out/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsRemoveData",
+            "field": "id",
+            "effectiveDescription": "Server-assigned UUID for this recipient's preference record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Server-assigned UUID for this recipient's preference record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsRemoveData",
+            "field": "identifier",
+            "effectiveDescription": "The recipient identifier (e.g. email address).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipient identifier (e.g. email address).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsRemoveData",
+            "field": "updated_at",
+            "effectiveDescription": "When the preference was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the preference was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MessagingOptOutsRemoveData",
+            "field": "preferences",
+            "effectiveDescription": "Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/messaging.ts",
+                        "pointer": "#/Shape1/properties/preferences"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

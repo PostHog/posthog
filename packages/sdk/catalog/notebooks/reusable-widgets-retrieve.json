@@ -1,0 +1,750 @@
+{
+    "method": "notebooks.reusableWidgetsRetrieve",
+    "toolName": "reusable-widgets-retrieve",
+    "operationId": "reusable_widgets_retrieve",
+    "title": "Get reusable notebook widget",
+    "category": "Notebooks",
+    "description": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes. Different dataframe names need only a source binding, not Hog. Add a Hog mapping only when column names, column types, order, or shape differ. Ask the user when units or meaning are ambiguous.",
+    "requiredScopes": ["notebook:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: notebook-generated-widgets"],
+    "methodSource": "src/generated/notebooks/client.ts",
+    "input": {
+        "name": "NotebooksReusableWidgetsRetrieveInput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+        "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+    },
+    "output": {
+        "name": "NotebooksReusableWidgetsRetrieveOutput",
+        "importPath": "@posthog/sdk/notebooks",
+        "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+        "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "NotebooksReusableWidgetsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        },
+        {
+            "name": "NotebooksReusableWidgetsRetrieveData",
+            "importPath": "@posthog/sdk/notebooks",
+            "source": "src/generated/notebooks/reusable-widgets-retrieve.ts",
+            "declaration": "dist/generated/notebooks/reusable-widgets-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes. Different dataframe names need only a source binding, not Hog. Add a Hog mapping only when column names, column types, order, or shape differ. Ask the user when units or meaning are ambiguous.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/notebooks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "generation_cost_usd",
+            "effectiveDescription": "Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/generation_cost_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Immutable widget version identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable widget version identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Title stored with this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Title stored with this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "version",
+            "effectiveDescription": "One-based version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-based version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "operation",
+            "effectiveDescription": "Action that created this version.\n\n* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve\n* `revert` - revert",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action that created this version.\n\n* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve\n* `revert` - revert",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/operation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "model",
+            "effectiveDescription": "AI model that created this version, or null when none was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI model that created this version, or null when none was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "artifact_url",
+            "effectiveDescription": "Short-lived URL for the current widget preview.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short-lived URL for the current widget preview.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/artifact_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "build_status",
+            "effectiveDescription": "Preview build state.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Preview build state.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/build_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "build_hash",
+            "effectiveDescription": "SHA-256 integrity hash for the immutable preview artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHA-256 integrity hash for the immutable preview artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/build_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "frame_names",
+            "effectiveDescription": "Logical dataframe slots accepted by this widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Logical dataframe slots accepted by this widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/frame_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "input_contract",
+            "effectiveDescription": "Dataframe slots and schemas expected by this widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dataframe slots and schemas expected by this widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/input_contract"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "security_review",
+            "effectiveDescription": "Automated source review for this version, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Automated source review for this version, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/security_review"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "has_demo_data",
+            "effectiveDescription": "Whether this version has saved demo data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this version has saved demo data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/has_demo_data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When this immutable version was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this immutable version was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape3",
+            "field": "slot",
+            "effectiveDescription": "Stable logical input name used by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable logical input name used by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape3/properties/slot"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape3",
+            "field": "sourceName",
+            "effectiveDescription": "Original dataframe name when the widget was published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Original dataframe name when the widget was published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape3/properties/sourceName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape3",
+            "field": "columns",
+            "effectiveDescription": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Columns the notebook-local binding must produce after its optional Hog mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape3/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape3",
+            "field": "schemaHash",
+            "effectiveDescription": "Hash of the expected column schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the expected column schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape3/properties/schemaHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape4",
+            "field": "name",
+            "effectiveDescription": "Column name expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape4",
+            "field": "type",
+            "effectiveDescription": "Column type expected by the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column type expected by the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape4/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "severity",
+            "effectiveDescription": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest severity found, or none when the review found no issues.\n\n* `none` - none\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "summary",
+            "effectiveDescription": "Concise result from the automated security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concise result from the automated security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "findings",
+            "effectiveDescription": "Potential security issues found in the source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Potential security issues found in the source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "model",
+            "effectiveDescription": "Fast AI model used for the security review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fast AI model used for the security review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "review_version",
+            "effectiveDescription": "Version of the security review instructions and parser.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the security review instructions and parser.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/review_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape5",
+            "field": "reviewed_at",
+            "effectiveDescription": "When this exact widget source was reviewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this exact widget source was reviewed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape5/properties/reviewed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape6",
+            "field": "severity",
+            "effectiveDescription": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Severity of this potential security issue.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape6",
+            "field": "title",
+            "effectiveDescription": "Short description of the potential security issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description of the potential security issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveResponseShape6",
+            "field": "details",
+            "effectiveDescription": "Why the source may be unsafe and what it could do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the source may be unsafe and what it could do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape6/properties/details"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "id",
+            "effectiveDescription": "Stable reusable widget identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable reusable widget identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "name",
+            "effectiveDescription": "Catalog name of the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Catalog name of the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "description",
+            "effectiveDescription": "Description of the reusable widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the reusable widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "tags",
+            "effectiveDescription": "Searchable widget labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Searchable widget labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "publication_status",
+            "effectiveDescription": "Catalog lifecycle of the reusable widget.\n\n* `published` - published\n* `deprecated` - deprecated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Catalog lifecycle of the reusable widget.\n\n* `published` - published\n* `deprecated` - deprecated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/publication_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "current_version",
+            "effectiveDescription": "Current reusable widget version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current reusable widget version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/current_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "pending_version",
+            "effectiveDescription": "Generated draft waiting for manual review, or null when no review is pending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generated draft waiting for manual review, or null when no review is pending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/pending_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "version_count",
+            "effectiveDescription": "Number of immutable versions in this widget's history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of immutable versions in this widget's history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/version_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "instance_count",
+            "effectiveDescription": "Number of notebook placements using this widget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of notebook placements using this widget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/instance_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "created_at",
+            "effectiveDescription": "When the widget identity was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the widget identity was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "published_at",
+            "effectiveDescription": "When the widget became reusable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the widget became reusable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/published_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "updated_at",
+            "effectiveDescription": "When the reusable widget was last changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the reusable widget was last changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/notebooks.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "NotebooksReusableWidgetsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

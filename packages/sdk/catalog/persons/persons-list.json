@@ -1,0 +1,313 @@
+{
+    "method": "persons.personsList",
+    "toolName": "persons-list",
+    "operationId": "persons_list",
+    "title": "List persons",
+    "category": "Persons",
+    "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+    "requiredScopes": ["person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/persons/client.ts",
+    "input": {
+        "name": "PersonsPersonsListInput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-list.ts",
+        "declaration": "dist/generated/persons/persons-list.d.ts"
+    },
+    "output": {
+        "name": "PersonsPersonsListOutput",
+        "importPath": "@posthog/sdk/persons",
+        "source": "src/generated/persons/persons-list.ts",
+        "declaration": "dist/generated/persons/persons-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "PersonsPersonsListRequestSchema0",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListRequestSchema1",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListRequestSchema2",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListRequestSchema3",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListRequestSchema4",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListRequestSchema5",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListDataResultsItemProperties",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListDataResultsItem",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        },
+        {
+            "name": "PersonsPersonsListData",
+            "importPath": "@posthog/sdk/persons",
+            "source": "src/generated/persons/persons-list.ts",
+            "declaration": "dist/generated/persons/persons-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1persons~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/persons/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "client_query_id",
+            "effectiveDescription": "Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "distinct_id",
+            "effectiveDescription": "Filter list by distinct id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter list by distinct id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "email",
+            "effectiveDescription": "Filter persons by email (exact match)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter persons by email (exact match)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListInput",
+            "field": "search",
+            "effectiveDescription": "Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/persons/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].id",
+            "effectiveDescription": "Numeric person ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric person ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].uuid",
+            "effectiveDescription": "Unique identifier (UUID) for this person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier (UUID) for this person.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].name",
+            "effectiveDescription": "Display name derived from person properties (email, name, or username).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name derived from person properties (email, name, or username).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].properties",
+            "effectiveDescription": "Key-value map of person properties set via $set and $set_once operations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key-value map of person properties set via $set and $set_once operations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].created_at",
+            "effectiveDescription": "When this person was first seen (ISO 8601).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this person was first seen (ISO 8601).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "results[].last_seen_at",
+            "effectiveDescription": "Timestamp of the last event from this person, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the last event from this person, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/persons.ts",
+                        "pointer": "#/Shape2/properties/last_seen_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "PersonsPersonsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

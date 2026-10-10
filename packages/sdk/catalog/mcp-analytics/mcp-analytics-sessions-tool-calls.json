@@ -1,0 +1,333 @@
+{
+    "method": "mcpAnalytics.mcpAnalyticsSessionsToolCalls",
+    "toolName": "mcp-analytics-sessions-tool-calls",
+    "operationId": "mcp_analytics_sessions_tool_calls",
+    "title": "List session tool calls",
+    "category": "MCP analytics",
+    "description": "List a single session's $mcp_tool_call events in chronological order — the drill-down for a session found via mcp-analytics-sessions-list. Pass the session's session_id (the {id} path param); for sessions older than the default 7-day lookback, also pass its session_start as date_from so the event scan reaches them. Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's has_next flag indicates whether more calls remain.",
+    "requiredScopes": ["mcp_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/mcp-analytics/client.ts",
+    "input": {
+        "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+    },
+    "output": {
+        "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsOutput",
+        "importPath": "@posthog/sdk/mcp-analytics",
+        "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+        "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema0",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema1",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema3",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema4",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        },
+        {
+            "name": "McpAnalyticsMcpAnalyticsSessionsToolCallsData",
+            "importPath": "@posthog/sdk/mcp-analytics",
+            "source": "src/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.ts",
+            "declaration": "dist/generated/mcp-analytics/mcp-analytics-sessions-tool-calls.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1mcp_analytics~1sessions~1{id}~1tool_calls~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List a single session's $mcp_tool_call events in chronological order — the drill-down for a session found via mcp-analytics-sessions-list. Pass the session's session_id (the {id} path param); for sessions older than the default 7-day lookback, also pass its session_start as date_from so the event scan reaches them. Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's has_next flag indicates whether more calls remain.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/mcp_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this mcp analytics submission.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this mcp analytics submission.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "date_from",
+            "effectiveDescription": "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "filter_test_accounts",
+            "effectiveDescription": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "offset",
+            "effectiveDescription": "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/mcp_analytics/sessions/{id}/tool_calls/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "event_id",
+            "effectiveDescription": "ClickHouse uuid of the $mcp_tool_call event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse uuid of the $mcp_tool_call event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/event_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "timestamp",
+            "effectiveDescription": "When the tool call was captured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the tool call was captured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "tool_name",
+            "effectiveDescription": "Tool that was invoked ($mcp_tool_name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool that was invoked ($mcp_tool_name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/tool_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "intent",
+            "effectiveDescription": "Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/intent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "is_error",
+            "effectiveDescription": "Whether the tool call resulted in an error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the tool call resulted in an error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "error_message",
+            "effectiveDescription": "Error message when is_error is true, otherwise empty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message when is_error is true, otherwise empty.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/error_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2",
+            "field": "duration_ms",
+            "effectiveDescription": "Duration of the tool call in milliseconds when captured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration of the tool call in milliseconds when captured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape2/properties/duration_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsData",
+            "field": "has_next",
+            "effectiveDescription": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/mcp_analytics.ts",
+                        "pointer": "#/Shape1/properties/has_next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "McpAnalyticsMcpAnalyticsSessionsToolCallsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
