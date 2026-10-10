@@ -55,7 +55,7 @@ Create a **Personal Access Token** (or a production access token for your app) i
 Grant these read permissions to the token for the data you want to sync:
 - `PAYMENTS_READ` (payments, refunds)
 - `CUSTOMERS_READ` (customers)
-- `MERCHANT_PROFILE_READ` (locations)
+- `MERCHANT_PROFILE_READ` (locations, and payments and refunds from every location)
 - `ITEMS_READ` (catalog)
 """,
             iconPath="/static/services/square.png",
