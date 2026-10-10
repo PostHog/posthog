@@ -62,7 +62,7 @@ export function RepositoryProjectCell({
         status = (
             <>
                 <span className="text-xs text-secondary">
-                    Follows project · {flashForLabel(projectSettings?.flash_for ?? 'off')}
+                    Project rule · {flashForLabel(projectSettings?.flash_for ?? 'off')}
                 </span>
                 {canEdit && (
                     <LemonButton
