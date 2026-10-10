@@ -858,6 +858,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.tool_preset !== undefined) {
             body['tool_preset'] = params.tool_preset
         }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -934,6 +937,35 @@ const scoutConfigList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const ScoutConfigPrecheckTestSchema = () => {
+    const SignalsScoutConfigPrecheckTestBody = orvalSchemas.SignalsScoutConfigPrecheckTestBody()
+    const SignalsScoutConfigPrecheckTestParams = orvalSchemas.SignalsScoutConfigPrecheckTestParams()
+    return SignalsScoutConfigPrecheckTestParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigPrecheckTestBody.shape
+    )
+}
+
+const scoutConfigPrecheckTest = (): ToolBase<
+    ReturnType<typeof ScoutConfigPrecheckTestSchema>,
+    Schemas.SignalScoutPrecheckTest
+> => ({
+    name: 'scout-config-precheck-test',
+    schema: ScoutConfigPrecheckTestSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigPrecheckTestSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
+        const result = await context.api.request<Schemas.SignalScoutPrecheckTest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/precheck_test/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -1017,6 +1049,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
         }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
@@ -1934,6 +1969,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.tool_preset !== undefined) {
             body['tool_preset'] = params.tool_preset
         }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -2093,6 +2131,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
         }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
@@ -2626,6 +2667,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
+    'scout-config-precheck-test': scoutConfigPrecheckTest,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create': scoutCreate,

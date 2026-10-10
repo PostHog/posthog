@@ -30,12 +30,14 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import groups
 from posthog.models import Team
 
@@ -47,6 +49,7 @@ logger = structlog.get_logger(__name__)
 PRECHECK_TIMEOUT_S = 10
 PRECHECK_MAX_ROWS = 50
 PRECHECK_MAX_TEXT_BYTES = 8 * 1024
+PRECHECK_MAX_QUERY_LENGTH = 10_000
 
 PrecheckOutcome = Literal["run", "skip", "error"]
 # `rows`: the query found rows. `no_rows`: it found none. `false_value`: it returned one false
@@ -77,6 +80,25 @@ class _PrecheckRows:
         return len(self.rows) == 1 and len(self.rows[0]) == 1 and self.rows[0][0] in (None, False, 0, "")
 
 
+@frozen
+class PrecheckDryRunResult:
+    would_run: bool
+    reason: PrecheckReason
+    since: datetime
+    now: datetime
+    row_count: int = 0
+    columns: tuple[str, ...] = ()
+    rows_text: str = ""
+    # Set only for an error the person who wrote the query can act on, such as a syntax error.
+    error: str | None = None
+
+
+def parse_precheck_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse a pre-check query with its `{since}` and `{now}` placeholders bound. Raises on a bad query."""
+    placeholder = ast.Constant(value=timezone.now())
+    return parse_select(query, placeholders={"since": placeholder, "now": placeholder})
+
+
 def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None = None) -> PrecheckResult | None:
     """Evaluate the pre-check of one scout. Return None when the scout has no pre-check.
 
@@ -94,7 +116,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         return None
 
     now = now or timezone.now()
-    since = _last_real_run_at(team_id, skill_name) or config.created_at
+    since = precheck_since(config)
     team = Team.objects.select_related("organization").get(pk=team_id)
     started = time.monotonic()
     error_type: str | None = None
@@ -124,15 +146,48 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     return result
 
 
-def _last_real_run_at(team_id: int, skill_name: str) -> datetime | None:
-    return (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(skill_name=skill_name)
+def dry_run_scout_precheck(
+    team: Team, config: SignalScoutConfig, query: str, now: datetime | None = None
+) -> PrecheckDryRunResult:
+    """Run a pre-check query the way the next scheduled run would, and change nothing."""
+    now = now or timezone.now()
+    since = precheck_since(config)
+    try:
+        found = _run_query(team, query, since=since, now=now)
+    except Exception as error:
+        logger.info(
+            "signals_scout: pre-check dry run failed",
+            team_id=team.pk,
+            skill_name=config.skill_name,
+            error_type=type(error).__name__,
+        )
+        # Other errors can carry generated SQL, so only an exposed error reaches the caller as written.
+        exposed = isinstance(error, ExposedHogQLError | ExposedCHQueryError)
+        message = str(error) if exposed else "The query could not run."
+        return PrecheckDryRunResult(would_run=True, reason="query_error", since=since, now=now, error=message)
+    result = _result_from_rows(found)
+    return PrecheckDryRunResult(
+        would_run=result.should_run,
+        reason=result.reason,
+        since=since,
+        now=now,
+        row_count=len(found.rows),
+        columns=tuple(str(column) for column in found.columns),
+        rows_text=_render_rows(found),
+    )
+
+
+def precheck_since(config: SignalScoutConfig) -> datetime:
+    """The `{since}` bound: the last run that actually ran, or the config's creation."""
+    last_run_at = (
+        SignalScoutRun.objects.for_team(config.team_id)
+        .filter(skill_name=config.skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .order_by("-created_at")
         .values_list("created_at", flat=True)
         .first()
     )
+    return last_run_at or config.created_at
 
 
 def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
