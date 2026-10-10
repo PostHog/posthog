@@ -663,16 +663,20 @@ def replace_dropped_findings(
             )
 
 
-def load_dropped_findings(*, team_id: int, report_id: str, run_index: int) -> list[DroppedFindingArtefact]:
+def load_dropped_findings(
+    *, team_id: int, report_id: str, run_index: int, head_sha: str | None
+) -> list[DroppedFindingArtefact]:
     """The findings a single-agent turn did not keep, in the order the turn recorded them.
 
     Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
     """
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING)
-        .order_by("created_at", "id")
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
     )
+    if head_sha:
+        # The denormalized column narrows the read to the turn's head, so older turns are never parsed.
+        rows = rows.filter(head_sha=head_sha)
+    rows = rows.order_by("created_at", "id")
     dropped: list[DroppedFindingArtefact] = []
     for row in rows:
         try:

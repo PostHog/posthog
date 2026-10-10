@@ -1351,6 +1351,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                         return !!before && ((before.inProgress && !run.inProgress) || run.runCount > before.runCount)
                     })
                     .map(([id]) => id)
+                // Under the Running filter a finished review leaves the page, so count it as finished too.
+                for (const [id, before] of previousRuns) {
+                    if (before.inProgress && !currentRuns.has(id)) {
+                        finishedIds.push(id)
+                    }
+                }
                 if (finishedIds.length) {
                     actions.loadPerspectiveStats()
                     actions.loadDeepSkillStats()

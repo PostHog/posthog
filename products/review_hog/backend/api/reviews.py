@@ -1461,7 +1461,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "dismissed_findings": sorted(dismissed, key=sort_key),
             "dropped_findings": [
                 _dropped_finding_payload(dropped, report.pr_url)
-                for dropped in load_dropped_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+                for dropped in load_dropped_findings(
+                    team_id=team_id, report_id=report_id, run_index=run_index, head_sha=turn_head
+                )
             ],
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),
         }
