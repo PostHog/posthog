@@ -1783,6 +1783,19 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
             ),
             OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["static", "dynamic"],
+                description="Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.",
+            ),
+            OpenApiParameter(
+                name="created_by_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only cohorts created by the user with this id.",
+            ),
+            OpenApiParameter(
                 name="basic",
                 type=bool,
                 location=OpenApiParameter.QUERY,

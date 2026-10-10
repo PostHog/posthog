@@ -1,5 +1,6 @@
 import {
     MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_USER,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_PROJECT,
     MOCK_DEFAULT_TEAM,
@@ -108,6 +109,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         error: jest.fn(),
         warning: jest.fn(),
         info: jest.fn(),
+        loading: jest.fn((_message, options) => options?.toastId),
+        dismiss: jest.fn(),
     },
 }))
 
@@ -879,6 +882,225 @@ describe('featureFlagLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+    })
+
+    describe('send a broadcast to the people who have the flag', () => {
+        const COHORT = { id: 42, name: 'Users with feature flag test-flag enabled' }
+        const FILLING = { ...COHORT, is_calculating: true, errors_calculating: 0 }
+        const READY = { ...COHORT, is_calculating: false, errors_calculating: 0 }
+        const FAILED = { ...COHORT, is_calculating: false, errors_calculating: 1 }
+
+        it.each([
+            {
+                scenario: 'opens the broadcast once the cohort fills on the third check',
+                polls: [FILLING, FILLING, READY],
+                expectedPolls: 3,
+                outcome: 'opened',
+            },
+            {
+                scenario: 'shows an error when the cohort fails to fill',
+                polls: [FAILED],
+                expectedPolls: 1,
+                outcome: 'error',
+            },
+            {
+                scenario: 'points to the cohort when it is still filling after the wait',
+                polls: [FILLING],
+                expectedPolls: 31,
+                outcome: 'still filling',
+            },
+            {
+                scenario: 'offers the broadcast in a toast when the person left the flag page',
+                polls: [READY],
+                expectedPolls: 1,
+                outcome: 'offered',
+                startPath: urls.cohorts(),
+            },
+        ])('$scenario', async ({ polls, expectedPolls, outcome, startPath }) => {
+            jest.useFakeTimers()
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            let pollCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': () => [
+                        201,
+                        { cohort: FILLING },
+                    ],
+                },
+                get: {
+                    '/api/projects/:projectId/cohorts/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:projectId/cohorts/42/': () => [200, polls[Math.min(pollCount++, polls.length - 1)]],
+                },
+            })
+
+            logic.actions.findOrCreateBroadcastCohort()
+            if (startPath) {
+                router.actions.push(startPath)
+            }
+            await jest.advanceTimersByTimeAsync(61_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(pollCount).toBe(expectedPolls)
+            expect(capturesOf('message audience clicked')).toEqual([
+                ['message audience clicked', { source: 'feature_flag', destination: 'broadcast' }],
+            ])
+            expect(lemonToast.loading).toHaveBeenCalledTimes(1)
+            expect(lemonToast.dismiss).toHaveBeenCalledWith((lemonToast.loading as jest.Mock).mock.results[0].value)
+            const broadcastDetails = { name: 'test-flag announcement', source: 'feature_flag' }
+            if (outcome === 'opened') {
+                expect(router.values.location.pathname).toContain('/broadcasts/new')
+                expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                    expect.objectContaining({ type: 'cohort', value: 42 }),
+                ])
+                expect(router.values.searchParams).toMatchObject(broadcastDetails)
+                return
+            }
+            expect(router.values.location.pathname).toContain(startPath ?? urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            if (outcome === 'error') {
+                expect(lemonToast.error).toHaveBeenCalledWith(
+                    "Couldn't find the people who have this flag. Try again in a few minutes."
+                )
+            } else if (outcome === 'still filling') {
+                const [message, { button }] = (lemonToast.info as jest.Mock).mock.calls[0]
+                expect(message).toContain('Still finding the people who have this flag')
+                button.action()
+                expect(router.values.location.pathname).toContain(urls.cohort(42))
+            } else {
+                const [, { button }] = (lemonToast.success as jest.Mock).mock.calls[0]
+                expect(button.label).toBe('Open broadcast')
+                button.action()
+                expect(router.values.location.pathname).toContain('/broadcasts/new')
+                expect(router.values.searchParams).toMatchObject(broadcastDetails)
+            }
+        })
+
+        it.each([
+            {
+                scenario: 'targets groups',
+                flag: { filters: { ...MOCK_FEATURE_FLAG.filters, aggregation_group_type_index: 0 } },
+                message: 'This flag targets groups, not people, so there is no one to email.',
+            },
+            {
+                scenario: 'was disabled after the page loaded',
+                flag: { active: false },
+                message: 'This flag is disabled, so no one has it. Enable it first.',
+            },
+        ])('makes no cohort when the saved flag $scenario', async ({ flag, message }) => {
+            const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
+                },
+                get: { [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, ...flag }] },
+            })
+
+            logic.actions.findOrCreateBroadcastCohort()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(message)
+            expect(createStaticCohort).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).not.toContain('/broadcasts/new')
+        })
+
+        const NOW = new Date('2026-10-07T12:00:00Z')
+        const minutesAgo = (minutes: number): string => new Date(NOW.getTime() - minutes * 60_000).toISOString()
+        const listedCohort = (
+            flagKey: string,
+            createdAt: string,
+            createdByUuid: string = MOCK_DEFAULT_BASIC_USER.uuid
+        ): Record<string, any> => ({
+            id: 7,
+            name: `Users with feature flag ${flagKey} enabled at 2026-10-07 11:50:00`,
+            created_by: { id: 1, uuid: createdByUuid },
+            is_static: true,
+            deleted: false,
+            errors_calculating: 0,
+            is_calculating: false,
+            created_at: createdAt,
+        })
+
+        it.each([
+            {
+                scenario: 'reuses a recent cohort for this flag',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the existing one is over an hour old',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(61)),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the flag was saved after the recent one was made',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                flagUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the flag changed on the server after this page loaded it',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                serverUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the recent one failed to fill',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)), errors_calculating: 1 }),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when another user made the recent one',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10), 'another-user-uuid'),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the recent one belongs to a flag whose key extends this one',
+                listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
+                usesCohortId: 42,
+            },
+        ])('$scenario', async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt }) => {
+            jest.useFakeTimers()
+            jest.setSystemTime(NOW)
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
+            const existing = listed()
+            const listParams: URLSearchParams[] = []
+            let flagLoads = 0
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
+                },
+                get: {
+                    [FLAG_URL]: () => {
+                        const updatedAt = flagLoads++ === 0 ? flagUpdatedAt : (serverUpdatedAt ?? flagUpdatedAt)
+                        return [200, { ...MOCK_FEATURE_FLAG, updated_at: updatedAt ?? minutesAgo(120) }]
+                    },
+                    '/api/projects/:projectId/cohorts/': ({ request }) => {
+                        listParams.push(new URL(request.url).searchParams)
+                        return [200, { count: 1, results: [existing] }]
+                    },
+                    '/api/projects/:projectId/cohorts/7/': () => [200, existing],
+                    '/api/projects/:projectId/cohorts/42/': () => [200, READY],
+                },
+            })
+
+            logic.unmount()
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+
+            logic.actions.findOrCreateBroadcastCohort()
+            await jest.advanceTimersByTimeAsync(5_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(Object.fromEntries(listParams[0])).toEqual({
+                type: 'static',
+                created_by_id: String(MOCK_DEFAULT_USER.id),
+                limit: '20',
+            })
+            expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
+            expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                expect.objectContaining({ type: 'cohort', value: usesCohortId }),
+            ])
         })
     })
 
