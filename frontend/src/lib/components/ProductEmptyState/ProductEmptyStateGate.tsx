@@ -101,7 +101,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         // answers, unless `cacheHasData` remembered a has-data answer from an earlier visit.
         return (
             <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
-                <SpinnerOverlay sceneLevel />
+                <SpinnerOverlay sceneLevel captureTime />
             </ProductSceneFrame>
         )
     }
