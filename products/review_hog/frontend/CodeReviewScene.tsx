@@ -244,7 +244,9 @@ function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.
                 . No separate validation step.
             </div>
             <div>
-                Posted <span className="font-semibold text-default">{posted}</span>
+                {/* A turn whose GitHub publish failed kept its findings without posting them. */}
+                <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
+                <span className="font-semibold text-default">{posted}</span>
                 {raised !== null ? (
                     <>
                         {' '}

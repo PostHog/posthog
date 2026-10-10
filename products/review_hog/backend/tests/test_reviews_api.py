@@ -542,12 +542,13 @@ class TestRecentReviewsAPI(APIBaseTest):
         disposition: DropDisposition,
         duplicate_of: str | None = None,
         rank: int | None = None,
+        head_sha: str = "c",
     ) -> None:
         ReviewReportArtefact.append_dropped_finding(
             team_id=self.team.id,
             report_id=str(report.id),
             content=DroppedFindingArtefact(
-                head_sha="c",
+                head_sha=head_sha,
                 finding=ReviewIssueFinding(
                     issue_key=f"{run_index}-{title}",
                     run_index=run_index,
@@ -588,9 +589,23 @@ class TestRecentReviewsAPI(APIBaseTest):
         comment_url: str | None,
     ) -> None:
         # Each turn shows only its own drops, and every recorded disposition must map to a served choice.
-        report = self._report(pr_number=7, acting_user=self.user, run_count=2)
-        self._dropped(report, "older drop", run_index=1, disposition="cap", rank=9)
-        self._dropped(report, "latest drop", run_index=2, disposition=disposition, duplicate_of=duplicate_of, rank=rank)
+        report = self._report(
+            pr_number=7,
+            acting_user=self.user,
+            run_count=2,
+            completed_head_sha="head-2",
+            published_head_shas={"1": "head-1", "2": "head-2"},
+        )
+        self._dropped(report, "older drop", run_index=1, disposition="cap", rank=9, head_sha="head-1")
+        self._dropped(
+            report,
+            "latest drop",
+            run_index=2,
+            disposition=disposition,
+            duplicate_of=duplicate_of,
+            rank=rank,
+            head_sha="head-2",
+        )
 
         latest = self.client.get(f"{self.url}{report.id}/").json()
         older = self.client.get(f"{self.url}{report.id}/", {"run_index": 1}).json()

@@ -211,8 +211,12 @@ export function ReviewsTable(): JSX.Element {
                 pageSize: REVIEWS_PAGE_SIZE,
                 currentPage: reviewsCurrentPage,
                 entryCount: reviewsPage?.count ?? 0,
-                onForward: () => setReviewsPage(reviewsCurrentPage + 1),
-                onBackward: () => setReviewsPage(reviewsCurrentPage - 1),
+                // The pager enables Next whenever a handler exists, even when nothing matched.
+                onForward:
+                    reviewsPage && reviewsCurrentPage * REVIEWS_PAGE_SIZE < reviewsPage.count
+                        ? () => setReviewsPage(reviewsCurrentPage + 1)
+                        : undefined,
+                onBackward: reviewsCurrentPage > 1 ? () => setReviewsPage(reviewsCurrentPage - 1) : undefined,
                 // The logic keeps `reviews_page` in the URL; the table's own `page` param would overwrite it.
                 useUrl: false,
             }}

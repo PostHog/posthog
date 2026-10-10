@@ -88,6 +88,8 @@ interface ReviewRunMarker {
 const TRIGGERED_REVIEW_WATCH_TIMEOUT_MS = 2 * 60 * 1000
 
 export const REVIEWS_PAGE_SIZE = 25
+// The reviews table API caps `offset` at 1,000,000.
+const MAX_REVIEWS_PAGE = Math.floor(1_000_000 / REVIEWS_PAGE_SIZE) + 1
 
 /** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
 export interface ReviewFindingsSplit {
@@ -1351,6 +1353,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                         return !!before && ((before.inProgress && !run.inProgress) || run.runCount > before.runCount)
                     })
                     .map(([id]) => id)
+                // Under the Running filter a finished review leaves the page, so count it as finished too.
+                for (const [id, before] of previousRuns) {
+                    if (before.inProgress && !currentRuns.has(id)) {
+                        finishedIds.push(id)
+                    }
+                }
                 if (finishedIds.length) {
                     actions.loadPerspectiveStats()
                     actions.loadDeepSkillStats()
@@ -1729,7 +1737,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             }
             // A hand-edited link can carry 0, -1 or Infinity, which would send an offset the API rejects.
             const pageParam = Number(searchParams.reviews_page ?? 1)
-            const page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
+            const page =
+                Number.isSafeInteger(pageParam) && pageParam > 0 && pageParam <= MAX_REVIEWS_PAGE ? pageParam : 1
             if (page !== values.reviewsCurrentPage) {
                 actions.setReviewsPage(page)
             }

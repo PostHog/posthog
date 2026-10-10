@@ -407,6 +407,13 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.reviews?.[0].id).toBe(`r${REVIEWS_PAGE_SIZE}`)
     })
 
+    it.each(['0', '-1', 'Infinity', '40002'])('falls back to page 1 for a linked reviews_page of %s', async (page) => {
+        // Each of these would send an offset the API rejects, and a retry would repeat it.
+        router.actions.push(urls.codeReview(), { reviews_page: page })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadReviewsSuccess']).toMatchValues({ reviewsCurrentPage: 1 })
+    })
+
     it('buckets drawer findings by the stored run threshold, with the viewer proxy only for old rows', async () => {
         // The run gated at must_fix while the viewer's own setting (mocked above) is should_fix.
         // Bucketing by the viewer's setting would show the held-back should_fix finding as
@@ -540,7 +547,10 @@ describe('reviewHogSettingsLogic', () => {
         }
     })
 
-    it('refreshes the stats and an open drawer when a watched run finishes', async () => {
+    it.each([
+        ['stays on the page', false],
+        ['leaves a Running filter', true],
+    ])('refreshes the stats and an open drawer when a watched run finishes and %s', async (_, leavesPage) => {
         // A poll response is the only place a completion becomes visible: without the fan-out the
         // proof/effectiveness cards and an open drawer keep pre-completion numbers until reload.
         let finished = false
@@ -549,16 +559,19 @@ describe('reviewHogSettingsLogic', () => {
                 '/api/projects/:team_id/review_hog/reviews/table/': () => [
                     200,
                     {
-                        count: 1,
+                        count: finished && leavesPage ? 0 : 1,
                         running_count: finished ? 0 : 1,
-                        results: [
-                            {
-                                id: 'r-live',
-                                repository: 'example-org/example-repo',
-                                in_progress: !finished,
-                                run_count: finished ? 1 : 0,
-                            },
-                        ],
+                        results:
+                            finished && leavesPage
+                                ? []
+                                : [
+                                      {
+                                          id: 'r-live',
+                                          repository: 'example-org/example-repo',
+                                          in_progress: !finished,
+                                          run_count: finished ? 1 : 0,
+                                      },
+                                  ],
                     },
                 ],
                 '/api/projects/:team_id/review_hog/reviews/r-live/': () => [200, reviewDetail('r-live', null)],
