@@ -586,30 +586,37 @@ def ensure_status_comment(
         logger.exception("Could not post the ReviewHog status comment; the review continues without it")
 
 
-def _turn_state(
-    team_id: int, report: ReviewReport, run_index: int
-) -> tuple[SnapshotStats, TurnStats, list[tuple[ReviewIssueFinding, ValidationVerdict | None]]]:
+@frozen
+class _TurnState:
     """The turn's snapshot facts, pipeline shape, and (finding, verdict) pairs at the report's head."""
+
+    snapshot: SnapshotStats
+    turn: TurnStats
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+
+
+def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnState:
     report_id = str(report.id)
     heads = {report_id: report.head_sha}
-    snapshot = snapshot_stats(team_id, heads).get(report_id, SnapshotStats())
-    turn = turn_stats(team_id, heads).get(report_id, TurnStats())
-    pairs = load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index)
-    return snapshot, turn, pairs
+    return _TurnState(
+        snapshot=snapshot_stats(team_id, heads).get(report_id, SnapshotStats()),
+        turn=turn_stats(team_id, heads).get(report_id, TurnStats()),
+        pairs=load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index),
+    )
 
 
 def _render_live_body(team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, failed: bool) -> str:
     # The in-flight turn's findings live one run_index ahead of the completed watermark.
-    snapshot, turn, pairs = _turn_state(team_id, report, report.run_count + 1)
+    state = _turn_state(team_id, report, report.run_count + 1)
     return render_in_progress_body(
         str(report.id),
-        progress_payload(team_id, report, snapshot, turn, pairs),
+        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
         review_mode=review_mode,
-        review_design=_review_design(snapshot, review_design),
+        review_design=_review_design(state.snapshot, review_design),
         head_sha=report.head_sha,
-        snapshot=snapshot,
-        turn=turn,
-        pairs=pairs,
+        snapshot=state.snapshot,
+        turn=state.turn,
+        pairs=state.pairs,
         failed=failed,
     )
 
@@ -679,19 +686,19 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
-        snapshot, turn, pairs = _turn_state(input.team_id, report, input.run_index)
+        state = _turn_state(input.team_id, report, input.run_index)
         rendered = render_final_body(
             input.report_id,
             threshold=IssuePriority(input.urgency_threshold),
             review_url=input.review_url,
-            snapshot=snapshot,
-            turn=turn,
-            pairs=pairs,
+            snapshot=state.snapshot,
+            turn=state.turn,
+            pairs=state.pairs,
             head_sha=report.head_sha,
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
-            review_design=_review_design(snapshot, REVIEW_DESIGN_PIPELINE),
+            review_design=_review_design(state.snapshot, REVIEW_DESIGN_PIPELINE),
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
