@@ -141,6 +141,13 @@ else
     fi
 fi
 
+# Django and the feature-flags service authenticate to each other with INTERNAL_REQUEST_TOKEN.
+# Installs from before it existed have none, so add one.
+if ! grep -qE "^INTERNAL_REQUEST_TOKEN=.+" .env; then
+    echo "INTERNAL_REQUEST_TOKEN=$(openssl rand -hex 32)" >> .env
+    echo "Added missing INTERNAL_REQUEST_TOKEN to .env file"
+fi
+
 # PostHog's AI features (the Max assistant, SQL/regex assist) run on your own LLM provider key.
 # If none is configured yet, offer to add one. Existing keys are never touched — we only append
 # when the key is absent, so this is safe to run on every upgrade.

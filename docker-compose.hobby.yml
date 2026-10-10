@@ -124,7 +124,7 @@ services:
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
             # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
             # evaluation otherwise fails with "Internal request token not configured".
-            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -192,7 +192,7 @@ services:
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
             # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
             # evaluation otherwise fails with "Internal request token not configured".
-            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -531,7 +531,7 @@ services:
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
             # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
             # evaluation otherwise fails with "Internal request token not configured".
-            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -653,8 +653,10 @@ services:
         environment:
             <<: *hypercache-s3
             # Shared secret for authenticated Django → flags calls (flag test evaluation);
-            # must match INTERNAL_REQUEST_TOKEN on web and worker.
-            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
+            # must match INTERNAL_REQUEST_TOKEN on web and worker. The installers generate it.
+            # Never fall back to POSTHOG_SECRET: this container faces the internet, and that
+            # value is Django's SECRET_KEY.
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
         depends_on:
             db:
                 condition: service_started

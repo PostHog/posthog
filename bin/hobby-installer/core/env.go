@@ -11,6 +11,7 @@ import (
 
 type EnvConfig struct {
 	PosthogSecret        string
+	InternalRequestToken string
 	EncryptionSaltKeys   string
 	Domain               string
 	TLSBlock             string
@@ -24,6 +25,11 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 	secret, err := GenerateSecret()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate secret: %w", err)
+	}
+
+	internalRequestToken, err := GenerateSecret()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate internal request token: %w", err)
 	}
 
 	encryptionKey, err := GenerateEncryptionKey()
@@ -45,6 +51,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 
 	return &EnvConfig{
 		PosthogSecret:        secret,
+		InternalRequestToken: internalRequestToken,
 		EncryptionSaltKeys:   encryptionKey,
 		Domain:               domain,
 		TLSBlock:             tlsBlock,
@@ -57,6 +64,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 
 func (c *EnvConfig) WriteEnvFile() error {
 	content := fmt.Sprintf(`POSTHOG_SECRET=%s
+INTERNAL_REQUEST_TOKEN=%s
 ENCRYPTION_SALT_KEYS=%s
 DOMAIN=%s
 TLS_BLOCK=%s
@@ -68,6 +76,7 @@ POSTHOG_NODE_TAG=%s
 SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 `,
 		c.PosthogSecret,
+		c.InternalRequestToken,
 		c.EncryptionSaltKeys,
 		c.Domain,
 		c.TLSBlock,
@@ -86,6 +95,7 @@ func LoadExistingEnv() map[string]string {
 	values := make(map[string]string)
 	keys := []string{
 		"POSTHOG_SECRET",
+		"INTERNAL_REQUEST_TOKEN",
 		"ENCRYPTION_SALT_KEYS",
 		"DOMAIN",
 		"TLS_BLOCK",
@@ -136,6 +146,16 @@ func UpdateEnvForUpgrade(version string) error {
 			return err
 		}
 		if err := AppendToEnv("ENCRYPTION_SALT_KEYS", key); err != nil {
+			return err
+		}
+	}
+
+	if existing["INTERNAL_REQUEST_TOKEN"] == "" {
+		token, err := GenerateSecret()
+		if err != nil {
+			return err
+		}
+		if err := AppendToEnv("INTERNAL_REQUEST_TOKEN", token); err != nil {
 			return err
 		}
 	}
