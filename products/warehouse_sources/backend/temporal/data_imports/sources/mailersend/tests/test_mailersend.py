@@ -14,8 +14,9 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import mailersend
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
+    MAILERSEND_ANALYTICS_EVENTS,
     MailerSendResumeConfig,
-    _activity_date_window,
+    _date_window,
     _to_datetime,
     check_credentials,
     mailersend_source,
@@ -107,7 +108,7 @@ class TestActivityDateWindow:
     def test_future_cursor_is_clamped_below_date_to(self) -> None:
         # A future-dated cursor would make date_from >= date_to and 422 the request; it must be clamped.
         future = datetime(2027, 1, 1, tzinfo=UTC)
-        window = _activity_date_window(
+        window = _date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=future, lookback_days=30
         )
         assert window.start < window.end
@@ -282,6 +283,64 @@ class TestActivityFanOut:
         assert [self._window_days(a) for a in attempts] == [30, 7, 1]
 
 
+class TestAnalyticsByDate:
+    @parameterized.expand(
+        [
+            ("full_refresh_backfills_retention", False, None, datetime(2025, 12, 25, tzinfo=UTC)),
+            (
+                "incremental_rereads_last_synced_day",
+                True,
+                datetime(2026, 6, 20, tzinfo=UTC),
+                datetime(2026, 6, 20, tzinfo=UTC),
+            ),
+        ]
+    )
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_window_and_row_shape(
+        self,
+        _name: str,
+        should_use_incremental_field: bool,
+        last_value: datetime | None,
+        expected_date_from: datetime,
+        MockSession: MagicMock,
+    ) -> None:
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "data": {
+                            "date_from": "1782172800",
+                            "date_to": "1782259199",
+                            "group_by": "days",
+                            "stats": [{"date": "1782172800", "sent": 4, "opened": 2}],
+                        }
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(
+            _source(
+                "analytics_by_date",
+                _make_manager(),
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        assert rows == [{"date": datetime(2026, 6, 23, tzinfo=UTC), "sent": 4, "opened": 2}]
+        assert len(snaps) == 1
+        request = snaps[0]
+        assert request["url"] == f"{BASE}/analytics/date"
+        assert request["date_from"] == int(expected_date_from.timestamp())
+        assert request["date_to"] == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
+        assert request["group_by"] == "days"
+        assert request["event[]"] == list(MAILERSEND_ANALYTICS_EVENTS)
+
+
 class TestLegacyResumeStateCompat:
     def test_legacy_state_shape_still_deserializes(self) -> None:
         # Resume state saved by the pre-migration source (next_page/domain_id only) must still parse.
@@ -292,7 +351,19 @@ class TestLegacyResumeStateCompat:
 
 
 class TestSourceResponseShape:
-    @parameterized.expand(["domains", "recipients", "templates", "messages", "activity"])
+    @parameterized.expand(
+        [
+            "domains",
+            "recipients",
+            "templates",
+            "messages",
+            "activity",
+            "hard_bounces",
+            "spam_complaints",
+            "unsubscribes",
+            "analytics_by_date",
+        ]
+    )
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
         resource = _source(endpoint, _make_manager())
         assert resource.name == endpoint
@@ -306,8 +377,20 @@ class TestSourceResponseShape:
     def test_sort_mode(self, endpoint: str, expected_sort: str) -> None:
         assert _source(endpoint, _make_manager()).sort_mode == expected_sort
 
-    @parameterized.expand(["domains", "recipients", "templates", "messages", "activity"])
-    def test_partitions_on_created_at(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("domains", "created_at"),
+            ("recipients", "created_at"),
+            ("templates", "created_at"),
+            ("messages", "created_at"),
+            ("activity", "created_at"),
+            ("hard_bounces", "created_at"),
+            ("spam_complaints", "created_at"),
+            ("unsubscribes", "created_at"),
+            ("analytics_by_date", "date"),
+        ]
+    )
+    def test_partitions_on_a_stable_timestamp(self, endpoint: str, expected_key: str) -> None:
         resource = _source(endpoint, _make_manager())
-        assert resource.partition_keys == ["created_at"]
+        assert resource.partition_keys == [expected_key]
         assert resource.partition_mode == "datetime"

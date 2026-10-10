@@ -55,6 +55,8 @@ Grant the token read access to the data you want to sync:
 - Domains
 - Recipients
 - Templates
+- Suppressions (for **hard_bounces**, **spam_complaints** and **unsubscribes**)
+- Analytics (for **analytics_by_date**)
 
 Note: MailerSend retains email activity for 1-30 days depending on your plan, so the **activity** table only backfills as far as that retention window on its first sync.
 """,
@@ -96,6 +98,8 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
                 return "Email activity events. Only backfills as far as your plan's data retention window (1-30 days) on initial sync."
+            if endpoint == "analytics_by_date":
+                return "Daily email counts (sent, delivered, opened, clicked, bounced, and more). MailerSend keeps analytics for 6 months, so the first sync backfills up to 6 months."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -103,7 +107,7 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),

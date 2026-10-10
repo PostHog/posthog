@@ -23,6 +23,11 @@ class TestGetSchemas:
             ("templates", False, False),
             ("messages", False, False),
             ("activity", True, True),
+            ("hard_bounces", False, False),
+            ("spam_complaints", False, False),
+            ("unsubscribes", False, False),
+            # Append would add a duplicate row for the re-read last day on every sync.
+            ("analytics_by_date", True, False),
         ]
     )
     def test_incremental_support_per_endpoint(
