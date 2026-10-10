@@ -811,6 +811,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("blank_key", {"   ": "Blank"}),
             ("too_long_key", {"k" * 101: "Too long"}),
             ("keys_equal_after_strip", {"plans": "Plans", " plans ": "Padded plans"}),
+            ("null_character_key", {"plans\u0000": "Plans"}),
             ("too_many_titles", {f"group-{index}": "Title" for index in range(101)}),
         ]
     )
@@ -1985,6 +1986,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "badge")
+
+    @parameterized.expand(
+        [
+            ("unknown_badge", {"badge": "Winner"}, "badge"),
+            ("non_string_group_key", {"group_key": 5}, "group_key"),
+            ("null_character_group_key", {"group_key": "plans\u0000"}, "group_key"),
+        ]
+    )
+    def test_invalid_tile_marking_is_rejected_before_anything_is_saved(
+        self, _name: str, invalid_marking: dict, expected_attr: str
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "first"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "second"})
+        first_tile_id, second_tile_id = [tile["id"] for tile in self.dashboard_api.get_dashboard(dashboard_id)["tiles"]]
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "group_titles": {"plans": "Pricing plans"},
+                "tiles": [
+                    {"id": first_tile_id, "badge": "winner"},
+                    {"id": second_tile_id, **invalid_marking},
+                ],
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], expected_attr)
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
+        self.assertEqual(dashboard["customization"], {})
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_dashboard_from_template(self, mock_report_user_action):

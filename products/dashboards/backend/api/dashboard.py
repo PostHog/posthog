@@ -204,18 +204,27 @@ def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
 
 
 def _normalized_group_key(group_key: str) -> str:
-    return group_key.strip()
+    group_key = group_key.strip()
+    if "\x00" in group_key:
+        raise serializers.ValidationError("Group keys can't contain null characters.")
+    return group_key
 
 
 def _valid_group_titles(customization: Any) -> dict[str, str]:
     group_titles = _normalize_dashboard_customization(customization).get("group_titles")
     if not isinstance(group_titles, dict):
         return {}
-    return {
-        _normalized_group_key(key): title
-        for key, title in group_titles.items()
-        if isinstance(key, str) and _normalized_group_key(key) and isinstance(title, str)
-    }
+    valid_titles: dict[str, str] = {}
+    for key, title in group_titles.items():
+        if not isinstance(key, str) or not isinstance(title, str):
+            continue
+        try:
+            group_key = _normalized_group_key(key)
+        except serializers.ValidationError:
+            continue
+        if group_key:
+            valid_titles[group_key] = title
+    return valid_titles
 
 
 def _with_group_titles(customization: dict[str, Any], group_titles: dict[str, str] | None) -> dict[str, Any]:
@@ -2112,7 +2121,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 raise serializers.ValidationError("Variables must be a dictionary")
             instance.variables = request_variables
 
-        self._validate_display_only_tile_ids(instance, initial_data.get("tiles", []))
+        self._validate_display_only_tiles(instance, initial_data.get("tiles", []))
 
         instance = super().update(instance, validated_data)
 
@@ -2216,13 +2225,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
             tile_filters = defaults["filters_overrides"]
             if tile_filters is not None:
                 defaults["filters_overrides"] = DashboardSerializer._validated_filters(tile_filters)
-        if "group_key" in defaults:
-            defaults["group_key"] = DashboardSerializer._validated_group_key(defaults["group_key"])
-        if "badge" in defaults and defaults["badge"] not in (None, *DashboardTileBadge.values):
-            raise serializers.ValidationError(
-                {"badge": f"Badge must be one of {', '.join(DashboardTileBadge.values)}, or null to remove it."}
-            )
+        defaults.update(DashboardSerializer._validated_tile_marking(defaults))
         return defaults
+
+    @staticmethod
+    def _validated_tile_marking(tile_fields: dict) -> dict:
+        marking: dict = {}
+        if "group_key" in tile_fields:
+            marking["group_key"] = DashboardSerializer._validated_group_key(tile_fields["group_key"])
+        if "badge" in tile_fields:
+            if tile_fields["badge"] not in (None, *DashboardTileBadge.values):
+                raise serializers.ValidationError(
+                    {"badge": f"Badge must be one of {', '.join(DashboardTileBadge.values)}, or null to remove it."}
+                )
+            marking["badge"] = tile_fields["badge"]
+        return marking
 
     @staticmethod
     def _validated_group_key(group_key: Any) -> str | None:
@@ -2230,7 +2247,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return None
         if not isinstance(group_key, str):
             raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
-        group_key = _normalized_group_key(group_key)
+        try:
+            group_key = _normalized_group_key(group_key)
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"group_key": error.detail}) from error
         if len(group_key) > MAX_GROUP_KEY_LENGTH:
             raise serializers.ValidationError(
                 {"group_key": f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters."}
@@ -2238,16 +2258,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return group_key or None
 
     @staticmethod
-    def _validate_display_only_tile_ids(instance: Dashboard, tiles: list[dict]) -> None:
-        tile_ids = {
-            tile["id"]
+    def _validate_display_only_tiles(instance: Dashboard, tiles: list[dict]) -> None:
+        display_only_tiles = [
+            tile
             for tile in tiles
             if tile.get("id") is not None
             and not tile.get("text")
             and not tile.get("button_tile")
             and not tile.get("widget")
             and any(field in tile for field in DashboardSerializer.TILE_DISPLAY_FIELDS)
-        }
+        ]
+        for tile in display_only_tiles:
+            DashboardSerializer._validated_tile_marking(tile)
+
+        tile_ids = {tile["id"] for tile in display_only_tiles}
         if not tile_ids:
             return
 
@@ -2352,9 +2376,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if tile_id is None:
             return None, False
 
-        existing = DashboardTile.objects_including_soft_deleted.filter(
-            id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
-        ).first()
+        existing = (
+            DashboardTile.objects_including_soft_deleted.filter(
+                id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
+            )
+            .select_related("widget")
+            .first()
+        )
         if existing is None:
             raise serializers.ValidationError({"tiles": f"Tile ID {tile_id} is not on this dashboard."})
 

@@ -4,7 +4,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from drf_spectacular.generators import SchemaGenerator
 from parameterized import parameterized
@@ -144,6 +146,21 @@ class TestDashboardWidgets(APIBaseTest):
         assert updated_tile["widget"]["name"] == "Renamed"
         assert updated_tile["widget"]["config"]["limit"] == 5
         assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_marking_widget_tiles_does_not_load_each_widget_separately(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        for _ in range(3):
+            _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+
+        with CaptureQueriesContext(connection) as queries:
+            self.dashboard_api.update_dashboard(
+                dashboard_id, {"tiles": [{"id": tile_id, "badge": "winner"} for tile_id in tile_ids]}
+            )
+
+        widget_lookups = [query["sql"] for query in queries if 'FROM "posthog_dashboardwidget" WHERE' in query["sql"]]
+        assert widget_lookups == []
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_duplicate_dashboard_copies_widget_name_with_suffix(self) -> None:
