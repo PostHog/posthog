@@ -42,6 +42,8 @@ const config: SignalScoutConfigApi = {
     created_at: '2026-07-21T00:00:00Z',
     updated_at: '2026-07-21T00:00:00Z',
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
 }
 
 describe('ScoutNextRunLabel', () => {
