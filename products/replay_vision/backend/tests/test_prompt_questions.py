@@ -353,7 +353,7 @@ class TestPromptQuestions(APIBaseTest):
 
         result = backfill_prompt_questions(team_id=self.team.id, include_inline=True)
 
-        assert result.written == 1
+        assert (result.checked, result.written) == (1, 1)
         assert ReplayScanner.all_origins.get(pk=summarize.pk).prompt_question == TEMPLATE_QUESTION
         assert ReplayScanner.all_origins.get(pk=custom.pk).prompt_question == ""
         self.client_mock.return_value.models.generate_content.assert_not_called()
