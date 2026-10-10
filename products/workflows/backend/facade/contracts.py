@@ -633,3 +633,11 @@ class EmailDesignRenderingNotConfigured(Exception):
 
 class EmailDesignRenderFailed(Exception):
     pass
+
+
+class DataSuggestionNotFound(Exception):
+    """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class DataSuggestionBuildFailed(Exception):
+    """The AI plan for a suggestion did not produce a valid workflow."""

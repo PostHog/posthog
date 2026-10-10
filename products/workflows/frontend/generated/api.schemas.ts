@@ -2035,6 +2035,122 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionBuildRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+}
+
+export interface DataSuggestionBuildResponseApi {
+    /** A validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition), ready to send to the workflow create endpoint. Nothing is saved by this call. */
+    workflow: unknown
+    /** Whether an email step reuses a saved email template. */
+    uses_saved_template: boolean
+}
+
+/**
+ * * `ready` - Ready
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `signup` - Signup
+ * * `onboarding` - Onboarding
+ * * `trial` - Trial
+ * * `purchase` - Purchase
+ * * `churn_risk` - Churn Risk
+ * * `failure` - Failure
+ * * `support` - Support
+ * * `other` - Other
+ */
+export type DataSuggestionStageEnumApi = (typeof DataSuggestionStageEnumApi)[keyof typeof DataSuggestionStageEnumApi]
+
+export const DataSuggestionStageEnumApi = {
+    Signup: 'signup',
+    Onboarding: 'onboarding',
+    Trial: 'trial',
+    Purchase: 'purchase',
+    ChurnRisk: 'churn_risk',
+    Failure: 'failure',
+    Support: 'support',
+    Other: 'other',
+} as const
+
+/**
+ * * `email` - Email
+ * * `sms` - Sms
+ * * `push` - Push
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `delay` - Delay
+ * * `wait_until` - Wait Until
+ * * `branch` - Branch
+ * * `split` - Split
+ * * `action` - Action
+ */
+export type DataSuggestionStepKindEnumApi =
+    (typeof DataSuggestionStepKindEnumApi)[keyof typeof DataSuggestionStepKindEnumApi]
+
+export const DataSuggestionStepKindEnumApi = {
+    Email: 'email',
+    Sms: 'sms',
+    Push: 'push',
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Delay: 'delay',
+    WaitUntil: 'wait_until',
+    Branch: 'branch',
+    Split: 'split',
+    Action: 'action',
+} as const
+
+export interface DataSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested workflow name, written by AI from the project's events. */
+    name: string
+    /** One sentence on what the workflow does. */
+    description: string
+    /** One sentence on why the workflow fits this project. */
+    reason: string
+    /** The project event that starts the workflow. */
+    trigger_event: string
+    /** How often the trigger event fired in the last 7 days. */
+    weekly_count: number
+    /** The customer lifecycle stage the trigger event marks. Suggestions are ranked by stage first, so welcome and onboarding flows come before busier events.
+     *
+     * * `signup` - Signup
+     * * `onboarding` - Onboarding
+     * * `trial` - Trial
+     * * `purchase` - Purchase
+     * * `churn_risk` - Churn Risk
+     * * `failure` - Failure
+     * * `support` - Support
+     * * `other` - Other */
+    stage: DataSuggestionStageEnumApi
+    /** The main planned step kinds after the trigger, in order. */
+    step_outline: DataSuggestionStepKindEnumApi[]
+}
+
+export interface DataSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), ai_not_approved when the organization has not approved AI data processing, unavailable when the AI call failed.
+     *
+     * * `ready` - Ready
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
+    suggestions: DataSuggestionApi[]
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -2544,4 +2660,11 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type WorkflowDataSuggestionsCurrentParams = {
+    /**
+     * Ignore the weekly cache and ask again.
+     */
+    refresh?: boolean
 }

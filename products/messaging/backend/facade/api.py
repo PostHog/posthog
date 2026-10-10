@@ -2,7 +2,11 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from products.messaging.backend.facade.contracts import UnlayerNotConfiguredError, UnlayerRenderError
+from products.messaging.backend.facade.contracts import (
+    EmailTemplateContent,
+    UnlayerNotConfiguredError,
+    UnlayerRenderError,
+)
 from products.messaging.backend.remote_config import (
     PUSH_APP_ID_CONFIG_KEYS,
     build_push_config as build_push_app_ids,
@@ -11,6 +15,7 @@ from products.messaging.backend.services import design_operations, design_valida
 from products.messaging.backend.unlayer import render_design_html as render_unlayer_design
 
 __all__ = [
+    "EmailTemplateContent",
     "UnlayerNotConfiguredError",
     "UnlayerRenderError",
     "apply_design_operations",
@@ -18,6 +23,7 @@ __all__ = [
     "find_template_ids_containing",
     "get_template_email_content",
     "is_push_integration_kind",
+    "list_email_templates",
     "render_design_html",
     "rewrite_template_content",
     "validate_design",
@@ -49,6 +55,10 @@ def render_design_html(design: dict[str, Any]) -> str:
 
 def get_template_email_content(team_id: int, template_id: UUID) -> dict | None:
     return message_templates.get_email_content(team_id, template_id)
+
+
+def list_email_templates(team_id: int, *, limit: int) -> list[EmailTemplateContent]:
+    return message_templates.list_email_contents(team_id, limit=limit)
 
 
 def find_template_ids_containing(text: str, *, team_ids: list[int] | None, template_id: str | None) -> list[UUID]:

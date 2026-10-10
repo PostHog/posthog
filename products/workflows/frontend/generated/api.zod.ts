@@ -3169,3 +3169,10 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
         ),
 })
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
+    suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+})
