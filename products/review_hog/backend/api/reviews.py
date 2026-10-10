@@ -23,8 +23,8 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
+from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_RESOLVE_ONLY,

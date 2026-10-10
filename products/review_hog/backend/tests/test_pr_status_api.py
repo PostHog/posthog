@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -245,6 +247,30 @@ class TestPRStatusAPI(APIBaseTest):
         outcome = body["request_outcome"]
         assert (outcome["status"], outcome["reason"], outcome["run_index"]) == expected
         assert outcome["review_id"] == body["report_id"]
+
+    @parameterized.expand(
+        [
+            ("workflow_still_running", WorkflowProbe.RUNNING, ("pending", None)),
+            ("workflow_ended", WorkflowProbe.NOT_RUNNING, ("failed", "stopped")),
+        ]
+    )
+    def test_quiet_resolution_waits_for_its_workflow(
+        self, _name: str, probe: WorkflowProbe, expected: tuple[str, str | None]
+    ) -> None:
+        # A resolution run that wrote nothing for a while reads as stopped in the database.
+        started = timezone.now() - timedelta(hours=2)
+        with time_machine.travel(started, tick=False):
+            report = self._report()
+            ReviewReportArtefact.append_resolution_run(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ResolutionRunArtefact(total=1, thread_ids=["PRRT_1"]),
+                attribution=ArtefactAttribution.system(),
+            )
+
+        body, _ = self._get(probe, requested_at=(started - timedelta(minutes=1)).isoformat(), run_mode="resolve_only")
+
+        assert (body["request_outcome"]["status"], body["request_outcome"]["reason"]) == expected
 
     @parameterized.expand(
         [

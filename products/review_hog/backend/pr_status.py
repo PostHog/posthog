@@ -259,6 +259,11 @@ class PRStatusLookup:
             if resolution.status == RESOLUTION_COMPLETED:
                 return RequestOutcome(status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id)
             if resolution.status == RESOLUTION_STOPPED:
+                # A run can go quiet in the database while its workflow still works through threads.
+                if state in _RUNNING_STATES:
+                    return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+                if state == ReviewPRState.UNKNOWN:
+                    return RequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
                 return RequestOutcome(
                     status=ReviewRequestOutcomeStatus.FAILED, reason=STOPPED_REASON, review_id=self.report_id
                 )
