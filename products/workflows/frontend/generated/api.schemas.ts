@@ -666,6 +666,13 @@ export interface HogFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts */
     origin_product?: HogFlowOriginProductEnumApi | null
+    /**
+     * The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow.
+     * @maxLength 255
+     * @nullable
+     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+     */
+    source_record?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -2033,6 +2040,30 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+}
+
+export interface PreviousRecipientsRequestApi {
+    /**
+     * The record the new email is about, as '<kind>:<id>', for example 'early_access:<uuid>' or 'cohort:42'.
+     * @maxLength 255
+     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+     */
+    source_record: string
+    /**
+     * Name for the cohort of people already emailed, shown in the broadcast's recipients.
+     * @maxLength 400
+     */
+    cohort_name: string
+}
+
+export interface PreviousRecipientsApi {
+    /**
+     * Static cohort of the people already emailed from this record. Null when nobody was emailed yet.
+     * @nullable
+     */
+    cohort_id: number | null
+    /** How many people the cohort holds. */
+    people: number
 }
 
 export type HogFlowTemplatesListParams = {

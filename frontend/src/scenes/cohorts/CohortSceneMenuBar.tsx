@@ -200,14 +200,19 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
 
 function CohortEmailMenuItem({ cohortId, cohortName }: { cohortId: number; cohortName?: string }): JSX.Element {
     const logic = messageAudienceReadinessLogic({
-        audience: { properties: cohortAudienceProperties({ id: cohortId, name: cohortName }), source: 'cohort' },
+        audience: {
+            properties: cohortAudienceProperties({ id: cohortId, name: cohortName }),
+            source: 'cohort',
+            sourceRecord: `cohort:${cohortId}`,
+            sourceRecordName: cohortName,
+        },
     })
-    const { readiness } = useValues(logic)
+    const { readiness, navigating } = useValues(logic)
     const { open } = useActions(logic)
     return (
         <SceneMenuBarItem
             onClick={() => open('broadcast')}
-            disabled={!!readiness.disabledReason}
+            disabled={!!readiness.disabledReason || navigating}
             tooltip={readiness.disabledReason ?? messageAudienceTooltip(readiness)}
             data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
         >

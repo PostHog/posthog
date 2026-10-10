@@ -153,6 +153,8 @@ function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): Mes
     const flagKey = earlyAccessFeature.feature_flag.key
     return {
         source: 'early_access',
+        sourceRecord: `early_access:${earlyAccessFeature.id}`,
+        sourceRecordName: earlyAccessFeature.name,
         properties: [
             {
                 key: `$feature_enrollment/${flagKey}`,

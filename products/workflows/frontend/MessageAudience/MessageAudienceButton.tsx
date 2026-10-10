@@ -51,7 +51,7 @@ function CountedMessageAudienceButton({
     fullWidth,
 }: MessageAudienceButtonProps): JSX.Element {
     const logic = messageAudienceReadinessLogic({ audience })
-    const { readiness } = useValues(logic)
+    const { readiness, navigating } = useValues(logic)
     const { open } = useActions(logic)
 
     // A workflow can start with nobody in the audience yet, because people enter it as they qualify.
@@ -62,7 +62,7 @@ function CountedMessageAudienceButton({
         fullWidth,
         icon: <IconSend />,
         sideIcon: readiness.warnings.length > 0 ? <IconWarning className="text-warning" /> : undefined,
-        loading: readiness.countState === 'loading',
+        loading: readiness.countState === 'loading' || navigating,
         disabledReason:
             disabledReason ??
             (destinations.every((destination) => destination === 'broadcast') ? broadcastDisabledReason : undefined),
