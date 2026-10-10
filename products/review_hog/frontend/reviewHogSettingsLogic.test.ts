@@ -63,7 +63,6 @@ describe('reviewHogSettingsLogic', () => {
                     200,
                     {
                         review_inbox_prs: false,
-                        review_labeled_prs: true,
                         resolve_comments: true,
                         urgency_threshold: 'should_fix',
                     },
@@ -104,6 +103,46 @@ describe('reviewHogSettingsLogic', () => {
         // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
         // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
+    })
+
+    it('following the project default writes the project value, so the server drops the own value', async () => {
+        const patches: Record<string, unknown>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/settings/': () => [
+                    200,
+                    {
+                        urgency_threshold: 'must_fix',
+                        sources: { urgency_threshold: 'user' },
+                        project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [
+                        200,
+                        {
+                            urgency_threshold: 'should_fix',
+                            sources: { urgency_threshold: 'project' },
+                            project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.followProjectDefault('urgency_threshold')).toDispatchActions([
+            'updateSettings',
+            'updateSettingsSuccess',
+        ])
+
+        expect(patches).toEqual([{ urgency_threshold: 'should_fix' }])
+        expect(logic.values.settings?.sources.urgency_threshold).toBe('project')
     })
 
     it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
@@ -262,7 +301,7 @@ describe('reviewHogSettingsLogic', () => {
             })
     })
 
-    it('the scope switch rescopes the effectiveness stats along with the list', async () => {
+    it('the scope switch rescopes the effectiveness stats along with the list, never the skill counts', async () => {
         // The page-level switch must move the stat cards and the reviews list together — dropping
         // the stats reload from the scope listeners (or the scope param from the request) would
         // show one scope's list over the other scope's numbers, the exact confusion the switch
@@ -280,8 +319,13 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadRecentReviewsSuccess', 'applyDefaultReviewsScope', 'loadRecentReviewsSuccess'])
             .toFinishAllListeners()
+        // The Settings tab's skill counts read the viewer's own Deep reviews, so the Activity switch
+        // must never reload or rescope them.
+        const ownDeepLoads = statsScopes.filter((scope) => scope === 'own_deep').length
+        expect(ownDeepLoads).toBe(1)
+        const listScopes = (): (string | null)[] => statsScopes.filter((scope) => scope !== 'own_deep')
         // The mount-time auto-default to Entire project already rescoped the stats.
-        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
+        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
 
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         // Old data drops synchronously so neither the cards nor the list ever show the other
@@ -289,7 +333,8 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.perspectiveStats).toBeNull()
         expect(logic.values.recentReviews).toBeNull()
         await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
-        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+        expect(statsScopes.filter((scope) => scope === 'own_deep')).toHaveLength(ownDeepLoads)
     })
 
     it('respects an explicit scope choice even when that scope is empty', async () => {
@@ -405,6 +450,21 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
         router.actions.push(urls.codeReview(), {})
         expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('opens the tab from ?tab= and mirrors tab changes back to the URL', async () => {
+        logic.mount()
+        router.actions.push(urls.codeReview(), { tab: 'settings' })
+        expect(logic.values.activeTab).toBe('settings')
+
+        // Activity is the default, so it keeps the URL clean; other params survive the write.
+        router.actions.push(urls.codeReview(), { tab: 'settings', reviews_scope: 'everyone' })
+        logic.actions.setActiveTab('activity')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        expect(router.values.searchParams.reviews_scope).toBe('everyone')
+
+        logic.actions.setActiveTab('settings')
+        expect(router.values.searchParams.tab).toBe('settings')
     })
 
     it('closes a deep-linked drawer when the review fails to load', async () => {

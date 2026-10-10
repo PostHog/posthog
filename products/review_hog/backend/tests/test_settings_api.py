@@ -1,14 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import Team, User
 
 from products.review_hog.backend.api.settings import ReviewUserSettingsSerializer
-from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
 
@@ -22,60 +22,65 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/settings/"
 
-    def test_get_creates_the_row_with_defaults(self) -> None:
-        # First read auto-creates the singleton with the model defaults, so the UI never special-cases
-        # a missing row (and the label trigger keeps its opt-out default of on).
+    def test_get_returns_defaults_without_creating_a_row(self) -> None:
         res = self.client.get(self.url)
 
         assert res.status_code == 200
         assert res.json() == {
+            "default_review_mode": "follow",
+            "resolve_comments": False,
+            "urgency_threshold": "consider",
+            "celebrate_clean_reviews": True,
             "review_inbox_prs": False,
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
-            "review_labeled_prs": True,
-            "resolve_comments": True,
-            "celebrate_clean_reviews": True,
-            "review_authored_prs": False,
-            "flash_reasoning_effort": "medium",
-            "urgency_threshold": "consider",
-            "can_trigger_reviews": True,
-            "show_internal_features": False,
+            "sources": {
+                "default_review_mode": "default",
+                "resolve_comments": "default",
+                "urgency_threshold": "default",
+                "celebrate_clean_reviews": "default",
+                "review_inbox_prs": "default",
+                "stamphog_review_inbox_prs": "default",
+            },
+            "project_defaults": {"urgency_threshold": "consider", "celebrate_clean_reviews": True},
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
-        assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
+        assert not ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).exists()
 
-    def test_patch_updates_only_the_provided_fields(self) -> None:
-        # resolve_comments rides along: it's the UI toggle's only write path, so a serializer that
-        # stops accepting it (e.g. marked read-only) would silently no-op the switch.
+    def test_patch_stores_only_values_that_differ_from_the_inherited_ones(self) -> None:
+        ReviewProjectSettings.objects.for_team(self.team.id).create(
+            team=self.team, preferences={"urgency_threshold": "should_fix"}
+        )
+
         res = self.client.patch(
             self.url,
             {
                 "urgency_threshold": "must_fix",
                 "stamphog_review_inbox_prs": True,
-                "resolve_comments": False,
-                "review_authored_prs": True,
-                "flash_reasoning_effort": "xhigh",
-                "celebrate_clean_reviews": False,
+                "resolve_comments": True,
+                "default_review_mode": "flash",
+                "celebrate_clean_reviews": True,
             },
             format="json",
         )
 
         assert res.status_code == 200
         assert res.json()["urgency_threshold"] == "must_fix"
+        assert res.json()["sources"]["urgency_threshold"] == "user"
+        assert res.json()["sources"]["celebrate_clean_reviews"] == "default"
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
-        assert row.urgency_threshold == "must_fix"
-        assert row.stamphog_review_inbox_prs is True
-        assert row.resolve_comments is False
-        assert row.review_authored_prs is True
-        assert row.flash_reasoning_effort == "xhigh"
-        assert row.celebrate_clean_reviews is False
-        assert row.review_labeled_prs is True  # untouched field keeps its default
+        assert row.preferences == {
+            "urgency_threshold": "must_fix",
+            "stamphog_review_inbox_prs": True,
+            "resolve_comments": True,
+            "default_review_mode": "flash",
+        }
 
-        disabled = self.client.patch(self.url, {"review_authored_prs": False}, format="json")
+        # Picking the project value clears the user's own value, so later project changes reach them.
+        follows_project = self.client.patch(self.url, {"urgency_threshold": "should_fix"}, format="json")
 
-        assert disabled.status_code == 200
-        disabled_row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
-        assert disabled_row.review_authored_prs is False
-        assert disabled_row.flash_reasoning_effort == "xhigh"
+        assert follows_project.json()["sources"]["urgency_threshold"] == "project"
+        row.refresh_from_db()
+        assert "urgency_threshold" not in row.preferences
 
     @parameterized.expand(
         [
@@ -99,11 +104,9 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             connected_by_user_id=connected_by_user_id,
         )
 
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            res = self.client.get(self.url)
+        res = self.client.get(self.url)
 
         assert res.status_code == 200
-        assert res.json()["show_internal_features"] is True
         assert res.json()["stamphog_connected"] is expected
 
     def test_patch_rejects_an_unknown_threshold(self) -> None:
@@ -111,21 +114,16 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert res.status_code == 400
 
     def test_settings_are_per_user(self) -> None:
-        # One user's opt-out must not leak into a teammate's row — the gate reads the PR author's.
+        # One user's choice must not leak into a teammate's preferences — the gates read the PR author's.
         other = User.objects.create_and_join(self.organization, "other-settings@posthog.com", None)
-        self.client.patch(
-            self.url,
-            {"review_labeled_prs": False, "review_authored_prs": True, "flash_reasoning_effort": "xhigh"},
-            format="json",
-        )
+        self.client.patch(self.url, {"default_review_mode": "flash", "resolve_comments": True}, format="json")
 
         self.client.force_login(other)
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        assert res.json()["review_labeled_prs"] is True
-        assert res.json()["review_authored_prs"] is False
-        assert res.json()["flash_reasoning_effort"] == "medium"
+        assert res.json()["default_review_mode"] == "follow"
+        assert res.json()["resolve_comments"] is False
 
     def test_get_seeds_the_authoring_skill_idempotently(self) -> None:
         # The settings GET is the tab's always-called endpoint, so it must make the authoring guide
@@ -169,13 +167,18 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert second.status_code == 200
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.team_id == self.team.id
-        assert row.urgency_threshold == "must_fix"
+        assert row.preferences == {"urgency_threshold": "must_fix"}
 
 
 class TestReviewUserSettingsValidation(SimpleTestCase):
-    @parameterized.expand(["low", "high"])
-    def test_flash_effort_rejects_values_outside_its_supported_choices(self, effort: str) -> None:
-        serializer = ReviewUserSettingsSerializer(data={"flash_reasoning_effort": effort}, partial=True)
+    @parameterized.expand(
+        [
+            ("full_mode_is_not_offered", {"default_review_mode": "full"}, "default_review_mode"),
+            ("unknown_threshold", {"urgency_threshold": "everything"}, "urgency_threshold"),
+        ]
+    )
+    def test_rejects_values_outside_the_schema(self, _name: str, data: dict, field: str) -> None:
+        serializer = ReviewUserSettingsSerializer(data=data, partial=True)
 
         assert not serializer.is_valid()
-        assert "flash_reasoning_effort" in serializer.errors
+        assert field in serializer.errors

@@ -28,7 +28,7 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -50,7 +50,13 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    ActionabilityChoice,
+    RankingScore,
+    SourceSuggestion,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
@@ -64,6 +70,7 @@ from .models import (
     SignalReportCheck,
     SignalReportPullRequest,
     SignalReportRefund,
+    SignalReportSuppressionSource,
     SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
@@ -71,6 +78,7 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
@@ -1141,6 +1149,16 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
+class ReportSourceSuggestionSerializer(serializers.Serializer):
+    product = serializers.ChoiceField(
+        choices=SuggestedSourceProduct.choices,
+        help_text="The product the team does not use and could turn on to give reports like this one better evidence.",
+    )
+    reason = serializers.CharField(
+        help_text="One sentence on what the product would have shown for this report.",
+    )
+
+
 class ReportRankingSerializer(serializers.Serializer):
     served_key = serializers.CharField(
         help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
@@ -1163,6 +1181,19 @@ class ReportRankingSerializer(serializers.Serializer):
     readable_heads = serializers.ListField(
         child=serializers.CharField(),
         help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+    )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the report's title or summary was edited after the text this score read. The score "
+            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+        ),
+    )
+
+
+class SignalReportPriorityUpdateSerializer(serializers.Serializer):
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        help_text="New report priority, from P0 (critical) to P4 (minimal).",
     )
 
 
@@ -1223,6 +1254,22 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     dismissal_note = serializers.SerializerMethodField(
         help_text="Free-form note captured alongside the dismissal reason (when present).",
+    )
+    suppression_source = serializers.SerializerMethodField(
+        help_text=(
+            "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or "
+            "agent dismissed it, it was merged into another report, or its pull request closed without "
+            "merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge "
+            "marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. "
+            "`system`: suppressed by the pipeline for another reason. Every value except `dismissed` is "
+            "a verdict nobody has reviewed, listed by the `held_back` inbox view."
+        ),
+    )
+    suppression_explanation = serializers.SerializerMethodField(
+        help_text=(
+            "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. "
+            "Null otherwise, or when the judge gave none."
+        ),
     )
     repo_slug = serializers.SerializerMethodField(
         help_text=(
@@ -1294,6 +1341,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "other users, and null when the report has no score."
         ),
     )
+    source_suggestion = serializers.SerializerMethodField(
+        help_text=(
+            "A product the team does not use that would have given this report better evidence, from the "
+            "latest source suggestion artefact. Null when there is none, or when the team now uses the "
+            "product. Always null in list responses, because its in-use check can query ClickHouse."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1320,11 +1374,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "source_suggestion",
             "priority",
             "actionability",
             "already_addressed",
             "dismissal_reason",
             "dismissal_note",
+            "suppression_source",
+            "suppression_explanation",
             "repo_slug",
             "is_suggested_reviewer",
             "source_products",
@@ -1433,6 +1490,58 @@ class SignalReportSerializer(serializers.ModelSerializer):
         value = data.get("note")
         return value if isinstance(value, str) and value else None
 
+    def _get_safety_artefact_data(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_safety_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _has_dismissal_artefact(self, obj: SignalReport) -> bool:
+        prefetched = getattr(obj, "prefetched_dismissal_artefacts", None)
+        if prefetched is not None:
+            return bool(prefetched)
+        return obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).exists()
+
+    def _suppression(self, obj: SignalReport) -> tuple[SignalReportSuppressionSource, str | None] | None:
+        # Mirrors the `dismissed` / `held_back` inbox views: a dismissal artefact means someone chose
+        # it, so it wins over any verdict the report also carries.
+        if obj.status != SignalReport.Status.SUPPRESSED:
+            return None
+        if self._has_dismissal_artefact(obj):
+            return SignalReportSuppressionSource.DISMISSED, None
+        safety = self._get_safety_artefact_data(obj)
+        if safety is not None and safety.get("choice") is False:
+            explanation = safety.get("explanation")
+            return SignalReportSuppressionSource.SAFETY_JUDGE, explanation if isinstance(explanation, str) else None
+        actionability = self._get_actionability_artefact_data(obj)
+        if actionability is not None and actionability.get("actionability") == ActionabilityChoice.NOT_ACTIONABLE:
+            explanation = actionability.get("explanation")
+            return SignalReportSuppressionSource.NOT_ACTIONABLE, explanation if isinstance(explanation, str) else None
+        return SignalReportSuppressionSource.SYSTEM, None
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportSuppressionSource.choices, allow_null=True))
+    def get_suppression_source(self, obj: SignalReport) -> str | None:
+        suppression = self._suppression(obj)
+        return suppression[0].value if suppression is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_suppression_explanation(self, obj: SignalReport) -> str | None:
+        suppression = self._suppression(obj)
+        explanation = suppression[1] if suppression is not None else None
+        return explanation or None
+
     def _get_repo_selection_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_repo_selection_artefacts", None)
         if prefetched is not None:
@@ -1480,6 +1589,16 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
+        prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
+        if prefetched_edits is not None:
+            latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
+        else:
+            latest_edit_at = (
+                obj.artefacts.filter(type__in=EDIT_ARTEFACT_TYPES)
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
@@ -1501,6 +1620,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scores": served.scores,
             "lifts": lifts,
             "readable_heads": readable_heads,
+            "stale": is_stale_score(score, latest_edit_at),
         }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
@@ -1612,6 +1732,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
         return claims[report_id]
 
+    @extend_schema_field(ReportSourceSuggestionSerializer(allow_null=True))
+    def get_source_suggestion(self, obj: SignalReport) -> dict | None:
+        suggestions_map: dict[str, SourceSuggestion | None] = self.context.get("source_suggestions_map", {})
+        suggestion = suggestions_map.get(str(obj.id))
+        return suggestion.model_dump(mode="json") if suggestion else None
+
     def get_collapsed_note_count(self, obj: SignalReport) -> int:
         return max(0, (obj.corroboration_count or 0) - MAX_SCOUT_REPORT_NOTES)
 
@@ -1700,6 +1826,15 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    include_unowned = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
+            "one person, and they rank above everything else, so a surface that only shows a person's own "
+            "work passes false. Defaults to true."
+        ),
+    )
 
 
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
@@ -1708,13 +1843,15 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
         help_text=(
             "The open, actionable reports that matter most to the current user, best first: reports "
             "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
-            "reports that nobody owns. The Today briefing ranks reports the same way."
+            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "reports the same way."
         ),
     )
     count = serializers.IntegerField(
         help_text=(
             "How many open reports are for the current user: the reports in `results`, plus the other "
-            "open, actionable reports that name them as a reviewer."
+            "open, actionable reports that name them as a reviewer. Counted over the same set as "
+            "`results`, so it follows `include_unowned` too."
         ),
     )
 
@@ -1877,10 +2014,15 @@ class SignalNodeSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(SignalReportSerializer)
+class SerializedSignalReportField(serializers.JSONField):
+    pass
+
+
 class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
-    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    report = SerializedSignalReportField(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
@@ -2423,7 +2565,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

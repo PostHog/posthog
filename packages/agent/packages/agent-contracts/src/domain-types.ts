@@ -808,6 +808,21 @@ export interface SignalReport {
   refund_ineligibility_reason?: string | null;
   /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
   channel_id?: string | null;
+  /** A product the team doesn't use that would have given this report better evidence. Set on the detail response only; null in list responses. */
+  source_suggestion?: SignalReportSourceSuggestion | null;
+}
+
+/** Products a report can suggest turning on. Mirrors `SuggestedSourceProduct` in the signals backend. */
+export type SuggestedSourceProduct =
+  | "logs"
+  | "session_replay"
+  | "error_tracking"
+  | "llm_analytics";
+
+export interface SignalReportSourceSuggestion {
+  product: SuggestedSourceProduct;
+  /** One sentence on what the product would have shown for this report. */
+  reason: string;
 }
 
 export type SignalReportRefundReason =
@@ -1050,10 +1065,14 @@ export interface RankingScoreArtefact extends SignalReportArtefactBase {
   content: RankingScoreContent;
 }
 
-/** One outcome head. `readable` is false when the head has no holdout AUC yet. */
+/**
+ * One outcome head. `readable` is false when the head has no holdout AUC yet.
+ * `lift` is the probability over the head's base rate, or null when the model saved no base rate.
+ */
 export interface RankingHead {
   name: string;
   probability: number;
+  lift: number | null;
   readable: boolean;
 }
 
@@ -1063,7 +1082,7 @@ export interface RankingModelResult {
   roles: string[];
   status: "scored" | "skipped";
   skip_reason: string | null;
-  /** Highest probability first. */
+  /** Highest lift first. Heads without a lift come last, highest probability first. */
   heads: RankingHead[];
 }
 

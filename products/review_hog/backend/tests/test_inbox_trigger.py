@@ -65,7 +65,7 @@ class TestInboxTrigger(BaseTest):
     def _opt_in(self, user: User, **flags: bool) -> None:
         # No explicit flags means the classic ReviewHog inbox opt-in.
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team=self.team, user=user, **(flags or {"review_inbox_prs": True})
+            team=self.team, user=user, preferences=flags or {"review_inbox_prs": True}
         )
 
     def _task(
@@ -238,7 +238,7 @@ class TestInboxTrigger(BaseTest):
 
     @patch(_STAMPHOG_QUEUE)
     @patch(_START, return_value="wf-1")
-    def test_soft_deleted_task_does_not_trigger(self, mock_start, mock_queue) -> None:
+    def test_a_soft_deleted_task_starts_neither_review(self, mock_start, mock_queue) -> None:
         # A soft-deleted task's run can still save output and re-fire the receiver; its PR is
         # disowned work, and the webhook leg already excludes deleted tasks, so the first review
         # (the one that mints the approval) must not fire either.

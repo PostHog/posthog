@@ -153,4 +153,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "policy_acknowledged": "Whether the course-attached URL policy was acknowledged, if applicable.",
         },
     },
+    "account": {
+        "description": "The KnowBe4 account itself, one row: subscription level, seat count, admins, and current organization risk score.",
+        "docs_url": "https://developer.knowbe4.com/rest/reporting#tag/Account/paths/~1v1~1account/get",
+        "columns": {
+            "name": "Organization's name, or its domain if the name is unavailable.",
+            "type": "Whether the account is paid, trial, or free.",
+            "domains": "Array of the allowed domains on the account.",
+            "admins": "Array of the account's admins with their id, first name, last name, and email.",
+            "subscription_level": "The account's subscription level (paid subscriptions only).",
+            "subscription_end_date": "The account's subscription end date (paid subscriptions only).",
+            "number_of_seats": "Number of seats available on the account (paid subscriptions only).",
+            "current_risk_score": "Organization's current risk score.",
+        },
+    },
+    "account_risk_score_history": {
+        "description": "The organization's risk score over time, one row per recorded date.",
+        "docs_url": "https://developer.knowbe4.com/rest/reporting#tag/Account/paths/~1v1~1account~1risk_score_history/get",
+        "columns": {
+            "risk_score": "Organization risk score on this date.",
+            "date": "Date the risk score was recorded.",
+        },
+    },
+    "group_risk_score_history": {
+        "description": "Each group's risk score over time, one row per group per recorded date.",
+        "docs_url": "https://developer.knowbe4.com/rest/reporting#tag/Groups/paths/~1v1~1groups~1%7Bgroup_id%7D~1risk_score_history/get",
+        "columns": {
+            "group_id": "ID of the group the risk score belongs to.",
+            "risk_score": "Group risk score on this date.",
+            "date": "Date the risk score was recorded.",
+        },
+    },
+    "user_risk_score_history": {
+        "description": "Each user's risk score over time, one row per user per recorded date.",
+        "docs_url": "https://developer.knowbe4.com/rest/reporting#tag/Users/paths/~1v1~1users~1%7Buser_id%7D~1risk_score_history/get",
+        "columns": {
+            "user_id": "ID of the user the risk score belongs to.",
+            "risk_score": "User risk score on this date.",
+            "date": "Date the risk score was recorded.",
+        },
+    },
 }

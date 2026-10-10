@@ -129,7 +129,7 @@ def trigger_ad_hoc_sync(
             # deleting changes an in-flight run wrote.
             updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
             updates["cdc_mode"] = "snapshot"
-            removes += ["cdc_last_log_position", "cdc_deferred_runs"]
+            removes.append("cdc_last_log_position")
             extra_model_fields["initial_sync_complete"] = False
     if paused_now:
         updates["admin_unpause_schedule_after_run"] = True

@@ -41,7 +41,18 @@ export interface InboxReviewerOption {
     email: string
 }
 
-export type InboxRankingSortField = 'ranking_pr_merged' | 'ranking_pr_created' | 'ranking_action' | 'ranking_open'
+export type InboxRankingSortField =
+    | 'ranking_pr_merged'
+    | 'ranking_pr_created'
+    | 'ranking_action'
+    | 'ranking_open'
+    | 'ranking_fixed'
+    | 'ranking_discuss'
+    | 'ranking_thumbs_up'
+    | 'ranking_reviewer_fix'
+    | 'ranking_refund'
+    | 'ranking_dismiss_wrong'
+    | 'ranking_dismiss_lowvalue'
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at' | InboxRankingSortField
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
@@ -290,7 +301,7 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: ('dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -380,7 +391,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     }
 }
 
@@ -408,7 +419,14 @@ export interface inboxFiltersLogicMeta {
         ) => InboxCreatedWindow | null
         isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
-            stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
+            stateFilter: (
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'resolved'
+            )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
     }
@@ -795,7 +813,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
         return {
             [urls.inbox()]: applyFromUrl,
-            [urls.inbox(':tab')]: applyFromUrl,
+            [urls.inbox(':tab')]: ({ tab }, searchParams) => {
+                if (tab !== 'scout-trials') {
+                    applyFromUrl({ tab }, searchParams)
+                }
+            },
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
             [urls.inboxRuns()]: applyFromUrl,

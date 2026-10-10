@@ -10,18 +10,21 @@ import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
+    buildCreateSourcePayload,
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
+    isPrefixRequired,
     mergeRestoredSourceFormValues,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
+    WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
@@ -112,6 +115,7 @@ describe('sourceWizardLogic', () => {
             { enabled: true, category: 'Advertising', attributed: true },
             { enabled: false, category: 'Advertising', attributed: false },
             { enabled: true, category: 'Databases', attributed: false },
+            { enabled: true, category: 'Marketing & email', attributed: false },
         ] as const)(
             'attributes success only for eligible sources: $enabled / $category',
             async ({ enabled, category, attributed }) => {
@@ -119,7 +123,12 @@ describe('sourceWizardLogic', () => {
                     [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: enabled,
                 })
                 const source = buildSourceConfig({
-                    name: category === 'Advertising' ? 'GoogleAds' : 'Postgres',
+                    name:
+                        category === 'Advertising'
+                            ? 'GoogleAds'
+                            : category === 'Marketing & email'
+                              ? 'GoogleSearchConsole'
+                              : 'Postgres',
                     category,
                 })
                 const logic = sourceWizardLogic({
@@ -135,7 +144,20 @@ describe('sourceWizardLogic', () => {
                     await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
                     captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialChannelType, false)
                     const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                    if (category !== 'Databases') {
+                        logic.actions.setReturnConfig(
+                            '/project/997/marketing?tab=ad-performance',
+                            'Marketing analytics'
+                        )
+                    }
                     await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                    expect(posthog.capture).toHaveBeenCalledWith(
+                        'warehouse source connect completed',
+                        expect.objectContaining({
+                            sourceType: source.name,
+                            returnLabel: category === 'Databases' ? undefined : 'Marketing analytics',
+                        })
+                    )
                     const conversions = jest
                         .mocked(posthog.capture)
                         .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell source created')
@@ -178,6 +200,10 @@ describe('sourceWizardLogic', () => {
                 captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialUTMCampaign, false)
                 const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
                 await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).not.toHaveBeenCalledWith(
+                    'warehouse source connect completed',
+                    expect.anything()
+                )
                 expect(posthog.capture).not.toHaveBeenCalledWith(
                     'web analytics marketing cross sell source created',
                     expect.anything()
@@ -249,6 +275,21 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
     })
 
+    describe('isPrefixRequired', () => {
+        const source = (source_type: string, prefix: string | null): ExternalDataSource =>
+            ({ source_type, prefix }) as ExternalDataSource
+
+        test.each([
+            ['no sources yet', [], false],
+            ['an unprefixed source of the same type', [source('Stripe', null)], true],
+            ['an empty-string prefix on the same type', [source('Stripe', '')], true],
+            ['only prefixed sources of the same type', [source('Stripe', 'eu')], false],
+            ['an unprefixed source of another type', [source('Hubspot', null)], false],
+        ])('with %s', (_, sources, expected) => {
+            expect(isPrefixRequired(sources, 'Stripe')).toBe(expected)
+        })
+    })
+
     describe('resolveConnectErrorMessage', () => {
         it('guides toward ad blockers when a request never reaches the server', () => {
             // A thrown fetch has no HTTP status; without this branch the user only sees "Failed to fetch".
@@ -283,6 +324,27 @@ describe('sourceWizardLogic', () => {
             expect(message).toBeTruthy()
             expect(message).not.toEqual('undefined')
         })
+    })
+
+    describe('buildCreateSourcePayload', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+        })
+
+        it.each([
+            { connector: 'Postgres', flagOn: false, expectedAccessMethod: 'direct' },
+            { connector: 'BigQuery', flagOn: false, expectedAccessMethod: 'warehouse' },
+            { connector: 'BigQuery', flagOn: true, expectedAccessMethod: 'direct' },
+        ])(
+            'keeps direct mode for $connector only when supported (flag on: $flagOn)',
+            ({ connector, flagOn, expectedAccessMethod }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BIGQUERY_DIRECT_QUERY]: flagOn })
+
+                const payload = buildCreateSourcePayload({ access_method: 'direct', prefix: 'bq' } as any, connector)
+
+                expect(payload).toMatchObject({ access_method: expectedAccessMethod, source_type: connector })
+            }
+        )
     })
 
     describe('getDatabaseSchemaPayload', () => {
@@ -1105,6 +1167,26 @@ describe('sourceWizardLogic', () => {
 
             try {
                 logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(true)
+                expect(logic.values.nextButtonDisabledReason).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('blocks Import on the destination step until one destination is turned on', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: 'full_refresh' }),
+            ])
+
+            try {
+                logic.actions.setStep(WIZARD_DESTINATION_STEP)
+                logic.actions.setWizardAvailableDestinationCount(2)
+                logic.actions.setWizardDestinationIds([])
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual('Pick at least one destination')
+
+                logic.actions.setWizardDestinationIds(['warehouse-id'])
                 expect(logic.values.canGoNext).toBe(true)
                 expect(logic.values.nextButtonDisabledReason).toBeNull()
             } finally {

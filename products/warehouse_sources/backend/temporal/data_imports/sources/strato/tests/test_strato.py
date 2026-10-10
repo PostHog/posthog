@@ -14,26 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.strato.str
 )
 
 
-class _FakeDltResource:
-    """Lightweight stand-in for a DltResource returned by rest_api_resources.
-
-    ``process_parent_data_item`` injects parent fields as ``_<parent_resource>_<field>``
-    (see ``make_parent_key_name``), so test data should include those prefixed keys to
-    exercise the row mappers.
-    """
-
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
 def _response(status_code: int = 200, json_body: Any = None, text: str = "") -> Mock:
     response = Mock()
     response.status_code = status_code
@@ -95,15 +75,6 @@ class TestValidateCredentials:
 
 
 class TestGetResource:
-    def test_top_level_shape_is_unpaginated_full_refresh(self) -> None:
-        resource = get_resource("Images")
-
-        assert resource["write_disposition"] == "replace"
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint["path"] == "/images"
-        assert "params" not in endpoint
-        assert "data_map" not in resource
-
     def test_rejects_fanout_endpoint(self) -> None:
         try:
             get_resource("Snapshots")
@@ -162,23 +133,6 @@ class TestStratoSourceTopLevel:
 
 
 class TestStratoFanout:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_snapshot_rows_carry_the_parent_server_id(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("Servers", [{"id": "srv1"}]),
-            _FakeDltResource("Snapshots", [{"id": "snap1", "_Servers_id": "srv1"}]),
-        ]
-
-        resp = strato_source(api_token="token", endpoint="Snapshots", team_id=1, job_id="job-1")
-
-        assert resp.primary_keys == ["server_id", "id"]
-        rows = list(cast(Any, resp.items()))
-        assert len(rows) == 1
-        assert rows[0]["server_id"] == "srv1"
-        assert "_Servers_id" not in rows[0]
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.build_dependent_resource")
     def test_client_sends_token_header_and_refuses_redirects(self, mock_build) -> None:
         mock_build.return_value = iter([])

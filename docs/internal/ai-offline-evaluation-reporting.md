@@ -3,6 +3,7 @@
 The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports scorer results as PostHog `$ai_evaluation` events.
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
 Reporting does not run the agent or scorers again.
+Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
 ## Capture settings
 
@@ -18,8 +19,7 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 ## Result contents and scope
 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
-Result reporting uses the existing event schema.
-The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
+Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
 
 ## Postgres experiment ingestion
 
@@ -218,6 +218,35 @@ Each repeated trial contributes one item; summaries also expose case and trial c
 Numeric increases do not imply better quality unless that meaning is established by the pinned scorer configuration. Boolean true passes by default unless the pinned version sets `true_is_failure: true`.
 
 ## Reading payload availability
+
+### MCP access
+
+The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
+these reads and the create/upload/complete/fail lifecycle behind the same
+`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+computed results; they do not execute evaluators. Scorer configuration remains on
+the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
+for immutable version discovery. Version tools use the existing scorer permissions.
+
+Read tools remain available to SQL-first consumers because their curated responses
+preserve scorer access controls, immutable configs, and full-run aggregation rules.
+Pagination preserves `count`, `next_cursor`, and shared `scorer_versions`. MCP list
+tools default to 20 rows. Metadata reads require `evaluation:read`; score reads and
+scorer filters also require `llm_analytics:read`. Ingestion uses
+`offline_evaluation_ingestion:write` and does not confer read access.
+
+The item/result `payload-get` tools use generated handlers and return the full stored
+JSON object in `data`, with the API's availability metadata. Unavailable payloads
+return `data: null`. These reads are not paginated; agents should inspect summaries
+and item metadata first, then fetch payloads only for relevant cases. Large payloads
+can consume substantial context or be truncated by the client. Payloads and other
+user-authored records are wrapped as untrusted reference data.
+
+The published `analyzing-offline-evaluations` skill describes comparable cohorts,
+coverage-aware interpretation, case drill-down, and result publication. The legacy
+event-backed experiment-items endpoint is not exposed by these tools.
+
+### Availability states
 
 Items and results expose their own `payload_state` and `payload_expires_at`.
 Payload detail responses include `available` and `data`, preserving omitted properties, empty objects, and explicit JSON null values.

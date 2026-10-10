@@ -7,6 +7,9 @@ import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
+import { PredictionActionsPanel } from './PredictionActionsPanel'
+import { CoverageHistoryChart, CoverageSummaryBanner } from './PredictionCoverage'
+import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
 
@@ -76,9 +79,15 @@ export function PredictionsTab(): JSX.Element {
                 <code>autoresearch_prediction</code> event. These views read straight from those events.
             </p>
 
+            <CoverageSummaryBanner />
+
+            <PredictionSegmentCards />
+
+            <PredictionActionsPanel />
+
             <LemonCollapse
                 multiple
-                defaultActiveKeys={['distribution', 'highest']}
+                defaultActiveKeys={['distribution', 'people']}
                 panels={[
                     {
                         key: 'distribution',
@@ -86,14 +95,14 @@ export function PredictionsTab(): JSX.Element {
                         content: <ProbabilityDistributionPanel />,
                     },
                     {
-                        key: 'highest',
-                        header: 'Highest-probability users (latest scoring run)',
-                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />,
+                        key: 'people',
+                        header: 'People (latest scoring run)',
+                        content: <ProbabilityUsersTable pipelineId={pipeline.id} />,
                     },
                     {
-                        key: 'lowest',
-                        header: 'Lowest-probability users (latest scoring run)',
-                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />,
+                        key: 'coverage',
+                        header: 'Coverage and score age',
+                        content: <CoverageHistoryChart />,
                     },
                     {
                         key: 'volume',

@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -66,6 +68,25 @@ class TestNodeViewSet(APIBaseTest):
 
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
+
+    def test_deleted_saved_query_nodes_are_hidden_from_the_graph(self):
+        self.saved_query.soft_delete()
+
+        nodes_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        edges_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+        lineage_response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.table_node.id}"
+        )
+
+        self.assertEqual(nodes_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(nodes_response.json()["count"], 1)
+        self.assertEqual(nodes_response.json()["results"][0]["name"], "events")
+        self.assertEqual(nodes_response.json()["results"][0]["downstream_count"], 0)
+        self.assertEqual(edges_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(edges_response.json()["count"], 0)
+        self.assertEqual(lineage_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([node["name"] for node in lineage_response.json()["nodes"]], ["events"])
+        self.assertEqual(lineage_response.json()["edges"], [])
 
     def _node_payload(self) -> dict:
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
@@ -1073,6 +1094,22 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
         self.assertEqual(edge["dag"], str(self.dag.id))
+
+    def test_list_edges_query_count_does_not_grow_with_edges(self):
+        url = f"/api/environments/{self.team.id}/data_modeling_edges/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(url)
+
+        for i in range(5):
+            target = Node.objects.create(team=self.team, dag=self.dag, name=f"table_{i}", type=NodeType.TABLE)
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.source_node, target=target)
+
+        with CaptureQueriesContext(connection) as grown:
+            response = self.client.get(url)
+
+        self.assertEqual(response.json()["count"], 6)
+        self.assertEqual(len(grown.captured_queries), len(baseline.captured_queries))
 
     def test_list_edges_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")

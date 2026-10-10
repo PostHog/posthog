@@ -25,6 +25,7 @@ from posthog.session.activity import session_public_id
 from posthog.test.insight_queries import default_pageview_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.csv_exporter import add_query_params
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -211,6 +212,71 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
 
 class TestActivityLogAuditLogsGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf&include_values=true",),
+        ]
+    )
+    def test_legacy_destination_values_are_masked(self, endpoint: str) -> None:
+        detail = {
+            "name": "Example destination",
+            "changes": [
+                {
+                    "type": "HogFunction",
+                    "field": field,
+                    "action": "changed",
+                    "before": "example-private-before",
+                    "after": "example-private-after",
+                }
+                for field in ("inputs", "mappings", "draft", "encrypted_inputs", "draft_encrypted_inputs", "transpiled")
+            ]
+            + [
+                {"type": "HogFunction", "field": "name", "action": "changed", "before": "Old name", "after": "New name"}
+            ],
+        }
+        entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFunction",
+            activity="updated",
+            item_id="example-function",
+            detail=detail,
+        )
+        flow_entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFlow",
+            activity="updated",
+            item_id="example-flow",
+            detail={
+                "name": "Example workflow",
+                "changes": [
+                    {
+                        "type": "HogFlow",
+                        "field": "actions",
+                        "action": "changed",
+                        "before": [{"config": {"inputs": {"token": {"value": "example-private-flow"}}}}],
+                        "after": [],
+                    }
+                ],
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert str(entry.id) in body
+        assert str(flow_entry.id) in body
+        assert "example-private" not in body
+        assert "masked" in body
+        assert "New name" in body
+        entry.refresh_from_db()
+        assert entry.detail == detail
+
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
         self.organization.available_product_features = []
@@ -585,6 +651,56 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
         assert exported_asset.source_credential_id == str(token.id)
+
+
+class TestAdvancedActivityLogExportPath(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for item_id, user, activity in (
+            ("flag-created", self.user, "created"),
+            ("flag-updated", self.other_user, "updated"),
+            ("flag-deleted", None, "deleted"),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=False,
+                item_id=item_id,
+                scope="FeatureFlag",
+                activity=activity,
+                detail=Detail(name=item_id),
+                force_save=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("multiple_users", "users", lambda self: [str(self.user.uuid), str(self.other_user.uuid)]),
+            ("multiple_activities", "activities", lambda _self: ["created", "updated"]),
+            ("explicit_false", "is_system", lambda _self: False),
+        ]
+    )
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_export_path_keeps_every_filter_value(
+        self, _name: str, filter_key: str, value: Any, _mock_exporter_task: Any
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv", "filters": {filter_key: value(self)}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.export_context is not None
+        export_path = exported_asset.export_context["path"]
+
+        # The exporter rewrites the stored path and replays it against the list endpoint, so a
+        # filter must survive both the stored encoding and that rewrite.
+        replay = self.client.get(add_query_params(export_path, {"limit": "100", "is_csv_export": "1"}))
+
+        assert replay.status_code == status.HTTP_200_OK
+        assert {row["item_id"] for row in replay.json()["results"]} == {"flag-created", "flag-updated"}
 
 
 class TestActivityLogSerializerFields(SimpleTestCase):

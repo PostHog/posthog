@@ -1,6 +1,46 @@
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
+    framework_checkpoints_are_covered,
+    hold_safe_points,
+)
+
+ResumeHook = Callable[[Optional[dict[str, Any]]], None]
+
+
+class PageCheckpoints:
+    """Holds the resume states that pagination produces until the `Resource` hands the page on.
+
+    Pagination knows a page's resume state before the page is converted and transformed. A state
+    staged at that point would cover rows that a failing transform never hands on, and the pipeline
+    commits staged state when a source raises. The `Resource` therefore applies the state itself,
+    next to its own `yield`.
+    """
+
+    def __init__(self, resume_hook: ResumeHook) -> None:
+        self._resume_hook = resume_hook
+        self._pending: list[Optional[dict[str, Any]]] = []
+
+    def defer(self, state: Optional[dict[str, Any]]) -> None:
+        self._pending.append(state)
+
+    def defer_page_state(self, state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
+        self.defer(state)
+
+    def apply(self, *, page_is_handed_on: bool) -> None:
+        pending, self._pending = self._pending, []
+        if not pending:
+            return
+        if page_is_handed_on:
+            for state in pending:
+                self._resume_hook(state)
+            return
+        # The framework reaches its own safe point after the page is handed on, so nothing is lost.
+        with hold_safe_points():
+            for state in pending:
+                self._resume_hook(state)
+
 
 class Resource:
     """Lightweight resource wrapper that replaces DltResource.
@@ -29,6 +69,7 @@ class Resource:
         args: tuple[Any, ...] = (),
         kwargs: Optional[dict[str, Any]] = None,
         data_from: Optional["Resource"] = None,
+        page_checkpoints: Optional[PageCheckpoints] = None,
     ) -> None:
         self.name = name
         self._hints = hints
@@ -38,6 +79,7 @@ class Resource:
         self._args = args
         self._kwargs = kwargs or {}
         self._data_from = data_from
+        self._page_checkpoints = page_checkpoints
 
     @property
     def column_hints(self) -> Optional[dict[str, Any]]:
@@ -94,10 +136,28 @@ class Resource:
         return result
 
     def _iter_generator(self, call_kwargs: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        checkpoints = self._page_checkpoints
         for page in self._generator_fn(*self._args, **call_kwargs):
             transformed = self._apply_transforms(page)
+            if checkpoints is None:
+                if transformed:
+                    yield transformed
+                continue
+
+            # When the pipeline iterates this resource directly, it must receive a page with its
+            # resume state already staged. The pipeline commits staged state right after it writes a
+            # batch, and it can end the attempt before control returns here. State staged after the
+            # `yield` is then lost for the last page, and the next attempt reads that page again.
+            # A source that wraps this resource can hold the page before it hands rows on, so its
+            # state waits until the wrapper asks for the next page.
+            if framework_checkpoints_are_covered():
+                checkpoints.apply(page_is_handed_on=False)
             if transformed:
                 yield transformed
+            checkpoints.apply(page_is_handed_on=True)
+
+        if checkpoints is not None:
+            checkpoints.apply(page_is_handed_on=True)
 
     def __iter__(self) -> Iterator[list[dict[str, Any]]]:
         if self._data_from is None:

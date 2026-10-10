@@ -205,6 +205,7 @@ export class ToolDomainExtractor {
         'retrieve',
         'destroy',
         'run',
+        'accept',
         'archive',
         'calculate',
         'cancel',
@@ -213,12 +214,14 @@ export class ToolDomainExtractor {
         'copy',
         'disable',
         'discard',
+        'dismiss',
         'duplicate',
         'edit',
         'emit',
         'enable',
         'end',
         'estimate',
+        'fail',
         'freeze',
         'launch',
         'migrate',
@@ -239,6 +242,7 @@ export class ToolDomainExtractor {
         'transfer',
         'unarchive',
         'unfreeze',
+        'upload',
     ])
 
     private readonly items: ToolItem[]
