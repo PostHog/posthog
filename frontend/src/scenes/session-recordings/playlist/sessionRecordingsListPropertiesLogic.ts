@@ -26,6 +26,7 @@ const BASE_QUERY_PROPERTIES: [string, string][] = [
     ['properties', '$geoip_subdivision_1_name'],
     ['properties', '$geoip_city_name'],
     ['session', '$entry_current_url'],
+    ['properties', '$ip'],
 ]
 const BASE_PROPERTIES = BASE_QUERY_PROPERTIES.map(([, property]) => property)
 
