@@ -985,6 +985,20 @@ export interface ReviewFindingApi {
 }
 
 /**
+ * * `must_fix` - Must fix
+ * * `should_fix` - Should fix
+ * * `consider` - Consider
+ */
+export type ReviewDroppedFindingPriorityEnumApi =
+    (typeof ReviewDroppedFindingPriorityEnumApi)[keyof typeof ReviewDroppedFindingPriorityEnumApi]
+
+export const ReviewDroppedFindingPriorityEnumApi = {
+    MustFix: 'must_fix',
+    ShouldFix: 'should_fix',
+    Consider: 'consider',
+} as const
+
+/**
  * * `old_code` - On unchanged code
  * * `dedup_prior` - Repeat of an earlier review
  * * `dedup_comment` - Already in a PR comment
@@ -1017,10 +1031,10 @@ export interface ReviewDroppedFindingApi {
     suggestion: string
     /** The reviewer's priority for the finding.
      *
-     * * `must_fix` - must_fix
-     * * `should_fix` - should_fix
-     * * `consider` - consider */
-    priority: ReviewIssuePriorityEnumApi
+     * * `must_fix` - Must fix
+     * * `should_fix` - Should fix
+     * * `consider` - Consider */
+    priority: ReviewDroppedFindingPriorityEnumApi
     /**
      * The session that raised the finding: the main review or a lens.
      * @nullable

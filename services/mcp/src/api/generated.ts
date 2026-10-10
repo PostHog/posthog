@@ -95446,6 +95446,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `must_fix` - Must fix
+     * * `should_fix` - Should fix
+     * * `consider` - Consider
+     */
+    export type ReviewDroppedFindingPriorityEnum = typeof ReviewDroppedFindingPriorityEnum[keyof typeof ReviewDroppedFindingPriorityEnum];
+
+
+    export const ReviewDroppedFindingPriorityEnum = {
+      MustFix: 'must_fix',
+      ShouldFix: 'should_fix',
+      Consider: 'consider',
+    } as const;
+
+    /**
      * * `old_code` - On unchanged code
      * * `dedup_prior` - Repeat of an earlier review
      * * `dedup_comment` - Already in a PR comment
@@ -95478,10 +95492,10 @@ export namespace Schemas {
       suggestion: string;
       /** The reviewer's priority for the finding.
        *
-       * * `must_fix` - must_fix
-       * * `should_fix` - should_fix
-       * * `consider` - consider */
-      priority: ReviewIssuePriorityEnum;
+       * * `must_fix` - Must fix
+       * * `should_fix` - Should fix
+       * * `consider` - Consider */
+      priority: ReviewDroppedFindingPriorityEnum;
       /**
          * The session that raised the finding: the main review or a lens.
          * @nullable

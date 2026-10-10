@@ -563,6 +563,12 @@ class ReviewDropDisposition(models.TextChoices):
     CAP = "cap", "Over the limit"
 
 
+class ReviewDroppedFindingPriority(models.TextChoices):
+    MUST_FIX = IssuePriority.MUST_FIX.value, "Must fix"
+    SHOULD_FIX = IssuePriority.SHOULD_FIX.value, "Should fix"
+    CONSIDER = IssuePriority.CONSIDER.value, "Consider"
+
+
 class ReviewDroppedFindingSerializer(serializers.Serializer):
     title = serializers.CharField(help_text="One-line summary of the finding.")
     file = serializers.CharField(help_text="Repository-relative path of the affected file.")
@@ -573,7 +579,9 @@ class ReviewDroppedFindingSerializer(serializers.Serializer):
         help_text="The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body "
         "with the fix direction instead.",
     )
-    priority = serializers.ChoiceField(choices=_PRIORITY_CHOICES, help_text="The reviewer's priority for the finding.")
+    priority = serializers.ChoiceField(
+        choices=ReviewDroppedFindingPriority.choices, help_text="The reviewer's priority for the finding."
+    )
     source_perspective = serializers.CharField(
         allow_null=True, help_text="The session that raised the finding: the main review or a lens."
     )
