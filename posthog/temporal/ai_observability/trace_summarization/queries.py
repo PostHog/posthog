@@ -17,9 +17,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 
-# Matches what `TraceQueryRunner` loads from `ai_events`: the same event types with no timestamp
-# bounds, one row per uuid, and the `$ai_trace` root left out of the event count. Sizes are in
-# characters so that they compare with `MAX_RAW_TRACE_SIZE` like the check after the fetch does.
+# Mirrors what `TraceQueryRunner` loads: no time bounds, one row per uuid, root not counted.
 _TRACE_SIZE_SQL = """
 SELECT countIf(event != '$ai_trace') AS event_count, sum(payload_chars) AS payload_chars
 FROM (
@@ -60,7 +58,6 @@ def fetch_trace_size(team: Team, trace_id: str) -> TraceSize:
             team=team,
             query_type="TraceSummarizationTraceSize",
         )
-    # An aggregate with no GROUP BY always returns one row, so a missing trace reads as zeros.
     event_count, payload_chars = result.results[0]
     return TraceSize(event_count=int(event_count or 0), payload_chars=int(payload_chars or 0))
 

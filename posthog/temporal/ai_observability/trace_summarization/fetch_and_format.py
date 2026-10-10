@@ -52,9 +52,7 @@ def _fetch_and_format_trace(
     team = Team.objects.get(id=team_id)
     raw_size_limit = max_raw_trace_size if max_raw_trace_size is not None else MAX_RAW_TRACE_SIZE
 
-    # The checks after `fetch_trace` run too late for a trace of several GB, because the load
-    # itself runs the worker out of memory. They still cover the shared `events` fallback, which
-    # this preflight does not measure.
+    # A multi-GB trace runs the worker out of memory during the load, before the checks below.
     trace_size = fetch_trace_size(team, trace_id)
     if trace_size.payload_chars > raw_size_limit or (
         max_trace_events is not None and trace_size.event_count > max_trace_events

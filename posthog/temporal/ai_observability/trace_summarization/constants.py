@@ -24,9 +24,8 @@ DEFAULT_MODEL = OpenAIModel.GPT_5_NANO
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive
-# and can block the worker for 10+ minutes. Checked in ClickHouse before the fetch
-# (`fetch_trace_size`), then again from sum(len(str(properties))) per event before
-# entering the formatter.
+# and can block the worker for 10+ minutes. Estimated cheaply from
+# sum(len(str(properties))) per event before entering the formatter.
 MAX_RAW_TRACE_SIZE = 5_000_000
 
 # Max events per trace for sampling. Traces with more events than this are
