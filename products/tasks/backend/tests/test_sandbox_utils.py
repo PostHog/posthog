@@ -42,6 +42,8 @@ def test_get_sandbox_api_url(sandbox_api_url: str | None, expected: str) -> None
 def _team_integration(*, unavailable: bool = False, mint_raises: bool = False) -> MagicMock:
     github = MagicMock(spec=GitHubIntegration)
     github.installation_unavailable.return_value = unavailable
+    github.account_name_needs_heal.return_value = False
+    github.organization.return_value = "Acme"
     if mint_raises:
         github.mint_scoped_installation_token.side_effect = GitHubIntegrationError("mint failed")
     return github
@@ -262,19 +264,27 @@ def test_github_token_failure_maps_to_run_error(
 
 
 @pytest.mark.parametrize(
-    "repositories, expected",
-    [([], None), (["Acme/API", "acme/api", "acme/web"], ["api", "web"]), (["PostHog/.github"], None)],
+    "repositories, mints, expected",
+    [
+        ([], True, None),
+        (["Acme/API", "acme/api", "acme/web"], True, ["api", "web"]),
+        (["PostHog/.github"], True, None),
+        (["evilorg/api"], False, None),
+    ],
+    ids=["repo_less", "pinned_repositories", "public_bootstrap_only", "another_account_only"],
 )
-def test_readonly_token_scopes_repositories_without_widening_permissions(repositories, expected):
+def test_readonly_token_scopes_repositories_without_widening_permissions(repositories, mints, expected):
     integration = _team_integration()
     with patch(
         "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
         return_value=integration,
     ):
-        assert (
-            get_readonly_github_token(1, repositories=repositories)
-            == integration.mint_scoped_installation_token.return_value
+        token = get_readonly_github_token(1, repositories=repositories)
+    if mints:
+        assert token == integration.mint_scoped_installation_token.return_value
+        integration.mint_scoped_installation_token.assert_called_once_with(
+            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=expected
         )
-    integration.mint_scoped_installation_token.assert_called_once_with(
-        READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=expected
-    )
+    else:
+        assert token is None
+        integration.mint_scoped_installation_token.assert_not_called()

@@ -884,12 +884,22 @@ def get_sandbox_ph_mcp_configs(
 SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
 
 
-def _installation_repository_names(repositories: Sequence[str]) -> list[str]:
+def _private_repositories(repositories: Sequence[str]) -> list[str]:
     # Public sandbox repos clone without credentials and usually sit outside the installation,
     # where GitHub rejects a scoped mint that names them.
-    return sorted(
-        {repository.rsplit("/", 1)[-1].lower() for repository in repositories if not is_public_sandbox_repo(repository)}
-    )
+    return [repository for repository in repositories if not is_public_sandbox_repo(repository)]
+
+
+def _installation_repository_names(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> list[str]:
+    # GitHub scopes a mint by bare repo name, so a repo another account owns would get the installation's
+    # repo of the same name. A placeholder account name cannot be checked, so it skips the owner match.
+    owner = None if github_integration.account_name_needs_heal() else github_integration.organization().lower()
+    names: set[str] = set()
+    for repository in repositories:
+        repository_owner, _, name = repository.lower().rpartition("/")
+        if owner is None or repository_owner == owner:
+            names.add(name)
+    return sorted(names)
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
@@ -900,13 +910,16 @@ def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) 
     return [repository] if repository else []
 
 
-def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: list[str]) -> str:
-    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(repositories)}"
+def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
+    names = _installation_repository_names(github_integration, repositories)
+    if not names:
+        return None
+    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
     cache = get_tasks_cache()
     cached = cache.get(cache_key)
     if isinstance(cached, str) and cached:
         return cached
-    token = github_integration.mint_scoped_installation_token(None, repositories=repositories)
+    token = github_integration.mint_scoped_installation_token(None, repositories=names)
     cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
     return token
 
@@ -920,9 +933,9 @@ def get_github_token(github_integration_id: int, repositories: Sequence[str] = (
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},
         )
-    installation_repositories = _installation_repository_names(repositories)
-    if installation_repositories:
-        return _mint_repository_scoped_token(github_integration, installation_repositories)
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -989,8 +1002,12 @@ def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) ->
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
+        private_repositories = _private_repositories(repositories)
+        names = _installation_repository_names(integration, private_repositories)
+        if private_repositories and not names:
+            return None
         return integration.mint_scoped_installation_token(
-            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=_installation_repository_names(repositories) or None
+            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=names or None
         )
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
@@ -1001,9 +1018,9 @@ def get_user_github_token(github_user_integration_id: str, repositories: Sequenc
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration)
-    installation_repositories = _installation_repository_names(repositories)
-    if installation_repositories:
-        return _mint_repository_scoped_token(github_integration, installation_repositories)
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None

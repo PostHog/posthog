@@ -836,13 +836,16 @@ class TestGetGithubToken(TestCase):
 
     @parameterized.expand(
         [
-            ("dedupes_owner_and_case", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
-            ("drops_public_bootstrap_repo", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
-            ("public_bootstrap_only_keeps_shared_token", ["PostHog/.github"], None, "ghs_shared"),
+            ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
+            ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
+            ("public_bootstrap_only_keeps_shared_token", "Acme", ["PostHog/.github"], None, "ghs_shared"),
+            ("drops_repo_another_account_owns", "Acme", ["acme/web", "evilorg/api"], ["web"], "ghs_scoped"),
+            ("another_account_only_gets_no_token", "Acme", ["evilorg/api"], None, None),
+            ("placeholder_account_skips_owner_match", "INSTALL", ["evilorg/api"], ["api"], "ghs_scoped"),
         ]
     )
     def test_repositories_get_a_cached_scoped_token_instead_of_the_shared_one(
-        self, _name, repositories, expected_mint_repositories, expected_token
+        self, _name, account_name, repositories, expected_mint_repositories, expected_token
     ):
         from posthog.models import Integration, Organization, Team
         from posthog.models.integration import GitHubIntegration
@@ -856,7 +859,8 @@ class TestGetGithubToken(TestCase):
         integration = Integration.objects.create(
             team=team,
             kind="github",
-            config={"installation_id": "INSTALL"},
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": account_name}},
             sensitive_config={"access_token": "ghs_shared"},
         )
 
