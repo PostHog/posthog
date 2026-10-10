@@ -27,7 +27,7 @@ export function SearchPerformanceTab(): JSX.Element {
         sourceNotices,
         readySources,
         displayMetrics,
-        hasPaidSources,
+        conversionsDisabledReason,
         search,
         query,
         breakdown,
@@ -108,10 +108,8 @@ export function SearchPerformanceTab(): JSX.Element {
                                             { value: 'traffic', label: 'Traffic' },
                                             {
                                                 value: 'conversions',
-                                                label: 'Spend and conversions',
-                                                disabledReason: !hasPaidSources
-                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
-                                                    : undefined,
+                                                label: 'Conversions',
+                                                disabledReason: conversionsDisabledReason ?? undefined,
                                             },
                                         ]}
                                     />
@@ -140,9 +138,9 @@ export function SearchPerformanceTab(): JSX.Element {
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                                Conversions use the ad platform's attribution. Google Search Console does not report
-                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
-                                impressions. Hover over a change to see its comparison value.
+                                Reported conversions use the ad platform's attribution. Google Search Console does not
+                                report spend or conversions, and can omit low-volume queries. Organic positions are
+                                weighted by impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}

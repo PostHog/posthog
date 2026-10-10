@@ -1,11 +1,11 @@
 """Payload for the GitHub source/repo picker."""
 
-from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource
 
 
-class GitHubSourceSerializer(LabeledChoicesDataclassSerializer):
+class GitHubSourceSerializer(DataclassSerializer):
     class Meta:
         dataclass = GitHubSource
         extra_kwargs = {

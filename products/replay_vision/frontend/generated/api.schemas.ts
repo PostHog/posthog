@@ -1815,6 +1815,17 @@ export interface ScoutReportApi {
     charts: ReportChartApi[]
 }
 
+/**
+ * * `read_only` - Read only
+ * * `support_notes` - Support notes
+ */
+export type ToolPresetEnumApi = (typeof ToolPresetEnumApi)[keyof typeof ToolPresetEnumApi]
+
+export const ToolPresetEnumApi = {
+    ReadOnly: 'read_only',
+    SupportNotes: 'support_notes',
+} as const
+
 export interface SignalScoutSlackDestinationApi {
     /**
      * ID of the Slack integration whose bot posts this scout's findings and reports.
@@ -1906,6 +1917,16 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 10
      */
     write_scopes?: string[]
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    allowed_mcp_tools?: string[] | null
+    /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+     *
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
+    tool_preset?: ToolPresetEnumApi
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -2160,6 +2181,16 @@ export interface SignalScoutConfigApi {
      */
     readonly write_scopes: readonly string[]
     /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    readonly allowed_mcp_tools: readonly string[] | null
+    /**
+     * Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.
+     * @nullable
+     */
+    readonly tool_preset: string | null
+    /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
      */
@@ -2253,6 +2284,11 @@ export interface VariantAnalysisLineApi {
     statement: string
     /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
     count: number
+    /**
+     * How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.
+     * @nullable
+     */
+    read: number | null
     /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
     example_observation_ids: string[]
 }
@@ -2293,6 +2329,11 @@ export interface VariantReadoutApi {
  */
 export type VariantAnalysisDifferenceApiCounts = { [key: string]: number }
 
+/**
+ * Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.
+ */
+export type VariantAnalysisDifferenceApiRead = { [key: string]: number }
+
 export interface VariantAnalysisDifferenceApi {
     /** The theme the difference rests on. */
     theme: string
@@ -2300,6 +2341,8 @@ export interface VariantAnalysisDifferenceApi {
     statement: string
     /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
     counts: VariantAnalysisDifferenceApiCounts
+    /** Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them. */
+    read: VariantAnalysisDifferenceApiRead
 }
 
 export interface VariantsAnalysisStateApi {

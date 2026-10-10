@@ -70,6 +70,7 @@ import type {
     ScoutSuggestionSetApi,
     ScoutToolCatalogueApi,
     ScoutTrialComparisonApi,
+    ScoutTrialComparisonArchiveRequestApi,
     ScoutTrialComparisonHistoryApi,
     ScoutTrialComparisonQueryApi,
     ScoutTrialComparisonRequestApi,
@@ -98,6 +99,7 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -702,6 +704,28 @@ export const signalsReportPrReviewCommentReactionDestroy = async (
             method: 'DELETE',
         }
     )
+}
+
+export const getSignalsReportsPriorityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/priority/`
+}
+
+/**
+ * Append an attributed priority correction, preserving the previous judgment for future learning.
+ * @summary Change a report's priority
+ */
+export const signalsReportsPriorityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportPriorityUpdateApi: SignalReportPriorityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPriorityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPriorityUpdateApi),
+    })
 }
 
 export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
@@ -1542,6 +1566,28 @@ export const signalsScoutConfigTrialComparisonCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutTrialComparisonRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonArchiveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_archive/`
+}
+
+/**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const signalsScoutConfigTrialComparisonArchive = async (
+    projectId: string,
+    id: string,
+    scoutTrialComparisonArchiveRequestApi: ScoutTrialComparisonArchiveRequestApi,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonArchiveUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialComparisonArchiveRequestApi),
     })
 }
 

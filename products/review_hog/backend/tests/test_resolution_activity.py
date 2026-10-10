@@ -16,14 +16,15 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig, ReviewUserSettings
+from products.review_hog.backend.review_request_rules import ResolutionGate
 from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import RESOLUTION_MAX_ATTEMPTS
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
-from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_RESOLUTION_SKILL_NAME
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, run_outcome_markers
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -31,6 +32,7 @@ from products.review_hog.backend.temporal.resolution import (
     ResolveThreadsInput,
     _append_run_note,
     _append_task_run,
+    _commit_hold,
     _deliver_side_effects,
     _fail_resolution,
     _fold_overlong_reply,
@@ -97,6 +99,19 @@ def _inspection(restricted: list[str] | None = None, *, provenance_ok: bool = Tr
     return FixCommitInspection(restricted_paths=restricted or [], provenance_ok=provenance_ok)
 
 
+def _patch_open_branch_and_opted_in_owner(test: SimpleTestCase) -> Mock:
+    """The owner gate and the branch read, which the delivery tests take as passed."""
+    test.enterContext(
+        patch(
+            f"{_RESOLUTION}.ResolutionGate.load",
+            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True),
+        )
+    )
+    return test.enterContext(
+        patch(f"{_RESOLUTION}.github_api_request", return_value=Mock(json=Mock(return_value={"protected": False})))
+    )
+
+
 def _mock_installation() -> Mock:
     github = Mock()
     github.get_access_token.return_value = "token"
@@ -105,6 +120,53 @@ def _mock_installation() -> Mock:
     github.get_pull_request_merge_queue_state.return_value = None
     github.has_open_pull_request_with_base.return_value = False
     return github
+
+
+class TestBranchProtectionHold(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unprotected", {"protected": False}, None, None),
+            (
+                "classic_protection",
+                {"protected": True, "protection": {"enabled": True}},
+                None,
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            ("protection_details_missing", {"protected": True}, None, CommitHold.BRANCH_PROTECTED),
+            (
+                "ruleset_signed_commits_only",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "non_fast_forward"}],
+                None,
+            ),
+            (
+                "ruleset_requires_pull_request",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "pull_request"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            (
+                "ruleset_unknown_rule_type",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "file_path_restriction"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+        ]
+    )
+    def test_holds_only_when_protection_can_refuse_the_push(
+        self, _name: str, branch: dict, rules: list | None, expected: CommitHold | None
+    ) -> None:
+        def github_read(method: str, path: str, *, endpoint: str, **kwargs: object) -> Mock:
+            body = rules if endpoint == "/repos/{owner}/{repo}/rules/branches/{branch}" else branch
+            return Mock(json=Mock(return_value=body))
+
+        input = ResolveThreadsInput(
+            team_id=1, user_id=1, acting_user_id=None, owner="posthog", repo="posthog", pr_number=123
+        )
+        with patch(f"{_RESOLUTION}.github_api_request", side_effect=github_read):
+            hold = _commit_hold(input, _mock_installation(), "feature/x", queue_state=None, queue_state_at_start=None)
+
+        assert hold == expected
 
 
 class TestReplyBodyRendering(SimpleTestCase):
@@ -150,6 +212,10 @@ class TestReplyBodyRendering(SimpleTestCase):
 
 
 class TestResolutionPersistenceAndDelivery(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.branch_read = _patch_open_branch_and_opted_in_owner(self)
+
     def _report(self) -> ReviewReport:
         # ReviewReport is fail-closed (TeamScopedRootMixin), so creation outside request context
         # goes through for_team — the same path the funnel uses.
@@ -324,28 +390,6 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
                 )
             )
 
-    def test_unpinned_acting_user_with_unmapped_author_pins_canonical_criteria(self) -> None:
-        # The /resolve landmine: with no acting user pinned and an unmapped author, the RUN user's
-        # personal selection must not govern someone else's PR — the canonical bar applies.
-        sync_canonical_resolution(self.team)
-        LLMSkill.objects.create(
-            team=self.team,
-            name="review-hog-resolution-run-users-own",
-            description="d",
-            body="x" * 250,
-            version=1,
-            is_latest=True,
-            created_by=self.user,
-        )
-        ReviewSkillConfig.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, skill_name="review-hog-resolution-run-users-own", enabled=True
-        )
-
-        prepared = self._prepare_unpinned()
-
-        assert isinstance(prepared, _PreparedRun)
-        assert prepared.skill_name == REVIEW_HOG_RESOLUTION_SKILL_NAME
-
     def test_unpinned_acting_user_maps_the_pr_author(self) -> None:
         sync_canonical_resolution(self.team)
         author = User.objects.create_and_join(self.organization, "author@example.com", None)
@@ -495,8 +539,12 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert result.skipped_reason == "no_unresolved_threads"
         report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
         assert report.status == ReviewReport.Status.IDLE
-        note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
+        note = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=report.id, type="note", content__contains=RESOLUTION_RUN_NOTE_AUTHOR
+        )
         assert "0 thread(s) triaged" in note.content
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", "no_unresolved_threads")]
         # No queued threads means no progress anchor — a total=0 run artefact would render this
         # clean no-op as a crashed run once it aged past the staleness window.
         assert (
@@ -563,12 +611,14 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
                 "submitted to the merge queue",
             ),
             ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
+            ("protected_branch", None, False, "pr_branch_protected", "this branch is protected"),
         ]
     )
     def test_held_pr_gets_no_turns_and_says_why(
         self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
     ) -> None:
         self._report()
+        self.branch_read.return_value.json.return_value = {"protected": reason == "pr_branch_protected"}
         installation = _mock_installation()
         installation.get_pull_request_merge_queue_state.return_value = queue_state
         installation.has_open_pull_request_with_base.return_value = stacked
@@ -621,6 +671,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="rh-activity@example.com", first_name="RH", password="password")
+        _patch_open_branch_and_opted_in_owner(self)
 
     def _input(self) -> ResolveThreadsInput:
         return ResolveThreadsInput(
@@ -778,3 +829,90 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
         assert section_text in status_comment.call_args.args[2]
         assert self._report_status() == ReviewReport.Status.IDLE
+
+
+class TestResolutionOwnerGate(BaseTest):
+    @parameterized.expand(
+        [
+            ("owner_opted_in", "octocat", True, True),
+            ("owner_did_not_opt_in", "octocat", False, False),
+            # The run user's opt-in never writes to a pull request nobody owns.
+            ("no_owner", "ghost", True, False),
+        ]
+    )
+    def test_resolution_writes_only_where_the_pr_owner_opted_in(
+        self, _name: str, author_login: str, opted_in: bool, prepared: bool
+    ) -> None:
+        sync_canonical_resolution(self.team)
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"resolve_comments": opted_in}
+        )
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="b")],
+        )
+        metadata = _pr_metadata().model_copy(update={"author": author_login})
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}.github_api_request", return_value=Mock(json=Mock(return_value={"protected": False}))),
+        ):
+            result = _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+        if prepared:
+            assert isinstance(result, _PreparedRun)
+        else:
+            assert isinstance(result, ResolutionRunResult)
+            assert result.skipped_reason == "resolution_not_opted_in"
+
+    @parameterized.expand(
+        [
+            ("closed_pr", "closed", True, "pr_not_open"),
+            ("owner_did_not_opt_in", "open", True, "resolution_not_opted_in"),
+            ("no_report_yet", "open", False, None),
+        ]
+    )
+    def test_gate_skip_records_its_reason_on_the_report(
+        self, _name: str, state: str, has_report: bool, expected_reason: str | None
+    ) -> None:
+        report = None
+        if has_report:
+            report = ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team, repository="PostHog/posthog", pr_number=123, pr_url="u"
+            )
+        metadata = _pr_metadata().model_copy(update={"author": "ghost", "state": state})
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
+        ):
+            result = _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+        assert isinstance(result, ResolutionRunResult)
+        stored = ReviewReportArtefact.objects.for_team(self.team.id).filter(type="note")
+        if report is None:
+            assert not stored.exists()
+            return
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", expected_reason)]

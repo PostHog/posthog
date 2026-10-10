@@ -869,6 +869,8 @@ export interface HogQLNotice {
     end?: integer
     message: string
     fix?: string
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string
 }
 
 export enum QueryIndexUsage {
@@ -5565,9 +5567,9 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    /** Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead */
     searchKeywords?: string[]
-    /** Tabs of this item that search lists as their own results */
+    /** Tabs with their own URL that search lists as separate rows, below products and people */
     searchTabs?: FileSystemSearchTab[]
 }
 
@@ -8264,6 +8266,7 @@ export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     statsTable: string
     keywordTable?: string
+    placementTable?: string
     queryPageTable?: boolean
 }
 
@@ -8276,6 +8279,8 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     breakdown?: 'keyword' | 'page'
     keyword?: string
     page?: string
+    normalizePageUrls?: boolean
+    includePostHogConversions?: boolean
 }
 
 export interface MarketingAnalyticsSearchMetrics {
@@ -8293,6 +8298,18 @@ export interface MarketingAnalyticsSearchMetrics {
     absoluteTopImpressionRate?: number | null
 }
 
+export interface MarketingAnalyticsSearchConversionGoal {
+    id: string
+    name: string
+}
+
+export interface MarketingAnalyticsSearchConversion extends MarketingAnalyticsSearchConversionGoal {
+    conversions: number | null
+    costPerConversion: number | null
+    previousConversions?: number | null
+    previousCostPerConversion?: number | null
+}
+
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
     keyword: string | null
     page?: string | null
@@ -8300,10 +8317,15 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null
+    posthogConversions?: MarketingAnalyticsSearchConversion[] | null
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    placementUnavailable?: boolean
     results: MarketingAnalyticsSearchRow[]
+    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null
+    posthogConversionsWarning?: string | null
+    posthogAttributionMode?: AttributionMode | null
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>

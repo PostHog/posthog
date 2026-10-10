@@ -125,6 +125,11 @@ _NO_ISSUES_MEDIA = (
         "A white car on a quiet road",
     ),
     (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "ecedff577f7086db1ebb26557f5521dcbce9d322/2026/10/e052ee1b-41ec-406b-8c9d-2a1ea076490c.png",
+        "Four people posing together",
+    ),
+    (
         "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
         "The dancing man in the red room from Twin Peaks",
     ),
@@ -173,7 +178,7 @@ def report_deep_link(team_id: int, report_id: str) -> str:
 
 
 def _product_name(review_mode: str) -> str:
-    return "PostHog Review (flash)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
+    return "PostHog Review (standard)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
 
 
 def _plural(count: int, noun: str) -> str:
@@ -367,6 +372,13 @@ def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: in
             else "Not resolving comments: other pull requests are stacked on this branch"
         )
         why = "A fix commit here would leave the stacked pull requests out of date"
+    elif hold == CommitHold.BRANCH_PROTECTED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this branch is now protected"
+            if total
+            else "Not resolving comments: this branch is protected"
+        )
+        why = "A person decides what lands on a protected branch"
     else:
         line = (
             f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"

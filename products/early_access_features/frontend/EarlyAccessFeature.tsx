@@ -818,7 +818,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 <>
                                     <MessageAudienceButton
                                         audience={enrolledPeopleAudience(earlyAccessFeature)}
-                                        label="Message opted-in users"
+                                        label="Email opted-in users"
                                         size="medium"
                                     />
                                     <LemonButton

@@ -50,6 +50,7 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_LINE_PROXIMITY_WINDOW,
     OUTCOME_MAX_EXTRA_COMPARE_BASES,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    OUTCOME_MAX_REACTION_READS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
     priority_rank,
@@ -58,7 +59,11 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
-from products.review_hog.backend.reviewer.outcomes.github_fetch import fetch_compare_files, fetch_review_comments
+from products.review_hog.backend.reviewer.outcomes.github_fetch import (
+    fetch_comment_reactions,
+    fetch_compare_files,
+    fetch_review_comments,
+)
 from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
@@ -110,6 +115,7 @@ class _ReportInputs:
     # inside the diff it is judged on.
     compares: dict[str, list[dict[str, Any]]]
     review_comments: list[dict[str, Any]]
+    reactions_by_comment: dict[int, list[dict[str, Any]]]
     published: list[_PublishedFinding]
     distinct_id: str
     judge_user_id: int
@@ -153,7 +159,7 @@ def _touching_diff(file: str, compare_files: list[dict[str, Any]]) -> str:
 
 
 def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str) -> _ReportInputs:
-    """All the blocking IO for one report: auth, compare, comments, and its published findings.
+    """All the blocking IO for one report: auth, compare, comments, reactions, and its published findings.
 
     Returns the findings publishing gated on (validated + at/above the acting user's urgency
     threshold), each paired with its inline comment when one is on the PR. Raises when auth is
@@ -184,7 +190,7 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
     # mirror IssuePriority, coerced through the value like the publish path).
     snapshotted = report.published_urgency_thresholds or {}
     fallback_threshold = (
-        str(ReviewUserSettings.load(team_id, report.acting_user_id).urgency_threshold)
+        ReviewUserSettings.load_preferences(team_id, report.acting_user_id).urgency_threshold.value
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
     )
@@ -239,18 +245,43 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
         for base in [reviewed_head, *extra_bases]
     }
 
+    published_findings = [
+        _PublishedFinding(
+            finding=finding,
+            verdict=verdict,
+            comment=find_finding_comment(finding=finding, review_comments=review_comments),
+            reviewed_head=(base if (base := base_by_run[finding.run_index]) in compares else reviewed_head),
+        )
+        for finding, verdict in to_classify
+    ]
+    reacted_comment_ids = list(
+        dict.fromkeys(
+            pf.comment["id"]
+            for pf in published_findings
+            if pf.comment is not None and (pf.comment.get("reactions") or {}).get("total_count", 0) > 0
+        )
+    )
+    if len(reacted_comment_ids) > OUTCOME_MAX_REACTION_READS_PER_REPORT:
+        logger.warning(
+            "Report %s has %d reacted finding comments; reading the reactions of the first %d, so the rest "
+            "may read as addressed or ignored instead of reacted",
+            report.id,
+            len(reacted_comment_ids),
+            OUTCOME_MAX_REACTION_READS_PER_REPORT,
+        )
+        reacted_comment_ids = reacted_comment_ids[:OUTCOME_MAX_REACTION_READS_PER_REPORT]
+    reactions_by_comment = {
+        comment_id: fetch_comment_reactions(
+            owner=owner, repo=repo, comment_id=comment_id, token=token, installation_id=installation_id
+        )
+        for comment_id in reacted_comment_ids
+    }
+
     return _ReportInputs(
         compares=compares,
         review_comments=review_comments,
-        published=[
-            _PublishedFinding(
-                finding=finding,
-                verdict=verdict,
-                comment=find_finding_comment(finding=finding, review_comments=review_comments),
-                reviewed_head=(base if (base := base_by_run[finding.run_index]) in compares else reviewed_head),
-            )
-            for finding, verdict in to_classify
-        ],
+        reactions_by_comment=reactions_by_comment,
+        published=published_findings,
         distinct_id=_finding_distinct_id(report, repository),
         judge_user_id=report.acting_user_id or 0,
     )
@@ -446,7 +477,15 @@ async def classify_report(
     # judge compete for its budget.
     candidates: list[_PublishedFinding] = []
     for pf in inputs.published:
-        method = engagement_method(comment=pf.comment, review_comments=inputs.review_comments) if pf.comment else None
+        method = (
+            engagement_method(
+                comment=pf.comment,
+                review_comments=inputs.review_comments,
+                reactions=inputs.reactions_by_comment.get(pf.comment["id"], []),
+            )
+            if pf.comment
+            else None
+        )
         if method is not None:
             outcomes.append(_decided(pf, "reacted", method))
         elif touched_near(

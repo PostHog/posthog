@@ -12,19 +12,9 @@ import {
     IconRefresh,
     IconSend,
     IconTrash,
-    IconUpload,
     IconWarning,
 } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonDialog,
-    LemonDivider,
-    LemonFileInput,
-    LemonSnack,
-    LemonTabs,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonDivider, LemonSnack, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
@@ -72,6 +62,7 @@ import { captureMessageAudienceClicked } from 'products/workflows/frontend/Messa
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
+import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import {
     cohortBroadcastDisabledReason,
@@ -301,18 +292,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
-                            onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
-                            disabledReasons={{
-                                'Save the cohort first': isNewCohort,
-                            }}
-                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
-                            tooltip="Start a workflow that emails everyone in this cohort"
-                            menuItem
-                        >
-                            <IconSend /> Message this cohort
-                        </ButtonPrimitive>
-
-                        <ButtonPrimitive
                             onClick={() => {
                                 if (typeof cohort.id !== 'number') {
                                     return
@@ -325,7 +304,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             tooltip="Send a one-time email to everyone in this cohort"
                             menuItem
                         >
-                            <IconLetter /> Send a broadcast
+                            <IconLetter /> Email this cohort
+                        </ButtonPrimitive>
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                captureMessageAudienceClicked('cohort', 'workflow')
+                                router.actions.push(urlForCohortWorkflow(cohort))
+                            }}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Open a workflow for this cohort to add delays, branches, or more steps"
+                            menuItem
+                        >
+                            <IconSend /> Build a custom workflow
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu
@@ -703,26 +697,13 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     <SceneDivider />
                                     <SceneSection
                                         title={isNewCohort ? 'Upload users' : 'Add users'}
-                                        description={
-                                            isNewCohort
-                                                ? `Upload a CSV file to add users to your cohort. For single-column files, include
-                                        one distinct ID per row (all rows will be processed as data). For multi-column
-                                        files, include a header row with a 'person_id', 'distinct_id', or 'email' column
-                                        containing the user identifiers.`
-                                                : undefined
-                                        }
+                                        description={isNewCohort ? COHORT_CSV_HELP : undefined}
                                         className={cn('ph-ignore-input')}
                                     >
                                         {!isNewCohort && (
                                             <div className="flex flex-col gap-y-0 flex-1 justify-center">
                                                 <h3 className="text-sm">Upload a CSV</h3>
-                                                <span className="max-w-prose">
-                                                    Upload a CSV file to add users to your cohort. For single-column
-                                                    files, include one distinct ID per row (all rows will be processed
-                                                    as data). For multi-column files, include a header row with a
-                                                    'person_id', 'distinct_id', or 'email' column containing the user
-                                                    identifiers.
-                                                </span>
+                                                <span className="max-w-prose">{COHORT_CSV_HELP}</span>
                                             </div>
                                         )}
                                         {/* TODO: @adamleithp Allow users to download a template CSV file */}
@@ -730,48 +711,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         {/* TODO: @adamleithp Render the csv file and validate it */}
                                         <LemonField name="csv" data-attr="cohort-csv">
                                             {({ onChange }) => (
-                                                <LemonFileInput
-                                                    accept=".csv"
-                                                    multiple={false}
-                                                    value={cohort.csv ? [cohort.csv] : []}
-                                                    onChange={(files) => onChange(files[0])}
-                                                    showUploadedFiles={false}
-                                                    callToAction={
-                                                        <div
-                                                            className={cn(
-                                                                'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
-                                                                cohort.csv?.name && 'border-success'
-                                                            )}
-                                                        >
-                                                            {cohort.csv ? (
-                                                                <>
-                                                                    <IconUpload
-                                                                        style={{
-                                                                            fontSize: '3rem',
-                                                                            color: 'var(--color-text-primary)',
-                                                                        }}
-                                                                    />
-                                                                    <div>{cohort.csv?.name ?? 'File chosen'}</div>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <IconUpload
-                                                                        style={{
-                                                                            fontSize: '3rem',
-                                                                            color: 'var(--color-text-primary)',
-                                                                        }}
-                                                                    />
-                                                                    <div>
-                                                                        Drag a file here or click to browse for a file
-                                                                    </div>
-                                                                    <div className="text-secondary text-xs">
-                                                                        Accepts .csv files only
-                                                                    </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    }
+                                                <CohortCsvDropzone
+                                                    value={cohort.csv ?? null}
+                                                    onChange={(file) => onChange(file ?? undefined)}
                                                 />
                                             )}
                                         </LemonField>

@@ -14,7 +14,7 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
+import { ExternalDataSource, HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -53,6 +53,31 @@ export function getEnabledNativeMarketingSources(
         }
         return true
     })
+}
+
+export function getEnabledNativeMarketingSourcesInDisplayOrder(
+    featureFlags: Partial<Record<FeatureFlagKey, boolean | string>>
+): readonly NativeMarketingSource[] {
+    const sourceOrder: NativeMarketingSource[] = [
+        'GoogleAds',
+        'MetaAds',
+        'BingAds',
+        'LinkedinAds',
+        'TikTokAds',
+        'RedditAds',
+        'PinterestAds',
+        'SnapchatAds',
+        'OpenAIAds',
+        'AppleSearchAds',
+        'AmazonAds',
+        'RoktAds',
+        'TwitterAds',
+    ]
+    return [...getEnabledNativeMarketingSources(featureFlags)].sort(
+        (left, right) =>
+            (sourceOrder.includes(left) ? sourceOrder.indexOf(left) : sourceOrder.length) -
+            (sourceOrder.includes(right) ? sourceOrder.indexOf(right) : sourceOrder.length)
+    )
 }
 
 export const MAX_ITEMS_TO_SHOW = 3
@@ -1052,4 +1077,36 @@ export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
         integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [],
         ...(typeof includeNonIntegrated === 'boolean' ? { includeNonIntegrated } : {}),
     }
+}
+
+export function nativeSourceConnectionStatus(source: ExternalDataSource): {
+    status: 'Connected' | 'Syncing' | 'Needs attention'
+    detail: string
+} {
+    const fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+    if (!fields) {
+        return { status: 'Needs attention', detail: 'Open setup to check this connection.' }
+    }
+    const schemas = fields.map((field) => findSchemaByFieldName(source.schemas, field, source.source_type))
+    if (!schemas.every((schema) => schema?.should_sync)) {
+        return { status: 'Needs attention', detail: 'Open setup to enable the required tables for this connection.' }
+    }
+    if (['Billing limits', 'Billing limit too low'].includes(source.status)) {
+        return {
+            status: 'Needs attention',
+            detail: 'The import reached a billing limit. Open setup to review the limit.',
+        }
+    }
+    if (schemas.some((schema) => ['Paused', 'Cancelled'].includes(schema?.status ?? ''))) {
+        return { status: 'Needs attention', detail: 'The import is paused or canceled. Open setup to resume it.' }
+    }
+    if (source.status === 'Failed' || schemas.some((schema) => schema?.status === 'Failed')) {
+        return { status: 'Needs attention', detail: 'The import failed. Open setup to check this connection.' }
+    }
+    if (schemas.every((schema) => schema?.last_synced_at)) {
+        return { status: 'Connected', detail: 'Spend data is ready.' }
+    }
+    return source.status === 'Running'
+        ? { status: 'Syncing', detail: 'Your first import is running. Spend data will appear when it finishes.' }
+        : { status: 'Connected', detail: 'Waiting for the first sync to finish.' }
 }

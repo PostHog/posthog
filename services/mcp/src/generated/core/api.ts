@@ -2761,6 +2761,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5473,6 +5479,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
                     ),
             })
             .optional(),

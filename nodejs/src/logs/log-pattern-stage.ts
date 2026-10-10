@@ -3,7 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { MASK_RULES, MESSAGE_KEYS, PATTERN_VERSION, buildLogPattern, zeroRuleFires } from './log-pattern-mask'
 import type { LogRecord } from './log-record-avro'
-import type { PipelineStage } from './pipeline/log-processing-pipeline'
+import type { MutateStage } from './pipeline/log-processing-pipeline'
 
 export const logsPatternBodyKindCounter = new Counter({
     name: 'logs_ingestion_pattern_body_kind_total',
@@ -51,7 +51,7 @@ export const logsPatternStageErrorCounter = new Counter({
     help: 'Batches where the pattern masking stage threw. The records survive. Any record the throw came before keeps its stamp, and the rest stay unstamped, which reads as version 0.',
 })
 
-export function makePatternMaskingStage(): PipelineStage {
+export function makePatternMaskingStage(): MutateStage {
     return {
         kind: 'mutate',
         name: 'pattern_masking',

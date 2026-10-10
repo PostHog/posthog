@@ -115,6 +115,27 @@ tools:
             short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
             pass the conversion_goal_id of the goal you want.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-setup-plan:
+        operation: marketing_analytics_setup_plan_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Suggest marketing sources and setup improvements
+        description: >
+            Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which
+            data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify
+            missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a optional
+            deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account
+            on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals.
+            This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned
+            connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If
+            degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as
+            approximate. Requires a project with the Marketing analytics setup plan enabled.
+        feature_flag: marketing-analytics-setup-plan-mcp
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true

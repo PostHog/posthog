@@ -679,6 +679,11 @@
         "params": [],
         "scope": "project"
     },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
+        "scope": "project"
+    },
     "engineeringAnalyticsDeploys": {
         "template": "/engineering-analytics/deploys",
         "params": [],
@@ -1477,6 +1482,11 @@
     "replayVisionScannerTriggers": {
         "template": "/replay-vision/{id}/triggers",
         "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionTab": {
+        "template": "/replay-vision",
+        "params": [],
         "scope": "project"
     },
     "replayVisionTemplates": {

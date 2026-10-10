@@ -12,9 +12,9 @@ import operator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any
+from typing import Any, Final, Literal
 
-from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
+from django.db.models import Case, CharField, Func, IntegerField, JSONField, Max, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -25,9 +25,11 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
+    RUN_OUTCOME_NOTE_AUTHOR,
     PerspectiveSelectionArtefact,
     ResolutionRunArtefact,
     ReviewIssueFinding,
+    RunOutcomeNote,
     ValidationVerdict,
 )
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
@@ -38,6 +40,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,7 @@ IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
 RESOLUTION_RESOLVING = "resolving"
 RESOLUTION_STOPPED = "stopped"
+RESOLUTION_COMPLETED = "completed"
 # The `author` the resolution stage stamps on its closing run `note` — the completion marker the
 # state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
 # can't drift apart.
@@ -253,6 +257,127 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
 
 
 @frozen
+class TurnMarker:
+    """The mode and head of one executed turn, from its `turn_marker` artefact."""
+
+    review_mode: str
+    head_sha: str | None
+    # When the marker row was written, which is just before the turn's review sessions start.
+    started_at: datetime
+
+
+def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
+    """Each turn's marker, keyed by (report id, run index). The newest row of a retried turn wins.
+
+    Turns that started before markers existed, or whose marker write failed, are absent.
+    """
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(
+            marker_run_index=KeyTextTransform("run_index", _content_json()),
+            marker_review_mode=KeyTextTransform("review_mode", _content_json()),
+        )
+        .order_by("created_at", "id")
+        .values("report_id", "head_sha", "marker_run_index", "marker_review_mode", "created_at")
+    )
+    markers: dict[tuple[str, int], TurnMarker] = {}
+    for row in rows:
+        if row["marker_run_index"] is None or row["marker_review_mode"] is None:
+            continue
+        markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
+            review_mode=row["marker_review_mode"], head_sha=row["head_sha"], started_at=row["created_at"]
+        )
+    return markers
+
+
+RUN_STAGE_REVIEW: Final = "review"
+RUN_STAGE_RESOLUTION: Final = "resolution"
+RUN_OUTCOME_SKIPPED: Final = "skipped"
+RUN_OUTCOME_FAILED: Final = "failed"
+REVIEW_FAILED_REASON = "review_failed"
+
+
+@frozen
+class RunOutcomeMarker:
+    """A review turn or resolution run that ended without a result, from its run outcome `note`."""
+
+    stage: str  # RUN_STAGE_REVIEW | RUN_STAGE_RESOLUTION
+    outcome: str  # RUN_OUTCOME_SKIPPED | RUN_OUTCOME_FAILED
+    reason: str
+    run_index: int | None
+    review_mode: str | None
+    head_sha: str | None
+    created_at: datetime
+
+
+def record_run_outcome(
+    team_id: int,
+    report_id: str,
+    *,
+    stage: Literal["review", "resolution"],
+    outcome: Literal["skipped", "failed"],
+    reason: str,
+    run_index: int | None = None,
+    review_mode: str | None = None,
+    head_sha: str | None = None,
+) -> None:
+    """Append a run outcome `note`. Best-effort, because a status record must never fail the run it describes."""
+    run_label = f"Review turn {run_index}" if stage == RUN_STAGE_REVIEW and run_index else f"The {stage} run"
+    try:
+        ReviewReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=RunOutcomeNote(
+                note=f"{run_label} {outcome} ({reason}).",
+                stage=stage,
+                outcome=outcome,
+                reason=reason,
+                run_index=run_index,
+                review_mode=review_mode,
+                head_sha=head_sha,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception("Could not record the %s %s outcome for report %s", stage, outcome, report_id)
+
+
+def run_outcome_markers(
+    team_id: int, report_ids: list[str], since: datetime | None = None
+) -> dict[str, list[RunOutcomeMarker]]:
+    """Each report's run outcome notes written at or after `since`, oldest first."""
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.NOTE)
+        .annotate(note_author=KeyTextTransform("author", _content_json()))
+        .filter(note_author=RUN_OUTCOME_NOTE_AUTHOR)
+    )
+    if since is not None:
+        rows = rows.filter(created_at__gte=since)
+    markers: dict[str, list[RunOutcomeMarker]] = {report_id: [] for report_id in report_ids}
+    for row in rows.order_by("created_at", "id").values("report_id", "content", "created_at"):
+        report_id = str(row["report_id"])
+        try:
+            note = RunOutcomeNote.model_validate_json(row["content"])
+        except ValidationError as e:
+            logger.warning("Skipping unparseable run outcome note for report %s: %s", report_id, e)
+            continue
+        markers.setdefault(report_id, []).append(
+            RunOutcomeMarker(
+                stage=note.stage,
+                outcome=note.outcome,
+                reason=note.reason,
+                run_index=note.run_index,
+                review_mode=note.review_mode,
+                head_sha=note.head_sha,
+                created_at=row["created_at"],
+            )
+        )
+    return markers
+
+
+@frozen
 class ResolutionRunState:
     """The report's latest resolution run, as the list row and the drawer render it."""
 
@@ -261,6 +386,60 @@ class ResolutionRunState:
     total: int = 0
     fixed: int = 0
     needs_attention: int = 0
+
+
+@frozen
+class ResolutionSummary:
+    """The report's latest resolution run, completed runs included, as an API reader reports it."""
+
+    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED | RESOLUTION_COMPLETED
+    started_at: datetime
+    completed_at: datetime | None
+    total: int
+    fixed: int
+    needs_attention: int
+    commits: tuple[str, ...]
+
+
+@frozen
+class _ThreadVerdictRow:
+    outcome: str
+    reply_posted: bool
+    # Only a fix commit the public reply links to: verified on the PR branch and not touching restricted paths.
+    linked_commit_sha: str | None
+
+
+@frozen
+class _RunSignals:
+    """Per report, the newest `pr_snapshot`, closing run `note`, and turn-written artefact."""
+
+    snapshot_latest: dict[str, datetime]
+    note_latest: dict[str, datetime]
+    activity_latest: dict[str, datetime]
+
+
+def _activity_artefacts(queryset: QuerySet) -> QuerySet:
+    """Artefacts that show a run is moving, for the staleness window.
+
+    `finding_outcome` rows come from the outcome sweep after the PR merges, and run outcome notes
+    record that a run already ended. Neither one is a running turn, so counting them would show a
+    dead run as live for another staleness window.
+    """
+    note_author = Case(
+        When(
+            type=ReviewReportArtefact.ArtefactType.NOTE,
+            then=KeyTextTransform("author", _content_json()),
+        ),
+        default=Value(None),
+        output_field=CharField(),
+    )
+    # The author is NULL on every non-note row. A plain `.exclude()` on an annotation compiles to
+    # `NOT (author = x)`, which is NULL for those rows and drops them, so keep NULL authors explicitly.
+    return (
+        queryset.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        .annotate(activity_note_author=note_author)
+        .filter(Q(activity_note_author__isnull=True) | ~Q(activity_note_author=RUN_OUTCOME_NOTE_AUTHOR))
+    )
 
 
 def _latest_created_at(queryset: QuerySet) -> dict[str, datetime]:
@@ -295,6 +474,34 @@ def _load_resolution_runs(
     return runs
 
 
+def _run_signals(team_id: int, report_ids: list[str]) -> _RunSignals:
+    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=report_ids)
+    return _RunSignals(
+        snapshot_latest=_latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT)),
+        note_latest=_latest_created_at(
+            scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
+            .annotate(note_author=KeyTextTransform("author", _content_json()))
+            .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
+        ),
+        activity_latest=_latest_created_at(_activity_artefacts(scoped)),
+    )
+
+
+def _superseded(signals: _RunSignals, report_id: str, started_at: datetime) -> bool:
+    snapshot_at = signals.snapshot_latest.get(report_id)
+    return snapshot_at is not None and snapshot_at > started_at
+
+
+def _closed_at(signals: _RunSignals, report_id: str, started_at: datetime) -> datetime | None:
+    note_at = signals.note_latest.get(report_id)
+    return note_at if note_at is not None and note_at >= started_at else None
+
+
+def _is_fresh(report: ReviewReport, latest_artefact_at: datetime | None) -> bool:
+    last_activity = max(filter(None, [report.updated_at, latest_artefact_at]), default=None)
+    return last_activity is not None and last_activity >= timezone.now() - IN_PROGRESS_STALE_AFTER
+
+
 def _live_resolution_runs(
     team_id: int, runs: dict[str, tuple[ResolutionRunArtefact, datetime]]
 ) -> tuple[dict[str, tuple[ResolutionRunArtefact, datetime]], dict[str, datetime]]:
@@ -302,36 +509,26 @@ def _live_resolution_runs(
 
     A run drops out when a newer review turn superseded it (a `pr_snapshot` after the run anchor) or
     it completed (a closing run `note` after the anchor). Activity liveness reuses the same signal
-    `_in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
+    `in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
     """
-    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=list(runs))
-    snapshot_latest = _latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
-    note_latest = _latest_created_at(
-        scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
-        .annotate(note_author=KeyTextTransform("author", _content_json()))
-        .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
-    )
-    activity_latest = _latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
-
+    signals = _run_signals(team_id, list(runs))
     live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
     for report_id, (run, started_at) in runs.items():
-        superseded = snapshot_latest.get(report_id) is not None and snapshot_latest[report_id] > started_at
-        completed = note_latest.get(report_id) is not None and note_latest[report_id] >= started_at
-        if not superseded and not completed:
+        if not _superseded(signals, report_id, started_at) and _closed_at(signals, report_id, started_at) is None:
             live[report_id] = (run, started_at)
-    return live, activity_latest
+    return live, signals.activity_latest
 
 
 def _thread_verdicts(
     team_id: int, live: dict[str, tuple[ResolutionRunArtefact, datetime]]
-) -> dict[str, dict[str, tuple[str, bool]]]:
+) -> dict[str, dict[str, _ThreadVerdictRow]]:
     """Latest verdict per thread within each live run (rows come oldest-first, so later rows win).
 
     Scoped to the run's own queued threads, because redelivering a prior run's verdict also appends
     rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread whose
     GitHub writes failed has no reply yet, so it must not read as settled.
     """
-    verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
+    verdicts: dict[str, dict[str, _ThreadVerdictRow]] = {report_id: {} for report_id in live}
     verdict_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(
@@ -343,18 +540,32 @@ def _thread_verdicts(
             thread_id=KeyTextTransform("thread_id", _content_json()),
             outcome=KeyTextTransform("outcome", _content_json()),
             reply_posted=KeyTextTransform("reply_posted", _content_json()),
+            commit_sha=KeyTextTransform("commit_sha", _content_json()),
+            commit_verified=KeyTextTransform("commit_verified", _content_json()),
+            commit_restricted=KeyTextTransform("commit_restricted", _content_json()),
         )
         .order_by("created_at", "id")
-        .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
+        .values(
+            "report_id",
+            "thread_id",
+            "outcome",
+            "reply_posted",
+            "commit_sha",
+            "commit_verified",
+            "commit_restricted",
+            "created_at",
+        )
     )
     for verdict_row in verdict_rows:
         report_id = str(verdict_row["report_id"])
         run, started_at = live[report_id]
         if verdict_row["created_at"] < started_at or verdict_row["thread_id"] not in run.thread_ids:
             continue
-        verdicts[report_id][verdict_row["thread_id"]] = (
-            verdict_row["outcome"],
-            verdict_row["reply_posted"] == "true",
+        linked = verdict_row["commit_verified"] == "true" and verdict_row["commit_restricted"] != "true"
+        verdicts[report_id][verdict_row["thread_id"]] = _ThreadVerdictRow(
+            outcome=verdict_row["outcome"],
+            reply_posted=verdict_row["reply_posted"] == "true",
+            linked_commit_sha=verdict_row["commit_sha"] if linked else None,
         )
     return verdicts
 
@@ -381,14 +592,11 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
 
     verdicts = _thread_verdicts(team_id, live)
 
-    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}
     states: dict[str, ResolutionRunState] = {}
     for report_id, (run, _started_at) in live.items():
-        report = reports_by_id[report_id]
-        last_activity = max(filter(None, [report.updated_at, activity_latest.get(report_id)]), default=None)
-        fresh = last_activity is not None and last_activity >= cutoff
-        delivered = [outcome for outcome, reply_posted in verdicts[report_id].values() if reply_posted]
+        fresh = _is_fresh(reports_by_id[report_id], activity_latest.get(report_id))
+        delivered = [verdict.outcome for verdict in verdicts[report_id].values() if verdict.reply_posted]
         states[report_id] = ResolutionRunState(
             status=RESOLUTION_RESOLVING if fresh else RESOLUTION_STOPPED,
             done=len(delivered),
@@ -397,6 +605,77 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
             needs_attention=sum(1 for outcome in delivered if outcome == "escalate"),
         )
     return states
+
+
+def latest_resolution_summaries(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionSummary]:
+    """Each report's latest resolution run, completed runs included, with its outcome counts and fix commits.
+
+    A sibling of `resolution_states`, which drops completed and superseded runs because the list row
+    only shows a run while it matters for progress. A run that a newer review turn superseded
+    without its closing note reads as stopped.
+    """
+    runs = _load_resolution_runs(team_id, reports)
+    if not runs:
+        return {}
+    signals = _run_signals(team_id, list(runs))
+    verdicts = _thread_verdicts(team_id, runs)
+    reports_by_id = {str(report.id): report for report in reports}
+    summaries: dict[str, ResolutionSummary] = {}
+    for report_id, (run, started_at) in runs.items():
+        completed_at = _closed_at(signals, report_id, started_at)
+        if completed_at is not None:
+            status = RESOLUTION_COMPLETED
+        elif not _superseded(signals, report_id, started_at) and _is_fresh(
+            reports_by_id[report_id], signals.activity_latest.get(report_id)
+        ):
+            status = RESOLUTION_RESOLVING
+        else:
+            status = RESOLUTION_STOPPED
+        delivered = [verdict for verdict in verdicts[report_id].values() if verdict.reply_posted]
+        fixed = [verdict for verdict in delivered if verdict.outcome == "fixed"]
+        summaries[report_id] = ResolutionSummary(
+            status=status,
+            started_at=started_at,
+            completed_at=completed_at,
+            total=run.total,
+            fixed=len(fixed),
+            needs_attention=sum(1 for verdict in delivered if verdict.outcome == "escalate"),
+            commits=tuple(dict.fromkeys(v.linked_commit_sha for v in fixed if v.linked_commit_sha)),
+        )
+    return summaries
+
+
+def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
+
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
+    a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
+    """
+    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
+    if not candidates:
+        return set()
+    latest_artefact = dict(
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=[report.id for report in candidates])
+        )
+        .values_list("report_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("report_id", "latest")
+    )
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh: set[str] = set()
+    for report in candidates:
+        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
+        if last_activity is not None and last_activity >= cutoff:
+            fresh.add(str(report.id))
+    return fresh
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
@@ -423,7 +702,7 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
     return chunk_count * (perspectives + 1)
 
 
-def _in_publish_window(report: ReviewReport) -> bool:
+def in_publish_window(report: ReviewReport) -> bool:
     """Whether the turn finished but has not published yet.
 
     On publishing runs finalize defers the idle write to the publish stage, so the report is still
@@ -469,7 +748,7 @@ def progress_payload(
     A single-agent turn gets its own stages once its fetch has recorded the design.
     """
     if snapshot.head_matched and snapshot.review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return _single_agent_progress(turn, current_pairs, _in_publish_window(report))
+        return _single_agent_progress(turn, current_pairs, in_publish_window(report))
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
         if judged >= len(current_pairs):
@@ -479,7 +758,7 @@ def progress_payload(
     # "deduplicating". Relabeling a resolution run's ACTIVE window properly is its own change.
     # Trade-off: an unpublished same-head re-run reads "finalizing" until dedup persists its first
     # findings, a brief stretch because such a turn resumes its chunk and perspective state.
-    if _in_publish_window(report):
+    if in_publish_window(report):
         return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
