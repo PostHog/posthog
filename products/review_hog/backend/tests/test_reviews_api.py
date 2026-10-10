@@ -12,7 +12,6 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.api.reviews import IN_PROGRESS_STALE_AFTER
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     FindingOutcomeArtefact,
@@ -36,7 +35,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_perspective_selection,
     persist_pr_snapshot,
 )
-from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.progress import IN_PROGRESS_STALE_AFTER, RESOLUTION_RUN_NOTE_AUTHOR
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution

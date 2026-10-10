@@ -483,7 +483,7 @@ def _live_resolution_runs(
 
     A run drops out when a newer review turn superseded it (a `pr_snapshot` after the run anchor) or
     it completed (a closing run `note` after the anchor). Activity liveness reuses the same signal
-    `_in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
+    `in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
     """
     signals = _run_signals(team_id, list(runs))
     live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
@@ -617,6 +617,39 @@ def latest_resolution_summaries(team_id: int, reports: list[ReviewReport]) -> di
             commits=tuple(dict.fromkeys(v.linked_commit_sha for v in fixed if v.linked_commit_sha)),
         )
     return summaries
+
+
+def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
+
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
+    a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
+    """
+    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
+    if not candidates:
+        return set()
+    latest_artefact = dict(
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=[report.id for report in candidates])
+        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        .values_list("report_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("report_id", "latest")
+    )
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh: set[str] = set()
+    for report in candidates:
+        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
+        if last_activity is not None and last_activity >= cutoff:
+            fresh.add(str(report.id))
+    return fresh
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
