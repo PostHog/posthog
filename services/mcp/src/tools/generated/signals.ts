@@ -852,6 +852,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
@@ -1055,6 +1058,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
         }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
@@ -1963,6 +1969,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
@@ -2137,6 +2146,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
         }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools

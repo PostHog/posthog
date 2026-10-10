@@ -3075,6 +3075,17 @@ class StructuredOutputSchemaField(serializers.JSONField):
     it's a schema-about-data, so its own shape is only bounded by JSON Schema itself."""
 
 
+_LIFECYCLE_LOCKED_HELP = (
+    "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access "
+    "may pause, resume, switch the scout to dry run, or delete it. On, only the person the "
+    "scout's runs act as or a project admin may do any of those, or change this flag. Use it on "
+    "a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by "
+    "people and by unattended agents alike, and a resume has to pass the project's enabled-scout "
+    "maximum that a pause does not, so a bulk pause is not undone in one step. The lock never "
+    "stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker."
+)
+
+
 _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces "
     "via `scout-record-output` — e.g. a per-report quality judgment "
@@ -3607,6 +3618,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     # `readonly string[]`, which a client cannot hand straight back to the patch call.
     repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field(read_only=True)
+    lifecycle_locked = serializers.BooleanField(read_only=True, help_text=_LIFECYCLE_LOCKED_HELP)
     allowed_mcp_tools = _allowed_mcp_tools_field(read_only=True)
     tool_preset = serializers.CharField(
         read_only=True,
@@ -3685,6 +3697,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "lifecycle_locked",
             "allowed_mcp_tools",
             "tool_preset",
             "precheck_query",
@@ -3770,6 +3783,7 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
     repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field()
+    lifecycle_locked = serializers.BooleanField(required=False, help_text=_LIFECYCLE_LOCKED_HELP)
     allowed_mcp_tools = _allowed_mcp_tools_field()
     tool_preset = serializers.ChoiceField(
         choices=ToolPreset.choices,
@@ -4025,6 +4039,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "write_scopes",
             "precheck_query",
             "suggestion_id",
+            "lifecycle_locked",
             "allowed_mcp_tools",
             "tool_preset",
         ]

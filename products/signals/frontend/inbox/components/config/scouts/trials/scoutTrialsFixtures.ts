@@ -41,6 +41,7 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     write_scopes: [],
     allowed_mcp_tools: null,
     tool_preset: null,
+    lifecycle_locked: false,
     source_product: null,
     source_id: null,
     created_at: '2026-01-01T09:00:00Z',
