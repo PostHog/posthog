@@ -3,6 +3,7 @@ import uuid
 from typing import Any, Literal
 
 from django.core.cache import cache
+from django.db.models import F
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -16,7 +17,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import EventDefinition, Team, User
 from posthog.models.integration import Integration
@@ -113,7 +116,13 @@ def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> Da
 
     try:
         result = _suggest(team=team, user=user)
-    except StageClassificationFailed:
+    except (
+        StageClassificationFailed,
+        InternalCHQueryError,
+        ClickHouseQueryTimeOut,
+        ClickHouseAtCapacity,
+        ClickHouseQueryMemoryLimitExceeded,
+    ):
         result = DataSuggestionsResult(status="unavailable", suggestions=())
     # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
     if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
@@ -278,7 +287,7 @@ def _recent_event_names(team: Team, *, exclude: set[str]) -> list[str]:
     return [
         name
         for name in EventDefinition.objects.filter(team_id=team.id)
-        .order_by("-last_seen_at")
+        .order_by(F("last_seen_at").desc(nulls_last=True))
         .values_list("name", flat=True)[:_EVENT_DEFINITIONS_LIMIT]
         if name not in exclude and (not name.startswith("$") or name in _ALLOWED_POSTHOG_EVENTS)
     ]
@@ -291,6 +300,16 @@ def _weekly_counts(team: Team, *, exclude: set[str]) -> dict[str, int]:
     # Small teams get exact counts, since a quiet event could vanish from a sample. Large teams only need the
     # ranking, so a sample keeps the scan at about the size of a small team's.
     sample_denominator = max(1, math.ceil(_estimated_weekly_events(team) / _FULL_SCAN_MAX_WEEKLY_EVENTS))
+    counts = _count_events(team, names, sample_denominator)
+    missing = [name for name in names if name not in counts]
+    if sample_denominator > 1 and missing:
+        # A sample can miss a quiet event, like a weekly sign-up, entirely. The events table is sorted by event name
+        # within a day, so an exact count of only the missing events reads few rows.
+        counts.update(_count_events(team, missing, 1))
+    return counts
+
+
+def _count_events(team: Team, names: list[str], sample_denominator: int) -> dict[str, int]:
     query = parse_select(
         """
         SELECT event, count() AS weekly_count

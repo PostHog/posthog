@@ -2,12 +2,16 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition
 
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
@@ -20,7 +24,8 @@ from products.workflows.backend.services.data_suggestions.stages import StageCla
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
-FLAG = "products.workflows.backend.presentation.views.workflow_data_suggestions.posthoganalytics.feature_enabled"
+VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
+FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
 
 def _idea(trigger_event: str, stage: LifecycleStage = "trial") -> WorkflowIdea:
@@ -183,8 +188,86 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:
         counts = _weekly_counts(self.team, exclude=set())
 
-        assert counts
-        assert all(count % 2 == 0 for count in counts.values())
+        assert counts["query executed"] % 2 == 0
+
+    @patch(f"{SERVICE}._estimated_weekly_events", return_value=10**9 * _FULL_SCAN_MAX_WEEKLY_EVENTS)
+    def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock, _flag) -> None:
+        assert _weekly_counts(self.team, exclude=set()) == {
+            "trial_started": 3,
+            "signed_up": 2,
+            "user_registered": 3,
+            "query executed": 30,
+        }
+
+    @patch(f"{SERVICE}._EVENT_DEFINITIONS_LIMIT", 2)
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_recently_seen_events_win_over_definitions_never_seen(self, suggest_ideas: MagicMock, _flag) -> None:
+        EventDefinition.objects.filter(team=self.team, name__in=["trial_started", "user_registered"]).update(
+            last_seen_at=timezone.now()
+        )
+
+        self._list()
+
+        assert dict(suggest_ideas.call_args.kwargs["context"].events) == {"trial_started": 3, "user_registered": 3}
+
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock, _flag) -> None:
+        HogFlow.objects.create(
+            team=self.team,
+            name="Existing trial flow",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "trial_started", "type": "events"}]}},
+            actions=[],
+        )
+
+        self._list()
+
+        assert "trial_started" not in dict(suggest_ideas.call_args.kwargs["context"].events)
+
+    @parameterized.expand(
+        [
+            ("query timeout", ClickHouseQueryTimeOut()),
+            ("query error", InternalCHQueryError("boom")),
+        ]
+    )
+    @patch(f"{SERVICE}.execute_hogql_query")
+    def test_a_failed_count_query_shows_nothing_and_is_not_retried_on_every_visit(
+        self, _name: str, error: Exception, execute: MagicMock, _flag
+    ) -> None:
+        execute.side_effect = error
+
+        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert execute.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("plain read", "get", {}, 200),
+            ("refresh", "get", {"refresh": "true"}, 429),
+            ("build", "post", {"suggestion_id": "missing"}, 429),
+        ]
+    )
+    @patch(f"{VIEW}.AIBurstRateThrottle.wait", return_value=None)
+    @patch(f"{VIEW}.AIBurstRateThrottle.allow_request", return_value=False)
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_only_calls_that_can_run_an_llm_are_throttled(
+        self,
+        _name: str,
+        method: str,
+        params: dict,
+        status: int,
+        _suggest_ideas: MagicMock,
+        _allow: MagicMock,
+        _wait: MagicMock,
+        _flag,
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/"
+        if method == "get":
+            response = self.client.get(f"{url}current/", params)
+        else:
+            response = self.client.post(f"{url}build/", params, format="json")
+
+        assert response.status_code == status
 
     @parameterized.expand(
         [
@@ -271,6 +354,38 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
+
+    @parameterized.expand(
+        [
+            ("planner returns nothing", True, 422, 1),
+            ("ai consent withdrawn after the cards were cached", False, 404, 0),
+        ]
+    )
+    @patch(f"{SERVICE}.plan_steps", return_value=None)
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_build_fails_without_a_server_error(
+        self,
+        _name: str,
+        approved: bool,
+        status: int,
+        planner_calls: int,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        _flag,
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": suggestion_id},
+            format="json",
+        )
+
+        assert response.status_code == status
+        assert plan_steps.call_count == planner_calls
 
     def test_build_with_an_unknown_suggestion_is_not_found(self, _flag) -> None:
         response = self.client.post(

@@ -14,7 +14,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
 )
 
 # Liquid and Hog tags in model-written copy would render against the recipient's person data.
-_TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
 

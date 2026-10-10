@@ -100,8 +100,11 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["build"]
 
     def get_throttles(self):
-        # Both verbs can make an LLM call, and the default throttles exempt session requests.
-        return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        # The AI budget is per user and shared with other AI features. A plain read runs the LLM at most once per
+        # team per cache period, so only a build or a refresh counts against it.
+        if self.action == "build" or self.request.query_params.get("refresh") in ("true", "1"):
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     @extend_schema(
         operation_id="workflow_data_suggestions_current",

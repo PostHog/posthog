@@ -211,14 +211,28 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_1_delay", "action_2_email", "continue", None),
         ]
 
-    def test_build_workflow_strips_template_tags_from_model_copy(self) -> None:
-        built = build_workflow(
-            IDEA, plan(step(email_paragraphs=["Hi {{ person.properties.secret }} there {% if x %}"])), context()
-        )
+    @parameterized.expand(
+        [
+            (
+                "liquid in an email",
+                step(email_paragraphs=["Hi {{ person.properties.secret }} there {% if x %}"]),
+                lambda inputs: inputs["email"]["value"]["html"],
+            ),
+            (
+                "hog in a slack message",
+                step("ping", type="slack", slack_message="New sign-up {person.properties.secret} here"),
+                lambda inputs: inputs["text"]["value"],
+            ),
+        ]
+    )
+    def test_build_workflow_strips_template_tags_from_model_copy(
+        self, _name: str, planned: PlannedStep, copy_of: Any
+    ) -> None:
+        built = build_workflow(IDEA, plan(planned), context())
         assert built is not None
-        html = built.workflow["actions"][1]["config"]["inputs"]["email"]["value"]["html"]
-        assert "person.properties.secret" not in html
-        assert "{%" not in html
+        copy = copy_of(built.workflow["actions"][1]["config"]["inputs"])
+        assert "person.properties.secret" not in copy
+        assert "{%" not in copy
 
     def test_build_workflow_starts_model_copy_with_a_capital(self) -> None:
         built = build_workflow(IDEA.model_copy(update={"name": "welcome new trial users"}), plan(step()), context())
