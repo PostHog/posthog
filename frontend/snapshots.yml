@@ -2708,10 +2708,6 @@ snapshots:
         hash: v1.k794b7964.6c97e24bbf0c777704806b00a7424e7ecda891197f5371c852f05e563387fa81.MFgng_JIgopDqoKquLU9ki13D_ks65yzsiF-CgG3gB4
     customer-analytics-account-views-session-replays--error--light:
         hash: v1.k794b7964.d8ca1a70dd8dda763e6afc024bf19f46b0d4eb1f338a20ef13f701cba0756533.O-YUl8OvNknCFPhXtYs7rPDqSu0No0LYvkQFm0D7Mc0
-    customer-analytics-account-views-session-replays--loading--dark:
-        hash: v1.k794b7964.e81523805afa09476dffb79c9751488da2eb71d8f4b1b9e8e55c41778b0ffa59.jn2yLM6-LK9qW6aXUqjuK9T2oQzaNrU5QT_P6c_qxOM
-    customer-analytics-account-views-session-replays--loading--light:
-        hash: v1.k794b7964.310f75db8eef88aa07b3f320d2b6849f16783e1cae5af5b5ab61e260bea87be9.Bgp5CG2xRkpZbuUnmiFIRcYH-d2H817rNCyuxqeM-ZY
     customer-analytics-account-views-session-replays--narrow--dark:
         hash: v1.k794b7964.353e509e28487bcdeda7f0462f793c1087b4ed3a152115b62772bfa2d91438d3.FwD_ls_e3uXDXQq97-l-aXHI7qKk8EJJEF8whls_VHk
     customer-analytics-account-views-session-replays--narrow--light:
@@ -11932,14 +11928,14 @@ snapshots:
         hash: v1.k794b7964.78c398feb22adb44344fad6c155ad42ecdbd9d77d80e4e0a60227b4a32abf14f.wmWI9S-nFvoZ5tNpxol33U3eINboLyZM9cggyHqv8hU
     scenes-app-insights-error-empty-states--validation-error--light:
         hash: v1.k794b7964.2b012576da17dc343cba68c671217dcfb23f907543fd897d65e42e8793f31958.gL9lf9tk2rIHPSZBxNHmPitiTqUvCG08VR3K9hK7xMo
-    scenes-app-insights-flag-calls-retention-notice--default--dark:
-        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
-    scenes-app-insights-flag-calls-retention-notice--default--light:
-        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--dark:
         hash: v1.k794b7964.3d946f71319ec412299b8888e9a3fed48a7098bcf0e92cda25f6f34a43071a3f.PbH5UAwbwGY8tveYtVSlUz6TeywtNh7otO1PSPZi9vw
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--light:
         hash: v1.k794b7964.c1bca29126f3f201df46989d83af5e777ad42f21aba60febca75e2ded1a00d6e.WHUf4o3J7Uo7jwnFaGNXQgqa9jMdohuIOo1eSFbW9a4
+    scenes-app-insights-flag-calls-retention-notice--default--dark:
+        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
+    scenes-app-insights-flag-calls-retention-notice--default--light:
+        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.f190c463ee799e93ea5d408200712776460a5a9a920977e2b7a85348350fa43b.dcN7n63RW9QEXstFsPgnAaKodbV6piSN7PMhBuHkaGc
     scenes-app-insights-insight-quick-start--default--light:
