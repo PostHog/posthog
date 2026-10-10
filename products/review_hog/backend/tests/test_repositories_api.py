@@ -103,12 +103,12 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("environment_only", False, (403, 403)),
-            ("environment_and_parent", True, (200, 200)),
+            ("environment_only", False, (403, 403, 403)),
+            ("environment_and_parent", True, (200, 200, 200)),
         ]
     )
     def test_a_project_scoped_key_needs_the_parent_project(
-        self, _name: str, include_parent: bool, expected: tuple[int, int]
+        self, _name: str, include_parent: bool, expected: tuple[int, int, int]
     ) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
         value = generate_random_token_personal()
@@ -124,8 +124,9 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
         read = self.client.get(self._url("repositories/", environment))
         write = self.client.post(self._url("repositories/", environment), {**WEB, "selected": True})
+        reviews = self.client.get(self._url("reviews/", environment))
 
-        assert (read.status_code, write.status_code) == expected
+        assert (read.status_code, write.status_code, reviews.status_code) == expected
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(

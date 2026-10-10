@@ -11,6 +11,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.requested_reviews import (
@@ -539,6 +540,19 @@ def _review_payload(
     }
 
 
+class EffectiveTeamScopedKeyPermission(BasePermission):
+    """Reviews live on the root project, and the API scope check covers only the URL project.
+
+    So a key scoped to an environment must not reach its parent project through an environment URL.
+    """
+
+    message = "This key is not scoped to the project that holds the reviews."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
+
+
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Recent ReviewHog reviews on this project.
 
@@ -557,7 +571,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
     posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
