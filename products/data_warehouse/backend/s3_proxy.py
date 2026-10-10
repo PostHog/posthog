@@ -9,6 +9,11 @@ USE_LOCAL_SETUP is the only backend here addressed by raw host:port instead, and
 explicit-endpoint code path that never reaches this module. So addressing style is forced below
 independent of anything else in this file, not only as a side effect of the proxy bypass that follows.
 
+One exception: a bucket name containing a dot stays on path-style (see
+_bucket_supports_virtual_hosted_style) - AWS's wildcard TLS cert for its own S3 endpoints doesn't
+cover the extra hostname label a dot introduces, so forcing virtual-hosted addressing there breaks
+certificate validation instead of fixing anything.
+
 Where HTTP_PROXY/HTTPS_PROXY point at an egress proxy, every S3 request becomes a CONNECT tunnel:
 two tracked connections on the proxy host (client side and server side) instead of one, each held in
 the kernel's connection table for a couple of minutes after close. delta-rs speaks HTTP/1.1 only, so
@@ -86,8 +91,22 @@ def _using_real_bucket() -> bool:
     return not settings.USE_LOCAL_SETUP
 
 
+def _bucket_supports_virtual_hosted_style() -> bool:
+    """False for a bucket name that itself contains a dot.
+
+    AWS's wildcard TLS cert for ``*.s3.<region>.amazonaws.com`` covers exactly one subdomain
+    label. A bucket name with a dot in it (a legal, if discouraged, S3 bucket name) produces a
+    virtual-hosted hostname with an extra label the cert doesn't cover, so the request fails
+    certificate validation - see
+    https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html. Path-style still
+    works for those buckets, so they stay on it.
+    """
+    bucket = urlparse(settings.BUCKET_URL).netloc
+    return bool(bucket) and "." not in bucket
+
+
 def _addressing_style_options() -> dict[str, str]:
-    if not _using_real_bucket():
+    if not _using_real_bucket() or not _bucket_supports_virtual_hosted_style():
         return {}
     return {
         # Two spellings of the same thing, because two libraries read these options. deltalake-aws
@@ -109,7 +128,10 @@ def delta_proxy_storage_options() -> dict[str, str]:
     Empty when not using a real bucket, so callers can merge it unconditionally.
     """
     options = _addressing_style_options()
-    if not _using_real_bucket():
+    if not _using_real_bucket() or not _bucket_supports_virtual_hosted_style():
+        # A dotted bucket name never gets addressed virtual-hosted (see
+        # _bucket_supports_virtual_hosted_style), so a host-based proxy exclusion below would name
+        # a hostname delta-rs never actually dials and never bypass anything. Stop here instead.
         return options
 
     proxy_url = _proxy_url()

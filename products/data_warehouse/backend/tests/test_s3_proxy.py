@@ -102,6 +102,26 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("no_proxy", None),
+            ("with_proxy", PROXY),
+        ]
+    )
+    def test_addressing_style_stays_path_style_for_a_dotted_bucket_name(
+        self, _name: str, proxy_url: str | None
+    ) -> None:
+        # Regression: AWS's wildcard TLS cert for its own S3 endpoints covers exactly one hostname
+        # label, so a bucket name with a dot in it (e.g. "warehouse.example") produces a
+        # virtual-hosted hostname with an extra label the cert doesn't cover, and forcing virtual
+        # addressing there breaks certificate validation instead of fixing anything. Path-style
+        # still works for it, so it must stay off the override - with or without a proxy configured.
+        with (
+            override_settings(**{**BYPASS_ON, "BUCKET_URL": "s3://warehouse.example/dlt"}),
+            patch.dict(os.environ, proxy_env(proxy_url)),
+        ):
+            assert delta_proxy_storage_options() == {}
+
+    @parameterized.expand(
+        [
             ("deployed", {}, {"proxies": {}}),
             ("local_setup", {"USE_LOCAL_SETUP": True}, {}),
         ]
