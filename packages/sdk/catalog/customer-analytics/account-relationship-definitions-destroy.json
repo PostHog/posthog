@@ -1,0 +1,53 @@
+{
+    "method": "customerAnalytics.accountRelationshipDefinitionsDestroy",
+    "toolName": "account-relationship-definitions-destroy",
+    "operationId": "account_relationship_definitions_destroy",
+    "title": "Delete account relationship definition",
+    "category": "Customer analytics",
+    "description": "Permanently delete a Customer Analytics account relationship definition by id. This also deletes every assignment of the relationship — active and historical — across all accounts. To stop a single account's assignment instead, use `accounts-relationships-end-create`.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsDestroyInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-destroy.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountRelationshipDefinitionsDestroyOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/account-relationship-definitions-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/account-relationship-definitions-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountRelationshipDefinitionsDestroyData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/account-relationship-definitions-destroy.ts",
+            "declaration": "dist/generated/customer-analytics/account-relationship-definitions-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Permanently delete a Customer Analytics account relationship definition by id. This also deletes every assignment of the relationship — active and historical — across all accounts. To stop a single account's assignment instead, use `accounts-relationships-end-create`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": [
+        {
+            "toolName": "accounts-relationships-end-create",
+            "method": "customerAnalytics.accountsRelationshipsEndCreate"
+        }
+    ]
+}

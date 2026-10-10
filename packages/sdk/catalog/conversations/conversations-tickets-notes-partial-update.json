@@ -1,0 +1,309 @@
+{
+    "method": "conversations.conversationsTicketsNotesPartialUpdate",
+    "toolName": "conversations-tickets-notes-partial-update",
+    "operationId": "conversations_tickets_notes_partial_update",
+    "title": "Update private note",
+    "category": "Conversations",
+    "description": "Update a private note on a support ticket. Only private notes authored by the calling user can be edited. Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve. Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear previous TipTap JSON so the thread falls back to the markdown message.",
+    "requiredScopes": ["ticket:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsNotesPartialUpdateInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-notes-partial-update.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-notes-partial-update.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsNotesPartialUpdateOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-notes-partial-update.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-notes-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsNotesPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-notes-partial-update.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-notes-partial-update.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsNotesPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-notes-partial-update.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-notes-partial-update.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-notes-partial-update.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-notes-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Update a private note on a ticket.\n\nOnly the note's author can edit it. Customer-facing replies cannot be\nedited (outbound delivery only runs on create).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1{id}~1notes~1{message_id}~1/patch"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Update a private note on a support ticket. Only private notes authored by the calling user can be edited. Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve. Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear previous TipTap JSON so the thread falls back to the markdown message.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "The ticket's UUID or its numeric ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ticket's UUID or its numeric ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateInput",
+            "field": "message_id",
+            "effectiveDescription": "The UUID of the private note (comment) to edit or delete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The UUID of the private note (comment) to edit or delete.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateInput",
+            "field": "message",
+            "effectiveDescription": "Updated note content in markdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Updated note content in markdown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateInput",
+            "field": "rich_content",
+            "effectiveDescription": "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "effectiveDescription": "A single message in a ticket thread (output-only).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single message in a ticket thread (output-only).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "id",
+            "effectiveDescription": "Message (comment) UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message (comment) UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "message_type",
+            "effectiveDescription": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/message_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "content",
+            "effectiveDescription": "Plain-text message body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain-text message body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "rich_content",
+            "effectiveDescription": "TipTap rich content JSON, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "TipTap rich content JSON, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/rich_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "author_type",
+            "effectiveDescription": "One of: customer, support, AI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One of: customer, support, AI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "author_name",
+            "effectiveDescription": "Display name of the author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "author_email",
+            "effectiveDescription": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/author_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "is_private",
+            "effectiveDescription": "True for internal notes not visible to the customer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True for internal notes not visible to the customer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/is_private"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "has_full_email_content",
+            "effectiveDescription": "True when the complete inbound email body can be retrieved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the complete inbound email body can be retrieved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/has_full_email_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesPartialUpdateData",
+            "field": "version",
+            "effectiveDescription": "Edit count. 0 means never edited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Edit count. 0 means never edited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

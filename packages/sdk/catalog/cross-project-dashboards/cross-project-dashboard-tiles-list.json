@@ -1,0 +1,235 @@
+{
+    "method": "crossProjectDashboards.crossProjectDashboardTilesList",
+    "toolName": "cross-project-dashboard-tiles-list",
+    "operationId": "cross_project_dashboards_tiles_list",
+    "title": "List the tiles on a cross-project dashboard",
+    "category": "Cross-project dashboards",
+    "description": "The tiles on one dashboard. Each tile carries the project id and insight id it references, its grid position and any filters that apply to it alone.",
+    "requiredScopes": ["cross_project_dashboard:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: cross-project-dashboards"],
+    "methodSource": "src/generated/cross-project-dashboards/client.ts",
+    "input": {
+        "name": "CrossProjectDashboardsCrossProjectDashboardTilesListInput",
+        "importPath": "@posthog/sdk/cross-project-dashboards",
+        "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+        "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+    },
+    "output": {
+        "name": "CrossProjectDashboardsCrossProjectDashboardTilesListOutput",
+        "importPath": "@posthog/sdk/cross-project-dashboards",
+        "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+        "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CrossProjectDashboardsCrossProjectDashboardTilesListRequestSchema0",
+            "importPath": "@posthog/sdk/cross-project-dashboards",
+            "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+            "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+        },
+        {
+            "name": "CrossProjectDashboardsCrossProjectDashboardTilesListRequestSchema1",
+            "importPath": "@posthog/sdk/cross-project-dashboards",
+            "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+            "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+        },
+        {
+            "name": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "importPath": "@posthog/sdk/cross-project-dashboards",
+            "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+            "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+        },
+        {
+            "name": "CrossProjectDashboardsCrossProjectDashboardTilesListData",
+            "importPath": "@posthog/sdk/cross-project-dashboards",
+            "source": "src/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.ts",
+            "declaration": "dist/generated/cross-project-dashboards/cross-project-dashboard-tiles-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Tiles on one cross-project dashboard, edited one at a time.\n\nWrites are per tile rather than a whole-set replace, so two people editing the same\ndashboard cannot overwrite each other's tiles.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1cross_project_dashboards~1{dashboard_id}~1tiles~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The tiles on one dashboard. Each tile carries the project id and insight id it references, its grid position and any filters that apply to it alone.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cross_project_dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListInput",
+            "field": "dashboard_id",
+            "effectiveDescription": "Id of the dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/cross_project_dashboards/{dashboard_id}/tiles/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/cross_project_dashboards/{dashboard_id}/tiles/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/cross_project_dashboards/{dashboard_id}/tiles/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Id of the tile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the tile.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "project_id",
+            "effectiveDescription": "Id of the project the tile's insight belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the project the tile's insight belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/project_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "insight_id",
+            "effectiveDescription": "Id of the insight the tile renders.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the insight the tile renders.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/insight_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "layouts",
+            "effectiveDescription": "Grid position and size of the tile, keyed by layout size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grid position and size of the tile, keyed by layout size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/layouts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "color",
+            "effectiveDescription": "Optional color applied to the tile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional color applied to the tile.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/color"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListResponseShape2",
+            "field": "filters_overrides",
+            "effectiveDescription": "Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/cross_project_dashboards.ts",
+                        "pointer": "#/Shape2/properties/filters_overrides"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CrossProjectDashboardsCrossProjectDashboardTilesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

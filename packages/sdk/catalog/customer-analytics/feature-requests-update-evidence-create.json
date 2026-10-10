@@ -1,0 +1,1084 @@
+{
+    "method": "customerAnalytics.featureRequestsUpdateEvidenceCreate",
+    "toolName": "feature-requests-update-evidence-create",
+    "operationId": "feature_requests_update_evidence_create",
+    "title": "Update feature request evidence",
+    "category": "Customer analytics",
+    "description": "Replace the editable fields of one feature request evidence item. Pass the request `id`, its current `expected_version`, the `evidence_id`, a free-form `evidence_source`, and the complete values for `summary`, `customer_quote`, `source_url`, and `requested_on`. Pass `image_ids` to replace attached images, or omit it to preserve them. Image IDs must refer to uploaded images in the current project. The response contains the updated request and its next version.",
+    "requiredScopes": ["customer_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-feature-requests"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+        "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+        "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-requests-update-evidence-create.ts",
+            "declaration": "dist/generated/customer-analytics/feature-requests-update-evidence-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Replace the editable fields of one feature request evidence item. Pass the request `id`, its current `expected_version`, the `evidence_id`, a free-form `evidence_source`, and the complete values for `summary`, `customer_quote`, `source_url`, and `requested_on`. Pass `image_ids` to replace attached images, or omit it to preserve them. Image IDs must refer to uploaded images in the current project. The response contains the updated request and its next version.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "summary",
+            "effectiveDescription": "Internal summary of this account's request evidence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Internal summary of this account's request evidence.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "customer_quote",
+            "effectiveDescription": "Customer quote kept with this evidence item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer quote kept with this evidence item.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "evidence_source",
+            "effectiveDescription": "Free-form name of the source where this evidence was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form name of the source where this evidence was recorded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "source_url",
+            "effectiveDescription": "Optional HTTP or HTTPS link to the source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional HTTP or HTTPS link to the source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "requested_on",
+            "effectiveDescription": "Date the account made the request, or null when unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date the account made the request, or null when unknown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "image_ids",
+            "effectiveDescription": "Uploaded image IDs from this project to attach in display order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Uploaded image IDs from this project to attach in display order.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "expected_version",
+            "effectiveDescription": "Request version loaded by the editor. Stale versions return 409 Conflict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request version loaded by the editor. Stale versions return 409 Conflict.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateInput",
+            "field": "evidence_id",
+            "effectiveDescription": "Evidence item to replace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evidence item to replace.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_requests/{id}/update_evidence/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "ID of the affected Customer Analytics account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the affected Customer Analytics account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Name of the affected account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the affected account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "id",
+            "effectiveDescription": "Stable link ID between the request and account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable link ID between the request and account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "account",
+            "effectiveDescription": "Affected Customer Analytics account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Affected Customer Analytics account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/account"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "evidence",
+            "effectiveDescription": "Evidence recorded for this account and request. List responses omit these items.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evidence recorded for this account and request. List responses omit these items.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/evidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "evidence_count",
+            "effectiveDescription": "Total evidence items recorded for this account and request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total evidence items recorded for this account and request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/evidence_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "created_at",
+            "effectiveDescription": "When the account was first linked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account was first linked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape3",
+            "field": "updated_at",
+            "effectiveDescription": "When the account link was last changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account link was last changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "id",
+            "effectiveDescription": "Stable evidence ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable evidence ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "summary",
+            "effectiveDescription": "Internal summary of this account's request evidence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Internal summary of this account's request evidence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "customer_quote",
+            "effectiveDescription": "Customer quote kept with this evidence item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer quote kept with this evidence item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/customer_quote"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "evidence_source",
+            "effectiveDescription": "Free-form name of the source where this evidence was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form name of the source where this evidence was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/evidence_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "source_url",
+            "effectiveDescription": "HTTP or HTTPS link to the source, or an empty string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTTP or HTTPS link to the source, or an empty string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/source_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "requested_on",
+            "effectiveDescription": "Date the account made the request, or null when unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date the account made the request, or null when unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/requested_on"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "image_ids",
+            "effectiveDescription": "Uploaded image IDs attached to this evidence item, in display order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Uploaded image IDs attached to this evidence item, in display order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/image_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who added the evidence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who added the evidence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "updated_by",
+            "effectiveDescription": "ID of the last user to update the evidence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the last user to update the evidence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/updated_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "created_at",
+            "effectiveDescription": "When the evidence was added.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the evidence was added.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape4",
+            "field": "updated_at",
+            "effectiveDescription": "When the evidence was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the evidence was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "id",
+            "effectiveDescription": "Stable product area ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable product area ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "name",
+            "effectiveDescription": "Team-maintained product area name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team-maintained product area name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "display_order",
+            "effectiveDescription": "Position in product area selectors. Lower values appear first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position in product area selectors. Lower values appear first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/display_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "is_active",
+            "effectiveDescription": "Whether editors can select this product area for new requests.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether editors can select this product area for new requests.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/is_active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "created_at",
+            "effectiveDescription": "When the product area was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape5",
+            "field": "updated_at",
+            "effectiveDescription": "When the product area was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape5/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "id",
+            "effectiveDescription": "Stable GitHub link ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable GitHub link ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "issue_url",
+            "effectiveDescription": "Canonical GitHub issue URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical GitHub issue URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/issue_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "repository",
+            "effectiveDescription": "Canonical owner and repository name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical owner and repository name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "issue_number",
+            "effectiveDescription": "GitHub issue number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub issue number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/issue_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "issue_title",
+            "effectiveDescription": "Latest GitHub issue title.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest GitHub issue title.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/issue_title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "issue_state",
+            "effectiveDescription": "Latest GitHub issue state.\n\n* `open` - open\n* `closed` - closed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest GitHub issue state.\n\n* `open` - open\n* `closed` - closed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/issue_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "sync_enabled",
+            "effectiveDescription": "Whether GitHub issue changes update this request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether GitHub issue changes update this request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/sync_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateResponseShape6",
+            "field": "last_synced_at",
+            "effectiveDescription": "When GitHub last updated this link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When GitHub last updated this link.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/last_synced_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "id",
+            "effectiveDescription": "Stable feature request ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable feature request ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "title",
+            "effectiveDescription": "Customer-facing request title.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer-facing request title.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "description",
+            "effectiveDescription": "Customer-facing request description in Markdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer-facing request description in Markdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "request_status",
+            "effectiveDescription": "Current customer-facing lifecycle status.\n\n* `requested` - Requested\n* `planned` - Planned\n* `completed` - Completed\n* `wont_fix` - Won't fix\n* `duplicate` - Duplicate",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current customer-facing lifecycle status.\n\n* `requested` - Requested\n* `planned` - Planned\n* `completed` - Completed\n* `wont_fix` - Won't fix\n* `duplicate` - Duplicate",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/request_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "request_priority",
+            "effectiveDescription": "Manual request priority. Null means no priority.\n\n* `high` - High\n* `medium` - Medium\n* `low` - Low",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Manual request priority. Null means no priority.\n\n* `high` - High\n* `medium` - Medium\n* `low` - Low",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/request_priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "is_archived",
+            "effectiveDescription": "Whether the request is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the request is archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/is_archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "archived_at",
+            "effectiveDescription": "When the request was archived, or null while active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the request was archived, or null while active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/archived_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "archived_by",
+            "effectiveDescription": "ID of the user who archived the request, or null while active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who archived the request, or null while active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/archived_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "version",
+            "effectiveDescription": "Version required for optimistic concurrency on mutations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version required for optimistic concurrency on mutations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "can_update",
+            "effectiveDescription": "Whether the caller can update this request and all its active account links.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the caller can update this request and all its active account links.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/can_update"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "account",
+            "effectiveDescription": "First visible account retained for client compatibility. Use account_links for the complete list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First visible account retained for client compatibility. Use account_links for the complete list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "account_links",
+            "effectiveDescription": "Active account links visible to the caller, with account-specific evidence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Active account links visible to the caller, with account-specific evidence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account_links"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "evidence_count",
+            "effectiveDescription": "Total evidence items recorded across visible account links.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total evidence items recorded across visible account links.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/evidence_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "product_areas",
+            "effectiveDescription": "Product areas affected by this request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product areas affected by this request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/product_areas"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "github_link",
+            "effectiveDescription": "Linked GitHub issue, or null when no issue is linked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linked GitHub issue, or null when no issue is linked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/github_link"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who created the request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who created the request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "updated_by",
+            "effectiveDescription": "ID of the last user to update the request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the last user to update the request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When the request was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the request was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the request was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the request was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestsUpdateEvidenceCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

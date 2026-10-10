@@ -1,0 +1,188 @@
+{
+    "method": "customerAnalytics.featureRequestProductAreasList",
+    "toolName": "feature-request-product-areas-list",
+    "operationId": "feature_request_product_areas_list",
+    "title": "List feature request product areas",
+    "category": "Customer analytics",
+    "description": "List active product areas used to categorize Customer analytics feature requests. Each area includes its `id`, `name`, `display_order`, and active state. Set `include_inactive` to true when editing an existing request or managing areas. The same data is queryable through `system.feature_request_product_areas`.",
+    "requiredScopes": ["customer_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-feature-requests"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsFeatureRequestProductAreasListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-request-product-areas-list.ts",
+        "declaration": "dist/generated/customer-analytics/feature-request-product-areas-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsFeatureRequestProductAreasListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/feature-request-product-areas-list.ts",
+        "declaration": "dist/generated/customer-analytics/feature-request-product-areas-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsFeatureRequestProductAreasListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/feature-request-product-areas-list.ts",
+            "declaration": "dist/generated/customer-analytics/feature-request-product-areas-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List active product areas used to categorize Customer analytics feature requests. Each area includes its `id`, `name`, `display_order`, and active state. Set `include_inactive` to true when editing an existing request or managing areas. The same data is queryable through `system.feature_request_product_areas`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListInput",
+            "field": "include_inactive",
+            "effectiveDescription": "Include inactive product areas. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Include inactive product areas. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_request_product_areas/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable product area ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable product area ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Team-maintained product area name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team-maintained product area name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "display_order",
+            "effectiveDescription": "Position in product area selectors. Lower values appear first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position in product area selectors. Lower values appear first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/display_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "is_active",
+            "effectiveDescription": "Whether editors can select this product area for new requests.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether editors can select this product area for new requests.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the product area was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When the product area was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the product area was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsFeatureRequestProductAreasListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

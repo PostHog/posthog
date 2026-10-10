@@ -1,0 +1,299 @@
+{
+    "method": "conversations.conversationsTicketsMessagesRetrieve",
+    "toolName": "conversations-tickets-messages-retrieve",
+    "operationId": "conversations_tickets_messages_list",
+    "title": "Read support ticket messages",
+    "category": "Conversations",
+    "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page): use the limit and offset query params to page through long threads, and read count/next from the response envelope. The thread includes messages that were never sent to the customer, so read each message's message_type before you say what the team has sent to the customer. customer_message is written by the customer. sent_reply is a reply sent to the customer by a teammate, a workflow, or the AI. A sent_reply does not confirm delivery, because delivery can fail, so say the reply was sent, not that the customer received it. internal_note is a note for the team only. ai_draft is a reply or question the AI wrote for a teammate to review: it can read like a finished reply, but it was never sent, and a teammate may have sent their own version later as a separate sent_reply. internal_note and ai_draft messages both have is_private set to true. Never describe an internal_note or an ai_draft as sent to the customer.",
+    "requiredScopes": ["ticket:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsMessagesRetrieveInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsMessagesRetrieveOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsMessagesRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsMessagesRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsMessagesRetrieveData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-messages-retrieve.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-messages-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the message thread for a ticket, ordered chronologically (paginated).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1{id}~1messages~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page): use the limit and offset query params to page through long threads, and read count/next from the response envelope. The thread includes messages that were never sent to the customer, so read each message's message_type before you say what the team has sent to the customer. customer_message is written by the customer. sent_reply is a reply sent to the customer by a teammate, a workflow, or the AI. A sent_reply does not confirm delivery, because delivery can fail, so say the reply was sent, not that the customer received it. internal_note is a note for the team only. ai_draft is a reply or question the AI wrote for a teammate to review: it can read like a finished reply, but it was never sent, and a teammate may have sent their own version later as a separate sent_reply. internal_note and ai_draft messages both have is_private set to true. Never describe an internal_note or an ai_draft as sent to the customer.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "The ticket's UUID or its numeric ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ticket's UUID or its numeric ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/messages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/messages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/messages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "effectiveDescription": "A single message in a ticket thread (output-only).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single message in a ticket thread (output-only).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Message (comment) UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message (comment) UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "message_type",
+            "effectiveDescription": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.\n\n* `customer_message` - Customer message\n* `sent_reply` - Sent reply\n* `internal_note` - Internal note\n* `ai_draft` - AI draft",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/message_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "content",
+            "effectiveDescription": "Plain-text message body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Plain-text message body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "rich_content",
+            "effectiveDescription": "TipTap rich content JSON, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "TipTap rich content JSON, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/rich_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "author_type",
+            "effectiveDescription": "One of: customer, support, AI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One of: customer, support, AI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/author_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "author_name",
+            "effectiveDescription": "Display name of the author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/author_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "author_email",
+            "effectiveDescription": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/author_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "is_private",
+            "effectiveDescription": "True for internal notes not visible to the customer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True for internal notes not visible to the customer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/is_private"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "has_full_email_content",
+            "effectiveDescription": "True when the complete inbound email body can be retrieved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the complete inbound email body can be retrieved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/has_full_email_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsMessagesRetrieveResponseShape2",
+            "field": "version",
+            "effectiveDescription": "Edit count. 0 means never edited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Edit count. 0 means never edited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/version"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,1530 @@
+{
+    "method": "canvas.canvasDraftCreate",
+    "toolName": "canvas-draft-create",
+    "operationId": "canvases_draft_create",
+    "title": "Stage a canvas draft build",
+    "category": "Canvas",
+    "description": "Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so viewers keep seeing the current version. Use it only when the user asked for a draft, a preview, or a review step before going live; saving a change with canvas-publish-create or canvas-edit-create is the default. Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.",
+    "requiredScopes": ["canvas:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasDraftCreateInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-draft-create.ts",
+        "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasDraftCreateOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-draft-create.ts",
+        "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema0",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema1",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema4Encoding",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema4ContentType",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema7",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema9",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema14",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema15",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema16",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema17",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema18",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema20",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema13",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema22",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema11",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema26",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema27",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema29",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema28",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema31",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema30",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema24Posthog",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema32",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema24Network",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema35",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema37",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema36",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema34",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema33",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema24",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateRequestSchema38",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateInputProject",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape5",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape7",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape8",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape10",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateResponseShape9",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftCreateData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-draft-create.ts",
+            "declaration": "dist/generated/canvas/canvas-draft-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Stage a complete source project as a draft version and build it, without publishing.\n\nThe draft gets the same validation, versioning, and server-side build as\na publish, but the canvas's head and live build never move, so nothing\nchanges for viewers. Promote the version with `promote` to make it live.\nThe response reports how the draft's declared capabilities widen the\ncurrent head's, so growth in access can be reviewed before it ships.\nNo version guard applies: a draft conflicts with nothing.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1draft~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so viewers keep seeing the current version. Use it only when the user asked for a draft, a preview, or a review step before going live; saving a change with canvas-publish-create or canvas-edit-create is the default. Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema0",
+            "effectiveDescription": "Source-project schema version. Currently always 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-project schema version. Currently always 1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema1",
+            "effectiveDescription": "Project files keyed by relative path (forward slashes, no '..').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project files keyed by relative path (forward slashes, no '..').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema4",
+            "effectiveDescription": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema6",
+            "effectiveDescription": "The project's entry HTML file. Currently always \"index.html\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The project's entry HTML file. Currently always \"index.html\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema7",
+            "effectiveDescription": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema9",
+            "effectiveDescription": "Version of the host-injected `ph` canvas SDK the project targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the host-injected `ph` canvas SDK the project targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema11",
+            "effectiveDescription": "Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema13",
+            "effectiveDescription": "Grid-size contract for placements of this component.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grid-size contract for placements of this component.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema14",
+            "effectiveDescription": "Width a new placement starts at, in grid columns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Width a new placement starts at, in grid columns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema15",
+            "effectiveDescription": "Height a new placement starts at, in grid rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height a new placement starts at, in grid rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema16",
+            "effectiveDescription": "Narrowest width the component renders usefully at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrowest width the component renders usefully at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema17",
+            "effectiveDescription": "Shortest height the component renders usefully at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shortest height the component renders usefully at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema17"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema18",
+            "effectiveDescription": "Widest allowed width; omit for no cap below the grid's width.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Widest allowed width; omit for no cap below the grid's width.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema20",
+            "effectiveDescription": "Tallest allowed height; omit for no cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tallest allowed height; omit for no cap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema22",
+            "effectiveDescription": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema24",
+            "effectiveDescription": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema24",
+            "field": "posthog.state",
+            "effectiveDescription": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema25/properties/posthog/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema24",
+            "field": "posthog.actions",
+            "effectiveDescription": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema25/properties/posthog/properties/actions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema24",
+            "field": "connectors",
+            "effectiveDescription": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema25/properties/connectors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema29",
+            "effectiveDescription": "* `user` - user\n* `shared` - shared",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `user` - user\n* `shared` - shared",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema34",
+            "effectiveDescription": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema34"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema35",
+            "effectiveDescription": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema35"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateRequest_Schema36",
+            "effectiveDescription": "Tool names the canvas may call on this provider. Read-only tools only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool names the canvas may call on this provider. Read-only tools only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/$defs/__schema36"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateInput",
+            "field": "id",
+            "effectiveDescription": "ID of the canvas to stage a draft for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/draft/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "ID of the canvas to stage a draft for.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/canvas/mcp/tools.yaml",
+                        "pointer": "/tools/canvas-draft-create/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateInput",
+            "field": "project",
+            "effectiveDescription": "The complete source project to stage as a draft.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete source project to stage as a draft.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/draft/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateInput",
+            "field": "prompt",
+            "effectiveDescription": "Short description of the change, stored on the draft's version history entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description of the change, stored on the draft's version history entry.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/draft/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "effectiveDescription": "Lifecycle record of one build of a canvas source version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle record of one build of a canvas source version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The build's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The build's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "source_version_id",
+            "effectiveDescription": "The source version this build compiled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source version this build compiled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/source_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "build_status",
+            "effectiveDescription": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/build_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "diagnostics",
+            "effectiveDescription": "Structured diagnostics recorded by the build (errors explain a failed status).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured diagnostics recorded by the build (errors explain a failed status).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/diagnostics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "manifest",
+            "effectiveDescription": "The frozen artifact manifest — present once the build is ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The frozen artifact manifest — present once the build is ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/manifest"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "integrity",
+            "effectiveDescription": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/integrity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "artifact_url",
+            "effectiveDescription": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/artifact_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "pinned",
+            "effectiveDescription": "Pinned builds are retained for the lifetime of the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned builds are retained for the lifetime of the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/pinned"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the build was queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build was queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape2",
+            "field": "finished_at",
+            "effectiveDescription": "When the build reached a terminal state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build reached a terminal state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "effectiveDescription": "One structured validation/build diagnostic for a canvas source project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One structured validation/build diagnostic for a canvas source project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "field": "severity",
+            "effectiveDescription": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "field": "code",
+            "effectiveDescription": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "field": "message",
+            "effectiveDescription": "Human-readable description of the problem and how to fix it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of the problem and how to fix it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "field": "path",
+            "effectiveDescription": "Project-relative path of the file the diagnostic points at, when file-specific.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project-relative path of the file the diagnostic points at, when file-specific.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape3",
+            "field": "line",
+            "effectiveDescription": "1-based line number within `path`, when the diagnostic points at a specific line.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-based line number within `path`, when the diagnostic points at a specific line.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "effectiveDescription": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "entryHtml",
+            "effectiveDescription": "The artifact's entry HTML file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artifact's entry HTML file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/entryHtml"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "assets",
+            "effectiveDescription": "Every emitted artifact file with its content hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every emitted artifact file with its content hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/assets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "dependencies",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "canvasSdkVersion",
+            "effectiveDescription": "Version of the `ph` canvas SDK the artifact targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the `ph` canvas SDK the artifact targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/canvasSdkVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "legacyComponentPath",
+            "effectiveDescription": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/legacyComponentPath"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "legacyCode",
+            "effectiveDescription": "The runtime-mounted component source, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The runtime-mounted component source, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/legacyCode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "capabilities",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/capabilities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape4",
+            "field": "component",
+            "effectiveDescription": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/component"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape5",
+            "effectiveDescription": "One emitted file of a built canvas artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One emitted file of a built canvas artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape5",
+            "field": "path",
+            "effectiveDescription": "Artifact-relative path of the emitted file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact-relative path of the emitted file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape5",
+            "field": "contentHash",
+            "effectiveDescription": "Hex SHA-256 of the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 of the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/contentHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape5",
+            "field": "sizeBytes",
+            "effectiveDescription": "Size of the file in bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Size of the file in bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/sizeBytes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape6",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape7",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "effectiveDescription": "How a draft's declared capabilities grow the current head's. A head that\npredates the capabilities snapshot reports every declaration as an addition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How a draft's declared capabilities grow the current head's. A head that\npredates the capabilities snapshot reports every declaration as an addition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "widens",
+            "effectiveDescription": "True when the draft declares any capability the current head does not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the draft declares any capability the current head does not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/widens"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "insights_added",
+            "effectiveDescription": "Insight short ids the draft newly declares access to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Insight short ids the draft newly declares access to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/insights_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "capture_events_added",
+            "effectiveDescription": "Event names the draft newly declares it may capture.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event names the draft newly declares it may capture.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/capture_events_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "inline_queries_enabled",
+            "effectiveDescription": "True when the draft enables inline queries and the current head does not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the draft enables inline queries and the current head does not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/inline_queries_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "agent_requests_enabled",
+            "effectiveDescription": "True when the draft enables requests to the canvas's authoring agent and the current head does not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the draft enables requests to the canvas's authoring agent and the current head does not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/agent_requests_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "network_origins_added",
+            "effectiveDescription": "Network origins the draft newly declares it may reach.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Network origins the draft newly declares it may reach.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/network_origins_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "state_scopes_added",
+            "effectiveDescription": "State scopes (user, shared) the draft newly declares for ph.state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "State scopes (user, shared) the draft newly declares for ph.state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/state_scopes_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "actions_added",
+            "effectiveDescription": "Action verbs the draft newly declares it may invoke via ph.actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action verbs the draft newly declares it may invoke via ph.actions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/actions_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape9",
+            "field": "connectors_added",
+            "effectiveDescription": "Connector providers and tools the draft newly declares it may call via ph.connectors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector providers and tools the draft newly declares it may call via ph.connectors.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/connectors_added"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape10",
+            "effectiveDescription": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape10",
+            "field": "provider",
+            "effectiveDescription": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateResponseShape10",
+            "field": "tools",
+            "effectiveDescription": "Tool names the canvas may call on this provider. Read-only tools only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tool names the canvas may call on this provider. Read-only tools only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateData",
+            "effectiveDescription": "Result of staging a draft build.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result of staging a draft build.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateData",
+            "field": "version_id",
+            "effectiveDescription": "Id of the draft source version this request created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the draft source version this request created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateData",
+            "field": "build",
+            "effectiveDescription": "The queued draft build; poll `builds` until it is terminal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The queued draft build; poll `builds` until it is terminal.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/build"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateData",
+            "field": "diagnostics",
+            "effectiveDescription": "Advisory (warning-severity) diagnostics recorded for the drafted project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Advisory (warning-severity) diagnostics recorded for the drafted project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/diagnostics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftCreateData",
+            "field": "capability_widening",
+            "effectiveDescription": "What the draft's declared capabilities grant beyond the current head's. Review before promoting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the draft's declared capabilities grant beyond the current head's. Review before promoting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/capability_widening"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

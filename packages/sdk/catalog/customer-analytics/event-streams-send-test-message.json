@@ -1,0 +1,105 @@
+{
+    "method": "customerAnalytics.eventStreamsSendTestMessage",
+    "toolName": "event-streams-send-test-message",
+    "operationId": "event_streams_send_test_message_create",
+    "title": "Send event stream test message",
+    "category": "Customer analytics",
+    "description": "Post a test message to the Slack channel configured on the caller's event stream, to verify delivery works end to end. Fails with a validation error when the stream has no saved Slack workspace + channel, or when Slack rejects the message (e.g. the PostHog bot is not in the channel).",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsEventStreamsSendTestMessageInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-send-test-message.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-send-test-message.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsEventStreamsSendTestMessageOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-send-test-message.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-send-test-message.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsEventStreamsSendTestMessageData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-send-test-message.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-send-test-message.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The caller's event stream: a live feed of selected accounts' events posted to a\nSlack channel of their choice. Per-user — each team member owns at most one stream, and\nevery endpoint is scoped to the caller's own. Delivery runs through a managed CDP\ndestination that is re-provisioned inside the same transaction as every write, so\nconfig and delivery can't drift apart.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1event_streams~1{id}~1send_test_message~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Post a test message to the Slack channel configured on the caller's event stream, to verify delivery works end to end. Fails with a validation error when the stream has no saved Slack workspace + channel, or when Slack rejects the message (e.g. the PostHog bot is not in the channel).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsEventStreamsSendTestMessageInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this event stream.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this event stream.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/send_test_message/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsSendTestMessageData",
+            "effectiveDescription": "Result of posting an event-stream test message to Slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result of posting an event-stream test message to Slack.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsEventStreamsSendTestMessageData",
+            "field": "channel_id",
+            "effectiveDescription": "Slack channel ID the test message was posted to (e.g. C0123ABC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID the test message was posted to (e.g. C0123ABC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/channel_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

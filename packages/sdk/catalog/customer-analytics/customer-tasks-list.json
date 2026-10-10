@@ -1,0 +1,724 @@
+{
+    "method": "customerAnalytics.customerTasksList",
+    "toolName": "customer-tasks-list",
+    "operationId": "customer_tasks_list",
+    "title": "List customer tasks",
+    "category": "Customer analytics",
+    "description": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses, deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.",
+    "requiredScopes": ["customer_task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-customer-tasks"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomerTasksListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomerTasksListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema7",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema9",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListRequestSchema10",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListResponseShape4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses, deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "account_id",
+            "effectiveDescription": "Filter by account UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by account UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "archive_state",
+            "effectiveDescription": "Which archive state to include.\n\n* `active` - active\n* `archived` - archived\n* `all` - all",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which archive state to include.\n\n* `active` - active\n* `archived` - archived\n* `all` - all",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "assigned_to",
+            "effectiveDescription": "Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "due_after",
+            "effectiveDescription": "Inclusive lower deadline bound.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive lower deadline bound.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "due_before",
+            "effectiveDescription": "Exclusive upper deadline bound.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclusive upper deadline bound.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "has_due_at",
+            "effectiveDescription": "Filter tasks by whether a deadline exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter tasks by whether a deadline exists.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "limit",
+            "effectiveDescription": "Page size, from 1 to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size, from 1 to 100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "offset",
+            "effectiveDescription": "Number of rows to skip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of rows to skip.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "ordering",
+            "effectiveDescription": "Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.\n\n* `name` - name\n* `-name` - -name\n* `status` - status\n* `-status` - -status\n* `assigned_to` - assigned_to\n* `-assigned_to` - -assigned_to\n* `due_at` - due_at\n* `-due_at` - -due_at\n* `updated_at` - updated_at\n* `-updated_at` - -updated_at\n* `account` - account\n* `-account` - -account\n* `created_at` - created_at\n* `-created_at` - -created_at",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.\n\n* `name` - name\n* `-name` - -name\n* `status` - status\n* `-status` - -status\n* `assigned_to` - assigned_to\n* `-assigned_to` - -assigned_to\n* `due_at` - due_at\n* `-due_at` - -due_at\n* `updated_at` - updated_at\n* `-updated_at` - -updated_at\n* `account` - account\n* `-account` - -account\n* `created_at` - created_at\n* `-created_at` - -created_at",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "search",
+            "effectiveDescription": "Search task name and description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search task name and description.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListInput",
+            "field": "statuses",
+            "effectiveDescription": "Comma-separated task statuses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated task statuses.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "account",
+            "effectiveDescription": "Linked account, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linked account, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/account"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Task name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Task description, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task description, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "assigned_to",
+            "effectiveDescription": "Assigned project member, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assigned project member, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/assigned_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "due_at",
+            "effectiveDescription": "Task deadline, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task deadline, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/due_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "completed_at",
+            "effectiveDescription": "When the task was completed, if applicable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was completed, if applicable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "completed_by",
+            "effectiveDescription": "User credited with completion, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User credited with completion, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/completed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "created_by",
+            "effectiveDescription": "User who created the task, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the task, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "archived_at",
+            "effectiveDescription": "When the task was archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/archived_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the task was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When the task was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "can_edit",
+            "effectiveDescription": "Whether the current user can edit this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can edit this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/can_edit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape2",
+            "field": "can_restore",
+            "effectiveDescription": "Whether the current user can restore this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can restore this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/can_restore"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape3",
+            "field": "id",
+            "effectiveDescription": "UUID of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Name of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape4",
+            "field": "id",
+            "effectiveDescription": "PostHog user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape4",
+            "field": "email",
+            "effectiveDescription": "Email address of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape4",
+            "field": "first_name",
+            "effectiveDescription": "First name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/first_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListResponseShape4",
+            "field": "last_name",
+            "effectiveDescription": "Last name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape4/properties/last_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListData",
+            "field": "count",
+            "effectiveDescription": "Total number of matching tasks.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of matching tasks.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListData",
+            "field": "next",
+            "effectiveDescription": "URL of the next page, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the next page, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListData",
+            "field": "previous",
+            "effectiveDescription": "URL of the previous page, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the previous page, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/previous"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListData",
+            "field": "results",
+            "effectiveDescription": "Tasks in this page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tasks in this page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

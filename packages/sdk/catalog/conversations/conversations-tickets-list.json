@@ -1,0 +1,600 @@
+{
+    "method": "conversations.conversationsTicketsList",
+    "toolName": "conversations-tickets-list",
+    "operationId": "conversations_tickets_list",
+    "title": "List support tickets",
+    "category": "Conversations",
+    "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
+    "requiredScopes": ["ticket:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsListInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-list.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsListOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-list.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema0",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema1",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema2",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema3",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema4",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema5",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema6",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema7",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema8",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema9",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema10",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema11",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema12",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema13",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema14",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema15",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema16",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema17",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema18",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListRequestSchema19",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListResponseShape4",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListResponseShape5",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListResponseShape3",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListDataResultsItem",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsTicketsListData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-list.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List tickets with person data attached.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "ai_triage_result",
+            "effectiveDescription": "Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "assignee",
+            "effectiveDescription": "Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "channel_detail",
+            "effectiveDescription": "Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "channel_source",
+            "effectiveDescription": "Filter by the channel the ticket originated from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the channel the ticket originated from.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "date_from",
+            "effectiveDescription": "Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "date_to",
+            "effectiveDescription": "Only include tickets updated on or before this date. Same format as `date_from`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include tickets updated on or before this date. Same format as `date_from`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "distinct_ids",
+            "effectiveDescription": "Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of person `distinct_id`s to filter by (max 100).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "emails",
+            "effectiveDescription": "Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "order_by",
+            "effectiveDescription": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "priority",
+            "effectiveDescription": "Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "search",
+            "effectiveDescription": "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "sla",
+            "effectiveDescription": "Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "snoozed",
+            "effectiveDescription": "Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "status",
+            "effectiveDescription": "Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "tags",
+            "effectiveDescription": "JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `[\"billing\",\"urgent\"]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `[\"billing\",\"urgent\"]`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "tags_all",
+            "effectiveDescription": "JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `[\"billing\",\"urgent\"]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `[\"billing\",\"urgent\"]`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "tags_exclude",
+            "effectiveDescription": "JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `[\"escalated\"]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `[\"escalated\"]`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListInput",
+            "field": "view",
+            "effectiveDescription": "Apply a saved ticket view's filters by its `short_id` (list views via the `conversations/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply a saved ticket view's filters by its `short_id` (list views via the `conversations/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListResponseShape3",
+            "effectiveDescription": "Serializer for ticket assignment (user or role).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer for ticket assignment (user or role).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListData",
+            "field": "results[]",
+            "effectiveDescription": "Mixin for serializers to add user access control fields",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mixin for serializers to add user access control fields",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListData",
+            "field": "results[].status",
+            "effectiveDescription": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListData",
+            "field": "results[].priority",
+            "effectiveDescription": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

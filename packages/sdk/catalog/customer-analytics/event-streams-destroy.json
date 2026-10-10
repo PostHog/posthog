@@ -1,0 +1,74 @@
+{
+    "method": "customerAnalytics.eventStreamsDestroy",
+    "toolName": "event-streams-destroy",
+    "operationId": "event_streams_destroy",
+    "title": "Delete my event stream",
+    "category": "Customer analytics",
+    "description": "Delete the caller's event stream and its account memberships, and stop its Slack delivery. Only the caller's own stream can be deleted.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsEventStreamsDestroyInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-destroy.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsEventStreamsDestroyOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/event-streams-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/event-streams-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsEventStreamsDestroyData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/event-streams-destroy.ts",
+            "declaration": "dist/generated/customer-analytics/event-streams-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The caller's event stream: a live feed of selected accounts' events posted to a\nSlack channel of their choice. Per-user — each team member owns at most one stream, and\nevery endpoint is scoped to the caller's own. Delivery runs through a managed CDP\ndestination that is re-provisioned inside the same transaction as every write, so\nconfig and delivery can't drift apart.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1event_streams~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete the caller's event stream and its account memberships, and stop its Slack delivery. Only the caller's own stream can be deleted.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsEventStreamsDestroyInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this event stream.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this event stream.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/event_streams/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

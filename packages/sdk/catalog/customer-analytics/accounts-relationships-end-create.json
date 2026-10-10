@@ -1,0 +1,335 @@
+{
+    "method": "customerAnalytics.accountsRelationshipsEndCreate",
+    "toolName": "accounts-relationships-end-create",
+    "operationId": "accounts_relationships_end_create",
+    "title": "End account relationship",
+    "category": "Customer analytics",
+    "description": "End an active relationship assignment on a Customer Analytics account by the assignment `id` (from `accounts-relationships-list`). The assignment is closed by setting `ended_at`, not deleted — it remains visible in the account's history via `accounts-relationships-list` with `include_history`. Returns 404 if the assignment does not exist or has already ended.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsRelationshipsEndCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-relationships-end-create.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-relationships-end-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsRelationshipsEndCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-relationships-end-create.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-relationships-end-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-relationships-end-create.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-relationships-end-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-relationships-end-create.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-relationships-end-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-relationships-end-create.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-relationships-end-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "End an active relationship assignment on a Customer Analytics account by the assignment `id` (from `accounts-relationships-list`). The assignment is closed by setting `ended_at`, not deleted — it remains visible in the account's history via `accounts-relationships-list` with `include_history`. Returns 404 if the assignment does not exist or has already ended.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateInput",
+            "field": "account_id",
+            "effectiveDescription": "UUID of the parent account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the parent account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{account_id}/relationships/{id}/end/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "effectiveDescription": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team-defined account relationship type (CSM, Onboarding manager, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Relationship definition UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relationship definition UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the relationship. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the relationship. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "field": "description",
+            "effectiveDescription": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "field": "is_single_holder",
+            "effectiveDescription": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_single_holder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape2",
+            "field": "is_controlled",
+            "effectiveDescription": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_controlled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape3",
+            "effectiveDescription": "A user assigned to an account relationship (read shape).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A user assigned to an account relationship (read shape).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape3",
+            "field": "id",
+            "effectiveDescription": "PostHog user id of the assignee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user id of the assignee.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateResponseShape3",
+            "field": "email",
+            "effectiveDescription": "Email of the assignee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the assignee.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "effectiveDescription": "One assignment of a user to an account relationship, with its effective range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One assignment of a user to an account relationship, with its effective range.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "id",
+            "effectiveDescription": "Unique id of this assignment row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique id of this assignment row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "definition",
+            "effectiveDescription": "The relationship type this assignment belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The relationship type this assignment belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/definition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "user",
+            "effectiveDescription": "The assigned user; null when their account was deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The assigned user; null when their account was deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/user"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "started_at",
+            "effectiveDescription": "When this assignment became effective.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this assignment became effective.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "ended_at",
+            "effectiveDescription": "When this assignment ended; null while it is active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this assignment ended; null while it is active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/ended_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsRelationshipsEndCreateData",
+            "field": "source",
+            "effectiveDescription": "Which kind of writer made this assignment; null on rows older than provenance tracking.\n\n* `human` - Human\n* `workflow` - Workflow\n* `ai` - AI\n* `salesforce_claim` - Salesforce claim\n* `migration` - Migration",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which kind of writer made this assignment; null on rows older than provenance tracking.\n\n* `human` - Human\n* `workflow` - Workflow\n* `ai` - AI\n* `salesforce_claim` - Salesforce claim\n* `migration` - Migration",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/source"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "accounts-relationships-list",
+            "method": "customerAnalytics.accountsRelationshipsList"
+        }
+    ]
+}

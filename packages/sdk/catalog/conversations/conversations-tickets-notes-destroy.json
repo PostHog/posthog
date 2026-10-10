@@ -1,0 +1,90 @@
+{
+    "method": "conversations.conversationsTicketsNotesDestroy",
+    "toolName": "conversations-tickets-notes-destroy",
+    "operationId": "conversations_tickets_notes_destroy",
+    "title": "Delete private note",
+    "category": "Conversations",
+    "description": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
+    "requiredScopes": ["ticket:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsTicketsNotesDestroyInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-notes-destroy.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-notes-destroy.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsTicketsNotesDestroyOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-tickets-notes-destroy.ts",
+        "declaration": "dist/generated/conversations/conversations-tickets-notes-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsTicketsNotesDestroyData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-tickets-notes-destroy.ts",
+            "declaration": "dist/generated/conversations/conversations-tickets-notes-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Soft-delete a private note on a ticket.\n\nOnly the note's author can delete it. Customer-facing replies cannot be\ndeleted via this endpoint.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1conversations~1tickets~1{id}~1notes~1{message_id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsTicketsNotesDestroyInput",
+            "field": "id",
+            "effectiveDescription": "The ticket's UUID or its numeric ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ticket's UUID or its numeric ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsTicketsNotesDestroyInput",
+            "field": "message_id",
+            "effectiveDescription": "The UUID of the private note (comment) to edit or delete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The UUID of the private note (comment) to edit or delete.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/tickets/{id}/notes/{message_id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

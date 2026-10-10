@@ -1,0 +1,183 @@
+{
+    "method": "cohorts.list",
+    "toolName": "cohorts-list",
+    "operationId": "cohorts_list",
+    "title": "List all cohorts",
+    "category": "Cohorts",
+    "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search' rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
+    "requiredScopes": ["cohort:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cohorts/client.ts",
+    "input": {
+        "name": "CohortsListInput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/list.ts",
+        "declaration": "dist/generated/cohorts/list.d.ts"
+    },
+    "output": {
+        "name": "CohortsListOutput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/list.ts",
+        "declaration": "dist/generated/cohorts/list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CohortsListDataResultsItem",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/list.ts",
+            "declaration": "dist/generated/cohorts/list.d.ts"
+        },
+        {
+            "name": "CohortsListData",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/list.ts",
+            "declaration": "dist/generated/cohorts/list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search' rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cohorts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CohortsListInput",
+            "field": "basic",
+            "effectiveDescription": "Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1/get/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListInput",
+            "field": "hide_behavioral_cohorts",
+            "effectiveDescription": "Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1/get/parameters/1"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/cohorts/mcp/tools.yaml",
+                        "pointer": "/tools/cohorts-list/param_overrides/hide_behavioral_cohorts/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1/get/parameters/2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1/get/parameters/3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListInput",
+            "field": "search",
+            "effectiveDescription": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1/get/parameters/5"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/cohorts/mcp/tools.yaml",
+                        "pointer": "/tools/cohorts-list/param_overrides/search/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListData",
+            "field": "results[]._posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

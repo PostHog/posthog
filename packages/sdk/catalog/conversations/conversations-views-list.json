@@ -1,0 +1,146 @@
+{
+    "method": "conversations.conversationsViewsList",
+    "toolName": "conversations-views-list",
+    "operationId": "conversations_views_list",
+    "title": "List saved ticket views",
+    "category": "Conversations",
+    "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of conversations-tickets-list. Saved filters are omitted here; read them for a single view with conversations-views-retrieve.",
+    "requiredScopes": ["ticket:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/conversations/client.ts",
+    "input": {
+        "name": "ConversationsConversationsViewsListInput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-views-list.ts",
+        "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+    },
+    "output": {
+        "name": "ConversationsConversationsViewsListOutput",
+        "importPath": "@posthog/sdk/conversations",
+        "source": "src/generated/conversations/conversations-views-list.ts",
+        "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ConversationsConversationsViewsListRequestSchema0",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-list.ts",
+            "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsListRequestSchema1",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-list.ts",
+            "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsListDataResultsItem",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-list.ts",
+            "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+        },
+        {
+            "name": "ConversationsConversationsViewsListData",
+            "importPath": "@posthog/sdk/conversations",
+            "source": "src/generated/conversations/conversations-views-list.ts",
+            "declaration": "dist/generated/conversations/conversations-views-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of conversations-tickets-list. Saved filters are omitted here; read them for a single view with conversations-views-retrieve.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/conversations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ConversationsConversationsViewsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/views/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/conversations/views/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsListData",
+            "field": "results[].short_id",
+            "effectiveDescription": "Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsListData",
+            "field": "results[].name",
+            "effectiveDescription": "Display name of the view, as it appears in the ticket views list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the view, as it appears in the ticket views list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/conversations.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ConversationsConversationsViewsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

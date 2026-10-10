@@ -1,0 +1,448 @@
+{
+    "method": "customerAnalytics.customPropertySourcesRunsList",
+    "toolName": "custom-property-sources-runs-list",
+    "operationId": "custom_property_sources_runs_list",
+    "title": "List person- or group-property source runs",
+    "category": "Customer analytics",
+    "description": "Person- and group-property sources only: the source's sync/backfill run history, newest first. Each run reports `trigger` (scheduled/manual/backfill), `status` (running/completed/failed), the funnel counts (`rows_read`, `changed`, `existing` = person/group profiles affected, `produced`, `skipped_missing_person`), `error`, and timestamps. Listing runs for a group-target source additionally requires the `group:read` scope.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: warehouse-person-properties"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomPropertySourcesRunsListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomPropertySourcesRunsListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesRunsListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesRunsListRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesRunsListRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesRunsListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-runs-list.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-runs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The source's sync history, newest first. Person and group runs require viewer access to\ntheir warehouse source because the response includes row counts and sync errors.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1custom_property_sources~1{id}~1runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Person- and group-property sources only: the source's sync/backfill run history, newest first. Each run reports `trigger` (scheduled/manual/backfill), `status` (running/completed/failed), the funnel counts (`rows_read`, `changed`, `existing` = person/group profiles affected, `produced`, `skipped_missing_person`), `error`, and timestamps. Listing runs for a group-target source additionally requires the `group:read` scope.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListInput",
+            "field": "search",
+            "effectiveDescription": "Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/custom_property_sources/{id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "effectiveDescription": "One warehouse-backed custom property sync run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One warehouse-backed custom property sync run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "job_id",
+            "effectiveDescription": "Warehouse import or materialization job associated with the run, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse import or materialization job associated with the run, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/job_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "account_segment",
+            "effectiveDescription": "Account segment processed by this run. Person and group property runs return null.\n\n* `tracked` - tracked\n* `ignored` - ignored",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Account segment processed by this run. Person and group property runs return null.\n\n* `tracked` - tracked\n* `ignored` - ignored",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/account_segment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "sync_phase",
+            "effectiveDescription": "Current account sync phase. Person and group property runs return null.\n\n* `staging` - staging\n* `dispatching` - dispatching\n* `syncing` - syncing\n* `completed` - completed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current account sync phase. Person and group property runs return null.\n\n* `staging` - staging\n* `dispatching` - dispatching\n* `syncing` - syncing\n* `completed` - completed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/sync_phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "attempt",
+            "effectiveDescription": "Latest Temporal activity attempt for the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest Temporal activity attempt for the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/attempt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "workflow_id",
+            "effectiveDescription": "Temporal workflow identifier associated with the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal workflow identifier associated with the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/workflow_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "workflow_run_id",
+            "effectiveDescription": "Temporal run identifier associated with the current account sync phase.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal run identifier associated with the current account sync phase.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/workflow_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "temporal_url",
+            "effectiveDescription": "Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/temporal_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "trigger",
+            "effectiveDescription": "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/trigger"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Run status: 'running', 'completed', or 'failed'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run status: 'running', 'completed', or 'failed'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "started_at",
+            "effectiveDescription": "When the run began.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run began.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "finished_at",
+            "effectiveDescription": "When the run ended, or null while running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run ended, or null while running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "rows_read",
+            "effectiveDescription": "Warehouse rows scanned this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse rows scanned this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "changed",
+            "effectiveDescription": "Rows whose mapped values changed since the last run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows whose mapped values changed since the last run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/changed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "existing",
+            "effectiveDescription": "Changed rows that matched an existing account, person, or group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Changed rows that matched an existing account, person, or group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/existing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "produced",
+            "effectiveDescription": "Property updates written or produced to the ingestion pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property updates written or produced to the ingestion pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/produced"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "skipped_missing_person",
+            "effectiveDescription": "Changed rows skipped because no existing account, person, or group matched the key column value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Changed rows skipped because no existing account, person, or group matched the key column value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/skipped_missing_person"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "error",
+            "effectiveDescription": "Error summary if the run failed, else null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error summary if the run failed, else null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the run row was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run row was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesRunsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

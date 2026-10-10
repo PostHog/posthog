@@ -1,0 +1,491 @@
+{
+    "method": "customerAnalytics.accountsList",
+    "toolName": "accounts-list",
+    "operationId": "accounts_list",
+    "title": "List accounts",
+    "category": "Customer analytics",
+    "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at` (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set `include_churned` or `include_ignored` to true to include them. To filter across relationship assignments and custom property values, use `execute-sql` after discovering this project's definition ids; the account list parameters do not support that combination.",
+    "requiredScopes": ["account:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-list.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema7",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListRequestSchema8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-list.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at` (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set `include_churned` or `include_ignored` to true to include them. To filter across relationship assignments and custom property values, use `execute-sql` after discovering this project's definition ids; the account list parameters do not support that combination.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "all_roles_unassigned",
+            "effectiveDescription": "When true, returns only accounts where no user actively holds any relationship.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, returns only accounts where no user actively holds any relationship.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "inactive_last",
+            "effectiveDescription": "When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "include_churned",
+            "effectiveDescription": "Include churned accounts. Churned accounts are hidden by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Include churned accounts. Churned accounts are hidden by default.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "include_ignored",
+            "effectiveDescription": "Include ignored accounts. Ignored accounts are hidden by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Include ignored accounts. Ignored accounts are hidden by default.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "ordering",
+            "effectiveDescription": "Sort order. Defaults to '-created_at'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort order. Defaults to '-created_at'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListInput",
+            "field": "tags",
+            "effectiveDescription": "JSON-encoded array of tag names to filter by, e.g. `[\"enterprise\",\"priority\"]`. Returns accounts that have any of the listed tags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of tag names to filter by, e.g. `[\"enterprise\",\"priority\"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "JSON-encoded array of tag names to filter by, e.g. `[\"enterprise\",\"priority\"]`. Returns accounts that have any of the listed tags.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/customer_analytics/mcp/tools.yaml",
+                        "pointer": "/tools/accounts-list/param_overrides/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "effectiveDescription": "A Customer Analytics account — a logical grouping used to assign customer-success ownership.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A Customer Analytics account — a logical grouping used to assign customer-success ownership.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "external_id",
+            "effectiveDescription": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/external_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "properties",
+            "effectiveDescription": "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "tags",
+            "effectiveDescription": "Tag names attached to the account. Pass a list to replace existing tags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names attached to the account. Pass a list to replace existing tags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "notebooks",
+            "effectiveDescription": "Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/notebooks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "slack_summary_cadence",
+            "effectiveDescription": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/slack_summary_cadence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "churned_at",
+            "effectiveDescription": "When the account churned. Null means the account has not churned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account churned. Null means the account has not churned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/churned_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape2",
+            "field": "ignored_at",
+            "effectiveDescription": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/ignored_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape3",
+            "field": "website_domain",
+            "effectiveDescription": "Primary company website hostname used for account identity and logo lookup.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary company website hostname used for account identity and logo lookup.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/website_domain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape3",
+            "field": "email_domains",
+            "effectiveDescription": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/email_domains"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListResponseShape3",
+            "field": "known_emails",
+            "effectiveDescription": "Individual email addresses pinned to this account, matched before the domain fallback.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Individual email addresses pinned to this account, matched before the domain fallback.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/known_emails"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "accounts-relationships-list",
+            "method": "customerAnalytics.accountsRelationshipsList"
+        },
+        {
+            "toolName": "accounts-retrieve",
+            "method": "customerAnalytics.accountsRetrieve"
+        },
+        {
+            "toolName": "custom-property-definitions-list",
+            "method": "customerAnalytics.customPropertyDefinitionsList"
+        },
+        {
+            "toolName": "execute-sql",
+            "method": "queries.sql"
+        }
+    ]
+}

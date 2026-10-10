@@ -1,0 +1,458 @@
+{
+    "method": "customerAnalytics.accountsPartialUpdate",
+    "toolName": "accounts-partial-update",
+    "operationId": "accounts_partial_update",
+    "title": "Update account",
+    "category": "Customer analytics",
+    "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags. Set `churned_at` to an ISO-8601 timestamp to mark the account as churned, or null to mark it as active again.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsPartialUpdateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema2Variant1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsAccountsPartialUpdateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-partial-update.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags. Set `churned_at` to an ISO-8601 timestamp to mark the account as churned, or null to mark it as active again.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "external_id",
+            "effectiveDescription": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "properties",
+            "effectiveDescription": "Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems), plus `email_domains` (company email domains, e.g. [\"acme.com\"]) and `known_emails` (individual addresses, for contacts on personal domains) which match synced touchpoints such as calendar meetings to this account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems), plus `email_domains` (company email domains, e.g. [\"acme.com\"]) and `known_emails` (individual addresses, for contacts on personal domains) which match synced touchpoints such as calendar meetings to this account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/customer_analytics/mcp/tools.yaml",
+                        "pointer": "/tools/accounts-partial-update/param_overrides/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "tags",
+            "effectiveDescription": "Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names attached to the account. Pass a list to replace existing tags.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/customer_analytics/mcp/tools.yaml",
+                        "pointer": "/tools/accounts-partial-update/param_overrides/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "slack_summary_cadence",
+            "effectiveDescription": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "churned_at",
+            "effectiveDescription": "When the account churned. Null means the account has not churned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account churned. Null means the account has not churned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateInput",
+            "field": "ignored_at",
+            "effectiveDescription": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateResponseShape2",
+            "field": "website_domain",
+            "effectiveDescription": "Primary company website hostname used for account identity and logo lookup.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary company website hostname used for account identity and logo lookup.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/website_domain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateResponseShape2",
+            "field": "email_domains",
+            "effectiveDescription": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/email_domains"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateResponseShape2",
+            "field": "known_emails",
+            "effectiveDescription": "Individual email addresses pinned to this account, matched before the domain fallback.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Individual email addresses pinned to this account, matched before the domain fallback.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/known_emails"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "effectiveDescription": "A Customer Analytics account — a logical grouping used to assign customer-success ownership.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A Customer Analytics account — a logical grouping used to assign customer-success ownership.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name of the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "external_id",
+            "effectiveDescription": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/external_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "properties",
+            "effectiveDescription": "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "tags",
+            "effectiveDescription": "Tag names attached to the account. Pass a list to replace existing tags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names attached to the account. Pass a list to replace existing tags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "notebooks",
+            "effectiveDescription": "Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/notebooks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "slack_summary_cadence",
+            "effectiveDescription": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/slack_summary_cadence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "churned_at",
+            "effectiveDescription": "When the account churned. Null means the account has not churned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account churned. Null means the account has not churned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/churned_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsAccountsPartialUpdateData",
+            "field": "ignored_at",
+            "effectiveDescription": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/ignored_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

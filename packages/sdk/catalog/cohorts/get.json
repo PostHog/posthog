@@ -1,0 +1,606 @@
+{
+    "method": "cohorts.get",
+    "toolName": "cohorts-retrieve",
+    "operationId": "cohorts_retrieve",
+    "title": "Get cohort",
+    "category": "Cohorts",
+    "description": "Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
+    "requiredScopes": ["cohort:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/cohorts/client.ts",
+    "input": {
+        "name": "CohortsGetInput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/get.ts",
+        "declaration": "dist/generated/cohorts/get.d.ts"
+    },
+    "output": {
+        "name": "CohortsGetOutput",
+        "importPath": "@posthog/sdk/cohorts",
+        "source": "src/generated/cohorts/get.ts",
+        "declaration": "dist/generated/cohorts/get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CohortsGetResponseEventPropFilterType",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseEventPropFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseHogQLFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseBehavioralFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponsePersonFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponsePersonMetadataFilter",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortFilterGroupType",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortFilterGroup",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseRoleAtOrganizationEnum",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseBlankEnum",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseNullEnum",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortTypeEnum",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortConditionTypeFlags",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortRealtimeReadinessState",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortHistoryBuildPhase",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortHistoryBuild",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseCohortRealtimeReadiness",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetResponseSearchMatchTypeEnum",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFilters",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant3",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant4",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant5",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant6",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant8",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant9",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant10",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant11",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant12",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant7",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant2",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataFiltersVariant1",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataCreatedByHedgehogConfig",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataCreatedByHedgehogConfigVariant1",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetDataCreatedBy",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        },
+        {
+            "name": "CohortsGetData",
+            "importPath": "@posthog/sdk/cohorts",
+            "source": "src/generated/cohorts/get.ts",
+            "declaration": "dist/generated/cohorts/get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/cohorts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CohortsGetInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this cohort.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1cohorts~1{id}~1/get/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponsePersonMetadataFilter",
+            "effectiveDescription": "Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonMetadataFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortFilterGroup",
+            "effectiveDescription": "AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortFilterGroup"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseRoleAtOrganizationEnum",
+            "effectiveDescription": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RoleAtOrganizationEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortTypeEnum",
+            "effectiveDescription": "* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortTypeEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortConditionTypeFlags",
+            "field": "person_properties",
+            "effectiveDescription": "The filters include a person property or person_metadata condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The filters include a person property or person_metadata condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortConditionTypeFlags/properties/person_properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortConditionTypeFlags",
+            "field": "behavioral",
+            "effectiveDescription": "The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortConditionTypeFlags/properties/behavioral"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortConditionTypeFlags",
+            "field": "lifecycle",
+            "effectiveDescription": "The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortConditionTypeFlags/properties/lifecycle"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortConditionTypeFlags",
+            "field": "cohorts",
+            "effectiveDescription": "The filters include a nested reference to another cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The filters include a nested reference to another cohort.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortConditionTypeFlags/properties/cohorts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortRealtimeReadiness",
+            "field": "state",
+            "effectiveDescription": "Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.\n\n* `static` - Static\n* `person_properties` - Person properties\n* `daily` - Daily\n* `building` - Building\n* `rebuilding` - Rebuilding\n* `ready` - Ready\n* `needs_attention` - Needs attention",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.\n\n* `static` - Static\n* `person_properties` - Person properties\n* `daily` - Daily\n* `building` - Building\n* `rebuilding` - Rebuilding\n* `ready` - Ready\n* `needs_attention` - Needs attention",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortRealtimeReadiness/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortRealtimeReadiness",
+            "field": "ready_at",
+            "effectiveDescription": "When the cohort became targetable by feature flags. Null unless the state is `ready`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the cohort became targetable by feature flags. Null unless the state is `ready`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortRealtimeReadiness/properties/ready_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortRealtimeReadiness",
+            "field": "build",
+            "effectiveDescription": "The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortRealtimeReadiness/properties/build"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortHistoryBuild",
+            "field": "phase",
+            "effectiveDescription": "What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.\n\n* `waiting` - Waiting\n* `scanning` - Scanning\n* `checking` - Checking",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.\n\n* `waiting` - Waiting\n* `scanning` - Scanning\n* `checking` - Checking",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortHistoryBuild/properties/phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortHistoryBuild",
+            "field": "percent_complete",
+            "effectiveDescription": "How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortHistoryBuild/properties/percent_complete"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetResponseCohortHistoryBuild",
+            "field": "updated_at",
+            "effectiveDescription": "When this build last made progress. Null while it is still queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this build last made progress. Null while it is still queued.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CohortHistoryBuild/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "last_import_total_count",
+            "effectiveDescription": "Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/last_import_total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "last_import_unmatched_count",
+            "effectiveDescription": "How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/last_import_unmatched_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "cohort_type",
+            "effectiveDescription": "Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/cohort_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "condition_type",
+            "effectiveDescription": "Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/condition_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "realtime",
+            "effectiveDescription": "Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/realtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Cohort/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CohortsGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,632 @@
+{
+    "method": "canvas.canvasPublishCurrentVersion",
+    "toolName": "canvas-publish-current-version",
+    "operationId": "canvases_publish_current_version_create",
+    "title": "Publish current canvas version",
+    "category": "Canvas",
+    "description": "Queue a build for the canvas's current source version without changing its source or metadata. Any project member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale value returns a 409 version_conflict.",
+    "requiredScopes": ["canvas:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasPublishCurrentVersionInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-publish-current-version.ts",
+        "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasPublishCurrentVersionOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-publish-current-version.ts",
+        "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape5",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape7",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        },
+        {
+            "name": "CanvasCanvasPublishCurrentVersionData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-publish-current-version.ts",
+            "declaration": "dist/generated/canvas/canvas-publish-current-version.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Queue a build for the current source version without changing source or metadata.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1publish-current-version~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Queue a build for the canvas's current source version without changing its source or metadata. Any project member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale value returns a 409 version_conflict.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/publish-current-version/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionInput",
+            "field": "expected_current_version_id",
+            "effectiveDescription": "Current source version to publish. A changed head returns a 409 version_conflict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current source version to publish. A changed head returns a 409 version_conflict.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/publish-current-version/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "effectiveDescription": "One structured validation/build diagnostic for a canvas source project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One structured validation/build diagnostic for a canvas source project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "field": "severity",
+            "effectiveDescription": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "field": "code",
+            "effectiveDescription": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "field": "message",
+            "effectiveDescription": "Human-readable description of the problem and how to fix it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of the problem and how to fix it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "field": "path",
+            "effectiveDescription": "Project-relative path of the file the diagnostic points at, when file-specific.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project-relative path of the file the diagnostic points at, when file-specific.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape2",
+            "field": "line",
+            "effectiveDescription": "1-based line number within `path`, when the diagnostic points at a specific line.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-based line number within `path`, when the diagnostic points at a specific line.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "effectiveDescription": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "entryHtml",
+            "effectiveDescription": "The artifact's entry HTML file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artifact's entry HTML file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/entryHtml"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "assets",
+            "effectiveDescription": "Every emitted artifact file with its content hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every emitted artifact file with its content hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/assets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "dependencies",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "canvasSdkVersion",
+            "effectiveDescription": "Version of the `ph` canvas SDK the artifact targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the `ph` canvas SDK the artifact targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/canvasSdkVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "legacyComponentPath",
+            "effectiveDescription": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/legacyComponentPath"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "legacyCode",
+            "effectiveDescription": "The runtime-mounted component source, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The runtime-mounted component source, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/legacyCode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "capabilities",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/capabilities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape3",
+            "field": "component",
+            "effectiveDescription": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/component"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape4",
+            "effectiveDescription": "One emitted file of a built canvas artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One emitted file of a built canvas artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape4",
+            "field": "path",
+            "effectiveDescription": "Artifact-relative path of the emitted file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact-relative path of the emitted file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape4",
+            "field": "contentHash",
+            "effectiveDescription": "Hex SHA-256 of the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 of the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/contentHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape4",
+            "field": "sizeBytes",
+            "effectiveDescription": "Size of the file in bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Size of the file in bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/sizeBytes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape5",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionResponseShape6",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "effectiveDescription": "Lifecycle record of one build of a canvas source version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle record of one build of a canvas source version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "id",
+            "effectiveDescription": "The build's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The build's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "source_version_id",
+            "effectiveDescription": "The source version this build compiled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source version this build compiled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/source_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "build_status",
+            "effectiveDescription": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/build_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "diagnostics",
+            "effectiveDescription": "Structured diagnostics recorded by the build (errors explain a failed status).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured diagnostics recorded by the build (errors explain a failed status).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/diagnostics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "manifest",
+            "effectiveDescription": "The frozen artifact manifest — present once the build is ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The frozen artifact manifest — present once the build is ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/manifest"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "integrity",
+            "effectiveDescription": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/integrity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "artifact_url",
+            "effectiveDescription": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/artifact_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "pinned",
+            "effectiveDescription": "Pinned builds are retained for the lifetime of the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned builds are retained for the lifetime of the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/pinned"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "created_at",
+            "effectiveDescription": "When the build was queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build was queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasPublishCurrentVersionData",
+            "field": "finished_at",
+            "effectiveDescription": "When the build reached a terminal state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build reached a terminal state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/finished_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

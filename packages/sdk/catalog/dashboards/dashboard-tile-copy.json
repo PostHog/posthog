@@ -1,0 +1,527 @@
+{
+    "method": "dashboards.dashboardTileCopy",
+    "toolName": "dashboard-tile-copy",
+    "operationId": "dashboards_copy_tile_create",
+    "title": "Copy dashboard tile",
+    "category": "Dashboards",
+    "description": "Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the dashboard-widgets feature flag and are deep-cloned with a new widget row.",
+    "requiredScopes": ["dashboard:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/dashboards/client.ts",
+    "input": {
+        "name": "DashboardsDashboardTileCopyInput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+        "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+    },
+    "output": {
+        "name": "DashboardsDashboardTileCopyOutput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+        "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape3",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape2",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape4",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape5",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape6",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape7",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape8",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape9",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyResponseShape10",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardTileCopyData",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-tile-copy.ts",
+            "declaration": "dist/generated/dashboards/dashboard-tile-copy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1{id}~1copy_tile~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the dashboard-widgets feature flag and are deep-cloned with a new widget row.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DashboardsDashboardTileCopyInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dashboards/{id}/copy_tile/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyInput",
+            "field": "fromDashboardId",
+            "effectiveDescription": "Dashboard id the tile currently belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard id the tile currently belongs to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dashboards/{id}/copy_tile/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyInput",
+            "field": "tileId",
+            "effectiveDescription": "Dashboard tile id to copy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard tile id to copy.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/dashboards/{id}/copy_tile/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape6",
+            "field": "breakdownValue",
+            "effectiveDescription": "The breakdown value this color applies to, as it appears in the chart legend.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The breakdown value this color applies to, as it appears in the chart legend.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape6/properties/breakdownValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape6",
+            "field": "colorToken",
+            "effectiveDescription": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape6/properties/colorToken"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape6",
+            "field": "breakdownType",
+            "effectiveDescription": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape6/properties/breakdownType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape6",
+            "field": "breakdownProperty",
+            "effectiveDescription": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape6/properties/breakdownProperty"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape6",
+            "field": "source",
+            "effectiveDescription": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape6/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape9",
+            "field": "tile_spacing",
+            "effectiveDescription": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape9/properties/tile_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyResponseShape9",
+            "field": "layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape9/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "folder",
+            "effectiveDescription": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/folder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "file_system_id",
+            "effectiveDescription": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/file_system_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "file_system_path",
+            "effectiveDescription": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/file_system_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "breakdown_colors",
+            "effectiveDescription": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/breakdown_colors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "data_color_theme_id",
+            "effectiveDescription": "ID of the color theme used for chart visualizations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the color theme used for chart visualizations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/data_color_theme_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "restriction_level",
+            "effectiveDescription": "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/restriction_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "quick_filter_ids",
+            "effectiveDescription": "List of quick filter IDs associated with this dashboard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of quick filter IDs associated with this dashboard",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/quick_filter_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "customization",
+            "effectiveDescription": "Dashboard display settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard display settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/customization"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "grid_spacing",
+            "effectiveDescription": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/grid_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "use_template",
+            "effectiveDescription": "Template key to create the dashboard from a predefined template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Template key to create the dashboard from a predefined template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/use_template"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "use_dashboard",
+            "effectiveDescription": "ID of an existing dashboard to duplicate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of an existing dashboard to duplicate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/use_dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "delete_insights",
+            "effectiveDescription": "When deleting, also delete insights that are only on this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When deleting, also delete insights that are only on this dashboard.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/delete_insights"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardTileCopyData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

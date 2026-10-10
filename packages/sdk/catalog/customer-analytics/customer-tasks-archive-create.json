@@ -1,0 +1,397 @@
+{
+    "method": "customerAnalytics.customerTasksArchiveCreate",
+    "toolName": "customer-tasks-archive-create",
+    "operationId": "customer_tasks_archive_create",
+    "title": "Archive customer task",
+    "category": "Customer analytics",
+    "description": "Archive a Customer analytics task by ID. This removes it from active lists while preserving its history. Use customer-tasks-restore-create to restore it.",
+    "requiredScopes": ["customer_task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-customer-tasks"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomerTasksArchiveCreateInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-archive-create.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-archive-create.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomerTasksArchiveCreateOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-archive-create.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-archive-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-archive-create.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-archive-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-archive-create.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-archive-create.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-archive-create.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-archive-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Archive a Customer analytics task by ID. This removes it from active lists while preserving its history. Use customer-tasks-restore-create to restore it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Name of the linked account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the linked account.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape3",
+            "field": "id",
+            "effectiveDescription": "PostHog user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape3",
+            "field": "email",
+            "effectiveDescription": "Email address of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape3",
+            "field": "first_name",
+            "effectiveDescription": "First name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/first_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateResponseShape3",
+            "field": "last_name",
+            "effectiveDescription": "Last name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/last_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "id",
+            "effectiveDescription": "UUID of the task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "account",
+            "effectiveDescription": "Linked account, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linked account, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/account"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "name",
+            "effectiveDescription": "Task name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "description",
+            "effectiveDescription": "Task description, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task description, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "status",
+            "effectiveDescription": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task lifecycle status.\n\n* `open` - Open\n* `in_progress` - In progress\n* `completed` - Completed\n* `canceled` - Canceled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "assigned_to",
+            "effectiveDescription": "Assigned project member, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assigned project member, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/assigned_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "due_at",
+            "effectiveDescription": "Task deadline, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task deadline, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/due_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "completed_at",
+            "effectiveDescription": "When the task was completed, if applicable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was completed, if applicable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "completed_by",
+            "effectiveDescription": "User credited with completion, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User credited with completion, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/completed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the task, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the task, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "archived_at",
+            "effectiveDescription": "When the task was archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/archived_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When the task was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the task was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the task was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "can_edit",
+            "effectiveDescription": "Whether the current user can edit this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can edit this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/can_edit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksArchiveCreateData",
+            "field": "can_restore",
+            "effectiveDescription": "Whether the current user can restore this task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current user can restore this task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/can_restore"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

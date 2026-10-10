@@ -1,0 +1,238 @@
+{
+    "method": "contextLayer.taskContextWikiPagePropose",
+    "toolName": "task-context-wiki-page-propose",
+    "title": "Suggest a shared wiki edit",
+    "category": "Context wiki",
+    "description": "Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.",
+    "requiredScopes": ["task:write", "internal_run:read", "context_layer_internal:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: context-layer"],
+    "methodSource": "src/generated/context-layer/client.ts",
+    "input": {
+        "name": "ContextLayerTaskContextWikiPageProposeInput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+        "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+    },
+    "output": {
+        "name": "ContextLayerTaskContextWikiPageProposeOutput",
+        "importPath": "@posthog/sdk/context-layer",
+        "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+        "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ContextLayerTaskContextWikiPageProposeRequestSchema0",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+        },
+        {
+            "name": "ContextLayerTaskContextWikiPageProposeRequestSchema1",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+        },
+        {
+            "name": "ContextLayerTaskContextWikiPageProposeRequestSchema2",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+        },
+        {
+            "name": "ContextLayerTaskContextWikiPageProposeData",
+            "importPath": "@posthog/sdk/context-layer",
+            "source": "src/generated/context-layer/task-context-wiki-page-propose.ts",
+            "declaration": "dist/generated/context-layer/task-context-wiki-page-propose.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/context_layer/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeRequest_Schema0",
+            "effectiveDescription": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeRequest_Schema1",
+            "effectiveDescription": "The complete Markdown content for the page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete Markdown content for the page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeRequest_Schema2",
+            "effectiveDescription": "The head_sha returned when reading the page. Required to bind the proposed edit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The head_sha returned when reading the page. Required to bind the proposed edit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeInput",
+            "effectiveDescription": "Request body for creating or replacing one wiki page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request body for creating or replacing one wiki page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "id",
+            "effectiveDescription": "Immutable suggested edit ID. Only its author can apply it through the user API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable suggested edit ID. Only its author can apply it through the user API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "task_id",
+            "effectiveDescription": "Task that proposed the edit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task that proposed the edit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "path",
+            "effectiveDescription": "Shared wiki page to review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shared wiki page to review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "original_content",
+            "effectiveDescription": "Page content at the revision the proposal is based on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page content at the revision the proposal is based on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/original_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "content",
+            "effectiveDescription": "Proposed page content. This is not published wiki content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed page content. This is not published wiki content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "base_head",
+            "effectiveDescription": "Wiki revision the proposal is based on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wiki revision the proposal is based on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/base_head"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeData",
+            "field": "created_at",
+            "effectiveDescription": "When the edit was proposed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the edit was proposed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/context_layer.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

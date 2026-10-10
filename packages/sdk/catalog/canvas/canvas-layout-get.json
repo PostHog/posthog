@@ -1,0 +1,1323 @@
+{
+    "method": "canvas.canvasLayoutGet",
+    "toolName": "canvas-layout-get",
+    "operationId": "canvases_layout_retrieve",
+    "title": "Read grid canvas layout",
+    "category": "Canvas",
+    "description": "Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
+    "requiredScopes": ["canvas:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasLayoutGetInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-layout-get.ts",
+        "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasLayoutGetOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-layout-get.ts",
+        "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasLayoutGetRequestSchema0",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape4",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape6",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape5",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape9",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape11",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape12",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape13",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape14",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape10",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape8",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetResponseShape7",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        },
+        {
+            "name": "CanvasCanvasLayoutGetData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-layout-get.ts",
+            "declaration": "dist/generated/canvas/canvas-layout-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read a grid canvas's layout document and its `current_version_id`.\n\nAlways call this before editing: pass the returned version id as\n`expected_current_version_id` on publish/patch so concurrent edits are\nnot overwritten. A grid canvas with no versions yet returns the\ndefault empty layout with a null version id.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1layout~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasLayoutGetInput",
+            "field": "id",
+            "effectiveDescription": "ID of the grid canvas whose layout to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/layout/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "ID of the grid canvas whose layout to read.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/canvas/mcp/tools.yaml",
+                        "pointer": "/tools/canvas-layout-get/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetInput",
+            "field": "include_components",
+            "effectiveDescription": "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/layout/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "effectiveDescription": "Identity and version pointers for one canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identity and version pointers for one canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The canvas's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The canvas's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Display name of the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "The canvas's kind (freeform, component, or grid).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The canvas's kind (freeform, component, or grid).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "channel_id",
+            "effectiveDescription": "Id of the channel the canvas belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the channel the canvas belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "current_version_id",
+            "effectiveDescription": "Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "published_build_id",
+            "effectiveDescription": "Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/published_build_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the canvas was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the canvas was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape2",
+            "field": "url",
+            "effectiveDescription": "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape2/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape3",
+            "effectiveDescription": "A grid canvas's layout document — its entire 'source'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A grid canvas's layout document — its entire 'source'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape3",
+            "field": "schemaVersion",
+            "effectiveDescription": "Layout schema version. Currently always 1.\n\n* `1` - 1",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Layout schema version. Currently always 1.\n\n* `1` - 1",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/schemaVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape3",
+            "field": "grid",
+            "effectiveDescription": "The grid placements are laid out on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The grid placements are laid out on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/grid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape3",
+            "field": "placements",
+            "effectiveDescription": "The placed widgets, at most 24. Placements may not overlap or extend past the grid.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The placed widgets, at most 24. Placements may not overlap or extend past the grid.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape3/properties/placements"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape4",
+            "effectiveDescription": "The grid a grid canvas lays its placements out on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The grid a grid canvas lays its placements out on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape4",
+            "field": "columns",
+            "effectiveDescription": "Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n* `4` - 4\n* `6` - 6\n* `8` - 8\n* `10` - 10\n* `12` - 12",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n* `4` - 4\n* `6` - 6\n* `8` - 8\n* `10` - 10\n* `12` - 12",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape4",
+            "field": "rowHeight",
+            "effectiveDescription": "Height of one grid row, in pixels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height of one grid row, in pixels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/rowHeight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape4",
+            "field": "gap",
+            "effectiveDescription": "Gap between placements, in pixels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Gap between placements, in pixels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape4/properties/gap"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "effectiveDescription": "One placed widget on a grid canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One placed widget on a grid canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "id",
+            "effectiveDescription": "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "status",
+            "effectiveDescription": "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n* `pending` - pending\n* `generating` - generating\n* `live` - live\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n* `pending` - pending\n* `generating` - generating\n* `live` - live\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "component",
+            "effectiveDescription": "Id of the component canvas this placement renders. Required once the placement is live.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the component canvas this placement renders. Required once the placement is live.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/component"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "version",
+            "effectiveDescription": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "x",
+            "effectiveDescription": "Left edge, in grid columns (0-based).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Left edge, in grid columns (0-based).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/x"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "y",
+            "effectiveDescription": "Top edge, in grid rows (0-based).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top edge, in grid rows (0-based).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "w",
+            "effectiveDescription": "Width, in grid columns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Width, in grid columns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/w"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "h",
+            "effectiveDescription": "Height, in grid rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height, in grid rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/h"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "config",
+            "effectiveDescription": "Per-placement settings, validated against the component's configSchema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-placement settings, validated against the component's configSchema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "prompt",
+            "effectiveDescription": "For pending/generating/failed placements: what the user asked this box to become.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For pending/generating/failed placements: what the user asked this box to become.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape5",
+            "field": "generationTaskId",
+            "effectiveDescription": "Id of the agent task currently filling this placement, when one is running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the agent task currently filling this placement, when one is running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape5/properties/generationTaskId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "effectiveDescription": "The renderable build of one component referenced by a grid layout, shaped\nlike the builds endpoint's response so clients reuse one lifecycle reader.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The renderable build of one component referenced by a grid layout, shaped\nlike the builds endpoint's response so clients reuse one lifecycle reader.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "field": "canvas_id",
+            "effectiveDescription": "Id of the component canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the component canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7/properties/canvas_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "field": "requested_version_id",
+            "effectiveDescription": "The source version the placement pins, or null when it follows the latest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source version the placement pins, or null when it follows the latest.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7/properties/requested_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "field": "published_build_id",
+            "effectiveDescription": "Id of the component's live build. Null until a build completes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the component's live build. Null until a build completes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7/properties/published_build_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "field": "current_version_id",
+            "effectiveDescription": "Id of the source version the component's head points at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the source version the component's head points at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape7",
+            "field": "builds",
+            "effectiveDescription": "The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape7/properties/builds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "effectiveDescription": "Lifecycle record of one build of a canvas source version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle record of one build of a canvas source version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "id",
+            "effectiveDescription": "The build's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The build's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "source_version_id",
+            "effectiveDescription": "The source version this build compiled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source version this build compiled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/source_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "build_status",
+            "effectiveDescription": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Build lifecycle state. A failed build never replaces the last-known-good artifact.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/build_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "diagnostics",
+            "effectiveDescription": "Structured diagnostics recorded by the build (errors explain a failed status).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured diagnostics recorded by the build (errors explain a failed status).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/diagnostics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "manifest",
+            "effectiveDescription": "The frozen artifact manifest — present once the build is ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The frozen artifact manifest — present once the build is ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/manifest"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "integrity",
+            "effectiveDescription": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/integrity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "artifact_url",
+            "effectiveDescription": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/artifact_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "pinned",
+            "effectiveDescription": "Pinned builds are retained for the lifetime of the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pinned builds are retained for the lifetime of the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/pinned"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "created_at",
+            "effectiveDescription": "When the build was queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build was queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape8",
+            "field": "finished_at",
+            "effectiveDescription": "When the build reached a terminal state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the build reached a terminal state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape8/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "effectiveDescription": "One structured validation/build diagnostic for a canvas source project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One structured validation/build diagnostic for a canvas source project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "field": "severity",
+            "effectiveDescription": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'error' blocks publishing; 'warning' is advisory and does not block.\n\n* `error` - error\n* `warning` - warning",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "field": "code",
+            "effectiveDescription": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "field": "message",
+            "effectiveDescription": "Human-readable description of the problem and how to fix it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of the problem and how to fix it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "field": "path",
+            "effectiveDescription": "Project-relative path of the file the diagnostic points at, when file-specific.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project-relative path of the file the diagnostic points at, when file-specific.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape9",
+            "field": "line",
+            "effectiveDescription": "1-based line number within `path`, when the diagnostic points at a specific line.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-based line number within `path`, when the diagnostic points at a specific line.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape9/properties/line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "effectiveDescription": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The manifest frozen into a ready build: entry, assets, versions, capabilities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "entryHtml",
+            "effectiveDescription": "The artifact's entry HTML file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artifact's entry HTML file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/entryHtml"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "assets",
+            "effectiveDescription": "Every emitted artifact file with its content hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every emitted artifact file with its content hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/assets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "dependencies",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "canvasSdkVersion",
+            "effectiveDescription": "Version of the `ph` canvas SDK the artifact targets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the `ph` canvas SDK the artifact targets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/canvasSdkVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "legacyComponentPath",
+            "effectiveDescription": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the runtime-mounted React component, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/legacyComponentPath"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "legacyCode",
+            "effectiveDescription": "The runtime-mounted component source, for legacy-tier artifacts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The runtime-mounted component source, for legacy-tier artifacts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/legacyCode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "capabilities",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/capabilities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape10",
+            "field": "component",
+            "effectiveDescription": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For component artifacts: the placement contract (size, configSchema) frozen into the build.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape10/properties/component"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape11",
+            "effectiveDescription": "One emitted file of a built canvas artifact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One emitted file of a built canvas artifact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape11",
+            "field": "path",
+            "effectiveDescription": "Artifact-relative path of the emitted file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Artifact-relative path of the emitted file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape11/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape11",
+            "field": "contentHash",
+            "effectiveDescription": "Hex SHA-256 of the file content.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hex SHA-256 of the file content.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape11/properties/contentHash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape11",
+            "field": "sizeBytes",
+            "effectiveDescription": "Size of the file in bytes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Size of the file in bytes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape11/properties/sizeBytes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape12",
+            "effectiveDescription": "Exact dependency versions the artifact was built against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact dependency versions the artifact was built against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetResponseShape13",
+            "effectiveDescription": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared PostHog/network capabilities the artifact is held to at runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetData",
+            "effectiveDescription": "The layout response, plus (when requested) the renderable build of every\ncomponent the layout places — so a grid opens on one round trip instead of\none builds fetch per placement.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The layout response, plus (when requested) the renderable build of every\ncomponent the layout places — so a grid opens on one round trip instead of\none builds fetch per placement.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetData",
+            "field": "canvas",
+            "effectiveDescription": "Identity and version pointers for the canvas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identity and version pointers for the canvas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/canvas"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetData",
+            "field": "layout",
+            "effectiveDescription": "The layout document. A grid canvas with no versions yet returns the default empty layout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The layout document. A grid canvas with no versions yet returns the default empty layout.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/layout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetData",
+            "field": "current_version_id",
+            "effectiveDescription": "The live layout version this document reflects — pass as expected_current_version_id when publishing or patching. Null before the first layout publish.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The live layout version this document reflects — pass as expected_current_version_id when publishing or patching. Null before the first layout publish.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasLayoutGetData",
+            "field": "component_lifecycles",
+            "effectiveDescription": "One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/component_lifecycles"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,65 @@
+{
+    "method": "customerAnalytics.accountsNotebooksDestroy",
+    "toolName": "accounts-notebooks-destroy",
+    "operationId": "accounts_notebooks_destroy",
+    "title": "Delete account notebook",
+    "category": "Customer analytics",
+    "description": "Permanently delete an account notebook by its `short_id`.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-csp"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsAccountsNotebooksDestroyInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-notebooks-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-notebooks-destroy.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsAccountsNotebooksDestroyOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/accounts-notebooks-destroy.ts",
+        "declaration": "dist/generated/customer-analytics/accounts-notebooks-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsAccountsNotebooksDestroyData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/accounts-notebooks-destroy.ts",
+            "declaration": "dist/generated/customer-analytics/accounts-notebooks-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Permanently delete an account notebook by its `short_id`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsAccountsNotebooksDestroyInput",
+            "field": "account_id",
+            "effectiveDescription": "UUID of the parent account.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the parent account.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,212 @@
+{
+    "method": "canvas.canvasDraftsRetrieve",
+    "toolName": "canvas-drafts-retrieve",
+    "operationId": "canvases_drafts_retrieve",
+    "title": "List canvas drafts",
+    "category": "Canvas",
+    "description": "List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status (queued/building/ready/failed). Drafts are separate from the published version history and are never the live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its `version_id`) and promote (canvas-promote-create).",
+    "requiredScopes": ["canvas:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/canvas/client.ts",
+    "input": {
+        "name": "CanvasCanvasDraftsRetrieveInput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+    },
+    "output": {
+        "name": "CanvasCanvasDraftsRetrieveOutput",
+        "importPath": "@posthog/sdk/canvas",
+        "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+        "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CanvasCanvasDraftsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+        },
+        {
+            "name": "CanvasCanvasDraftsRetrieveData",
+            "importPath": "@posthog/sdk/canvas",
+            "source": "src/generated/canvas/canvas-drafts-retrieve.ts",
+            "declaration": "dist/generated/canvas/canvas-drafts-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The canvas's staged draft versions, newest first, each with its latest build status.\n\nA draft is a version that was built but never made the head. Preview one\nwith `source?version_id=`, then make it live with `promote`.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1canvases~1{id}~1drafts~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status (queued/building/ready/failed). Drafts are separate from the published version history and are never the live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its `version_id`) and promote (canvas-promote-create).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/canvas/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "ID of the canvas whose drafts to list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this canvas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/canvases/{id}/drafts/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "ID of the canvas whose drafts to list.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/canvas/mcp/tools.yaml",
+                        "pointer": "/tools/canvas-drafts-retrieve/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "effectiveDescription": "A staged draft version and the status of its latest build. Preview a\ndraft's files with `source?version_id=`, then make it live with `promote`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A staged draft version and the status of its latest build. Preview a\ndraft's files with `source?version_id=`, then make it live with `promote`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "version_id",
+            "effectiveDescription": "Id of the draft source version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the draft source version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "prompt",
+            "effectiveDescription": "Short description recorded when the draft was staged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description recorded when the draft was staged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "created_by",
+            "effectiveDescription": "Who staged the draft.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who staged the draft.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "created_at",
+            "effectiveDescription": "When the draft was staged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the draft was staged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "build_status",
+            "effectiveDescription": "Status of the draft's latest build; null when no build has been recorded yet.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Status of the draft's latest build; null when no build has been recorded yet.\n\n* `queued` - queued\n* `building` - building\n* `ready` - ready\n* `failed` - failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/build_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CanvasCanvasDraftsRetrieveResponseShape1",
+            "field": "build_id",
+            "effectiveDescription": "Id of the draft's latest build, when one exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the draft's latest build, when one exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/canvas.ts",
+                        "pointer": "#/Shape1/properties/build_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

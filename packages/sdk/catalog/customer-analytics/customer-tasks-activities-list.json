@@ -1,0 +1,394 @@
+{
+    "method": "customerAnalytics.customerTasksActivitiesList",
+    "toolName": "customer-tasks-activities-list",
+    "operationId": "customerTasksActivitiesList",
+    "title": "List customer task history",
+    "category": "Customer analytics",
+    "description": "Read the change history of a Customer analytics task by ID. Account details the caller cannot access are redacted.",
+    "requiredScopes": ["customer_task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: customer-analytics-customer-tasks"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomerTasksActivitiesListInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomerTasksActivitiesListOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+        "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListRequestSchema0",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListRequestSchema1",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape4",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape5",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape3",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape6",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/customer-tasks-activities-list.ts",
+            "declaration": "dist/generated/customer-analytics/customer-tasks-activities-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Read the change history of a Customer analytics task by ID. Account details the caller cannot access are redacted.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListInput",
+            "field": "limit",
+            "effectiveDescription": "Page size, from 1 to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size, from 1 to 100.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/activities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListInput",
+            "field": "offset",
+            "effectiveDescription": "Number of rows to skip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of rows to skip.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/customer_tasks/{id}/activities/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "UUID of the activity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the activity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "field": "activity_type",
+            "effectiveDescription": "Action that produced the activity.\n\n* `created` - Created\n* `updated` - Updated\n* `archived` - Archived\n* `restored` - Restored",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action that produced the activity.\n\n* `created` - Created\n* `updated` - Updated\n* `archived` - Archived\n* `restored` - Restored",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/activity_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "field": "changes",
+            "effectiveDescription": "Semantic field changes in this action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic field changes in this action.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/changes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "field": "actor",
+            "effectiveDescription": "User who made the change, if known.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who made the change, if known.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/actor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the activity was recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the activity was recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape3",
+            "field": "field",
+            "effectiveDescription": "Semantic task field that changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic task field that changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/field"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape3",
+            "field": "before",
+            "effectiveDescription": "Value before the change.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value before the change.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/before"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape3",
+            "field": "after",
+            "effectiveDescription": "Value after the change.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value after the change.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape3/properties/after"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape6",
+            "field": "id",
+            "effectiveDescription": "PostHog user ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape6",
+            "field": "email",
+            "effectiveDescription": "Email address of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email address of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape6",
+            "field": "first_name",
+            "effectiveDescription": "First name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/first_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListResponseShape6",
+            "field": "last_name",
+            "effectiveDescription": "Last name of the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last name of the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape6/properties/last_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "field": "count",
+            "effectiveDescription": "Total number of matching activities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of matching activities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "field": "next",
+            "effectiveDescription": "URL of the next page, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the next page, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/next"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "field": "previous",
+            "effectiveDescription": "URL of the previous page, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the previous page, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/previous"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "field": "results",
+            "effectiveDescription": "Activities in this page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Activities in this page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/customer_analytics.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomerTasksActivitiesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

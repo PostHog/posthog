@@ -1,0 +1,111 @@
+{
+    "method": "customerAnalytics.customPropertySourcesSync",
+    "toolName": "custom-property-sources-sync",
+    "operationId": "custom_property_sources_sync",
+    "title": "Sync a warehouse person- or group-property source now",
+    "category": "Customer analytics",
+    "description": "Person- and group-property sources only: run what the source reads now. A table binding re-runs a real (billable) warehouse sync; a view binding materializes the view. The incremental person/group-property update rides off that run. It does not reset the recurring schedule. Returns 400 for a source that is not an enabled person- or group-property source, and for a view whose data-modeling DAG is not on the v2 schedule (use backfill there instead). Syncing a group-target source additionally requires the `group:write` scope.",
+    "requiredScopes": ["account:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: warehouse-person-properties"],
+    "methodSource": "src/generated/customer-analytics/client.ts",
+    "input": {
+        "name": "CustomerAnalyticsCustomPropertySourcesSyncInput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-sync.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-sync.d.ts"
+    },
+    "output": {
+        "name": "CustomerAnalyticsCustomPropertySourcesSyncOutput",
+        "importPath": "@posthog/sdk/customer-analytics",
+        "source": "src/generated/customer-analytics/custom-property-sources-sync.ts",
+        "declaration": "dist/generated/customer-analytics/custom-property-sources-sync.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesSyncDataStatus",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-sync.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-sync.d.ts"
+        },
+        {
+            "name": "CustomerAnalyticsCustomPropertySourcesSyncData",
+            "importPath": "@posthog/sdk/customer-analytics",
+            "source": "src/generated/customer-analytics/custom-property-sources-sync.ts",
+            "declaration": "dist/generated/customer-analytics/custom-property-sources-sync.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Person and group sources only: run what this source reads now — an import for a table\nbinding (a real, billable warehouse sync), a materialization for a view binding. The\nincremental person/group-property update runs off that run.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1custom_property_sources~1{id}~1sync~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Person- and group-property sources only: run what the source reads now. A table binding re-runs a real (billable) warehouse sync; a view binding materializes the view. The incremental person/group-property update rides off that run. It does not reset the recurring schedule. Returns 400 for a source that is not an enabled person- or group-property source, and for a view whose data-modeling DAG is not on the v2 schedule (use backfill there instead). Syncing a group-target source additionally requires the `group:write` scope.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/customer_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesSyncData",
+            "effectiveDescription": "Response of the person/group-property sync/backfill trigger actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response of the person/group-property sync/backfill trigger actions.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesSyncData",
+            "field": "status",
+            "effectiveDescription": "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).\n\n* `triggered` - triggered\n* `started` - started\n* `already_running` - already_running",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).\n\n* `triggered` - triggered\n* `started` - started\n* `already_running` - already_running",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "CustomerAnalyticsCustomPropertySourcesSyncData",
+            "field": "already_running",
+            "effectiveDescription": "Backfill only: true when a run was already in flight and this call queued its follow-up.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Backfill only: true when a run was already in flight and this call queued its follow-up.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CustomPropertySyncTriggerResponse/properties/already_running"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

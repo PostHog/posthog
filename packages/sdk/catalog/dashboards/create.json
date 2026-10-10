@@ -1,0 +1,577 @@
+{
+    "method": "dashboards.create",
+    "toolName": "dashboard-create",
+    "operationId": "dashboards_create",
+    "title": "Create dashboard",
+    "category": "Dashboards",
+    "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.\nLoad the building-a-dashboard skill before you create or change a dashboard. It covers when to update an existing dashboard instead, which insights to reuse, and how to lay out the tiles.\nA dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring, weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive: an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.",
+    "requiredScopes": ["dashboard:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/dashboards/client.ts",
+    "input": {
+        "name": "DashboardsCreateInput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/create.ts",
+        "declaration": "dist/generated/dashboards/create.d.ts"
+    },
+    "output": {
+        "name": "DashboardsCreateOutput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/create.ts",
+        "declaration": "dist/generated/dashboards/create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DashboardsCreateRequestBreakdownColorConfigSourceEnum",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateRequestNullEnum",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateRequestBreakdownColorConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateInputGridSpacing",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateInputLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateResponseRoleAtOrganizationEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateResponseBlankEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateResponseNullEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataCreatedBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataVariables",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataPersistedFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataPersistedVariables",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataCustomizationTileSpacing",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataCustomizationLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataCustomization",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataTiles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataTilesVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateData",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.\nLoad the building-a-dashboard skill before you create or change a dashboard. It covers when to update an existing dashboard instead, which insights to reuse, and how to lay out the tiles.\nA dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring, weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive: an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfig",
+            "field": "breakdownValue",
+            "effectiveDescription": "The breakdown value this color applies to, as it appears in the chart legend.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The breakdown value this color applies to, as it appears in the chart legend.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfig",
+            "field": "colorToken",
+            "effectiveDescription": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/colorToken"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfig",
+            "field": "breakdownType",
+            "effectiveDescription": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfig",
+            "field": "breakdownProperty",
+            "effectiveDescription": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownProperty"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfig",
+            "field": "source",
+            "effectiveDescription": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateRequestBreakdownColorConfigSourceEnum",
+            "effectiveDescription": "* `auto` - auto\n* `manual` - manual",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `auto` - auto\n* `manual` - manual",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfigSourceEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "include_dashboards",
+            "effectiveDescription": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1/post/parameters/1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "breakdown_colors",
+            "effectiveDescription": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/breakdown_colors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "data_color_theme_id",
+            "effectiveDescription": "ID of the color theme used for chart visualizations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the color theme used for chart visualizations.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/data_color_theme_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "restriction_level",
+            "effectiveDescription": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.\n",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/restriction_level"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.\n",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/dashboards/mcp/tools.yaml",
+                        "pointer": "/tools/dashboard-create/param_overrides/restriction_level/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "quick_filter_ids",
+            "effectiveDescription": "List of quick filter IDs associated with this dashboard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of quick filter IDs associated with this dashboard",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/quick_filter_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "grid_spacing",
+            "effectiveDescription": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/grid_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "use_template",
+            "effectiveDescription": "Template key to create the dashboard from a predefined template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Template key to create the dashboard from a predefined template.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/use_template"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "use_dashboard",
+            "effectiveDescription": "ID of an existing dashboard to duplicate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of an existing dashboard to duplicate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/use_dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
+            "field": "delete_insights",
+            "effectiveDescription": "When deleting, also delete insights that are only on this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When deleting, also delete insights that are only on this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/delete_insights"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateResponseRoleAtOrganizationEnumWithoutNulls",
+            "effectiveDescription": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RoleAtOrganizationEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "folder",
+            "effectiveDescription": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/folder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "file_system_id",
+            "effectiveDescription": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/file_system_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "file_system_path",
+            "effectiveDescription": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/file_system_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "customization",
+            "effectiveDescription": "Dashboard display settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard display settings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/customization"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "customization.tile_spacing",
+            "effectiveDescription": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/tile_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "customization.layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "_agentNote",
+            "effectiveDescription": "Guidance carried over from the MCP tool definition.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Guidance carried over from the MCP tool definition.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
