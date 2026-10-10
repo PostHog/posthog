@@ -387,6 +387,7 @@ class TestRecentReviewsAPI(APIBaseTest):
                 PRFile(filename="a.py", status="modified", additions=1, deletions=0),
                 PRFile(filename="b.py", status="modified", additions=1, deletions=0),
             ],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
         # A newer snapshot for a head that was never reviewed must not displace the reviewed one.
         persist_pr_snapshot(
@@ -461,10 +462,13 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (row["perspective_count"], row["perspective_issue_count"], row["blind_spot_issue_count"]) == (2, 3, 1)
         assert (row["candidate_count"], row["dismissed_count"]) == (3, 1)
         assert "perspective_selection" not in row
+        # The old-sha snapshot ran the pipeline; only the reviewed head's design may reach the row.
+        assert row["review_design"] == REVIEW_DESIGN_SINGLE_AGENT
 
         # The detail exposes the head-matched selection per chunk (stale-head one filtered out),
         # joined with the chunk set's files, with skipped lenses computed against the roster.
         detail = self.client.get(f"{self.url}{report.id}/").json()
+        assert detail["review_design"] == REVIEW_DESIGN_SINGLE_AGENT
         assert detail["perspective_selection"] == {
             "roster": ["s-logic", "s-sec", "s-perf"],
             "chunks": [

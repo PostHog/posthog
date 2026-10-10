@@ -24,6 +24,8 @@ import type {
     PatchedReviewProjectSettingsApi,
     PatchedReviewUserSettingsApi,
     ReviewInstallationClaimScopeEnumApi,
+    ReviewDetailApi,
+    ReviewFindingApi,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
@@ -79,12 +81,13 @@ function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecen
         published: true,
         turn_published: true,
         review_mode: 'full',
-        status_comment_url: null,
+        review_design: 'pipeline',
+        status_comment_url: 'https://github.com/example-org/example-repo/pull/101#issuecomment-1001',
+        latest_resolution: null,
         full_review_published: true,
         in_progress: false,
         progress: null,
         resolution: null,
-        latest_resolution: null,
         must_fix_count: 1,
         should_fix_count: 2,
         consider_count: 1,
@@ -108,10 +111,19 @@ const recentReviews: ReviewRecentReviewApi[] = [
         github_url: 'https://github.com/example-org/example-repo/pull/98',
         head_branch: 'fix/digest-timezone',
         last_run_at: '2026-09-29T15:30:00Z',
+        review_mode: 'flash',
+        review_design: 'single_agent',
+        status_comment_url: 'https://github.com/example-org/example-repo/pull/98#issuecomment-980',
+        full_review_published: false,
         must_fix_count: 0,
         should_fix_count: 1,
-        consider_count: 0,
-        dismissed_count: 1,
+        consider_count: 1,
+        candidate_count: 2,
+        dismissed_count: 0,
+        chunk_count: null,
+        perspective_count: 3,
+        perspective_issue_count: 5,
+        blind_spot_issue_count: null,
     }),
     // Started by the viewer on a teammate's pull request, so "Mine" shows its author.
     completedReview({
@@ -122,12 +134,138 @@ const recentReviews: ReviewRecentReviewApi[] = [
         github_url: 'https://github.com/example-org/example-repo/pull/95',
         head_branch: 'feat/billing-cache',
         last_run_at: '2026-09-28T09:00:00Z',
+        review_mode: null,
+        review_design: null,
+        status_comment_url: null,
         must_fix_count: 0,
         should_fix_count: 0,
         consider_count: 1,
         dismissed_count: 2,
     }),
 ]
+
+function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
+    return {
+        title: 'Retry loop never gives up on a permanent error',
+        file: 'posthog/tasks/exports.py',
+        lines: [{ start: 42, end: 58 }],
+        body: 'A 4xx from the export target is retried like a timeout, so the job keeps retrying until the queue drops it.',
+        suggestion: 'Retry only on timeouts and 5xx responses, and fail fast on 4xx.',
+        effective_priority: 'must_fix',
+        reviewer_priority: 'must_fix',
+        source_perspective: 'review-hog-perspective-logic-correctness',
+        validator_category: 'bug',
+        validator_note: 'The handler catches every `HTTPError`, including 4xx, so the retry path is reachable.',
+        ...overrides,
+    }
+}
+
+function reviewDetail(review: ReviewRecentReviewApi, overrides: Partial<ReviewDetailApi>): ReviewDetailApi {
+    return {
+        ...review,
+        run_index: review.run_count,
+        head_sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+        perspective_selection: null,
+        report_markdown: '## Review\n\nFindings are posted as inline comments.',
+        run_urgency_threshold: 'consider',
+        findings: [],
+        dismissed_findings: [],
+        ...overrides,
+    }
+}
+
+const deepReviewDetail = reviewDetail(recentReviews[0], {
+    run_urgency_threshold: 'should_fix',
+    findings: [
+        finding({}),
+        finding({
+            title: 'Export status is written before the upload finishes',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            source_perspective: 'review-hog-perspective-performance-reliability',
+            validator_category: 'performance',
+        }),
+        finding({
+            title: 'Backoff ignores the Retry-After header',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'consider',
+            source_perspective: 'review-hog-blind-spots-general',
+            validator_category: 'best_practice',
+        }),
+        finding({
+            title: 'Log line repeats the export id',
+            effective_priority: 'consider',
+            reviewer_priority: 'consider',
+            validator_category: 'code_quality',
+        }),
+    ],
+    dismissed_findings: [
+        finding({
+            title: 'Possible race on the export lock',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            validator_category: null,
+            validator_note: 'The lock is taken inside a transaction, so two workers cannot hold it at once.',
+        }),
+    ],
+    perspective_selection: {
+        roster: ['review-hog-perspective-logic-correctness', 'review-hog-perspective-performance-reliability'],
+        chunks: [
+            {
+                chunk_id: 1,
+                chunk_type: 'backend_logic',
+                files: ['posthog/tasks/exports.py', 'posthog/tasks/retry.py'],
+                perspectives: [
+                    'review-hog-perspective-logic-correctness',
+                    'review-hog-perspective-performance-reliability',
+                ],
+                skipped: [],
+                reason: 'Retry logic touches both correctness and reliability.',
+            },
+            {
+                chunk_id: 2,
+                chunk_type: 'tests',
+                files: ['posthog/tasks/test/test_exports.py'],
+                perspectives: ['review-hog-perspective-logic-correctness'],
+                skipped: ['review-hog-perspective-performance-reliability'],
+                reason: 'Test-only chunk.',
+            },
+        ],
+    },
+})
+
+// A single-agent turn stamps one placeholder verdict on every finding instead of a validator's reasoning.
+const SINGLE_AGENT_NOTE = 'Not validated separately. A Standard review publishes its findings directly.'
+
+const standardReviewDetail = reviewDetail(recentReviews[1], {
+    findings: [
+        finding({
+            title: 'Digest window uses the server timezone',
+            file: 'posthog/tasks/weekly_digest.py',
+            lines: [{ start: 88, end: 95 }],
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            source_perspective: 'flash-single-agent',
+            validator_category: null,
+            validator_note: SINGLE_AGENT_NOTE,
+        }),
+        finding({
+            title: 'Digest query scans every team on each run',
+            file: 'posthog/tasks/weekly_digest.py',
+            lines: [{ start: 120, end: null }],
+            effective_priority: 'consider',
+            reviewer_priority: 'consider',
+            source_perspective: 'flash-lens-performance-reliability',
+            validator_category: null,
+            validator_note: SINGLE_AGENT_NOTE,
+        }),
+    ],
+})
+
+const reviewDetails: Record<string, ReviewDetailApi> = {
+    [deepReviewDetail.id]: deepReviewDetail,
+    [standardReviewDetail.id]: standardReviewDetail,
+}
 
 const perspectiveStats: ReviewPerspectiveStatsApi = {
     report_count: 2,
@@ -365,10 +503,21 @@ function rowById(id: string): [string, StoryRepositoryRow] | undefined {
     return Object.entries(storyState.rows).find(([, row]) => row.id === id)
 }
 
-function OpenTab({ tab, children }: { tab: CodeReviewTab; children: JSX.Element }): JSX.Element {
+function OpenTab({
+    tab,
+    review,
+    children,
+}: {
+    tab: CodeReviewTab
+    review?: string
+    children: JSX.Element
+}): JSX.Element {
     useEffect(() => {
-        router.actions.replace(urls.codeReview(), tab === 'settings' ? { tab } : {})
-    }, [tab])
+        router.actions.replace(urls.codeReview(), {
+            ...(tab === 'settings' ? { tab } : {}),
+            ...(review ? { review } : {}),
+        })
+    }, [tab, review])
     return children
 }
 
@@ -392,7 +541,7 @@ const meta: Meta<typeof CodeReviewScene> = {
     },
     decorators: [
         (Story, context): JSX.Element => (
-            <OpenTab tab={context.parameters.tab ?? 'activity'}>
+            <OpenTab tab={context.parameters.tab ?? 'activity'} review={context.parameters.review}>
                 <div className="p-4">
                     <Story />
                 </div>
@@ -456,6 +605,10 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                     '/api/projects/:team_id/review_hog/reviews/': { results: recentReviews, has_more: false },
                     '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
+                    '/api/projects/:team_id/review_hog/reviews/:id/': ({ params }) => {
+                        const detail = reviewDetails[String(params.id)]
+                        return detail ? [200, detail] : [404, { detail: 'Review not found.' }]
+                    },
                     '/api/projects/:team_id/review_hog/perspectives/': perspectives,
                     '/api/projects/:team_id/review_hog/blind_spots/': [
                         singleSkill(
@@ -664,6 +817,25 @@ export const FlagDisabledForStaff: Story = {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Page not found')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
+    },
+}
+
+export const ReviewDrawerStandard: Story = {
+    parameters: { review: standardReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        await expect(await body.findByText('Digest window uses the server timezone')).toBeVisible()
+        await expect(body.getByText('How it ran')).toBeVisible()
+        await expect(body.queryByText(/Below threshold/)).not.toBeInTheDocument()
+    },
+}
+
+export const ReviewDrawerDeep: Story = {
+    parameters: { review: deepReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        await expect(await body.findByText('Retry loop never gives up on a permanent error')).toBeVisible()
+        await expect(body.getByText(/Below threshold/)).toBeVisible()
     },
 }
 
