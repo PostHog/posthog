@@ -883,6 +883,7 @@ def _decide_champion(
     )
     return {
         f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
+        f"{family.name}_gates_passed": dagster.MetadataValue.bool(decision.gates_passed),
         f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
         f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
         f"{family.name}_override": dagster.MetadataValue.text(outcome.override or "none"),
