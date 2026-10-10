@@ -6965,7 +6965,7 @@ def _readable_search_documents(
     other kind. A canvas also carries per-object access control, and a denied canvas must not
     disclose its name, its channel, or its kind through search while the API refuses to open it.
     """
-    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps the access-control deps off this module's import path
+    from products.canvas.backend.facade.search import (  # noqa: PLC0415 — keeps the access-control deps off this module's import path
         readable_canvas_ids,
     )
 

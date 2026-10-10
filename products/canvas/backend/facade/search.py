@@ -4,9 +4,10 @@ Separate from ``facade/api.py`` because the tasks app imports this at ``django.s
 to wire its index, and ``api.py`` pulls the build path (and Temporal) onto startup.
 """
 
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from uuid import UUID
 
+from products.canvas.backend.access_control import readable_canvas_ids as readable_ids
 from products.canvas.backend.facade.contracts import CanvasSearchRecord
 from products.canvas.backend.models import Canvas
 
@@ -29,3 +30,7 @@ def searchable_canvas(*, team_id: int, canvas_id: UUID) -> CanvasSearchRecord | 
 def list_canvas_ids(team_id: int) -> Iterator[UUID]:
     """Every canvas id of the team and its environments, deleted ones included."""
     return Canvas.objects.for_team(team_id, canonical=True).values_list("id", flat=True).iterator()
+
+
+def readable_canvas_ids(canvas_ids: Collection[UUID | str], team_id: int, user_id: int | None) -> set[str]:
+    return readable_ids(canvas_ids, team_id, user_id)

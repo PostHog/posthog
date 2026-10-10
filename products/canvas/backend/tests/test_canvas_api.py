@@ -38,7 +38,7 @@ from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
-from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 from products.workflows.backend.facade.api import get_workflow_summary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -1490,9 +1490,7 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
                 channel_type=Channel.ChannelType.PRIVATE,
                 created_by=self.user,
             )
-            membership = ChannelMembership.objects.create(team=self.team, channel=channel, user=self.user)
             canvas = Canvas.objects.create(team=self.team, channel=channel, name="Private", created_by=self.user)
-            membership.delete()
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/canvases/{canvas.id}/access_controls",
