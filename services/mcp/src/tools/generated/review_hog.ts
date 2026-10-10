@@ -70,6 +70,7 @@ const reviewHogReviewsPrStatus = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/pr_status/`,
             query: {
+                head_sha: params.head_sha,
                 pr_url: params.pr_url,
                 requested_at: params.requested_at,
                 run_mode: params.run_mode,

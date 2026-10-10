@@ -65,7 +65,7 @@ export const ReviewHogReviewsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when that request is done.
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
  * @summary Look up a pull request's review status
  */
 export const ReviewHogReviewsPrStatusRetrieveParams = () => zod.object({
@@ -79,6 +79,13 @@ export const ReviewHogReviewsPrStatusRetrieveParams = () => zod.object({
 export const reviewHogReviewsPrStatusRetrieveQueryRunModeDefault = `review`
 
 export const ReviewHogReviewsPrStatusRetrieveQueryParams = () => zod.object({
+    head_sha: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.'
+        ),
     pr_url: zod
         .string()
         .min(1)

@@ -426,6 +426,11 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
         choices=ReviewTriggerRequestRunMode.choices,
         help_text="The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.",
     )
+    head_sha = serializers.CharField(
+        required=False,
+        help_text="The `head_sha` the trigger returned. Lets a turn that was already running on that head when "
+        "the request came in answer the request. Only used with `requested_at`.",
+    )
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
@@ -451,7 +456,8 @@ class ReviewPRStatusRequestOutcomeSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=ReviewRequestOutcomeStatus.choices,
         help_text="How the request ended: 'pending' while a run for it is queued or running, 'completed' when a "
-        "turn of the requested mode or deeper finished after `requested_at` (Deep covers Standard), 'skipped' "
+        "turn of the requested mode or deeper finished after `requested_at` and either started after it or "
+        "reviewed the given `head_sha` (Deep covers Standard), 'skipped' "
         "when the run ended without doing the work, 'failed' when the run died or no run answered the request, "
         "'unknown' when the run state could not be read (retry later).",
     )
@@ -1092,8 +1098,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Look up a pull request's review status",
         description="Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and "
         "the latest Resolve run. Works for any pull request on the project, also ones the caller did not "
-        "trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when "
-        "that request is done.",
+        "trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called "
+        "with, to get `request_outcome`, which says when that request is done.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def pr_status(self, request: Request, **kwargs) -> Response:
@@ -1112,7 +1118,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         lookup = PRStatusLookup(
             team_id, owner=str(pr_info["owner"]), repo=str(pr_info["repo"]), pr_number=int(pr_info["pr_number"])
         )
-        pr_status = lookup.status(params.validated_data.get("requested_at"), params.validated_data["run_mode"])
+        pr_status = lookup.status(
+            params.validated_data.get("requested_at"),
+            params.validated_data["run_mode"],
+            params.validated_data.get("head_sha"),
+        )
         return Response(ReviewPRStatusSerializer(_pr_status_payload(pr_status)).data)
 
     @extend_schema(
