@@ -407,6 +407,13 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.reviews?.[0].id).toBe(`r${REVIEWS_PAGE_SIZE}`)
     })
 
+    it.each(['0', '-1', 'Infinity', '40002'])('falls back to page 1 for a linked reviews_page of %s', async (page) => {
+        // Each of these would send an offset the API rejects, and a retry would repeat it.
+        router.actions.push(urls.codeReview(), { reviews_page: page })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadReviewsSuccess']).toMatchValues({ reviewsCurrentPage: 1 })
+    })
+
     it('buckets drawer findings by the stored run threshold, with the viewer proxy only for old rows', async () => {
         // The run gated at must_fix while the viewer's own setting (mocked above) is should_fix.
         // Bucketing by the viewer's setting would show the held-back should_fix finding as

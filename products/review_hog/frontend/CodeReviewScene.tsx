@@ -245,7 +245,8 @@ function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.
             </div>
             <div>
                 {/* A turn whose GitHub publish failed kept its findings without posting them. */}
-                {review.turn_published ? 'Posted' : 'Kept'} <span className="font-semibold text-default">{posted}</span>
+                <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
+                <span className="font-semibold text-default">{posted}</span>
                 {raised !== null ? (
                     <>
                         {' '}
