@@ -570,10 +570,12 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxSwitch = await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
+        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
+        // The Inbox section renders before the settings load and can re-render with new nodes,
+        // so query again on every attempt until the saved values arrive.
+        await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
+        const inboxSwitch = canvas.getByLabelText(inboxLabel)
         const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
-        // The Inbox section renders before the settings load, so wait for the saved values to arrive.
-        await waitFor(() => expect(inboxSwitch).toBeChecked())
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
