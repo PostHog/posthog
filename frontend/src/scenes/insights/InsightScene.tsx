@@ -15,10 +15,14 @@ import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { QuillInsightScene } from 'products/product_analytics/frontend/insights/scene/QuillInsightScene'
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
+    // Quill UI ships only under the Today navigation, so the quill insight screen needs both flags.
+    const todayRailEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillInsightEnabled = useFeatureFlag('PRODUCT_ANALYTICS_QUILL_INSIGHT') && todayRailEnabled
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -55,7 +59,11 @@ export function InsightScene(): JSX.Element {
             insight?.short_id &&
             (!isDataVisualizationNode(insight.query) || insightMode !== ItemMode.Edit))
     ) {
-        return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
+        return quillInsightEnabled ? (
+            <QuillInsightScene insightId={insightId} attachTo={insightSceneLogic} />
+        ) : (
+            <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
+        )
     }
 
     if (insightLoading) {
