@@ -49,6 +49,8 @@ export const INBOX_EVENTS = {
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
+    SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
+    SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
@@ -701,6 +703,34 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
         source_product: params.sourceProduct,
         source_type: params.sourceType,
     })
+}
+
+/**
+ * Why a source switch did not save. `configs_unavailable` means the source list never loaded, so the
+ * switch could not tell an existing row from a new one and refused to write.
+ */
+export type SignalSourceToggleFailureReason = 'configs_unavailable' | 'request_failed'
+
+/** A source switch that did not save. Without it, a lost toggle leaves no trace next to the connections. */
+export function captureSignalSourceToggleFailed(params: {
+    sourceProduct: string
+    sourceType: string
+    enabled: boolean
+    reason: SignalSourceToggleFailureReason
+    errorMessage: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_TOGGLE_FAILED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        enabled: params.enabled,
+        reason: params.reason,
+        error_message: params.errorMessage,
+    })
+}
+
+/** The source list failed to load, which blocks every switch that reads it. */
+export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CONFIGS_LOAD_FAILED, { error_message: errorMessage })
 }
 
 export function captureSignalSourceInterest(source: string): void {

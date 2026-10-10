@@ -42,7 +42,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -86,7 +86,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All five logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -96,6 +96,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
         dismissed: useSectionState('dismissed'),
+        'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
     }
 }
