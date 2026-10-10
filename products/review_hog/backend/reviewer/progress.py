@@ -12,7 +12,7 @@ import operator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any
+from typing import Any, Final, Literal
 
 from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -25,9 +25,11 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
+    RUN_OUTCOME_NOTE_AUTHOR,
     PerspectiveSelectionArtefact,
     ResolutionRunArtefact,
     ReviewIssueFinding,
+    RunOutcomeNote,
     ValidationVerdict,
 )
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
@@ -38,6 +40,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +285,92 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             continue
         markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
             review_mode=row["marker_review_mode"], head_sha=row["head_sha"]
+        )
+    return markers
+
+
+RUN_STAGE_REVIEW: Final = "review"
+RUN_STAGE_RESOLUTION: Final = "resolution"
+RUN_OUTCOME_SKIPPED: Final = "skipped"
+RUN_OUTCOME_FAILED: Final = "failed"
+REVIEW_FAILED_REASON = "review_failed"
+
+
+@frozen
+class RunOutcomeMarker:
+    """A review turn or resolution run that ended without a result, from its run outcome `note`."""
+
+    stage: str  # RUN_STAGE_REVIEW | RUN_STAGE_RESOLUTION
+    outcome: str  # RUN_OUTCOME_SKIPPED | RUN_OUTCOME_FAILED
+    reason: str
+    run_index: int | None
+    review_mode: str | None
+    head_sha: str | None
+    created_at: datetime
+
+
+def record_run_outcome(
+    team_id: int,
+    report_id: str,
+    *,
+    stage: Literal["review", "resolution"],
+    outcome: Literal["skipped", "failed"],
+    reason: str,
+    run_index: int | None = None,
+    review_mode: str | None = None,
+    head_sha: str | None = None,
+) -> None:
+    """Append a run outcome `note`. Best-effort, because a status record must never fail the run it describes."""
+    run_label = f"Review turn {run_index}" if stage == RUN_STAGE_REVIEW and run_index else f"The {stage} run"
+    try:
+        ReviewReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=RunOutcomeNote(
+                note=f"{run_label} {outcome} ({reason}).",
+                stage=stage,
+                outcome=outcome,
+                reason=reason,
+                run_index=run_index,
+                review_mode=review_mode,
+                head_sha=head_sha,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception("Could not record the %s %s outcome for report %s", stage, outcome, report_id)
+
+
+def run_outcome_markers(
+    team_id: int, report_ids: list[str], since: datetime | None = None
+) -> dict[str, list[RunOutcomeMarker]]:
+    """Each report's run outcome notes written at or after `since`, oldest first."""
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.NOTE)
+        .annotate(note_author=KeyTextTransform("author", _content_json()))
+        .filter(note_author=RUN_OUTCOME_NOTE_AUTHOR)
+    )
+    if since is not None:
+        rows = rows.filter(created_at__gte=since)
+    markers: dict[str, list[RunOutcomeMarker]] = {report_id: [] for report_id in report_ids}
+    for row in rows.order_by("created_at", "id").values("report_id", "content", "created_at"):
+        report_id = str(row["report_id"])
+        try:
+            note = RunOutcomeNote.model_validate_json(row["content"])
+        except ValidationError as e:
+            logger.warning("Skipping unparseable run outcome note for report %s: %s", report_id, e)
+            continue
+        markers.setdefault(report_id, []).append(
+            RunOutcomeMarker(
+                stage=note.stage,
+                outcome=note.outcome,
+                reason=note.reason,
+                run_index=note.run_index,
+                review_mode=note.review_mode,
+                head_sha=note.head_sha,
+                created_at=row["created_at"],
+            )
         )
     return markers
 
@@ -554,7 +643,7 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
     return chunk_count * (perspectives + 1)
 
 
-def _in_publish_window(report: ReviewReport) -> bool:
+def in_publish_window(report: ReviewReport) -> bool:
     """Whether the turn finished but has not published yet.
 
     On publishing runs finalize defers the idle write to the publish stage, so the report is still
@@ -600,7 +689,7 @@ def progress_payload(
     A single-agent turn gets its own stages once its fetch has recorded the design.
     """
     if snapshot.head_matched and snapshot.review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return _single_agent_progress(turn, current_pairs, _in_publish_window(report))
+        return _single_agent_progress(turn, current_pairs, in_publish_window(report))
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
         if judged >= len(current_pairs):
@@ -610,7 +699,7 @@ def progress_payload(
     # "deduplicating". Relabeling a resolution run's ACTIVE window properly is its own change.
     # Trade-off: an unpublished same-head re-run reads "finalizing" until dedup persists its first
     # findings, a brief stretch because such a turn resumes its chunk and perspective state.
-    if _in_publish_window(report):
+    if in_publish_window(report):
         return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
